@@ -60,14 +60,17 @@ async function getMarketSummariesForItems(
     total_visible_quantity: number;
   }>(
     `SELECT
-       catalog_catalog_item_id,
-       MIN(price_amount)::text AS lowest_price_amount,
+       listing.catalog_catalog_item_id,
+       MIN(listing.price_amount)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
-       COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
-     FROM discovery_market_listings
-     WHERE status = 'active'
-       AND catalog_catalog_item_id = ANY($1::text[])
-     GROUP BY catalog_catalog_item_id`,
+       COALESCE(SUM(listing.quantity_cap), 0)::integer AS total_visible_quantity
+     FROM discovery_market_listings AS listing
+     INNER JOIN discovery_market_accounts AS account
+       ON account.account_id = listing.account_id
+     WHERE listing.status = 'active'
+       AND account.seller_listing_availability_status = 'available'
+       AND listing.catalog_catalog_item_id = ANY($1::text[])
+     GROUP BY listing.catalog_catalog_item_id`,
     [itemIds],
   );
 

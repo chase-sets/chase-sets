@@ -3,7 +3,8 @@
   "packageName": "@chase-sets/marketplace",
   "ownedNouns": [
     "listing",
-    "offer"
+    "offer",
+    "seller-listing-availability"
   ],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",

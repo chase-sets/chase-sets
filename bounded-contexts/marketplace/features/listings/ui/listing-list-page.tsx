@@ -25,6 +25,7 @@ import type {
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingListItem,
+  MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
 } from "./contracts";
 
@@ -115,6 +116,25 @@ function formatTimestamp(value: string | null) {
   return value ? new Date(value).toLocaleString() : t("marketplace.features.listings.ui.listingListPage.not.set");
 }
 
+function availabilityTone(status: MarketplaceSellerListingAvailability["status"]) {
+  return status === "available" ? "success" : "warning";
+}
+
+function availabilityReasonLabel(reason: string | null) {
+  switch (reason) {
+    case "travel":
+      return t("marketplace.features.listings.ui.listingListPage.reason.travel");
+    case "audit":
+      return t("marketplace.features.listings.ui.listingListPage.reason.audit");
+    case "operations":
+      return t("marketplace.features.listings.ui.listingListPage.reason.operations");
+    case "other":
+      return t("marketplace.features.listings.ui.listingListPage.reason.other");
+    default:
+      return t("marketplace.features.listings.ui.listingListPage.reason.not.set");
+  }
+}
+
 function selectedInventorySummary(
   inventoryItems: readonly MarketplaceListingInventoryItemOption[],
   inventoryItemId?: string | null,
@@ -139,6 +159,7 @@ function ProductSummaryChips({ summary }: { summary: string }) {
 export function MarketplaceListingListPage({
   data,
   feeLockReport,
+  listingAvailability,
   inventoryItems,
   createForm,
   createPreview,
@@ -146,6 +167,7 @@ export function MarketplaceListingListPage({
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
   feeLockReport?: { items: readonly MarketplaceListingFeeLockReportEntry[] };
+  listingAvailability: MarketplaceSellerListingAvailability;
   inventoryItems: readonly MarketplaceListingInventoryItemOption[];
   createForm?: {
     inventoryItemId?: string | null;
@@ -186,6 +208,70 @@ export function MarketplaceListingListPage({
       {errorMessage ? (
         <MarketplaceNotice tone="error" title={t("marketplace.features.listings.ui.listingListPage.listings")} description={errorMessage} />
       ) : null}
+
+      <PageSection title={t("marketplace.features.listings.ui.listingListPage.seller.listing.availability")}>
+        <Card>
+          <Stack gap={3}>
+            <Inline align="center">
+              <Stack gap={1}>
+                <Inline align="center">
+                  <Badge tone={availabilityTone(listingAvailability.status)}>
+                    {listingAvailability.status === "available"
+                      ? t("marketplace.features.listings.ui.listingListPage.listings.available")
+                      : t("marketplace.features.listings.ui.listingListPage.listings.unavailable")}
+                  </Badge>
+                  <Text weight="semibold">
+                    {t("marketplace.features.listings.ui.listingListPage.account.wide.listing.control")}
+                  </Text>
+                </Inline>
+                <Text tone="secondary">
+                  {listingAvailability.status === "available"
+                    ? t("marketplace.features.listings.ui.listingListPage.availability.available.description")
+                    : t("marketplace.features.listings.ui.listingListPage.availability.unavailable.description", {
+                        reason: availabilityReasonLabel(listingAvailability.disabled_reason_category),
+                        date: listingAvailability.available_again_on ?? t("marketplace.features.listings.ui.listingListPage.no.return.date"),
+                      })}
+                </Text>
+              </Stack>
+              {listingAvailability.status === "unavailable" ? (
+                <form method="post">
+                  <Button type="submit" name="intent" value="enable-listing-availability">
+                    {t("marketplace.features.listings.ui.listingListPage.turn.on.listings")}</Button>
+                </form>
+              ) : null}
+            </Inline>
+            {listingAvailability.status === "available" ? (
+              <form method="post">
+                <Stack gap={3}>
+                  <Inline>
+                    <NativeSelect
+                      label={t("marketplace.features.listings.ui.listingListPage.reason")}
+                      name="reasonCategory"
+                      defaultValue=""
+                      items={[
+                        { value: "", label: t("marketplace.features.listings.ui.listingListPage.reason.not.set") },
+                        { value: "travel", label: t("marketplace.features.listings.ui.listingListPage.reason.travel") },
+                        { value: "audit", label: t("marketplace.features.listings.ui.listingListPage.reason.audit") },
+                        { value: "operations", label: t("marketplace.features.listings.ui.listingListPage.reason.operations") },
+                        { value: "other", label: t("marketplace.features.listings.ui.listingListPage.reason.other") },
+                      ]}
+                    />
+                    <TextInput
+                      label={t("marketplace.features.listings.ui.listingListPage.available.again.on")}
+                      name="availableAgainOn"
+                      type="date"
+                    />
+                  </Inline>
+                  <Inline>
+                    <Button type="submit" name="intent" value="disable-listing-availability" tone="secondary">
+                      {t("marketplace.features.listings.ui.listingListPage.turn.off.listings")}</Button>
+                  </Inline>
+                </Stack>
+              </form>
+            ) : null}
+          </Stack>
+        </Card>
+      </PageSection>
 
       <MarketplaceDashboardPanel
         title={t("marketplace.features.listings.ui.listingListPage.listing.health")}

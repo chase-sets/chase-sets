@@ -412,5 +412,64 @@ export function buildMarketplaceListingProjectionHandlers(
       );
       await emitListingPatch(db, event, listingId);
     },
+    "marketplace.seller-listing-availability.disabled": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        reasonCategory: string | null;
+        availableAgainOn: string | null;
+        disabledAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_seller_listing_availability_pages (
+           account_id,
+           status,
+           disabled_reason_category,
+           available_again_on,
+           disabled_at,
+           enabled_at,
+           updated_at
+         ) VALUES ($1, 'unavailable', $2, $3, $4, NULL, $5)
+         ON CONFLICT (account_id) DO UPDATE SET
+           status = EXCLUDED.status,
+           disabled_reason_category = EXCLUDED.disabled_reason_category,
+           available_again_on = EXCLUDED.available_again_on,
+           disabled_at = EXCLUDED.disabled_at,
+           enabled_at = EXCLUDED.enabled_at,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          data.accountId,
+          data.reasonCategory,
+          data.availableAgainOn,
+          data.disabledAt,
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "marketplace.seller-listing-availability.enabled": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        enabledAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_seller_listing_availability_pages (
+           account_id,
+           status,
+           disabled_reason_category,
+           available_again_on,
+           disabled_at,
+           enabled_at,
+           updated_at
+         ) VALUES ($1, 'available', NULL, NULL, NULL, $2, $3)
+         ON CONFLICT (account_id) DO UPDATE SET
+           status = EXCLUDED.status,
+           disabled_reason_category = EXCLUDED.disabled_reason_category,
+           available_again_on = EXCLUDED.available_again_on,
+           enabled_at = EXCLUDED.enabled_at,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, data.enabledAt, event.timing.recordedAt],
+      );
+    },
   };
 }

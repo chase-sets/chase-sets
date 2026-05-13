@@ -35,6 +35,9 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     account_id: string;
     seller_slug: string | null;
     seller_display_name: string | null;
+    seller_listing_availability_status: "available" | "unavailable";
+    seller_listing_availability_reason_category: string | null;
+    seller_listing_available_again_on: string | null;
     inventory_item_id: string;
     catalog_catalog_item_id: string;
     catalog_item_slug: string | null;
@@ -59,7 +62,10 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
        listing.*,
        item.slug AS catalog_item_slug,
        account.seller_slug,
-       account.seller_display_name
+       account.seller_display_name,
+       account.seller_listing_availability_status,
+       account.seller_listing_availability_reason_category,
+       account.seller_listing_available_again_on::text AS seller_listing_available_again_on
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
@@ -131,8 +137,11 @@ async function loadRealtimeMarketSummary(db: PgQueryable, catalogItemId: string)
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
      FROM discovery_market_listings
+     INNER JOIN discovery_market_accounts AS account
+       ON account.account_id = discovery_market_listings.account_id
      WHERE catalog_catalog_item_id = $1
-       AND status = 'active'`,
+       AND discovery_market_listings.status = 'active'
+       AND account.seller_listing_availability_status = 'available'`,
     [catalogItemId],
   );
   const row = result.rows[0];
@@ -187,6 +196,24 @@ async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHand
   );
 }
 
+async function emitSellerListingPatches(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  accountId: string,
+) {
+  const result = await db.query<{ listing_id: string }>(
+    `SELECT listing_id
+     FROM discovery_market_listings
+     WHERE account_id = $1
+       AND status = 'active'`,
+    [accountId],
+  );
+
+  await Promise.all(
+    result.rows.map((row) => emitListingPatch(db, event, row.listing_id)),
+  );
+}
+
 async function emitOfferPatch(
   db: PgQueryable,
   event: Parameters<ProjectorHandlerMap[string]>[0],
@@ -227,13 +254,15 @@ export function buildDiscoveryMarketProjectionHandlers(
           account_id,
           seller_slug,
           seller_display_name,
+          seller_listing_availability_status,
           status,
           updated_at
-        ) VALUES ($1, $2, $3, 'active', $4)
+        ) VALUES ($1, $2, $3, 'available', 'active', $4)
         ON CONFLICT (account_id) DO UPDATE SET
-          seller_slug = EXCLUDED.seller_slug,
-          seller_display_name = EXCLUDED.seller_display_name,
-          status = EXCLUDED.status,
+            seller_slug = EXCLUDED.seller_slug,
+            seller_display_name = EXCLUDED.seller_display_name,
+            seller_listing_availability_status = EXCLUDED.seller_listing_availability_status,
+            status = EXCLUDED.status,
           updated_at = EXCLUDED.updated_at`,
         [accountId, sellerSlug, displayName, event.timing.recordedAt],
       );
@@ -269,13 +298,15 @@ export function buildDiscoveryMarketProjectionHandlers(
       await db.query(
         `INSERT INTO discovery_market_accounts (
           account_id,
-          seller_slug,
-          seller_display_name,
-          updated_at
-        ) VALUES ($1, $2, $3, $4)
+            seller_slug,
+            seller_display_name,
+            seller_listing_availability_status,
+            updated_at
+        ) VALUES ($1, $2, $3, 'available', $4)
         ON CONFLICT (account_id) DO UPDATE SET
           seller_slug = EXCLUDED.seller_slug,
           seller_display_name = EXCLUDED.seller_display_name,
+          seller_listing_availability_status = COALESCE(discovery_market_accounts.seller_listing_availability_status, EXCLUDED.seller_listing_availability_status),
           updated_at = EXCLUDED.updated_at`,
         [accountId, sellerSlug, displayName, event.timing.recordedAt],
       );
@@ -604,6 +635,55 @@ export function buildDiscoveryMarketProjectionHandlers(
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
       await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+    },
+    "marketplace.seller-listing-availability.disabled": async (event) => {
+      const data = event.data as {
+        accountId: string;
+        reasonCategory: string | null;
+        availableAgainOn: string | null;
+      };
+
+      await db.query(
+        `INSERT INTO discovery_market_accounts (
+           account_id,
+           seller_listing_availability_status,
+           seller_listing_availability_reason_category,
+           seller_listing_available_again_on,
+           updated_at
+         ) VALUES ($1, 'unavailable', $2, $3, $4)
+         ON CONFLICT (account_id) DO UPDATE SET
+           seller_listing_availability_status = EXCLUDED.seller_listing_availability_status,
+           seller_listing_availability_reason_category = EXCLUDED.seller_listing_availability_reason_category,
+           seller_listing_available_again_on = EXCLUDED.seller_listing_available_again_on,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          data.accountId,
+          data.reasonCategory,
+          data.availableAgainOn,
+          event.timing.recordedAt,
+        ],
+      );
+      await emitSellerListingPatches(db, event, data.accountId);
+    },
+    "marketplace.seller-listing-availability.enabled": async (event) => {
+      const data = event.data as { accountId: string };
+
+      await db.query(
+        `INSERT INTO discovery_market_accounts (
+           account_id,
+           seller_listing_availability_status,
+           seller_listing_availability_reason_category,
+           seller_listing_available_again_on,
+           updated_at
+         ) VALUES ($1, 'available', NULL, NULL, $2)
+         ON CONFLICT (account_id) DO UPDATE SET
+           seller_listing_availability_status = EXCLUDED.seller_listing_availability_status,
+           seller_listing_availability_reason_category = EXCLUDED.seller_listing_availability_reason_category,
+           seller_listing_available_again_on = EXCLUDED.seller_listing_available_again_on,
+           updated_at = EXCLUDED.updated_at`,
+        [data.accountId, event.timing.recordedAt],
+      );
+      await emitSellerListingPatches(db, event, data.accountId);
     },
     "marketplace.offer.submitted": async (event) => {
       const data = event.data as {

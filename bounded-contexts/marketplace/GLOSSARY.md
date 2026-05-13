@@ -54,6 +54,18 @@ Examples:
 - Withdrawn
 - Sold Out
 
+## Seller Listing Availability
+
+**Seller Listing Availability** is the account-wide Marketplace overlay that controls whether an account's active listings can create new seller commitments.
+
+Notes:
+
+- Seller Listing Availability is owned by Marketplace.
+- Turning it off does not mutate individual Listing Status values.
+- While off, active listings are hidden from buyer browse and purchase flows, direct listing URLs remain reachable as unavailable, and Offer Acceptance is disabled.
+- Existing carts, checkout sessions, orders, payments, fulfillment, and account buying ability are not changed by this overlay.
+- `availableAgainOn` is private operational context, not an automatic resume trigger.
+
 ## Offer Status
 
 **Offer Status** is the lifecycle state of an offer.

@@ -24,6 +24,7 @@ export type OfferMatchRow = MarketplaceOfferListRow &
   Readonly<{
     buyer_display_name: string | null;
     seller_available_quantity: number;
+    seller_listing_availability_status: "available" | "unavailable";
     can_fulfill: boolean;
     in_sell_list: boolean;
   }>;
@@ -114,6 +115,7 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
       AND listing.status = 'active'
       AND listing.product_id = offer.product_id
   ), 0)::integer AS seller_available_quantity,
+  COALESCE(availability.status, 'available') AS seller_listing_availability_status,
   EXISTS (
     SELECT 1
     FROM marketplace_buyer_offer_match_sell_list_pages AS cart
@@ -125,6 +127,7 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
 function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
   return `
     (seller_offer.status = 'submitted'
+      AND seller_offer.seller_listing_availability_status = 'available'
       AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested) DESC,
     seller_offer.price_amount::numeric DESC,
     seller_offer.quantity_requested DESC,
@@ -134,6 +137,7 @@ function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
 type OfferMatchPageRow = MarketplaceOfferPageRow & {
   buyer_display_name: string | null;
   seller_available_quantity: number;
+  seller_listing_availability_status: "available" | "unavailable" | null | undefined;
   in_sell_list: boolean;
 };
 
@@ -148,7 +152,9 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
     ...offer,
     buyer_display_name: row.buyer_display_name,
     seller_available_quantity: row.seller_available_quantity,
+    seller_listing_availability_status: row.seller_listing_availability_status ?? "available",
     can_fulfill:
+      (row.seller_listing_availability_status ?? "available") === "available" &&
       offer.status === "submitted" &&
       row.seller_available_quantity >= offer.quantity_requested,
     in_sell_list: row.in_sell_list,
@@ -225,6 +231,8 @@ export async function listOfferMatches(
          FROM marketplace_offer_pages AS offer
          LEFT JOIN marketplace_account_pages AS buyer
            ON buyer.account_id = offer.buyer_account_id
+         LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+           ON availability.account_id = $1
          WHERE offer.status = 'submitted'
            AND ${sellerVisibilitySql}
        ) AS seller_offer
@@ -254,6 +262,8 @@ export async function getOfferMatch(
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = $1
      WHERE offer.offer_id = $2
        AND offer.status = 'submitted'
        AND ${sellerVisibilitySql}`,
@@ -302,6 +312,8 @@ export async function listOfferMatchSellList(
          ON offer.offer_id = cart.offer_id
        LEFT JOIN marketplace_account_pages AS buyer
          ON buyer.account_id = offer.buyer_account_id
+       LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+         ON availability.account_id = $1
        WHERE cart.seller_account_id = $1
      ) AS seller_offer
      ORDER BY
@@ -334,6 +346,8 @@ export async function listOfferMatchesForSellers(
        ON offer.offer_id = $1
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
+     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+       ON availability.account_id = seller_account.seller_account_id
      WHERE offer.status = 'submitted'
        AND EXISTS (
          SELECT 1

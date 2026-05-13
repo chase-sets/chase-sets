@@ -116,6 +116,9 @@ export interface DiscoveryMarketListing {
   max_units_per_day?: number | null;
   max_units_per_customer_account?: number | null;
   status: string;
+  seller_listing_availability_status?: "available" | "unavailable";
+  seller_listing_availability_reason_category?: string | null;
+  seller_listing_available_again_on?: string | null;
   seller_display_name: string | null;
   visible_quantity: number;
   created_at: string;

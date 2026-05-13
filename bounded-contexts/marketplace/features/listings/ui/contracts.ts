@@ -47,6 +47,16 @@ export interface MarketplaceGradedCardDetails {
 
 export interface MarketplaceListingDetail extends MarketplaceListingListItem {}
 
+export interface MarketplaceSellerListingAvailability {
+  account_id: string;
+  status: "available" | "unavailable";
+  disabled_reason_category: string | null;
+  available_again_on: string | null;
+  disabled_at: string | null;
+  enabled_at: string | null;
+  updated_at: string;
+}
+
 export interface MarketplaceListingFeeLockReportEntry {
   listing_id: string;
   inventory_item_id: string;

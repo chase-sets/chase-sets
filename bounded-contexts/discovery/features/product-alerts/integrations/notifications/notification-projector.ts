@@ -22,6 +22,7 @@ type MarketActivity = Readonly<{
   price_amount: string;
   quantity: number;
   status: string;
+  seller_listing_availability_status?: "available" | "unavailable" | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -47,9 +48,16 @@ function normalizeSelectedOptions(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
-function isActiveForSide(activity: Pick<MarketActivity, "market_side" | "status" | "quantity">) {
+function isActiveForSide(
+  activity: Pick<
+    MarketActivity,
+    "market_side" | "status" | "quantity" | "seller_listing_availability_status"
+  >,
+) {
   return activity.market_side === "listing"
-    ? activity.status === "active" && activity.quantity > 0
+    ? activity.status === "active" &&
+        activity.quantity > 0 &&
+        (activity.seller_listing_availability_status ?? "available") === "available"
     : activity.status === "submitted" && activity.quantity > 0;
 }
 
@@ -381,9 +389,12 @@ async function loadMarketActivity(
        price_amount,
        quantity,
        status,
+       COALESCE(account.seller_listing_availability_status, 'available') AS seller_listing_availability_status,
        created_at,
        updated_at
      FROM discovery_product_alert_market_activity
+     LEFT JOIN discovery_market_accounts AS account
+       ON account.account_id = discovery_product_alert_market_activity.owner_account_id
      WHERE activity_id = $1`,
     [activityId],
   );

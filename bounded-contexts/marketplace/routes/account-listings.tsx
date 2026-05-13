@@ -15,6 +15,7 @@ import {
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingFeeLockReportEntry,
   type MarketplaceListingListItem,
+  type MarketplaceSellerListingAvailability,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import {
@@ -78,6 +79,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
     inventoryApi.listItems(DEFAULT_ITEM_QUERY),
   ]);
+  const listingAvailability = await marketplaceApi.getSellerListingAvailability();
   const inventoryItems = (items.items as InventoryItemListItem[])
     .filter((inventoryItem) => inventoryItem.available_quantity > 0)
     .map(toInventoryOption);
@@ -90,6 +92,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     listings,
     feeLockReport,
+    listingAvailability,
     inventoryItems,
     createForm: selectedInventoryItem
       ? {
@@ -119,6 +122,21 @@ export async function action({ request }: ActionFunctionArgs) {
   };
 
   try {
+    if (intent === "disable-listing-availability") {
+      await api.disableSellerListingAvailability({
+        reasonCategory: String(formData.get("reasonCategory") ?? ""),
+        availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
+      });
+
+      return redirect("/account/listings");
+    }
+
+    if (intent === "enable-listing-availability") {
+      await api.enableSellerListingAvailability();
+
+      return redirect("/account/listings");
+    }
+
     if (intent === "preview-listing") {
       return {
         createForm,
@@ -188,6 +206,8 @@ export default function MarketplaceAccountListingsRoute() {
         data.listings.items.map((item) => item.listing_id).join("|"),
         data.feeLockReport.total,
         data.feeLockReport.items.map((item) => item.listing_id).join("|"),
+        data.listingAvailability.status,
+        data.listingAvailability.updated_at,
       ].join("\n")}
       data={data}
       actionData={actionData}
@@ -235,6 +255,7 @@ function MarketplaceAccountListingsRealtimeView({
     <MarketplaceListingListPage
       data={listings}
       feeLockReport={feeLockReport}
+      listingAvailability={data.listingAvailability as MarketplaceSellerListingAvailability}
       inventoryItems={data.inventoryItems}
       createForm={actionData?.createForm ?? data.createForm ?? undefined}
       createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}

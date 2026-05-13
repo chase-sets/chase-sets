@@ -26,12 +26,22 @@ import {
   type MarketplaceListingEvent,
   type MarketplaceListingState,
 } from "../domain/domain";
+import {
+  decideSellerListingAvailability,
+  evolveSellerListingAvailability,
+  initialSellerListingAvailabilityState,
+  type SellerListingAvailabilityCommand,
+  type SellerListingAvailabilityEvent,
+  type SellerListingAvailabilityReasonCategory,
+  type SellerListingAvailabilityState,
+} from "../domain/seller-listing-availability";
 import { buildMarketplaceListingProjectionHandlers } from "../read-model/projection";
 import {
   getActiveQuantityCapForInventoryItem,
   getInventoryItemSupply,
   getMarketSummaryForItem,
   getSellerListing,
+  getSellerListingAvailability,
   listActiveListingsForInventoryItem,
   listItemListings,
   listSellerListingFeeLockReport,
@@ -70,6 +80,11 @@ export type MarketplaceListingServices = Readonly<{
     MarketplaceListingCommand,
     MarketplaceListingState,
     MarketplaceListingEvent
+  >;
+  sellerAvailabilityCommandHandler: CommandHandler<
+    SellerListingAvailabilityCommand,
+    SellerListingAvailabilityState,
+    SellerListingAvailabilityEvent
   >;
   createListing: (
     params: Readonly<{
@@ -146,6 +161,21 @@ export type MarketplaceListingServices = Readonly<{
     params: Readonly<{ accountId: string; listingId: string }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
+  getSellerListingAvailability: (
+    accountId: string,
+  ) => ReturnType<typeof getSellerListingAvailability>;
+  disableSellerListingAvailability: (
+    params: Readonly<{
+      accountId: string;
+      reasonCategory: SellerListingAvailabilityReasonCategory | null;
+      availableAgainOn: string | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: string; version: number; status: "unavailable" }>;
+  enableSellerListingAvailability: (
+    params: Readonly<{ accountId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: string; version: number; status: "available" }>;
   listSellerListings: (
     params: Parameters<typeof listSellerListings>[1],
   ) => ReturnType<typeof listSellerListings>;
@@ -191,6 +221,17 @@ export function createMarketplaceListingRuntime(
     repository,
     evolve: evolveMarketplaceListing,
     decide: decideMarketplaceListing,
+  });
+  const sellerAvailabilityRepository = createAggregateRepository({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
+    initialState: () => initialSellerListingAvailabilityState,
+    evolve: evolveSellerListingAvailability,
+  });
+  const sellerAvailabilityCommandHandler = createCommandHandler({
+    repository: sellerAvailabilityRepository,
+    evolve: evolveSellerListingAvailability,
+    decide: decideSellerListingAvailability,
   });
 
   async function ensureActiveCapacity(
@@ -457,6 +498,7 @@ export function createMarketplaceListingRuntime(
 
   return {
     commandHandler,
+    sellerAvailabilityCommandHandler,
     createListing,
     createBatchDraftListingFromInventorySnapshot: async (params, context) => {
       assert(
@@ -601,6 +643,44 @@ export function createMarketplaceListingRuntime(
       });
 
       return { listingId: params.listingId, version: result.version };
+    },
+    getSellerListingAvailability: (accountId) =>
+      getSellerListingAvailability(deps.db, accountId),
+    disableSellerListingAvailability: async (params, context) => {
+      const result = await sellerAvailabilityCommandHandler({
+        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+        command: {
+          type: "DisableSellerListingAvailability",
+          accountId: params.accountId,
+          reasonCategory: params.reasonCategory,
+          availableAgainOn: params.availableAgainOn,
+          disabledAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return {
+        accountId: params.accountId,
+        version: result.version,
+        status: "unavailable",
+      };
+    },
+    enableSellerListingAvailability: async (params, context) => {
+      const result = await sellerAvailabilityCommandHandler({
+        streamId: `marketplace.seller-listing-availability-${params.accountId}`,
+        command: {
+          type: "EnableSellerListingAvailability",
+          accountId: params.accountId,
+          enabledAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return {
+        accountId: params.accountId,
+        version: result.version,
+        status: "available",
+      };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
     listSellerInventoryItemSupply: (params) =>

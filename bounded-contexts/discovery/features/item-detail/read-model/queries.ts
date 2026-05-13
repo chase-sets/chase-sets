@@ -145,9 +145,12 @@ export async function getDiscoveryItemDetail(
        MIN(price_amount)::text AS lowest_price_amount,
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(quantity_cap), 0)::integer AS total_visible_quantity
-     FROM discovery_market_listings
-     WHERE catalog_catalog_item_id = $1
-       AND status = 'active'`,
+     FROM discovery_market_listings AS listing
+     INNER JOIN discovery_market_accounts AS account
+       ON account.account_id = listing.account_id
+     WHERE listing.catalog_catalog_item_id = $1
+       AND listing.status = 'active'
+       AND account.seller_listing_availability_status = 'available'`,
     [item.catalog_item_id],
   );
 
@@ -165,6 +168,7 @@ export async function getDiscoveryItemDetail(
        ON account.account_id = listing.account_id
      WHERE listing.catalog_catalog_item_id = $1
        AND listing.status = 'active'
+       AND account.seller_listing_availability_status = 'available'
      ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
     [item.catalog_item_id],
   );

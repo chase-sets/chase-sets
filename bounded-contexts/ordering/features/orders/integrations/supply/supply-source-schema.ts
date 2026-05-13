@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
   max_units_per_day integer NULL CHECK (max_units_per_day IS NULL OR max_units_per_day > 0),
   max_units_per_customer_account integer NULL CHECK (max_units_per_customer_account IS NULL OR max_units_per_customer_account > 0),
+  seller_listing_availability_status text NOT NULL DEFAULT 'available',
   status text NOT NULL,
   updated_at timestamptz NOT NULL
 );
@@ -32,6 +33,12 @@ CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_lookup_idx
 
 CREATE INDEX IF NOT EXISTS ordering_market_listing_inputs_item_idx
   ON ordering_market_listing_inputs (inventory_item_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS ordering_seller_listing_availability_inputs (
+  account_id text PRIMARY KEY,
+  status text NOT NULL DEFAULT 'available',
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS ordering_inventory_item_inputs (
   item_id text PRIMARY KEY,
@@ -90,7 +97,8 @@ ALTER TABLE ordering_market_listing_inputs
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
-  ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL;
+  ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
+  ADD COLUMN IF NOT EXISTS seller_listing_availability_status text NOT NULL DEFAULT 'available';
 
 ALTER TABLE ordering_offer_acceptance_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500;

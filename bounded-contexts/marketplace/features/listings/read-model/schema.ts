@@ -50,4 +50,17 @@ ALTER TABLE marketplace_listing_pages
   ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL;
+
+CREATE TABLE IF NOT EXISTS marketplace_seller_listing_availability_pages (
+  account_id text PRIMARY KEY,
+  status text NOT NULL DEFAULT 'available',
+  disabled_reason_category text NULL,
+  available_again_on date NULL,
+  disabled_at timestamptz NULL,
+  enabled_at timestamptz NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS marketplace_seller_listing_availability_status_idx
+  ON marketplace_seller_listing_availability_pages (status, updated_at DESC);
 `;

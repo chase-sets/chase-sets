@@ -72,6 +72,8 @@ export function MarketplaceOfferMatchDetailPage({
   const canAcceptSubmitted = canAccept && offer.status === "submitted";
   const fulfillmentLabel = offer.can_fulfill
     ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
+    : offer.seller_listing_availability_status === "unavailable"
+      ? t("marketplace.features.offers.ui.offerMatchDetailPage.listings.unavailable")
     : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply");
   const acceptOfferAction = canAcceptSubmitted ? (
       <form method="post">
@@ -105,6 +107,14 @@ export function MarketplaceOfferMatchDetailPage({
 
       {errorMessage ? (
         <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")} description={errorMessage} />
+      ) : null}
+
+      {offer.seller_listing_availability_status === "unavailable" ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("marketplace.features.offers.ui.offerMatchDetailPage.listings.unavailable")}
+          description={t("marketplace.features.offers.ui.offerMatchDetailPage.turn.listings.on.before.accepting")}
+        />
       ) : null}
 
       {feedbackPrompt}
