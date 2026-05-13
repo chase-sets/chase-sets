@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
@@ -331,7 +331,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               items={[
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.title"), value: data.title },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle"), value: data.subtitle ?? "—" },
-                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.language"), value: data.language_code },
+                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.language"), value: formatLanguageCodeLabel(data.language_code) },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.description"), value: data.description ?? "—" },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint"), value: data.blueprint?.name ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.none") },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.status"), value: data.status },

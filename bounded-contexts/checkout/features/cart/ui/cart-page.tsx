@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   Badge,
   Banner,
@@ -199,7 +199,7 @@ export function CheckoutCartPage({
                   productSummary={
                       <Stack gap={2}>
                         {line.item_language_code ? (
-                          <Badge tone="neutral">{line.item_language_code}</Badge>
+                          <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
                         ) : null}
                         <ProductSelectionSummary
                         selections={productSelectionDetails(line.product_summary)}

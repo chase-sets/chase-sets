@@ -30,6 +30,8 @@ export interface Translator {
   has: (key: string) => boolean;
 }
 
+export type Translate = Translator["t"];
+
 export const translationCatalogs: Record<SupportedLocale, TranslationCatalog> = {
   en: englishTranslations,
 };
@@ -194,3 +196,23 @@ const defaultTranslator = createTranslator();
 
 export const t = defaultTranslator.t;
 export const hasTranslation = defaultTranslator.has;
+
+export function formatLanguageCodeLabel(
+  languageCode: string | null | undefined,
+  translate: Translate = t,
+): string {
+  const code = languageCode?.trim();
+
+  if (!code) {
+    return "";
+  }
+
+  switch (code.toLowerCase()) {
+    case "en":
+      return translate("localization.languageCode.en");
+    case "ja":
+      return translate("localization.languageCode.ja");
+    default:
+      return code;
+  }
+}

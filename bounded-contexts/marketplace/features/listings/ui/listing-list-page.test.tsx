@@ -63,6 +63,7 @@ describe("MarketplaceListingListPage", () => {
 
     expect(screen.getByText("Seller Listing Availability")).toBeTruthy();
     expect(screen.getByText("Listings unavailable")).toBeTruthy();
+    expect(screen.getAllByText("English").length).toBeGreaterThan(0);
     expect(screen.getByText(/Reason: Audit/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Turn on listings" })).toBeTruthy();
   });

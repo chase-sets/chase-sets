@@ -155,6 +155,7 @@ function createItem(
   return {
     catalog_item_id: "cat_charizard",
     slug: "charizard-base-set-cat_charizard",
+    language_code: "en",
     title: "Charizard",
     subtitle: "Base Set 4/102 Holo Rare",
     description: "The iconic Base Set Charizard.",
@@ -175,6 +176,13 @@ function createItem(
 }
 
 describe("item detail commerce panel", () => {
+  it("renders item detail language codes as localized labels", () => {
+    renderWithDataRouter(<ItemDetailPage data={createItem({ language_code: "ja" })} />);
+
+    expect(screen.getByText("Japanese")).toBeTruthy();
+    expect(screen.queryByText("ja")).toBeNull();
+  });
+
   it("shows the sell tab when seller tools are represented by a registration CTA", () => {
     render(
       <ItemCommercePanel
@@ -454,6 +462,10 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Accept offer")).toBeTruthy();
     expect(screen.getByText("1 matching offer")).toBeTruthy();
     expect(screen.getByText("Ash Ketchum")).toBeTruthy();
+    expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("Raw / Near Mint")).toBeTruthy();
+    expect(screen.queryByText("Status")).toBeNull();
+    expect(screen.queryByText("submitted")).toBeNull();
     expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
@@ -491,7 +503,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Accept offer")).toBeTruthy();
   });
 
-  it("shows fulfillment badges for the selling account when eligible offer match data is available", () => {
+  it("keeps public offer cards focused on listing-equivalent information for selling accounts", () => {
     render(
       <ItemDetailPage
         data={createItem()}
@@ -511,7 +523,12 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByText("Selected")).toBeTruthy();
-    expect(screen.getByText("Can fulfill")).toBeTruthy();
+    expect(screen.getByText("Ash Ketchum")).toBeTruthy();
+    expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("Raw / Near Mint")).toBeTruthy();
+    expect(screen.queryByText("Status")).toBeNull();
+    expect(screen.queryByText("submitted")).toBeNull();
+    expect(screen.queryByText("Can fulfill")).toBeNull();
   });
 
   it("highlights the initial selected listing and attributes the buy panel to it", () => {

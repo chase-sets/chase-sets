@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   Button,
@@ -65,7 +65,7 @@ export function InventoryItemDetailPage({
             <Text>
               <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.catalog.item")}</strong> {item.catalog_catalog_item_id}
             </Text>
-            {item.language_code ? <Badge tone="neutral">{item.language_code}</Badge> : null}
+            {item.language_code ? <Badge tone="neutral">{formatLanguageCodeLabel(item.language_code)}</Badge> : null}
             {item.product_summary ? (
               <Text>
                 <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.product")}</strong> {item.product_summary}

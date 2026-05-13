@@ -3,6 +3,7 @@ import {
   createTranslator,
   coerceLocalizedTextMap,
   defaultLocale,
+  formatLanguageCodeLabel,
   normalizeLocaleCode,
   normalizeLocalizedTextMap,
   resolveLocalizedTextMap,
@@ -58,6 +59,13 @@ describe("localization", () => {
   it("normalizes BCP 47 locale codes and rejects jp", () => {
     expect(normalizeLocaleCode("JA-jp")).toBe("ja-JP");
     expect(() => normalizeLocaleCode("jp")).toThrow('Use the BCP 47 language code "ja" for Japanese.');
+  });
+
+  it("formats visible language code labels with code fallback", () => {
+    expect(formatLanguageCodeLabel("en")).toBe("English");
+    expect(formatLanguageCodeLabel("ja")).toBe("Japanese");
+    expect(formatLanguageCodeLabel("fr")).toBe("fr");
+    expect(formatLanguageCodeLabel(null)).toBe("");
   });
 
   it("normalizes localized text maps and can require English", () => {

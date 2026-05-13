@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   AppliedFilterChips,
   SearchInput,
@@ -91,9 +91,7 @@ function formatSellerSignal(item: DiscoverySearchItem): string {
 }
 
 function formatItemLanguage(item: DiscoverySearchItem): string {
-  return t("discovery.features.search.ui.searchPage.language.code", {
-    language: item.language_code,
-  });
+  return formatLanguageCodeLabel(item.language_code);
 }
 
 function findLanguageLabel(language: string): string {
