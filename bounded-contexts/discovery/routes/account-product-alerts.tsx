@@ -1,18 +1,14 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
-import { ProductAlertListPage } from "../features/product-alerts/ui/product-alert-list-page";
+
+const productAlertSettingsHref = "/search?notifications=settings&notificationSection=product-alerts";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "accounts.view" });
-  const discovery = createDiscoveryRequestApiClient(request);
-  return discovery.listProductAlerts();
+  return redirect(productAlertSettingsHref);
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -30,7 +26,7 @@ export async function action({ request }: ActionFunctionArgs) {
     await discovery.deleteProductAlert(alertId);
   }
 
-  return redirect("/account/product-alerts");
+  return redirect(productAlertSettingsHref);
 }
 
 export const meta: MetaFunction = () => [
@@ -39,7 +35,6 @@ export const meta: MetaFunction = () => [
   },
 ];
 
-export default function AccountProductAlertsRoute() {
-  const data = useLoaderData<typeof loader>();
-  return <ProductAlertListPage alerts={data.items} />;
+export default function AccountProductAlertsRedirectRoute() {
+  return null;
 }

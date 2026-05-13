@@ -4,12 +4,14 @@ import {
   BottomNav,
   Button,
   ButtonGroup,
+  LinkButton,
   PageStepper,
   SideNav,
   TopNav,
   type NavigationItem,
   type PageStepperItem
 } from "../components/actions";
+import { Switch } from "../components/forms";
 import { useChaseMotion } from "../theme/provider";
 import {
   SkipLink,
@@ -187,6 +189,7 @@ export interface MarketplaceShellProps {
   topNavItems: NavigationItem[];
   bottomNavItems: NavigationItem[];
   activeKey?: string;
+  onNavSelect?: (key: string) => void;
   actions?: ReactNode;
   hero?: ReactNode;
   sidebar?: ReactNode;
@@ -199,6 +202,7 @@ export function MarketplaceShell({
   topNavItems,
   bottomNavItems,
   activeKey,
+  onNavSelect,
   actions,
   hero,
   sidebar,
@@ -214,6 +218,7 @@ export function MarketplaceShell({
         brand={brand}
         items={topNavItems}
         activeKey={activeKey}
+        onSelect={onNavSelect}
         actions={actions}
         width={width}
       />
@@ -230,7 +235,12 @@ export function MarketplaceShell({
           )}
         </Page>
       </main>
-      <BottomNav items={bottomNavItems} activeKey={activeKey} width={width} />
+      <BottomNav
+        items={bottomNavItems}
+        activeKey={activeKey}
+        onSelect={onNavSelect}
+        width={width}
+      />
     </div>
   );
 }
@@ -1493,6 +1503,273 @@ export function CommerceDrawer({
       footer={footer}
     >
       {children}
+    </Drawer>
+  );
+}
+
+export type NotificationCenterView = "feed" | "settings";
+
+export interface NotificationCenterItem {
+  deliveryId: string;
+  title: ReactNode;
+  body: ReactNode;
+  sourceLabel?: ReactNode;
+  createdAtLabel?: ReactNode;
+  actionHref?: string | null;
+  actionLabel?: ReactNode;
+  read?: boolean;
+}
+
+export interface NotificationCenterPreference {
+  key: string;
+  label: ReactNode;
+  description?: ReactNode;
+  enabled: boolean;
+}
+
+export interface NotificationCenterProductAlert {
+  id: string;
+  title: ReactNode;
+  detail?: ReactNode;
+  status: "active" | "paused";
+  productHref?: string;
+}
+
+export interface NotificationCenterDrawerProps
+  extends Omit<DrawerProps, "children" | "title" | "description" | "footer"> {
+  title?: ReactNode;
+  description?: ReactNode;
+  view?: NotificationCenterView;
+  unreadCount?: number;
+  loading?: boolean;
+  notifications: readonly NotificationCenterItem[];
+  preferences?: readonly NotificationCenterPreference[];
+  productAlerts?: readonly NotificationCenterProductAlert[];
+  onViewChange?: (view: NotificationCenterView) => void;
+  onMarkRead?: (deliveryId: string) => void;
+  onMarkAllRead?: () => void;
+  onPreferenceChange?: (key: string, enabled: boolean) => void;
+  onProductAlertPause?: (id: string) => void;
+  onProductAlertResume?: (id: string) => void;
+  onProductAlertDelete?: (id: string) => void;
+}
+
+export function NotificationCenterDrawer({
+  title = "Notifications",
+  description = "Review marketplace updates and notification settings.",
+  view = "feed",
+  unreadCount = 0,
+  loading = false,
+  notifications,
+  preferences = [],
+  productAlerts = [],
+  onViewChange,
+  onMarkRead,
+  onMarkAllRead,
+  onPreferenceChange,
+  onProductAlertPause,
+  onProductAlertResume,
+  onProductAlertDelete,
+  ...rest
+}: NotificationCenterDrawerProps) {
+  const hasNotifications = notifications.length > 0;
+  const unreadLabel = unreadCount === 1 ? "1 unread" : `${unreadCount} unread`;
+
+  return (
+    <Drawer
+      {...rest}
+      title={title}
+      description={description}
+      footer={
+        view === "feed" ? (
+          <Button
+            type="button"
+            tone="secondary"
+            size="sm"
+            block
+            disabled={unreadCount === 0 || loading}
+            onClick={onMarkAllRead}
+          >
+            Mark all read
+          </Button>
+        ) : null
+      }
+    >
+      <div className="grid min-h-0 gap-4">
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            tone={view === "feed" ? "primary" : "secondary"}
+            size="sm"
+            onClick={() => onViewChange?.("feed")}
+          >
+            Feed
+          </Button>
+          <Button
+            type="button"
+            tone={view === "settings" ? "primary" : "secondary"}
+            size="sm"
+            leadingIcon="settings"
+            onClick={() => onViewChange?.("settings")}
+          >
+            Settings
+          </Button>
+        </div>
+
+        {view === "feed" ? (
+          <div className="grid gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-semibold text-foreground">Recent updates</span>
+              <Badge tone={unreadCount > 0 ? "accent" : "neutral"}>{unreadLabel}</Badge>
+            </div>
+
+            {loading ? (
+              <div className="rounded-tokenMd border border-muted bg-surface p-4 text-sm text-secondary">
+                Loading notifications
+              </div>
+            ) : hasNotifications ? (
+              notifications.map((notification) => (
+                <div
+                  key={notification.deliveryId}
+                  className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="text-sm font-semibold text-foreground">
+                        {notification.title}
+                      </div>
+                      <div className="text-sm leading-6 text-secondary">
+                        {notification.body}
+                      </div>
+                    </div>
+                    <Badge tone={notification.read ? "neutral" : "accent"}>
+                      {notification.read ? "Read" : "New"}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-secondary">
+                    {notification.sourceLabel ? <span>{notification.sourceLabel}</span> : null}
+                    {notification.createdAtLabel ? <span>{notification.createdAtLabel}</span> : null}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {notification.actionHref ? (
+                      <LinkButton href={notification.actionHref} tone="secondary" size="sm">
+                        {notification.actionLabel ?? "Open"}
+                      </LinkButton>
+                    ) : null}
+                    {!notification.read ? (
+                      <Button
+                        type="button"
+                        tone="ghost"
+                        size="sm"
+                        onClick={() => onMarkRead?.(notification.deliveryId)}
+                      >
+                        Mark read
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-tokenMd border border-muted bg-surface p-4">
+                <div className="text-sm font-semibold text-foreground">No notifications</div>
+                <div className="mt-1 text-sm leading-6 text-secondary">
+                  Order, shipment, and Product alert updates will appear here.
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            <section className="grid gap-3">
+              <div>
+                <div className="text-sm font-semibold text-foreground">Delivery settings</div>
+                <div className="text-sm text-secondary">
+                  Control how marketplace updates reach this account.
+                </div>
+              </div>
+              {preferences.map((preference) => (
+                <Switch
+                  key={preference.key}
+                  label={preference.label}
+                  description={preference.description}
+                  checked={preference.enabled}
+                  onCheckedChange={(enabled) => onPreferenceChange?.(preference.key, enabled)}
+                />
+              ))}
+            </section>
+
+            <section className="grid gap-3">
+              <div>
+                <div className="text-sm font-semibold text-foreground">Product alerts</div>
+                <div className="text-sm text-secondary">
+                  Pause or remove watches created from product detail pages.
+                </div>
+              </div>
+              {productAlerts.length > 0 ? (
+                productAlerts.map((alert) => (
+                  <div
+                    key={alert.id}
+                    className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-foreground">{alert.title}</div>
+                        {alert.detail ? (
+                          <div className="mt-1 text-sm leading-6 text-secondary">{alert.detail}</div>
+                        ) : null}
+                      </div>
+                      <Badge tone={alert.status === "active" ? "success" : "neutral"}>
+                        {alert.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {alert.status === "active" ? (
+                        <Button
+                          type="button"
+                          tone="secondary"
+                          size="sm"
+                          onClick={() => onProductAlertPause?.(alert.id)}
+                        >
+                          Pause
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          tone="secondary"
+                          size="sm"
+                          onClick={() => onProductAlertResume?.(alert.id)}
+                        >
+                          Resume
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        tone="ghost"
+                        size="sm"
+                        onClick={() => onProductAlertDelete?.(alert.id)}
+                      >
+                        Delete
+                      </Button>
+                      {alert.productHref ? (
+                        <LinkButton href={alert.productHref} tone="ghost" size="sm">
+                          View product
+                        </LinkButton>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-tokenMd border border-muted bg-surface p-4">
+                  <div className="text-sm font-semibold text-foreground">No Product alerts yet</div>
+                  <div className="mt-1 text-sm leading-6 text-secondary">
+                    Create alerts from product detail pages after choosing product options.
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </div>
     </Drawer>
   );
 }

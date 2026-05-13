@@ -20,28 +20,6 @@ import type {
   FulfillmentPackingSlipBatch,
 } from "./features/shipments/api/contracts";
 
-export type FulfillmentNotificationItem = Readonly<{
-  notificationId: string;
-  deliveryId: string;
-  userId: string | null;
-  accountId: string | null;
-  messageType: string;
-  criticality: string;
-  title: string;
-  body: string;
-  actionHref: string | null;
-  correlationId: string;
-  sourceIdempotencyKey: string;
-  readAt: string | null;
-  createdAt: string;
-}>;
-
-export type FulfillmentNotificationListResponse = Readonly<{
-  items: readonly FulfillmentNotificationItem[];
-  count: number;
-  unread: number;
-}>;
-
 type FulfillmentApiApp = ReturnType<typeof buildFulfillmentApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
@@ -209,33 +187,6 @@ export function createFulfillmentApiClient({
         await client.account.sales.shipments[":id"].exception.$post({
           param: { id: shipmentId },
           json: body,
-          header: headers,
-        }),
-      );
-    },
-    async listShipmentNotifications(
-      query = "",
-    ): Promise<FulfillmentNotificationListResponse> {
-      return parseJsonResponse(
-        await client.account["shipment-notifications"].$get({
-          query: Object.fromEntries(new URLSearchParams(query)),
-          header: headers,
-        }),
-      );
-    },
-    async markShipmentNotificationRead(deliveryId: string) {
-      return parseJsonResponse(
-        await client.account["shipment-notifications"][":deliveryId"].read.$post({
-          param: { deliveryId },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async markAllShipmentNotificationsRead() {
-      return parseJsonResponse(
-        await client.account["shipment-notifications"]["read-all"].$post({
-          json: {},
           header: headers,
         }),
       );

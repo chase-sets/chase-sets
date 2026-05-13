@@ -1,6 +1,4 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
-import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
-import { webNotificationsSchemaSql } from "@chase-sets/web-notifications";
 import { orderingAccountSchemaSql } from "../account-support/schema";
 import { orderingOrderSchemaSql } from "../../features/orders/read-model/schema";
 import { orderingFulfillmentSourceSchemaSql } from "../../features/orders/integrations/fulfillment/fulfillment-source-schema";
@@ -8,8 +6,6 @@ import { orderingSupplySourceSchemaSql } from "../../features/orders/integration
 
 export const orderingSchemaSql = [
   eventCorePostgresSchemaSql,
-  notificationOutboxSchemaSql,
-  webNotificationsSchemaSql,
   orderingAccountSchemaSql,
   orderingSupplySourceSchemaSql,
   orderingFulfillmentSourceSchemaSql,

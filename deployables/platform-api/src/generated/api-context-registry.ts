@@ -10,6 +10,7 @@ import { contextManifest as fulfillmentManifest, module as fulfillmentModule } f
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
 import { contextManifest as inventoryManifest, module as inventoryModule } from "@chase-sets/inventory";
 import { contextManifest as marketplaceManifest, module as marketplaceModule } from "@chase-sets/marketplace";
+import { contextManifest as notificationsManifest, module as notificationsModule } from "@chase-sets/notification-center";
 import { contextManifest as orderingManifest, module as orderingModule } from "@chase-sets/ordering";
 import { contextManifest as paymentsManifest, module as paymentsModule } from "@chase-sets/payments";
 import { contextManifest as pricingManifest, module as pricingModule } from "@chase-sets/pricing";
@@ -78,6 +79,12 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/marketplace",
     manifest: marketplaceManifest,
     module: marketplaceModule,
+  },
+  {
+    contextName: "notifications",
+    packageName: "@chase-sets/notification-center",
+    manifest: notificationsManifest,
+    module: notificationsModule,
   },
   {
     contextName: "ordering",

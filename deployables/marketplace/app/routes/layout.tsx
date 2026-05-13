@@ -1,8 +1,9 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
-import { Outlet, useLocation, useRouteLoaderData } from "react-router";
+import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
 import { Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
+import { NotificationCenterShell } from "@chase-sets/notification-center/web";
 import { resolveMarketplaceNavItems } from "../host";
 
 type MarketplaceActor = {
@@ -71,6 +72,7 @@ function getActiveKey(pathname: string) {
 
 export default function MarketplaceLayoutRoute() {
   const location = useLocation();
+  const navigate = useNavigate();
   const rootData = useRouteLoaderData("root") as
     | {
         actor?: MarketplaceActor;
@@ -105,13 +107,42 @@ export default function MarketplaceLayoutRoute() {
   const topNavItems = resolveMarketplaceNavItems("top-nav", actor, { cartCount });
   const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor, { cartCount });
   const prompt = new URLSearchParams(location.search).get("authPrompt");
+  const notificationParams = new URLSearchParams(location.search);
+  const notificationState = notificationParams.get("notifications");
+  const notificationView = notificationState === "settings" ? "settings" : "feed";
+  const notificationDrawerOpen = notificationState === "feed" || notificationState === "settings";
   const showAddPasskeyPrompt = Boolean(actor && prompt === "add-passkey");
+  const setNotificationRouteState = (
+    nextOpen: boolean,
+    nextView: "feed" | "settings" = notificationView,
+  ) => {
+    const params = new URLSearchParams(location.search);
+
+    if (nextOpen) {
+      params.set("notifications", nextView);
+      if (nextView === "settings" && !params.has("notificationSection")) {
+        params.set("notificationSection", "preferences");
+      }
+    } else {
+      params.delete("notifications");
+      params.delete("notificationSection");
+    }
+
+    const query = params.toString();
+    navigate(`${location.pathname}${query ? `?${query}` : ""}`, { replace: !nextOpen });
+  };
+  const handleNavSelect = (key: string) => {
+    if (key === "notifications") {
+      setNotificationRouteState(true, "feed");
+    }
+  };
 
   return (
     <DiscoveryShellLayout
-      activeKey={getActiveKey(location.pathname)}
+      activeKey={notificationDrawerOpen ? "notifications" : getActiveKey(location.pathname)}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
+      onNavSelect={handleNavSelect}
       actions={
         rootData?.actor ? (
           <form action="/sign-out" method="post">
@@ -135,6 +166,14 @@ export default function MarketplaceLayoutRoute() {
         ) : null}
         <Outlet />
       </Stack>
+      {actor ? (
+        <NotificationCenterShell
+          open={notificationDrawerOpen}
+          view={notificationView}
+          onOpenChange={(open) => setNotificationRouteState(open)}
+          onViewChange={(view) => setNotificationRouteState(true, view)}
+        />
+      ) : null}
     </DiscoveryShellLayout>
   );
 }

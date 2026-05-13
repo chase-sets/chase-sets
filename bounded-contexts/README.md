@@ -23,6 +23,7 @@ Structure, public export, deployable composition, and shared-ID rules live in [B
 | [Ordering](./ordering/README.md) | Own per-seller orders and commercial commitment. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
 | [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical review summaries. |
+| [Notifications](./notifications/README.md) | Own account notification center, notification settings, feed read state, and delivery policy. |
 | [Payments](./payments/README.md) | Own external money movement, charges, and refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
@@ -70,6 +71,7 @@ Use Buyer and Seller when describing transaction endpoints: the buyer account pa
 - Ordering depends on Marketplace product commitments and seller-confirmed fee snapshots, Identity account references, and inventory reservation outcomes published after order commitment.
 - Fulfillment depends on Ordering.
 - Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
+- Notifications depends on source-context facts from Discovery, Ordering, Fulfillment, and future contexts for account-visible notification decisions.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
 - Tax provides provider-agnostic quote contracts consumed by Ordering.

@@ -9,10 +9,6 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  createNoopNotificationOutbox,
-  type NotificationOutbox,
-} from "@chase-sets/notifications";
 import type {
   PostageAddress,
   PostageLabelProvider,
@@ -40,10 +36,6 @@ import {
 } from "../read-model/queries";
 import { buildFulfillmentShipmentProjectionHandlers } from "../read-model/projection";
 import {
-  FULFILLMENT_NOTIFICATION_PROJECTION,
-  buildFulfillmentNotificationProjectionHandlers,
-} from "../integrations/notifications/notification-projector";
-import {
   decideFulfillmentShipment,
   evolveFulfillmentShipment,
   initialFulfillmentShipmentState,
@@ -57,7 +49,6 @@ type ShipmentRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   postageLabelProvider?: PostageLabelProvider;
-  notificationOutbox?: NotificationOutbox;
 }>;
 
 type ReadyOrderLineSnapshot = Readonly<{
@@ -304,8 +295,6 @@ function addressSnapshotFromPostage(address: PostageAddress): AddressSnapshot {
 export function createFulfillmentShipmentRuntime(
   deps: ShipmentRuntimeDeps,
 ): FulfillmentShipmentServices {
-  const notificationOutbox =
-    deps.notificationOutbox ?? createNoopNotificationOutbox();
   const postageLabelProvider =
     deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const commandHandler = createCommandHandler({
@@ -652,15 +641,6 @@ export function createFulfillmentShipmentRuntime(
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildFulfillmentShipmentProjectionHandlers(deps.db),
-      }),
-      createProjector({
-        projectorName: FULFILLMENT_NOTIFICATION_PROJECTION,
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildFulfillmentNotificationProjectionHandlers(
-          notificationOutbox,
-          FULFILLMENT_NOTIFICATION_PROJECTION,
-        ),
       }),
     ],
   };

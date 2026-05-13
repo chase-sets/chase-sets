@@ -42,9 +42,9 @@ const sellingWorkflowKeys = new Set([
 const sellingInfrastructureKeys = new Set([
   "shipments",
 ]);
-const topNavUtilityKeys = new Set(["account", "cart", "register", "sign-in"]);
+const topNavUtilityKeys = new Set(["account", "cart", "notifications", "register", "sign-in"]);
 
-const accountTopNavOrder = ["search", "cart", "purchases", "account", "reviews"];
+const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
 const accountChildNavOrder = ["account", "submitted-offers", "reviews"];
 const sellingNavOrder = [
   "inventory",
@@ -87,6 +87,11 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   reviews: {
     label: t("marketplace.app.host.reviews"),
     icon: "star",
+  },
+  notifications: {
+    label: t("marketplace.app.host.notifications"),
+    icon: "bell",
+    href: undefined,
   },
   sales: {
     label: t("marketplace.app.host.sales"),
@@ -270,7 +275,7 @@ function buildMarketplaceBottomNav(
     ),
   );
   const accountItems = orderAccountNav(
-    visibleItems.filter((item) => ["search", "cart", "purchases", "account", "reviews"].includes(item.key)),
+    visibleItems.filter((item) => ["search", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key)),
   );
   const accountItem = accountItems.find((item) => item.key === "account");
   const accountGroup: NavigationItem | undefined = accountItem
@@ -284,7 +289,7 @@ function buildMarketplaceBottomNav(
 
   if (sellingItems.length === 0) {
     return orderAccountNav(
-      visibleItems.filter((item) => ["search", "cart", "purchases", "account"].includes(item.key)),
+      visibleItems.filter((item) => ["search", "cart", "purchases", "notifications", "account"].includes(item.key)),
     );
   }
 
@@ -296,8 +301,14 @@ function buildMarketplaceBottomNav(
     children: sellingItems,
   };
 
+  const primaryAccountItems = accountItems
+    .filter((item) => !["account", "reviews"].includes(item.key))
+    .filter((item, _index, allItems) =>
+      allItems.length <= 3 || item.key !== "purchases" || !allItems.some((candidate) => candidate.key === "notifications"),
+    );
+
   return [
-    ...accountItems.filter((item) => !["account", "reviews"].includes(item.key)),
+    ...primaryAccountItems,
     sellingGroup,
     ...(accountGroup ? [accountGroup] : []),
   ].slice(0, 5);

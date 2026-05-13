@@ -30,7 +30,6 @@
     "@chase-sets/notifications": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
-    "@chase-sets/web-notifications": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

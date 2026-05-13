@@ -21,28 +21,6 @@ import type {
   SaleListItem,
 } from "./features/orders/api/contracts";
 
-export type AccountNotificationItem = Readonly<{
-  notificationId: string;
-  deliveryId: string;
-  userId: string | null;
-  accountId: string | null;
-  messageType: string;
-  criticality: string;
-  title: string;
-  body: string;
-  actionHref: string | null;
-  correlationId: string;
-  sourceIdempotencyKey: string;
-  readAt: string | null;
-  createdAt: string;
-}>;
-
-export type AccountNotificationListResponse = Readonly<{
-  items: readonly AccountNotificationItem[];
-  count: number;
-  unread: number;
-}>;
-
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
@@ -263,33 +241,6 @@ export function createOrderingApiClient({
       return parseJsonResponse(
         await client.account.sales[":id"].cancel.$post({
           param: { id: saleId },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async listOrderNotifications(
-      query = "",
-    ): Promise<AccountNotificationListResponse> {
-      return parseJsonResponse(
-        await client.account["order-notifications"].$get({
-          query: Object.fromEntries(new URLSearchParams(query)),
-          header: headers,
-        }),
-      );
-    },
-    async markOrderNotificationRead(deliveryId: string) {
-      return parseJsonResponse(
-        await client.account["order-notifications"][":deliveryId"].read.$post({
-          param: { deliveryId },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async markAllOrderNotificationsRead() {
-      return parseJsonResponse(
-        await client.account["order-notifications"]["read-all"].$post({
           json: {},
           header: headers,
         }),

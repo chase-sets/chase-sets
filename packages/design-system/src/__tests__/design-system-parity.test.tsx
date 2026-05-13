@@ -42,6 +42,7 @@ import {
   MarketplaceMarketSummary,
   MarketplaceProductCard,
   MarketplaceShell,
+  NotificationCenterDrawer,
   OrderSummary,
   ProductCard,
   SellerBadge,
@@ -598,6 +599,51 @@ describe("design system", () => {
     const drawer = screen.getByRole("dialog", { name: "Buy selected product" });
     expect(within(drawer).getByText("Quantity")).toBeTruthy();
     expect(within(drawer).getByRole("button", { name: "Buy now" })).toBeTruthy();
+  });
+
+  it("renders notification center drawers with feed and settings actions", () => {
+    const onViewChange = vi.fn();
+    const onMarkRead = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <NotificationCenterDrawer
+          open
+          view="feed"
+          unreadCount={1}
+          notifications={[{
+            deliveryId: "del_1",
+            title: "Shipment updated",
+            body: "Your order is moving.",
+            sourceLabel: "Shipments",
+            createdAtLabel: "Today",
+            read: false,
+          }]}
+          preferences={[{
+            key: "product-alerts",
+            label: "Product alerts",
+            description: "Notify when watched products match.",
+            enabled: true,
+          }]}
+          productAlerts={[{
+            id: "alert_1",
+            title: "Charizard / Near Mint",
+            detail: "Listings · at or below $20",
+            status: "active",
+            productHref: "/items/card_1",
+          }]}
+          onViewChange={onViewChange}
+          onMarkRead={onMarkRead}
+        />
+      </ChaseRoot>
+    );
+
+    const drawer = screen.getByRole("dialog", { name: "Notifications" });
+    expect(within(drawer).getByText("Shipment updated")).toBeTruthy();
+    fireEvent.click(within(drawer).getByRole("button", { name: "Mark read" }));
+    expect(onMarkRead).toHaveBeenCalledWith("del_1");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Settings" }));
+    expect(onViewChange).toHaveBeenCalledWith("settings");
   });
 
   it("resolves responsive classes from maps", () => {

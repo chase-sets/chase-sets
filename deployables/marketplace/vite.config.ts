@@ -68,6 +68,10 @@ export default defineConfig({
         target: platformApiTarget,
         changeOrigin: true,
       },
+      "/api/notifications": {
+        target: platformApiTarget,
+        changeOrigin: true,
+      },
       "/api/realtime": {
         target: platformApiTarget,
         changeOrigin: true,

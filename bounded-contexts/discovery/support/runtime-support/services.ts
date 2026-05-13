@@ -7,7 +7,6 @@ import {
 import type { Projector } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
-import { createPostgresWebNotificationFeed } from "@chase-sets/web-notifications";
 import {
   createDiscoveryCategoryRuntime,
   type DiscoveryCategoryServices,
@@ -26,7 +25,6 @@ export type DiscoveryServices = Readonly<{
   categories: DiscoveryCategoryServices;
   items: DiscoveryItemsServices;
   productAlerts: ProductAlertServices;
-  notifications: ReturnType<typeof createPostgresWebNotificationFeed>;
   notificationOutbox: NotificationOutbox;
   projectors: readonly Projector[];
   db: PgQueryable;
@@ -43,7 +41,6 @@ export function createDiscoveryServices(
   const deps = { eventStore, checkpointStore, db } as const;
   const notificationOutbox =
     ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
-  const notifications = createPostgresWebNotificationFeed({ db });
   const categories = createDiscoveryCategoryRuntime(deps);
   const items = createDiscoveryItemRuntime(deps);
   const productAlerts = createProductAlertRuntime(deps);
@@ -52,7 +49,6 @@ export function createDiscoveryServices(
     categories,
     items,
     productAlerts,
-    notifications,
     notificationOutbox,
     projectors: [...items.projectors, ...categories.projectors, ...productAlerts.projectors],
     db,

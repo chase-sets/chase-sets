@@ -377,32 +377,6 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "product-alerts",
-      "label": "Product Alerts",
-      "icon": "bell",
-      "href": "/account/product-alerts",
-      "order": 15,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "product-alerts",
-      "label": "Alerts",
-      "icon": "bell",
-      "href": "/account/product-alerts",
-      "order": 15,
-      "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
       "key": "search",
       "label": "Browse",
       "icon": "search",

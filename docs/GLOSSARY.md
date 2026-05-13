@@ -46,6 +46,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Marketplace Checkout Fee | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Buyer-side payment-level fee policy. Current policy lives in [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md). |
 | Tax Quote | [Tax](../bounded-contexts/tax/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
 | Price Signal | [Pricing](../bounded-contexts/pricing/GLOSSARY.md) | Observed input for product-scoped price estimation. |
+| Notification Center | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level surface for recent marketplace updates and simple notification actions. |
+| Notification Feed Item | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-visible update projected into the Notification Center. |
+| Notification Preference | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level setting that controls notification delivery or notification-center behavior. |
 | Product Alert | [Discovery](../bounded-contexts/discovery/GLOSSARY.md) | Account-owned watch on one resolved Catalog Product for listing or limited offer-demand notifications. |
 | Platform Feedback | [Experience](../bounded-contexts/experience/GLOSSARY.md) | Internal product feedback, not public account reputation. |
 
