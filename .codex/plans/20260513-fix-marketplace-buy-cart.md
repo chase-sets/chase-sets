@@ -27,6 +27,7 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - Treat Marketplace listing availability as an input to Discovery/Checkout behavior, not as the owner of checkout orchestration.
 - Treat buyer cart and checkout-session start as signed-in account behavior, not seller/order-management permission behavior. A signed-in account without `orders.manage` must not be downgraded into an anonymous cart.
 - Staging intentionally disables the platform-wide write drain (`WRITE_CONSISTENCY_DRAIN_ENABLED=false`) to protect the small managed Postgres pool, so Checkout-owned cart/session writes must provide their own narrow read-your-own-write projection consistency before returning buyer redirects or cart responses.
+- Exact `demo@chasesets.com` verification depends on the auth path being able to create or sign in that staging account. Platform API self-calls need an internal origin so Auth can call Identity internal mutation routes without being redirected through the public host.
 
 ## Open Questions
 
@@ -39,6 +40,7 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - Reproduce the failing path with focused route/action tests before changing behavior when practical. Baseline tests passed but did not cover signed-in actors without `orders.manage`. Done.
 - Fix the smallest owning-context code path that restores signed-in buy-now and add-to-cart behavior. Done.
 - Fix the staging read-after-write gap by draining only the Checkout cart/session owned projectors after Checkout writes, rather than enabling the global platform drain. Done locally; pending PR/deploy verification.
+- Fix Platform API internal self-calls so staging auth registration/magic-link account creation can reach Identity internal routes. In progress.
 - Add or update focused tests covering signed-in buyer behavior without `orders.manage`, optimized buy-now, seller-locked buy-now, add-to-cart cart visibility, Ordering checkout preview/confirmation access, and preview fallback. Done.
 - Run focused tests, then broader relevant package checks if the change touches shared behavior. Done.
 - Start the local marketplace stack if needed and visually verify desktop/mobile buyer flows. Done with Platform API + Marketplace local stack.
@@ -56,6 +58,7 @@ Staging reports that signed-in buyer `demo@chasesets.com` sees all buyer purchas
 - After the staging read-after-write patch, `pnpm --filter @chase-sets/app-marketplace-web run test` passed: 19 files, 80 tests.
 - After the staging read-after-write patch, `pnpm --filter @chase-sets/app-marketplace-web run typecheck` passed.
 - After the staging read-after-write patch, `pnpm run check:structure` passed.
+- After the Platform API internal-origin patch, `terraform fmt -check infrastructure/digitalocean/platform` and `pnpm run check:structure` passed.
 - Local visual check against `demo@chasesets.test` on `http://localhost:8453` confirmed:
   - Add product to cart updates the account cart and `/account/cart` shows the Twilight Masquerade Elite Trainer Box line.
   - Desktop Buy optimized reaches `/checkout/...` without Marketplace error.
