@@ -1,9 +1,8 @@
 services:
   postgres:
-    container_name: chase-sets-postgres-dev
     image: pgvector/pgvector:pg16
     ports:
-      - "5432:5432"
+      - "${POSTGRES_DEV_HOST_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -13,16 +12,15 @@ services:
 
   otel-collector:
     profiles: ["observability"]
-    container_name: chase-sets-otel-collector-dev
     image: otel/opentelemetry-collector-contrib:0.119.0
     command: ["--config=/etc/otelcol/config.yml"]
     ports:
-      - "4317:4317"
-      - "4318:4318"
-      - "9464:9464"
+      - "${OTEL_GRPC_HOST_PORT:-4317}:4317"
+      - "${OTEL_HTTP_HOST_PORT:-4318}:4318"
+      - "${OTEL_METRICS_HOST_PORT:-9464}:9464"
     volumes:
       - ./infrastructure/observability/stack/collector-config.yml:/etc/otelcol/config.yml:ro
-      - ./artifacts/observability:/var/log/chase-sets:ro
+      - ${CHASE_SETS_OBSERVABILITY_ARTIFACTS:-./artifacts/observability}:/var/log/chase-sets:ro
     depends_on:
       - prometheus
       - loki
@@ -30,47 +28,43 @@ services:
 
   prometheus:
     profiles: ["observability"]
-    container_name: chase-sets-prometheus-dev
     image: prom/prometheus:v2.55.1
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=24h"
       - "--storage.tsdb.retention.size=1GB"
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_HOST_PORT:-9090}:9090"
     volumes:
       - ./infrastructure/observability/stack/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - chase-sets-prometheus-dev-data:/prometheus
 
   loki:
     profiles: ["observability"]
-    container_name: chase-sets-loki-dev
     image: grafana/loki:3.3.2
     command: ["-config.file=/etc/loki/config.yml"]
     ports:
-      - "3100:3100"
+      - "${LOKI_HOST_PORT:-3100}:3100"
     volumes:
       - ./infrastructure/observability/stack/loki-config.yml:/etc/loki/config.yml:ro
       - chase-sets-loki-dev-data:/loki
 
   tempo:
     profiles: ["observability"]
-    container_name: chase-sets-tempo-dev
     image: grafana/tempo:2.7.1
     command: ["-config.file=/etc/tempo/config.yml"]
     ports:
-      - "3200:3200"
-      - "14317:4317"
+      - "${TEMPO_HOST_PORT:-3200}:3200"
+      - "${TEMPO_GRPC_HOST_PORT:-14317}:4317"
     volumes:
       - ./infrastructure/observability/stack/tempo-config.yml:/etc/tempo/config.yml:ro
       - chase-sets-tempo-dev-data:/var/tempo
 
   grafana:
     profiles: ["observability"]
-    container_name: chase-sets-grafana-dev
     image: grafana/grafana:11.4.0
     ports:
-      - "3000:3000"
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}

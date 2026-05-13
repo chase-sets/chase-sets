@@ -4,22 +4,45 @@ import path from "node:path";
 import { readEnvFile } from "./lib/env.mjs";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
+import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { syncLocalEnvFiles } from "./local-env.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const inheritedEnvKeys = new Set(Object.keys(process.env));
 const testEnvFiles = [".env", ".env.local", ".env.test", ".env.test.local"];
 
-function loadTestEnvironment() {
-  syncLocalEnvFiles({ command: "sync" });
+export function loadTestEnvironment({
+  env = process.env,
+  envRootDir = rootDir,
+  includeTestDatabaseUrl = true,
+  inheritedKeys = inheritedEnvKeys,
+  syncEnvFiles = syncLocalEnvFiles,
+  ensureSandboxEnvironment = ensureWorktreeSandboxEnvironment,
+} = {}) {
+  syncEnvFiles({ command: "sync" });
 
   for (const fileName of testEnvFiles) {
-    const values = readEnvFile(path.join(rootDir, fileName));
+    const values = readEnvFile(path.join(envRootDir, fileName));
 
     for (const [key, value] of Object.entries(values)) {
-      if (!inheritedEnvKeys.has(key)) {
-        process.env[key] = value;
+      if (key === "TEST_DATABASE_URL" && !includeTestDatabaseUrl && !inheritedKeys.has(key)) {
+        continue;
       }
+
+      if (!inheritedKeys.has(key)) {
+        env[key] = value;
+      }
+    }
+  }
+
+  const { env: sandboxEnv } = ensureSandboxEnvironment({ rootDir: envRootDir, env });
+  for (const [key, value] of Object.entries(sandboxEnv)) {
+    if (key === "TEST_DATABASE_URL" && !includeTestDatabaseUrl && !inheritedKeys.has(key)) {
+      continue;
+    }
+
+    if (!inheritedKeys.has(key)) {
+      env[key] = value;
     }
   }
 }
@@ -152,7 +175,9 @@ export async function runWorkspaceScripts(options) {
   const parsed = parseRunWorkspacesArgs(argv);
 
   if (parsed.scriptName.startsWith("test")) {
-    loadEnvironment();
+    loadEnvironment({
+      includeTestDatabaseUrl: parsed.excludeTestProfile !== "db",
+    });
   }
 
   const workspaces = filterWorkspaces(listWorkspaces(), parsed);

@@ -22,7 +22,9 @@ Stop only observability services:
 pnpm run dev:observability:down
 ```
 
-Grafana runs at `http://localhost:3000` with local-only default credentials `admin` / `admin`. Prometheus runs at `http://localhost:9090`, Loki at `http://localhost:3100`, Tempo at `http://localhost:3200`, and the OpenTelemetry Collector accepts OTLP at `http://localhost:4318` and `localhost:4317`.
+Observability ports are assigned by the current worktree sandbox. Run
+`pnpm run sandbox:doctor` to print the active Grafana, Prometheus, Loki, Tempo,
+and OTLP URLs. Grafana uses local-only default credentials `admin` / `admin`.
 
 ## Application Configuration
 

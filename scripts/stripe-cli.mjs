@@ -1,12 +1,18 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { detectLineEnding, readEnvFile } from "./lib/env.mjs";
-import { syncLocalEnvFiles } from "./local-env.mjs";
+import { readEnvFile } from "./lib/env.mjs";
+import {
+  applySandboxEnv,
+  ensureWorktreeSandboxEnvironment,
+  mergeSandboxEnvFile,
+} from "./lib/sandbox.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
+const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
+applySandboxEnv(sandboxEnv);
 const platformApiEnvExamplePath = path.join(
   rootDir,
   "deployables",
@@ -20,7 +26,7 @@ const platformApiEnvLocalPath = path.join(
   ".env.local",
 );
 const dockerImage = process.env.STRIPE_CLI_DOCKER_IMAGE ?? "stripe/stripe-cli";
-const defaultForwardUrl = "http://host.docker.internal:6182/api/payments/stripe/webhooks";
+const defaultForwardUrl = sandboxEnv.STRIPE_WEBHOOK_FORWARD_URL;
 const readyFilePath = process.env.STRIPE_READY_FILE ?? null;
 const supportedWebhookEvents = [
   "payment_intent.processing",
@@ -38,7 +44,7 @@ function printUsage() {
     "  STRIPE_API_KEY                Overrides STRIPE_SECRET_KEY from deployables/platform-api/.env.local.",
   );
   console.log(
-    "  STRIPE_WEBHOOK_FORWARD_URL    Overrides the local webhook endpoint.",
+    "  STRIPE_WEBHOOK_FORWARD_URL    Overrides the sandbox webhook endpoint.",
   );
   console.log(
     "  STRIPE_CLI_DOCKER_IMAGE       Overrides the Stripe CLI Docker image name.",
@@ -58,38 +64,11 @@ function resolveStripeApiKey() {
 }
 
 function persistWebhookSecret(webhookSecret) {
-  const envLocalExists = existsSync(platformApiEnvLocalPath);
-  const currentContent = envLocalExists
-    ? readFileSync(platformApiEnvLocalPath, "utf8")
-    : "";
-  const lineEnding = detectLineEnding(currentContent);
-  const lines = currentContent.length > 0 ? currentContent.split(/\r?\n/) : [];
-  let updated = false;
-
-  const nextLines = lines.map((line) => {
-    if (!line.startsWith("STRIPE_WEBHOOK_SECRET=")) {
-      return line;
-    }
-
-    updated = true;
-    return `STRIPE_WEBHOOK_SECRET=${webhookSecret}`;
-  });
-
-  if (!updated) {
-    nextLines.push(`STRIPE_WEBHOOK_SECRET=${webhookSecret}`);
-  }
-
-  const nextContent = `${nextLines.join(lineEnding).replace(/[ \t]+$/gm, "")}${lineEnding}`;
-
-  if (nextContent !== currentContent) {
-    writeFileSync(platformApiEnvLocalPath, nextContent, "utf8");
-    syncLocalEnvFiles({ command: "push" });
-    console.log(
-      `[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, platformApiEnvLocalPath)}`,
-    );
-    console.log("[stripe] Synced platform-api local env to the shared local env store.");
-    console.log("[stripe] Restart platform-api if it was already running.");
-  }
+  const { sandbox } = mergeSandboxEnvFile({ STRIPE_WEBHOOK_SECRET: webhookSecret }, { rootDir });
+  console.log(
+    `[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, sandbox.envFilePath)}`,
+  );
+  console.log("[stripe] Restart platform-api if it was already running.");
 }
 
 function signalReady(webhookSecret) {

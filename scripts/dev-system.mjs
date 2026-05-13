@@ -8,27 +8,27 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { readEnvFile } from "./lib/env.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand } from "./lib/process.mjs";
+import {
+  applySandboxEnv,
+  buildDockerComposeArgs,
+  ensureWorktreeSandboxEnvironment,
+  getContextDatabaseEnvName,
+} from "./lib/sandbox.mjs";
 
 const mode = process.argv[2] ?? "dev";
 const target = process.argv[3] ?? "all";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
+const { sandbox, env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
+applySandboxEnv(sandboxEnv);
 const localEnvScript = fileURLToPath(new URL("./local-env.mjs", import.meta.url));
 const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
-const dockerComposeArgs = ["compose", "-f", "docker-compose.dev.yml"];
+const dockerComposeArgs = buildDockerComposeArgs(sandbox);
 const localAdminDatabaseUrl =
   process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ??
   "postgresql://postgres:postgres@localhost:5432/postgres";
-const devDatabaseName = process.env.POSTGRES_DEV_DATABASE_NAME ?? "chase_sets";
-const devDatabaseUrl = (() => {
-  if (process.env.POSTGRES_DEV_DATABASE_URL) {
-    return process.env.POSTGRES_DEV_DATABASE_URL;
-  }
-
-  const url = new URL(localAdminDatabaseUrl);
-  url.pathname = `/${devDatabaseName}`;
-  return url.toString();
-})();
+const devDatabaseUrl = process.env.POSTGRES_DEV_DATABASE_URL ?? sandbox.controlDatabaseUrl;
 const requiredExtensions = ["vector"];
+const extensionContextNames = new Set(["discovery"]);
 const platformApiEnvExamplePath = path.join(
   rootDir,
   "deployables",
@@ -57,15 +57,57 @@ function escapeIdentifier(value) {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-async function ensurePlatformDatabase(adminPool) {
+function escapeLiteral(value) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function parseOwnedDatabaseUrl(databaseUrl) {
+  const url = new URL(databaseUrl);
+  const roleName = url.username;
+  const password = url.password;
+  const databaseName = url.pathname.replace(/^\//, "");
+
+  if (!roleName || !password || !databaseName) {
+    throw new Error(`Owned database URL "${databaseUrl}" must include role, password, and database name.`);
+  }
+
+  return { roleName, password, databaseName, databaseUrl };
+}
+
+async function ensureOwnedDatabase(adminPool, spec) {
+  const roleExists = await adminPool.query(
+    "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
+    [spec.roleName],
+  );
+
+  if (roleExists.rows[0]?.exists) {
+    await adminPool.query(
+      `ALTER ROLE ${escapeIdentifier(spec.roleName)} WITH LOGIN PASSWORD ${escapeLiteral(spec.password)}`,
+    );
+  } else {
+    await adminPool.query(
+      `CREATE ROLE ${escapeIdentifier(spec.roleName)} WITH LOGIN PASSWORD ${escapeLiteral(spec.password)}`,
+    );
+  }
+
   const databaseExists = await adminPool.query(
     "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
-    [devDatabaseName],
+    [spec.databaseName],
   );
 
   if (!databaseExists.rows[0]?.exists) {
-    await adminPool.query(`CREATE DATABASE ${escapeIdentifier(devDatabaseName)}`);
+    await adminPool.query(
+      `CREATE DATABASE ${escapeIdentifier(spec.databaseName)} OWNER ${escapeIdentifier(spec.roleName)}`,
+    );
+  } else {
+    await adminPool.query(
+      `ALTER DATABASE ${escapeIdentifier(spec.databaseName)} OWNER TO ${escapeIdentifier(spec.roleName)}`,
+    );
   }
+
+  await adminPool.query(
+    `GRANT ALL PRIVILEGES ON DATABASE ${escapeIdentifier(spec.databaseName)} TO ${escapeIdentifier(spec.roleName)}`,
+  );
 }
 
 async function withAdminPool(action, databaseName = "postgres") {
@@ -95,16 +137,30 @@ async function withAdminPool(action, databaseName = "postgres") {
 
 async function preparePlatformDatabase() {
   await withAdminPool(async (adminPool) => {
-    await ensurePlatformDatabase(adminPool);
+    const databaseUrls = [
+      sandbox.controlDatabaseUrl,
+      ...Object.values(sandbox.contextDatabaseUrls),
+    ];
+
+    for (const databaseUrl of databaseUrls) {
+      await ensureOwnedDatabase(adminPool, parseOwnedDatabaseUrl(databaseUrl));
+    }
   });
 
-  await withAdminPool(async (adminPool) => {
-    for (const extensionName of requiredExtensions) {
-      await adminPool.query(
-        `CREATE EXTENSION IF NOT EXISTS ${escapeIdentifier(extensionName)}`,
-      );
+  for (const [contextName, databaseUrl] of Object.entries(sandbox.contextDatabaseUrls)) {
+    if (!extensionContextNames.has(contextName)) {
+      continue;
     }
-  }, devDatabaseName);
+
+    const { databaseName } = parseOwnedDatabaseUrl(databaseUrl);
+    await withAdminPool(async (adminPool) => {
+      for (const extensionName of requiredExtensions) {
+        await adminPool.query(
+          `CREATE EXTENSION IF NOT EXISTS ${escapeIdentifier(extensionName)}`,
+        );
+      }
+    }, databaseName);
+  }
 }
 
 const bootstrapWorkspaces = [
@@ -112,50 +168,84 @@ const bootstrapWorkspaces = [
   "@chase-sets/app-platform-worker",
 ];
 
+function buildContextDatabaseEnv() {
+  return Object.fromEntries(
+    Object.entries(sandbox.contextDatabaseUrls).map(([contextName, databaseUrl]) => [
+      getContextDatabaseEnvName(contextName),
+      databaseUrl,
+    ]),
+  );
+}
+
+const contextDatabaseEnv = buildContextDatabaseEnv();
+const commonPlatformEnv = {
+  ...sandboxEnv,
+  DATABASE_URL: "",
+  POSTGRES_DEV_DATABASE_URL: devDatabaseUrl,
+  PLATFORM_CONTROL_DATABASE_URL: sandbox.controlDatabaseUrl,
+  ...contextDatabaseEnv,
+};
+
 const processes = [
   {
     name: "platform-api",
     workspace: "@chase-sets/app-platform-api",
     env: {
-      DATABASE_URL: devDatabaseUrl,
-      PLATFORM_CONTROL_DATABASE_URL: devDatabaseUrl,
-      PORT: "6182",
+      ...commonPlatformEnv,
+      PORT: String(sandbox.ports.platformApi),
     },
-    port: 6182,
+    port: sandbox.ports.platformApi,
   },
   {
     name: "platform-worker",
     workspace: "@chase-sets/app-platform-worker",
     env: {
-      DATABASE_URL: devDatabaseUrl,
-      PLATFORM_CONTROL_DATABASE_URL: devDatabaseUrl,
-      PORT: "6183",
+      ...commonPlatformEnv,
+      PORT: String(sandbox.ports.platformWorker),
     },
-    port: 6183,
+    port: sandbox.ports.platformWorker,
   },
   {
     name: "admin-web",
     workspace: "@chase-sets/app-admin-web",
-    env: {},
-    port: 6172,
+    env: {
+      ...sandboxEnv,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      PORT: String(sandbox.ports.adminWeb),
+    },
+    port: sandbox.ports.adminWeb,
   },
   {
     name: "marketplace",
     workspace: "@chase-sets/app-marketplace-web",
-    env: {},
-    port: 6173,
+    env: {
+      ...sandboxEnv,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      PORT: String(sandbox.ports.marketplaceWeb),
+    },
+    port: sandbox.ports.marketplaceWeb,
   },
   {
     name: "public-web",
     workspace: "@chase-sets/app-public-web",
-    env: {},
-    port: 6174,
+    env: {
+      ...sandboxEnv,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      PORT: String(sandbox.ports.publicWeb),
+    },
+    port: sandbox.ports.publicWeb,
   },
 ];
 
 const devTargets = {
   all: processes.map(({ name }) => name),
+  "platform-api": ["platform-api"],
+  "platform-worker": ["platform-worker"],
   "admin-web": ["platform-api", "platform-worker", "admin-web"],
+  marketplace: ["marketplace"],
   "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
   "public-web": ["platform-api", "platform-worker", "public-web"],
 };
@@ -382,92 +472,27 @@ function listListeningProcessIds(port) {
     .filter((pid) => Number.isInteger(pid) && pid > 0);
 }
 
-async function waitForProcessExit(pid, timeoutMs = 5_000) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      process.kill(pid, 0);
-      await sleep(100);
-    } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") {
-        return true;
-      }
-
-      throw error;
-    }
-  }
-
-  return false;
-}
-
-async function terminateProcessIds(pids, label) {
-  const uniquePids = Array.from(
-    new Set(pids.filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)),
-  );
-
-  if (uniquePids.length === 0) {
-    return false;
-  }
-
-  prefixedConsole(
-    "dev",
-    `Restarting ${label} by stopping listener${uniquePids.length === 1 ? "" : "s"} on PID${uniquePids.length === 1 ? "" : "s"} ${uniquePids.join(", ")}.`,
-  );
-
-  for (const pid of uniquePids) {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch (error) {
-      if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) {
-        throw error;
-      }
-    }
-  }
-
-  for (const pid of uniquePids) {
-    const exited = await waitForProcessExit(pid, 3_000);
-    if (!exited) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch (error) {
-        if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) {
-          throw error;
-        }
-      }
-      await waitForProcessExit(pid, 2_000);
-    }
-  }
-
-  return true;
-}
-
-async function restartExistingListener(port, label) {
+async function assertSandboxPortAvailable(port, label) {
   const hasListener = (await hasExistingListener(port)) || !(await isPortAvailable(port));
   if (!hasListener) {
     return false;
   }
 
   const pids = listListeningProcessIds(port);
-  await terminateProcessIds(pids, label);
-
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    if (await isPortAvailable(port)) {
-      return true;
-    }
-    await sleep(100);
-  }
-
-  throw new Error(`Unable to restart ${label}: port ${port} is still in use.`);
+  const ownerHint = pids.length > 0 ? ` PID${pids.length === 1 ? "" : "s"} ${pids.join(", ")}` : " an unknown listener";
+  throw new Error(
+    `${label} cannot start because sandbox port ${port} is already in use by${ownerHint}. ` +
+      "Run pnpm run sandbox:doctor to inspect this worktree sandbox, or override CHASE_SETS_SANDBOX_BASE_PORT.",
+  );
 }
 
 async function ensureDevDatabase() {
-  prefixedConsole("dev", "Starting shared Postgres...");
+  prefixedConsole("dev", `Starting sandbox Postgres for ${sandbox.id}...`);
   await runCommand("docker", [...dockerComposeArgs, "up", "-d"], {
+    env: sandboxEnv,
     prefix: "docker",
   });
-  prefixedConsole("dev", `Provisioning shared Postgres database '${devDatabaseName}'...`);
+  prefixedConsole("dev", `Provisioning sandbox databases for ${sandbox.id}...`);
   await preparePlatformDatabase();
 }
 
@@ -475,6 +500,7 @@ async function runBootstrap() {
   await runCommand("node", [localEnvScript, "sync"], {
     prefix: "env",
   });
+  ensureWorktreeSandboxEnvironment({ rootDir });
   await ensureDevDatabase();
 
   for (const workspace of bootstrapWorkspaces) {
@@ -499,12 +525,12 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
   console.log("");
   console.log(
     targetName === "all"
-      ? "Local dev system"
-      : `Local dev stack: ${targetName}`,
+      ? `Local dev system (${sandbox.id})`
+      : `Local dev stack: ${targetName} (${sandbox.id})`,
   );
 
   if (includePortal) {
-    console.log("  Dev Portal:      http://localhost:6170");
+    console.log(`  Dev Portal:      ${sandbox.urls.portal}`);
   }
 
   for (const definition of selectedProcesses) {
@@ -513,6 +539,8 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
     );
   }
 
+  console.log(`  Sandbox env:     ${path.relative(rootDir, sandbox.envFilePath)}`);
+  console.log(`  Compose project: ${sandbox.composeProjectName}`);
   console.log("");
 }
 
@@ -557,7 +585,7 @@ async function runDev(targetName = "all") {
   );
 
   if (platformApiDefinition) {
-    await restartExistingListener(
+    await assertSandboxPortAvailable(
       platformApiDefinition.port,
       platformApiDefinition.name,
     );
@@ -596,6 +624,15 @@ async function runDev(targetName = "all") {
 
       try {
         await waitForStripeReady(readyFilePath, stripeListener);
+        const updatedSandboxEnv = readEnvFile(sandbox.envFilePath);
+        for (const definition of processes) {
+          definition.env = {
+            ...definition.env,
+            STRIPE_WEBHOOK_SECRET:
+              updatedSandboxEnv.STRIPE_WEBHOOK_SECRET ??
+              definition.env.STRIPE_WEBHOOK_SECRET,
+          };
+        }
         prefixedConsole(
           "dev",
           "Stripe listener is ready. platform-api will start with the current webhook secret.",
@@ -615,10 +652,13 @@ async function runDev(targetName = "all") {
   }
 
   if (targetName === "all") {
-    await restartExistingListener(6170, "portal");
+    await assertSandboxPortAvailable(sandbox.ports.portal, "portal");
     const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
     const portal = spawnCommand("node", [portalScript], {
-      env: { PORT: "6170" },
+      env: {
+        ...sandboxEnv,
+        PORT: String(sandbox.ports.portal),
+      },
       prefix: "portal",
     });
     children.push(portal);
@@ -626,7 +666,7 @@ async function runDev(targetName = "all") {
 
   for (const definition of selectedProcesses) {
     if (definition.port) {
-      await restartExistingListener(definition.port, definition.name);
+      await assertSandboxPortAvailable(definition.port, definition.name);
     }
 
     const invocation = buildPackageManagerInvocation([
@@ -661,15 +701,17 @@ async function runDev(targetName = "all") {
 }
 
 async function runDown() {
-  prefixedConsole("dev", "Stopping shared Postgres...");
+  prefixedConsole("dev", `Stopping sandbox ${sandbox.id}...`);
   await runCommand("docker", [...dockerComposeArgs, "down"], {
+    env: sandboxEnv,
     prefix: "docker",
   });
 }
 
 async function runRefresh() {
-  prefixedConsole("dev", "Destroying shared Postgres data...");
+  prefixedConsole("dev", `Destroying sandbox ${sandbox.id} Postgres data...`);
   await runCommand("docker", [...dockerComposeArgs, "down", "-v"], {
+    env: sandboxEnv,
     prefix: "docker",
   });
   await runBootstrap();
