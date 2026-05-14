@@ -73,6 +73,8 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - `pnpm run verify:static` after adding the preview domain wait step.
 - `node scripts/digitalocean-app-deployment.mjs wait-domains 758c4d1e-a753-4ae4-b35c-3c6f38ced9e4 landing-pr-85.chasesets.com admin-pr-85.chasesets.com marketplace-pr-85.chasesets.com --timeout-seconds=600 --poll-seconds=30`
 - `pnpm run smoke:platform -- "https://landing-pr-85.chasesets.com" "https://admin-pr-85.chasesets.com" "https://marketplace-pr-85.chasesets.com"` locally passed without admin credentials; CI still verifies authenticated admin smoke with environment secrets.
+- `pnpm run test:platform-smoke` after adding eventual-consistency polling for the authenticated admin waitlist check.
+- `pnpm run verify:static` after adding eventual-consistency polling for the authenticated admin waitlist check.
 
 ## PR And Live Environment Status
 
@@ -82,6 +84,7 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - PR CI result as of 2026-05-14: static checks, typecheck, unit tests, DB tests, build, Docker build, workflow lint, preview Terraform plan, and production Terraform plan passed.
 - `Deploy Preview and Smoke` reached DigitalOcean and created `chase-sets-pr-85-platform`; the next failure was a smoke timing race while new App Platform custom domains were still configuring DNS/TLS.
 - Added an explicit App Platform domain readiness wait before preview smoke so CI waits for DigitalOcean-managed certificates before direct HTTPS smoke tests.
+- The next CI smoke reached authenticated admin verification and failed because the event-driven waitlist read model had not caught up to the synthetic signup yet; the smoke script now polls that admin read assertion for eventual consistency.
 - Live preview smoke, preview destroy, and production apply/smoke must still be confirmed by CI after the PR is rerun and merged.
 
 ## Documentation To Promote
