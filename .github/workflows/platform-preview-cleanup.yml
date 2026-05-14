@@ -1,0 +1,102 @@
+name: Platform Preview Cleanup
+
+on:
+  pull_request_target:
+    types:
+      - closed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-preview-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  destroy-preview:
+    name: Destroy Preview
+    runs-on: ubuntu-latest
+    environment: preview
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+      TF_VAR_environment: preview
+      TF_VAR_preview_identifier: pr-${{ github.event.pull_request.number }}
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+      TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      TF_VAR_stripe_connect_return_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+    steps:
+      - name: Configure Git defaults
+        run: git config --global init.defaultBranch main
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Terraform init
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=platform/previews/pr-${{ github.event.pull_request.number }}.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Wait for active App Platform deployment
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No preview App Platform app was found in Terraform state; skipping deployment wait."
+            exit 0
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+
+      - name: Terraform destroy
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform destroy -auto-approve

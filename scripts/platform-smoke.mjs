@@ -190,6 +190,26 @@ async function expectOk(label, input, init) {
   return response;
 }
 
+async function expectEventually(label, action, isSuccess, describeFailure) {
+  let lastValue;
+
+  for (let attempt = 1; attempt <= fetchAttempts; attempt += 1) {
+    lastValue = await action();
+    if (isSuccess(lastValue)) {
+      return lastValue;
+    }
+
+    if (attempt < fetchAttempts) {
+      console.warn(
+        `${label} attempt ${attempt}/${fetchAttempts} did not match expected state: ${describeFailure(lastValue)}; retrying in ${fetchRetryDelayMs}ms.`,
+      );
+      await delay(fetchRetryDelayMs);
+    }
+  }
+
+  throw new Error(`${label} did not match expected state: ${describeFailure(lastValue)}.`);
+}
+
 async function expectTextContains(label, input, expectedText) {
   const response = await expectOk(label, input);
   const text = await response.text();
@@ -332,23 +352,27 @@ async function main() {
       throw new Error("Admin sign-in did not return a session token.");
     }
 
-    const waitlistResponse = await expectOk(
-      "admin waitlist list",
-      `${adminUrl}/api/public-presence/admin/waitlist?search=${encodeURIComponent(
-        syntheticEmail,
-      )}`,
-      {
-        headers: {
-          Authorization: `Bearer ${authBody.sessionToken}`,
+    if (writeWaitlist) {
+      await expectEventually(
+        "admin waitlist list",
+        async () => {
+          const waitlistResponse = await expectOk(
+            "admin waitlist list",
+            `${adminUrl}/api/public-presence/admin/waitlist?search=${encodeURIComponent(
+              syntheticEmail,
+            )}`,
+            {
+              headers: {
+                Authorization: `Bearer ${authBody.sessionToken}`,
+              },
+            },
+          );
+          return waitlistResponse.json();
         },
-      },
-    );
-    const waitlistBody = await waitlistResponse.json();
-    if (
-      writeWaitlist &&
-      !waitlistBody.items?.some((item) => item.email === syntheticEmail)
-    ) {
-      throw new Error(`Synthetic waitlist signup '${syntheticEmail}' was not found.`);
+        (waitlistBody) => waitlistBody.items?.some((item) => item.email === syntheticEmail),
+        (waitlistBody) =>
+          `synthetic waitlist signup '${syntheticEmail}' was not found in ${waitlistBody.items?.length ?? 0} item(s)`,
+      );
     }
   } else {
     console.warn("Skipping authenticated admin smoke; admin credentials were not provided.");

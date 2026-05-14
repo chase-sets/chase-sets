@@ -26,7 +26,7 @@ resource "digitalocean_database_user" "contexts" {
 }
 
 resource "digitalocean_database_connection_pool" "contexts" {
-  for_each = local.staging_connection_pool_contexts
+  for_each = local.non_production_connection_pool_contexts
 
   cluster_id = digitalocean_database_cluster.postgres.id
   name       = "${each.key}-runtime"
@@ -120,7 +120,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "database" {
-      for_each = local.is_staging ? {} : local.context_databases
+      for_each = local.is_non_production ? {} : local.context_databases
       content {
         name         = "db-${database.key}"
         engine       = "PG"
@@ -191,7 +191,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "marketplace"
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
@@ -280,7 +280,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "platform-api"
         run_command        = "pnpm --filter @chase-sets/app-platform-api run start:production"
@@ -446,25 +446,25 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "REALTIME_STREAM_LIMITER"
-          value = local.is_staging ? "local" : "postgres"
+          value = local.is_non_production ? "local" : "postgres"
           scope = "RUN_TIME"
         }
 
         env {
           key   = "REALTIME_BACKGROUND_MAINTENANCE_ENABLED"
-          value = local.is_staging ? "false" : "true"
+          value = local.is_non_production ? "false" : "true"
           scope = "RUN_TIME"
         }
 
         env {
           key   = "REALTIME_WAKE_SIGNAL_ENABLED"
-          value = local.is_staging ? "false" : "true"
+          value = local.is_non_production ? "false" : "true"
           scope = "RUN_TIME"
         }
 
         env {
           key   = "WRITE_CONSISTENCY_DRAIN_ENABLED"
-          value = local.is_staging ? "false" : "true"
+          value = local.is_non_production ? "false" : "true"
           scope = "RUN_TIME"
         }
 
@@ -481,7 +481,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [] : [1]
+      for_each = local.is_non_production ? [] : [1]
       content {
         name               = "admin-support-api"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run start:production"
@@ -566,7 +566,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "platform-worker"
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
@@ -730,7 +730,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "worker" {
-      for_each = local.is_staging ? [] : [1]
+      for_each = local.is_non_production ? [] : [1]
       content {
         name               = "admin-support-worker"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
@@ -791,7 +791,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "platform-bootstrap"
         kind               = "PRE_DEPLOY"
@@ -880,7 +880,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.is_staging ? [] : [1]
+      for_each = local.is_non_production ? [] : [1]
       content {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"
