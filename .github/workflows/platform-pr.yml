@@ -391,6 +391,27 @@ jobs:
           app_id="$(terraform output -raw app_id)"
           node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
 
+      - name: Wait for preview domains
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          landing_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required preview domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
+            "$app_id" \
+            "$landing_domain" \
+            "$admin_domain" \
+            "$marketplace_domain" \
+            --timeout-seconds=1800 \
+            --poll-seconds=30
+
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
         env:

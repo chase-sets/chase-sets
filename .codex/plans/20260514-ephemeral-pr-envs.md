@@ -67,17 +67,22 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - `pnpm run test:structure`
 - `docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.12 -color`
 - `pnpm run verify:static`
+- `pnpm run test:digitalocean-app-deployment` after adding App Platform domain readiness waiting.
+- `docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.12 -color` after adding the preview domain wait step.
+- `pnpm run verify:metadata` after adding the preview domain wait step.
+- `pnpm run verify:static` after adding the preview domain wait step.
+- `node scripts/digitalocean-app-deployment.mjs wait-domains 758c4d1e-a753-4ae4-b35c-3c6f38ced9e4 landing-pr-85.chasesets.com admin-pr-85.chasesets.com marketplace-pr-85.chasesets.com --timeout-seconds=600 --poll-seconds=30`
+- `pnpm run smoke:platform -- "https://landing-pr-85.chasesets.com" "https://admin-pr-85.chasesets.com" "https://marketplace-pr-85.chasesets.com"` locally passed without admin credentials; CI still verifies authenticated admin smoke with environment secrets.
 
 ## PR And Live Environment Status
 
 - Draft PR: https://github.com/todd-skelton/chase-sets/pull/85
 - Branch pushed: `origin/codex/ephemeral-pr-envs`
-- Commit: `354bbf37 Add ephemeral PR preview deployments`
+- Commits: `354bbf37 Add ephemeral PR preview deployments`, `18d41629 Record preview environment secret blocker`, `be51370f Disable Terraform wrapper for deploy output parsing`.
 - PR CI result as of 2026-05-14: static checks, typecheck, unit tests, DB tests, build, Docker build, workflow lint, preview Terraform plan, and production Terraform plan passed.
-- `Deploy Preview and Smoke` failed before Terraform because the `preview` GitHub Environment exists but has no environment secrets configured.
-- Existing `staging` GitHub Environment contains the old non-production secrets but only permits `main`, so it should not be reused for PR preview deployments.
-- Next operational action: configure the required non-production secrets in the `preview` GitHub Environment, then rerun `Deploy Preview and Smoke` on PR #85.
-- Live DigitalOcean preview apply/smoke, preview destroy, and production apply/smoke require those GitHub environment secrets and must be confirmed by CI after the PR is rerun and merged.
+- `Deploy Preview and Smoke` reached DigitalOcean and created `chase-sets-pr-85-platform`; the next failure was a smoke timing race while new App Platform custom domains were still configuring DNS/TLS.
+- Added an explicit App Platform domain readiness wait before preview smoke so CI waits for DigitalOcean-managed certificates before direct HTTPS smoke tests.
+- Live preview smoke, preview destroy, and production apply/smoke must still be confirmed by CI after the PR is rerun and merged.
 
 ## Documentation To Promote
 

@@ -4,7 +4,9 @@ import {
   appNotFound,
   appPlatformChanges,
   deployApp,
+  pendingDomains,
   planAppChanged,
+  waitForDomains,
   waitForDeployments,
 } from "./digitalocean-app-deployment.mjs";
 
@@ -73,6 +75,23 @@ describe("digitalocean-app-deployment", () => {
     ]);
   });
 
+  it("reports App Platform domains that are not active yet", () => {
+    expect(
+      pendingDomains(
+        {
+          domains: [
+            { spec: { domain: "landing.test" }, phase: "ACTIVE" },
+            { spec: { domain: "admin.test" }, phase: "CONFIGURING" },
+          ],
+        },
+        ["landing.test", "admin.test", "marketplace.test"],
+      ),
+    ).toEqual([
+      { name: "admin.test", phase: "CONFIGURING" },
+      { name: "marketplace.test", phase: "MISSING" },
+    ]);
+  });
+
   it("waits until active DigitalOcean deployments finish", async () => {
     const responses = [
       [{ id: "first", phase: "BUILDING" }],
@@ -94,6 +113,60 @@ describe("digitalocean-app-deployment", () => {
     });
 
     expect(sleeps).toBe(1);
+  });
+
+  it("waits until App Platform domains are active", async () => {
+    const responses = [
+      [
+        {
+          domains: [
+            { spec: { domain: "landing.test" }, phase: "CONFIGURING" },
+            { spec: { domain: "admin.test" }, phase: "ACTIVE" },
+          ],
+        },
+      ],
+      [
+        {
+          domains: [
+            { spec: { domain: "landing.test" }, phase: "ACTIVE" },
+            { spec: { domain: "admin.test" }, phase: "ACTIVE" },
+          ],
+        },
+      ],
+    ];
+    let sleeps = 0;
+
+    await waitForDomains("app-id", ["landing.test", "admin.test"], {
+      commandJson: async (command, args) => {
+        expect(command).toBe("doctl");
+        expect(args).toEqual(["apps", "get", "app-id", "--output", "json"]);
+        return responses.shift();
+      },
+      now: () => 0,
+      sleep: async (duration) => {
+        sleeps += 1;
+        expect(duration).toBe(30_000);
+      },
+    });
+
+    expect(sleeps).toBe(1);
+  });
+
+  it("times out with domain names and phases", async () => {
+    const timestamps = [0, 2_000];
+
+    await expect(
+      waitForDomains("app-id", ["landing.test"], {
+        commandJson: async () => [
+          {
+            domains: [{ spec: { domain: "landing.test" }, phase: "CONFIGURING" }],
+          },
+        ],
+        now: () => timestamps.shift() ?? 2_000,
+        timeoutSeconds: 1,
+        sleep: async () => {},
+      }),
+    ).rejects.toThrow("landing.test: CONFIGURING");
   });
 
   it("treats a deleted App Platform app as no active deployment to wait for", async () => {

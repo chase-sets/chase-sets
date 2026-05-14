@@ -11,6 +11,8 @@ const TERMINAL_DEPLOYMENT_PHASES = new Set([
   "SUPERSEDED",
 ]);
 
+const ACTIVE_DOMAIN_PHASE = "ACTIVE";
+
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
     execFile(
@@ -56,6 +58,13 @@ function normalizeDeployment(deployment) {
   };
 }
 
+function normalizeDomain(domain) {
+  return {
+    name: domain.spec?.domain ?? domain.domain ?? domain.name ?? "",
+    phase: domain.phase ?? "",
+  };
+}
+
 export function appPlatformChanges(plan) {
   return Boolean(
     plan.resource_changes?.some((resourceChange) => {
@@ -73,6 +82,16 @@ export function activeDeployments(deployments) {
   return deployments
     .map(normalizeDeployment)
     .filter((deployment) => !TERMINAL_DEPLOYMENT_PHASES.has(deployment.phase));
+}
+
+export function pendingDomains(app, hostnames) {
+  const expected = new Set(hostnames);
+  const domains = (app.domains ?? []).map(normalizeDomain);
+  const byName = new Map(domains.map((domain) => [domain.name, domain]));
+
+  return [...expected]
+    .map((hostname) => byName.get(hostname) ?? { name: hostname, phase: "MISSING" })
+    .filter((domain) => domain.phase !== ACTIVE_DOMAIN_PHASE);
 }
 
 export function appNotFound(error) {
@@ -133,6 +152,44 @@ export async function waitForDeployments(appId, options = {}) {
     console.log("Waiting for App Platform deployment capacity:");
     for (const deployment of deployments) {
       console.log(`- ${deployment.id}: ${deployment.phase}`);
+    }
+
+    await delay(pollSeconds * 1000);
+  }
+}
+
+export async function waitForDomains(appId, hostnames, options = {}) {
+  if (hostnames.length === 0) {
+    throw new Error("At least one App Platform domain hostname is required.");
+  }
+
+  const timeoutSeconds = options.timeoutSeconds ?? 1800;
+  const pollSeconds = options.pollSeconds ?? 30;
+  const now = options.now ?? (() => Date.now());
+  const delay = options.sleep ?? sleep;
+  const runJson = options.commandJson ?? commandJson;
+  const deadline = now() + timeoutSeconds * 1000;
+
+  while (true) {
+    const appResponse = await runJson("doctl", ["apps", "get", appId, "--output", "json"], options);
+    const [app] = Array.isArray(appResponse) ? appResponse : [appResponse];
+    const waiting = pendingDomains(app ?? {}, hostnames);
+
+    if (waiting.length === 0) {
+      console.log("All App Platform domains are active.");
+      return;
+    }
+
+    if (now() >= deadline) {
+      const summary = waiting
+        .map((domain) => `- ${domain.name}: ${domain.phase}`)
+        .join("\n");
+      throw new Error(`Timed out waiting for App Platform domains to become active:\n${summary}`);
+    }
+
+    console.log("Waiting for App Platform domains to become active:");
+    for (const domain of waiting) {
+      console.log(`- ${domain.name}: ${domain.phase}`);
     }
 
     await delay(pollSeconds * 1000);
@@ -217,8 +274,24 @@ async function main(argv) {
     return;
   }
 
+  if (command === "wait-domains") {
+    const [appId, ...optionsAndHostnames] = args;
+    if (!appId) {
+      throw new Error(
+        "Usage: node ./scripts/digitalocean-app-deployment.mjs wait-domains <app-id> <hostname...>",
+      );
+    }
+
+    const hostnames = optionsAndHostnames.filter((arg) => !arg.startsWith("--"));
+    await waitForDomains(appId, hostnames, {
+      timeoutSeconds: readOption(optionsAndHostnames, "--timeout-seconds", 1800),
+      pollSeconds: readOption(optionsAndHostnames, "--poll-seconds", 30),
+    });
+    return;
+  }
+
   throw new Error(
-    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|wait|deploy>",
+    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|wait|deploy|wait-domains>",
   );
 }
 
