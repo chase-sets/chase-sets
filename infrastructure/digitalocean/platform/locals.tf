@@ -81,7 +81,10 @@ locals {
     context_name => local.is_non_production ? format(
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",
       urlencode(digitalocean_database_connection_pool.contexts[context_name].user),
-      urlencode(digitalocean_database_connection_pool.contexts[context_name].password),
+      urlencode(coalesce(
+        digitalocean_database_connection_pool.contexts[context_name].password,
+        digitalocean_database_user.contexts[context_name].password,
+      )),
       digitalocean_database_connection_pool.contexts[context_name].host,
       digitalocean_database_connection_pool.contexts[context_name].port,
       urlencode(digitalocean_database_connection_pool.contexts[context_name].name),
