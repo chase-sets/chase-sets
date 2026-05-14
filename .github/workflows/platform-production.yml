@@ -125,6 +125,11 @@ jobs:
       TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
       TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
       TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+      TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+      TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+      TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+      TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+      TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
@@ -171,6 +176,25 @@ jobs:
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required staging configuration: %s\n' "${missing[*]}" >&2
             exit 1
+          fi
+
+          if [ "${TF_VAR_notification_email_provider:-}" = "amazon-ses" ]; then
+            ses_missing=()
+            for name in \
+              TF_VAR_ses_aws_region \
+              TF_VAR_ses_from_email \
+              TF_VAR_ses_configuration_set_name \
+              TF_VAR_ses_source_arn
+            do
+              if [ -z "${!name:-}" ]; then
+                ses_missing+=("$name")
+              fi
+            done
+
+            if [ "${#ses_missing[@]}" -gt 0 ]; then
+              printf 'Missing required staging SES configuration: %s\n' "${ses_missing[*]}" >&2
+              exit 1
+            fi
           fi
 
       - uses: ./.github/actions/setup-pnpm-workspace
@@ -351,6 +375,11 @@ jobs:
       TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
       TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
       TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+      TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+      TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+      TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+      TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+      TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -391,6 +420,25 @@ jobs:
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required production configuration: %s\n' "${missing[*]}" >&2
             exit 1
+          fi
+
+          if [ "${TF_VAR_notification_email_provider:-}" = "amazon-ses" ]; then
+            ses_missing=()
+            for name in \
+              TF_VAR_ses_aws_region \
+              TF_VAR_ses_from_email \
+              TF_VAR_ses_configuration_set_name \
+              TF_VAR_ses_source_arn
+            do
+              if [ -z "${!name:-}" ]; then
+                ses_missing+=("$name")
+              fi
+            done
+
+            if [ "${#ses_missing[@]}" -gt 0 ]; then
+              printf 'Missing required production SES configuration: %s\n' "${ses_missing[*]}" >&2
+              exit 1
+            fi
           fi
 
       - uses: ./.github/actions/setup-pnpm-workspace

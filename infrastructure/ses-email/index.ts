@@ -1,3 +1,9 @@
+import {
+  SendEmailCommand,
+  SESv2Client,
+  type SendEmailCommandInput,
+  type SESv2ClientConfig,
+} from "@aws-sdk/client-sesv2";
 import type {
   SentTransactionalEmailReceipt,
   TransactionalEmailGateway,
@@ -26,6 +32,12 @@ export type SesEmailGatewayOptions = Readonly<{
   onAttempt?: (event: { messageType: string; attempt: number; correlationId: string }) => void;
   onResult?: (event: { messageType: string; success: boolean; error?: string | null }) => void;
   now?: () => Date;
+}>;
+
+export type SesSendRequestOptions = Readonly<{
+  region: string;
+  clientConfig?: Omit<SESv2ClientConfig, "region">;
+  client?: Pick<SESv2Client, "send">;
 }>;
 
 export type SesSendEmailRequest = Readonly<{
@@ -69,6 +81,57 @@ function mapError(error: unknown) {
 }
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+export function createSesSendRequest(options: SesSendRequestOptions) {
+  const client =
+    options.client ??
+    new SESv2Client({ ...options.clientConfig, region: options.region });
+
+  return async (input: SesSendEmailRequest): Promise<SesSendEmailResponse> => {
+    const response = await client.send(
+      new SendEmailCommand(toAwsSendEmailCommandInput(input)),
+    );
+    if (!response.MessageId) {
+      throw new Error("SES did not return a message id.");
+    }
+
+    return { MessageId: response.MessageId };
+  };
+}
+
+function toAwsSendEmailCommandInput(
+  input: SesSendEmailRequest,
+): SendEmailCommandInput {
+  return {
+    FromEmailAddress: input.FromEmailAddress,
+    Destination: {
+      ToAddresses: [...input.Destination.ToAddresses],
+      ...(input.Destination.CcAddresses
+        ? { CcAddresses: [...input.Destination.CcAddresses] }
+        : {}),
+      ...(input.Destination.BccAddresses
+        ? { BccAddresses: [...input.Destination.BccAddresses] }
+        : {}),
+    },
+    Content: {
+      Simple: {
+        Subject: { ...input.Content.Simple.Subject },
+        Body: {
+          Html: { ...input.Content.Simple.Body.Html },
+          Text: { ...input.Content.Simple.Body.Text },
+        },
+        Headers: input.Content.Simple.Headers.map((header) => ({ ...header })),
+      },
+    },
+    EmailTags: input.EmailTags.map((tag) => ({ ...tag })),
+    ...(input.ConfigurationSetName
+      ? { ConfigurationSetName: input.ConfigurationSetName }
+      : {}),
+    ...(input.FromEmailAddressIdentityArn
+      ? { FromEmailAddressIdentityArn: input.FromEmailAddressIdentityArn }
+      : {}),
+  };
+}
 
 export function parseSesNotificationEvent(rawBody: string): SesNotificationEvent | null {
   const body = JSON.parse(rawBody) as SesNotificationEnvelope;

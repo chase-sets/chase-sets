@@ -249,6 +249,37 @@ variable "facebook_social_login_client_secret" {
   }
 }
 
+variable "notification_email_provider" {
+  type    = string
+  default = "noop"
+
+  validation {
+    condition     = contains(["noop", "amazon-ses"], var.notification_email_provider)
+    error_message = "notification_email_provider must be noop or amazon-ses."
+  }
+}
+
+variable "ses_aws_region" {
+  type    = string
+  default = ""
+}
+
+variable "ses_from_email" {
+  type    = string
+  default = ""
+}
+
+variable "ses_configuration_set_name" {
+  type    = string
+  default = ""
+}
+
+variable "ses_source_arn" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 variable "alert_emails" {
   type    = list(string)
   default = []
