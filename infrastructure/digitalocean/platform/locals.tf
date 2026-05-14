@@ -78,7 +78,14 @@ locals {
 
   context_database_urls = {
     for context_name in local.context_names :
-    context_name => local.is_non_production ? digitalocean_database_connection_pool.contexts[context_name].uri : format("$${db-%s.DATABASE_URL}", context_name)
+    context_name => local.is_non_production ? format(
+      "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+      urlencode(digitalocean_database_connection_pool.contexts[context_name].user),
+      urlencode(digitalocean_database_connection_pool.contexts[context_name].password),
+      digitalocean_database_connection_pool.contexts[context_name].host,
+      digitalocean_database_connection_pool.contexts[context_name].port,
+      urlencode(digitalocean_database_connection_pool.contexts[context_name].db_name),
+    ) : format("$${db-%s.DATABASE_URL}", context_name)
   }
 
   context_database_env = {
