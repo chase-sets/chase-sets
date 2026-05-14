@@ -223,6 +223,57 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
 
+  terraform-staging-plan:
+    name: Terraform Staging Plan
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: pr-validation-token
+      TF_VAR_spaces_access_id: pr-validation-access-id
+      TF_VAR_spaces_secret_key: pr-validation-secret-key
+      TF_VAR_environment: staging
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: pr-validation-staging
+      TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
+      TF_VAR_platform_admin_email: ops+pr@chasesets.com
+      TF_VAR_platform_admin_password: pr-validation-password-please-rotate
+      TF_VAR_platform_admin_display_name: Platform Admin
+      TF_VAR_discord_invite_url: https://discord.gg/pr-validation
+      TF_VAR_stripe_secret_key: sk_test_pr_validation
+      TF_VAR_stripe_publishable_key: pk_test_pr_validation
+      TF_VAR_stripe_webhook_secret: whsec_pr_validation
+      TF_VAR_stripe_connect_return_url: https://marketplace-staging.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace-staging.chasesets.com/account/payouts/setup
+      TF_VAR_easypost_api_key: EZTK_pr_validation
+      TF_VAR_easypost_mode: test
+      TF_VAR_google_social_login_client_id: google-pr-validation-client
+      TF_VAR_google_social_login_client_secret: google-pr-validation-secret
+      TF_VAR_facebook_social_login_client_id: facebook-pr-validation-client
+      TF_VAR_facebook_social_login_client_secret: facebook-pr-validation-secret
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init platform without remote backend
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform init -backend=false
+
+      - name: Terraform validate platform
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform validate
+
+      - name: Terraform plan staging platform
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/platform/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
   preview-deploy-smoke:
     name: Deploy Preview and Smoke
     runs-on: ubuntu-latest
@@ -237,6 +288,7 @@ jobs:
       - docker-image
       - workflow-lint
       - terraform-preview-plan
+      - terraform-staging-plan
       - terraform-production-plan
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -449,6 +501,7 @@ jobs:
       - docker-image
       - workflow-lint
       - terraform-preview-plan
+      - terraform-staging-plan
       - terraform-production-plan
       - preview-deploy-smoke
     steps:
@@ -465,6 +518,7 @@ jobs:
             "${{ needs['docker-image'].result }}" \
             "${{ needs['workflow-lint'].result }}" \
             "${{ needs['terraform-preview-plan'].result }}" \
+            "${{ needs['terraform-staging-plan'].result }}" \
             "${{ needs['terraform-production-plan'].result }}"
           do
             if [ "$result" != "success" ]; then

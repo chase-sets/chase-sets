@@ -1,11 +1,11 @@
 ---
 name: plan-with-context
-description: Plan implementation or product features against the Chase Sets bounded-context model, ubiquitous language, code, and docs. Use when the user asks to plan or implement a feature with one-question-at-a-time prompts, recommended answers, code/doc cross-checks, plan/doc creation, goal creation, and no product code changes during planning.
+description: Plan implementation, operational workflow changes, or product features against the Chase Sets bounded-context model, ubiquitous language, code, and docs. Use when the user asks to plan or implement a change with one-question-at-a-time prompts, recommended answers, code/doc cross-checks, plan/doc creation, goal creation, and no product code changes during planning.
 ---
 
 # Plan With Context
 
-Plan a feature against the repo's domain model inside an isolated feature worktree. In this skill, "implement" means create the worktree, collect decisions, write planning artifacts/docs, and create a goal for implementation; do not change product code.
+Plan a change against the repo's domain model inside an isolated feature worktree. Product and domain implementation still require planning first. When the user explicitly asks this skill to make an operational workflow, infrastructure, documentation, or skill-maintenance change, complete the planning pass, record the decisions, then implement those non-product changes in the same worktree once no blocking questions remain.
 
 ## Repo Map
 
@@ -27,7 +27,8 @@ Plan a feature against the repo's domain model inside an isolated feature worktr
 5. Create or update `.codex/plans/<yyyymmdd>-<feature-slug>.md`, using the local current date for sortable ordering, for example `20260513-my-new-feature.md`.
 6. Ask the next blocking question with the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use interactive `request_user_input` prompts when available; otherwise ask in plain text.
 7. After each answer or finding, update the plan and any already-settled docs.
-8. When planning is complete, create a `/goal` whose objective references the worktree path, branch, plan path, and owns implementation, durable doc promotion, verification, visual checks, PR submission, passing CI, PR merge, preview deploy verification and cleanup, production deploy verification when the merge reaches `main`, and plan retention.
+8. When planning is complete, create a `/goal` whose objective references the worktree path, branch, plan path, and owns implementation, durable doc promotion, verification, visual checks when UI is in scope, PR submission, passing CI, PR merge, preview deploy verification and cleanup, staging deploy verification, production deploy verification when the merge reaches `main`, and plan retention.
+9. For explicit operational workflow, infrastructure, documentation, or skill-maintenance implementation requests, proceed with the scoped edits after the goal exists and update the plan as decisions are resolved.
 
 Walk questions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
 
@@ -62,16 +63,16 @@ Use `.codex/plans/<yyyymmdd>-<feature-slug>.md` as durable memory for compaction
 ## Goal Completion Criteria
 ```
 
-Update the plan after every worktree setup finding, answered question, repo finding, accepted/rejected recommendation, and doc change. `Worktree` must list the path, branch, sandbox id, dependency setup status, and current setup blockers if any. `Goal Completion Criteria` must list what the later implementation goal must verify, promote, retain, submit, merge, and confirm in deployed preview or production environments as appropriate for the change.
+Update the plan after every worktree setup finding, answered question, repo finding, accepted/rejected recommendation, and doc change. `Worktree` must list the path, branch, sandbox id, dependency setup status, and current setup blockers if any. `Goal Completion Criteria` must list what the later implementation goal must verify, promote, retain, submit, merge, and confirm in deployed preview, staging, or production environments as appropriate for the change.
 Do not delete the plan as part of cleanup; cleanup is limited to temporary artifacts. Keep the plan committed with the implementation so reviewers can inspect the planning decisions later.
 
-Treat "Use `$plan-with-context` to implement <feature>" as an explicit request to create the implementation goal after planning. If goal tooling is unavailable, write the exact goal prompt into the plan and tell the user.
+Treat "Use `$plan-with-context` to implement <feature>" or "Use `$plan-with-context` to make this change" as an explicit request to create the implementation goal after planning. If goal tooling is unavailable, write the exact goal prompt into the plan and tell the user.
 
 ## Planning Rules
 
 - Ask exactly one question at a time and wait for feedback.
 - Resolve questions from code/docs yourself when possible.
-- Do not edit product code, runtime code, schemas, tests, or UI during this skill.
+- Do not edit product code, runtime code, schemas, tests, or UI during the planning pass. For explicit operational workflow, infrastructure, documentation, or skill-maintenance implementation requests, keep edits scoped to those surfaces unless the user separately approves product/runtime changes.
 - Call out glossary conflicts immediately.
 - Propose a canonical term and owning context for vague or overloaded language.
 - Stress-test abstractions with scenarios covering normal flow, partial/multi-party flow, stale data or replay, cross-context handoff, failure/cancellation, and low-value card economics when relevant.
@@ -104,4 +105,4 @@ Offer an ADR only when the choice is hard to reverse, surprising without context
 
 Before pausing, report the worktree path, branch, sandbox status, plan path, resolved decisions, docs updated, contradictions found, and next unresolved question.
 
-This skill is complete when the feature worktree exists, the plan/docs are written in that worktree, and the implementation goal exists. The goal is complete only after implementation in the feature worktree, durable doc promotion, automated checks, mobile/desktop visual verification when relevant, PR submission, passing CI, PR merge, successful preview deploy verification and cleanup, successful production deploy verification when the merge reaches `main`, and committing the retained `.codex/plans/<yyyymmdd>-<feature-slug>.md`.
+This skill is complete when the feature worktree exists, the plan/docs are written in that worktree, and the implementation goal exists. For explicit operational workflow, infrastructure, documentation, or skill-maintenance implementation requests, the current turn may continue through the scoped implementation and local verification. The goal is complete only after implementation in the feature worktree, durable doc promotion, automated checks, mobile/desktop visual verification when relevant, PR submission, passing CI, PR merge, successful preview deploy verification and cleanup, successful staging deploy verification, successful production deploy verification when the merge reaches `main`, and committing the retained `.codex/plans/<yyyymmdd>-<feature-slug>.md`.

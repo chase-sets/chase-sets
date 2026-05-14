@@ -1,5 +1,6 @@
 locals {
   is_production       = var.environment == "production"
+  is_staging          = var.environment == "staging"
   is_non_production   = !local.is_production
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   database_name_token = replace(local.environment_slug, "-", "_")
@@ -12,7 +13,9 @@ locals {
     "landing-${local.environment_slug}.${var.root_domain}",
   ]
 
-  legacy_public_redirect_domains = []
+  legacy_public_redirect_domains = local.is_staging ? [
+    "staging.${var.root_domain}",
+  ] : []
 
   marketplace_domains = local.is_non_production ? [
     "marketplace-${local.environment_slug}.${var.root_domain}",
