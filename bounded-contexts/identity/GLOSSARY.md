@@ -162,6 +162,22 @@ Notes:
 - A user may have multiple authentication methods.
 - Auth owns the sign-in and registration journey that uses these methods.
 
+### Social Login Link
+
+A **Social Login Link** records that one external provider identity can authenticate one User.
+
+Examples:
+
+- A Google subject linked to a User
+- A Facebook subject linked to a User
+
+Notes:
+
+- Identity owns the durable link fact because it belongs to the User's authentication methods.
+- Auth owns the provider redirect, callback verification, and session journey.
+- A provider identity must not be linked to more than one User.
+- Provider tokens and raw profile payloads are not Identity facts.
+
 ### API Key
 
 An **API Key** is a credential used by software or integrations to access the system without interactive login.

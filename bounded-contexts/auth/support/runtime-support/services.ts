@@ -24,6 +24,7 @@ import {
   getAuthIdentityInvitation,
   getAuthIdentityUser,
   getAuthIdentityUserByEmail,
+  getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
   listActiveAuthMembershipsForUser,
   normalizeAuthEmail,
@@ -35,12 +36,16 @@ import {
   upsertSessionToken,
 } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
+import type { SocialLoginProvider } from "../social-login-support/providers";
 
 type AuthIdentityReadServices = Readonly<{
   bootstrapTenantId: string;
   normalizeEmail: typeof normalizeAuthEmail;
   getUser: (userId: string) => ReturnType<typeof getAuthIdentityUser>;
   getUserByEmail: (email: string) => ReturnType<typeof getAuthIdentityUserByEmail>;
+  getUserBySocialLogin: (
+    params: Parameters<typeof getAuthIdentityUserBySocialLogin>[1],
+  ) => ReturnType<typeof getAuthIdentityUserBySocialLogin>;
   listActiveMembershipsForUser: (
     userId: string,
   ) => ReturnType<typeof listActiveAuthMembershipsForUser>;
@@ -60,11 +65,13 @@ export type AuthServices = Readonly<{
   auth: ReturnType<typeof createAuthSecretAdapters>;
   identity: AuthIdentityReadServices;
   sessions: ReturnType<typeof createSessionRuntime>;
+  socialLoginProviders: readonly SocialLoginProvider[];
   projectors: readonly Projector[];
 }>;
 
 export type AuthHostPorts = Readonly<{
   transactionalEmailOutbox?: TransactionalEmailOutbox;
+  socialLoginProviders?: readonly SocialLoginProvider[];
 }>;
 
 export function createAuthServices(
@@ -100,6 +107,8 @@ export function createAuthServices(
       normalizeEmail: normalizeAuthEmail,
       getUser: (userId) => getAuthIdentityUser(db, userId),
       getUserByEmail: (email) => getAuthIdentityUserByEmail(db, email),
+      getUserBySocialLogin: (params) =>
+        getAuthIdentityUserBySocialLogin(db, params),
       listActiveMembershipsForUser: (userId) =>
         listActiveAuthMembershipsForUser(db, userId),
       getActiveMembershipForUserAccount: (userId, accountId) =>
@@ -107,6 +116,7 @@ export function createAuthServices(
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
     },
     sessions,
+    socialLoginProviders: ports.socialLoginProviders ?? [],
     projectors: [...sessions.projectors],
   };
 }

@@ -38,6 +38,10 @@ function resetConfigEnv() {
   delete process.env.EASYPOST_API_KEY;
   delete process.env.EASYPOST_API_BASE_URL;
   delete process.env.EASYPOST_MODE;
+  delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_ID;
+  delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET;
+  delete process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID;
+  delete process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET;
   delete process.env.PAYMENT_RECONCILIATION_INTERVAL_MS;
   delete process.env.PAYOUT_RECONCILIATION_INTERVAL_MS;
   delete process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS;
@@ -280,6 +284,25 @@ describe("platform api config", () => {
     expect(loadConfig().paymentProcessor).toMatchObject({
       kind: "stripe",
       checkoutUiMode: "hosted",
+    });
+  });
+
+  it("loads social login provider credentials", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_ID = "google-client";
+    process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET = "google-secret";
+    process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID = "facebook-client";
+    process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET = "facebook-secret";
+
+    expect(loadConfig().socialLogin).toEqual({
+      google: {
+        clientId: "google-client",
+        clientSecret: "google-secret",
+      },
+      facebook: {
+        clientId: "facebook-client",
+        clientSecret: "facebook-secret",
+      },
     });
   });
 

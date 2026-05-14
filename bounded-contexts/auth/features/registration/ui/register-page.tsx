@@ -6,6 +6,7 @@ import {
   Card,
   Divider,
   Inline,
+  LinkButton,
   PasswordInput,
   SegmentedControl,
   Stack,
@@ -72,6 +73,7 @@ type RegistrationPageProps = Readonly<{
   errorMessage?: string | null;
   hiddenFields?: readonly { name: string; value: string }[];
   notice?: AuthActionNotice | null;
+  returnTo?: string;
 }>;
 
 type RegistrationFormCardProps = Readonly<{
@@ -308,6 +310,31 @@ export function RegisterPage(props: RegistrationPageProps) {
       {props.notice?.status === "passkey-recovery" ? (
         <Banner title={t("auth.features.registration.ui.registerPage.passkey.added")} description={props.notice.message} tone="success" />
       ) : null}
+
+      <Card glow>
+        <Stack gap={3}>
+          <Inline>
+            <Badge tone="accent">
+              {t("auth.features.registration.ui.registerPage.fastest")}</Badge>
+            <Text size="sm" tone="secondary">
+              {t("auth.features.registration.ui.registerPage.use.an.account.you.already.have")}</Text>
+          </Inline>
+          <Inline>
+            <LinkButton
+              href={`/api/auth/social/google/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              leadingIcon="badgeCheck"
+              block
+            >
+              {t("auth.features.registration.ui.registerPage.continue.with.google")}</LinkButton>
+            <LinkButton
+              href={`/api/auth/social/facebook/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              leadingIcon="users"
+              block
+            >
+              {t("auth.features.registration.ui.registerPage.continue.with.facebook")}</LinkButton>
+          </Inline>
+        </Stack>
+      </Card>
 
       <SegmentedControl
         fullWidth

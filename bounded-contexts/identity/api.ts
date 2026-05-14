@@ -267,6 +267,72 @@ async function registerPasskeyCredentialForAuth(
   await drainProjectors(services);
 }
 
+class SocialLoginLinkConflictError extends Error {
+  constructor() {
+    super("Social login is already linked to another user.");
+  }
+}
+
+async function linkSocialLoginForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    providerName: "google" | "facebook";
+    providerSubject: string;
+    email: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const existingLink = await services.users.getUserBySocialLogin({
+    providerName: params.providerName,
+    providerSubject: params.providerSubject,
+  });
+
+  if (existingLink && existingLink.user_id !== params.userId) {
+    throw new SocialLoginLinkConflictError();
+  }
+
+  const user = await services.users.getUser(params.userId);
+  if (!user) {
+    throw new Error("User not found.");
+  }
+
+  if (!user.auth_methods.includes("social-login")) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${params.userId}`,
+      command: { type: "EnableAuthMethod", authMethod: "social-login" },
+      context: params.context,
+    });
+  }
+
+  const alreadyLinked = user.social_login_links.some((link) => {
+    if (!link || typeof link !== "object") {
+      return false;
+    }
+    const record = link as { providerName?: unknown; providerSubject?: unknown };
+    return (
+      record.providerName === params.providerName &&
+      record.providerSubject === params.providerSubject
+    );
+  });
+
+  if (!alreadyLinked) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${params.userId}`,
+      command: {
+        type: "LinkSocialLogin",
+        providerName: params.providerName,
+        providerSubject: params.providerSubject,
+        email: params.email,
+        linkedAt: new Date().toISOString(),
+      },
+      context: params.context,
+    });
+  }
+
+  await drainProjectors(services);
+}
+
 async function acceptInvitationForUserFromAuth(
   services: IdentityServices,
   params: Readonly<{
@@ -404,6 +470,41 @@ export function buildIdentityApi(services: IdentityServices) {
       credentialId: String(body.credentialId ?? ""),
       context: getRequiredContext(c),
     });
+    return c.json({ ok: true });
+  });
+
+  app.post("/internal/auth/users/:id/social-login-link", async (c) => {
+    const body = await c.req.json();
+    const providerName = String(body.providerName ?? "");
+    if (providerName !== "google" && providerName !== "facebook") {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: "Social login provider is unsupported.",
+        },
+      }, 400);
+    }
+
+    try {
+      await linkSocialLoginForAuth(services, {
+        userId: c.req.param("id"),
+        providerName,
+        providerSubject: String(body.providerSubject ?? ""),
+        email: String(body.email ?? ""),
+        context: getBootstrapContext(c),
+      });
+    } catch (error) {
+      if (error instanceof SocialLoginLinkConflictError) {
+        return c.json({
+          error: {
+            code: "social_login_already_linked",
+            message: "Social login is already linked to another user.",
+          },
+        }, 409);
+      }
+
+      throw error;
+    }
     return c.json({ ok: true });
   });
 

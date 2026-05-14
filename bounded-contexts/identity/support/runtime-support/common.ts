@@ -12,7 +12,8 @@ export type InvitationStatus =
   | "expired";
 export type SessionStatus = "active" | "revoked" | "expired";
 export type ApiKeyStatus = "active" | "revoked";
-export type AuthMethodKey = "password" | "magic-link" | "passkey";
+export type AuthMethodKey = "password" | "magic-link" | "passkey" | "social-login";
+export type SocialLoginProviderKey = "google" | "facebook";
 export type ContactMethodType = "email" | "phone";
 export type ContactMethod = Readonly<{
   contactMethodId: string;

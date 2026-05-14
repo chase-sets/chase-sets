@@ -44,3 +44,25 @@ Notes:
 
 - Passkey is the default registration method for purchase-intent checkout, with magic link available as the passwordless fallback.
 - Checkout owns the purchase-intent workflow state; Auth owns registration, authentication method selection, session creation, account selection, and safe return paths.
+
+## Social Login
+
+A **Social Login** is an Auth-owned sign-in or registration journey that uses an external identity provider account to authenticate a user.
+
+Notes:
+
+- Google and Facebook are the first supported Social Login Providers.
+- Auth owns provider redirect state, callback verification, safe return paths, session creation, and account-selection continuation.
+- Identity owns the durable user-level Social Login Link that records which provider identity can authenticate a user.
+- Social Login must not create or link a user unless the provider returns a verified email address.
+
+## Social Login Provider
+
+A **Social Login Provider** is an external identity provider configured for Social Login.
+
+Examples:
+
+- Google
+- Facebook
+
+Provider access tokens, client secrets, and raw provider payloads are integration details. They must stay out of Auth session events and Identity user events.

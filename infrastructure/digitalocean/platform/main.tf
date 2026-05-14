@@ -417,6 +417,34 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.google_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.google_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.facebook_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.facebook_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "REALTIME_STREAM_LIMITER"
           value = local.is_staging ? "local" : "postgres"
           scope = "RUN_TIME"
@@ -658,6 +686,34 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "EASYPOST_MODE"
           value = var.easypost_mode
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.google_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.google_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.facebook_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.facebook_social_login_client_secret
+          type  = "SECRET"
           scope = "RUN_TIME"
         }
 

@@ -66,6 +66,12 @@ export type IdentityAuthMutationClient = Readonly<{
     userId: string;
     credentialId: string;
   }>) => Promise<void>;
+  linkSocialLogin: (params: Readonly<{
+    userId: string;
+    providerName: "google" | "facebook";
+    providerSubject: string;
+    email: string;
+  }>) => Promise<void>;
   claimGuestAccount: (params: Readonly<{
     accountId: string;
     userId: string;
@@ -113,6 +119,13 @@ export function createIdentityAuthRequestClient(
     },
     registerPasskeyCredential: async ({ userId, credentialId }) => {
       await postJson(`users/${userId}/passkey-credential`, { credentialId });
+    },
+    linkSocialLogin: async ({ userId, providerName, providerSubject, email }) => {
+      await postJson(`users/${userId}/social-login-link`, {
+        providerName,
+        providerSubject,
+        email,
+      });
     },
     claimGuestAccount: ({ accountId, userId, roleKey }) =>
       postJson(`guest-accounts/${accountId}/claim`, {

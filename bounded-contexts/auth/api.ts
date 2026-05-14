@@ -8,6 +8,7 @@ import { registerPasskeyRoutes } from "./support/api-support/passkey-routes";
 import { registerPasswordRoutes } from "./support/api-support/password-routes";
 import { registerRegistrationRoutes } from "./support/api-support/register-routes";
 import { registerSessionApiRoutes } from "./support/api-support/session-routes";
+import { registerSocialLoginRoutes } from "./support/api-support/social-login-routes";
 export type { AuthApiEnv } from "./support/api-support/support";
 import type { AuthApiEnv } from "./support/api-support/support";
 
@@ -15,6 +16,7 @@ export function buildAuthApi(services: AuthServices) {
   const app = new Hono<AuthApiEnv>();
 
   registerRegistrationRoutes(app, services);
+  registerSocialLoginRoutes(app, services);
   registerPasswordRoutes(app, services);
   registerMagicLinkRoutes(app, services);
   registerGuestCheckoutRoutes(app, services);

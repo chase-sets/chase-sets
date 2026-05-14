@@ -45,6 +45,16 @@ export type PlatformApiPostageConfig =
       mode: "test" | "production";
     }>;
 
+export type PlatformApiSocialLoginProviderConfig = Readonly<{
+  clientId: string;
+  clientSecret: string;
+}>;
+
+export type PlatformApiSocialLoginConfig = Readonly<{
+  google?: PlatformApiSocialLoginProviderConfig;
+  facebook?: PlatformApiSocialLoginProviderConfig;
+}>;
+
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
 export type PlatformApiBaseConfig = Readonly<{
@@ -115,6 +125,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readon
   paymentProcessor: PlatformApiPaymentProcessorConfig;
   moneyMovement: PlatformApiMoneyMovementConfig;
   postage: PlatformApiPostageConfig;
+  socialLogin: PlatformApiSocialLoginConfig;
   stripeGoLive: StripeGoLiveCheckReport;
 }>;
 
@@ -322,6 +333,10 @@ export function loadConfig(): PlatformApiConfig {
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
   const easyPostMode =
     getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
+  const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
+  const googleSocialLoginClientSecret = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET");
+  const facebookSocialLoginClientId = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_ID");
+  const facebookSocialLoginClientSecret = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET");
   const productionLike = isProductionDeployment();
 
   if (
@@ -360,6 +375,41 @@ export function loadConfig(): PlatformApiConfig {
       `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     );
   }
+  if (
+    productionLike &&
+    Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)
+  ) {
+    throw new Error(
+      "GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.",
+    );
+  }
+  if (
+    productionLike &&
+    Boolean(facebookSocialLoginClientId) !== Boolean(facebookSocialLoginClientSecret)
+  ) {
+    throw new Error(
+      "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID and FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.",
+    );
+  }
+
+  const socialLogin: PlatformApiSocialLoginConfig = {
+    ...(googleSocialLoginClientId && googleSocialLoginClientSecret
+      ? {
+          google: {
+            clientId: googleSocialLoginClientId,
+            clientSecret: googleSocialLoginClientSecret,
+          },
+        }
+      : {}),
+    ...(facebookSocialLoginClientId && facebookSocialLoginClientSecret
+      ? {
+          facebook: {
+            clientId: facebookSocialLoginClientId,
+            clientSecret: facebookSocialLoginClientSecret,
+          },
+        }
+      : {}),
+  };
 
   const moneyMovement = stripeSecretKey && stripeWebhookSecret
     ? {
@@ -395,6 +445,7 @@ export function loadConfig(): PlatformApiConfig {
         fakeFallbackAllowed: !productionLike,
         liveSecretKeyLikely: stripeSecretKey.startsWith("sk_live"),
       },
+      socialLogin,
       paymentProcessor: {
         kind: "stripe",
         secretKey: stripeSecretKey,
@@ -427,6 +478,7 @@ export function loadConfig(): PlatformApiConfig {
       fakeFallbackAllowed: !productionLike,
       liveSecretKeyLikely: Boolean(stripeSecretKey?.startsWith("sk_live")),
     },
+    socialLogin,
     paymentProcessor: {
       kind: "fake",
     },
