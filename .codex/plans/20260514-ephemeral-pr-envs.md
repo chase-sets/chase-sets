@@ -77,6 +77,9 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - `pnpm --filter @chase-sets/platform-runtime test` after fixing worker runner scheduling fairness.
 - `pnpm --filter @chase-sets/platform-runtime typecheck` after fixing worker runner scheduling fairness.
 - `pnpm run verify:static` after fixing worker runner scheduling fairness.
+- `pnpm run test:platform-smoke` after preventing explicit production smoke targets from falling back to optional local sandbox marketplace URLs.
+- `pnpm run verify:static` after preventing explicit production smoke targets from falling back to optional local sandbox marketplace URLs.
+- `SMOKE_WRITE_WAITLIST=false SMOKE_REQUIRE_ADMIN=false pnpm run smoke:platform -- https://chasesets.com https://admin.chasesets.com` passed locally against the production domains after the URL fallback fix.
 - `docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.12 -color` after adding the production domain wait and preview pool password fallback.
 - `pnpm run verify:metadata` after adding the production domain wait and preview pool password fallback.
 - `git diff --check` after adding the production domain wait and preview pool password fallback.
@@ -102,6 +105,7 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - The first production apply created the production App Platform app and database resources, but smoke raced first-time TLS certificate provisioning for `chasesets.com`; production now waits for App Platform domain activation before smoke.
 - Follow-up PR #87 adds that production domain wait. Its first preview deploy found that DigitalOcean can return a null connection pool password during apply, so preview database URL construction now falls back to the owning database user's password while keeping the pool host, port, and pool-name path.
 - PR #87's next live preview deploy confirmed the password fallback and domain wait, then exposed a worker scheduler fairness bug: only the first four of 101 runners recorded status, starving the Public Presence waitlist projection. The worker runner loop now rotates through runners so low-concurrency preview workers eventually process every projector/subscription/job.
+- PR #87 preview passed and the preview cleanup destroyed the PR environment successfully after merge. The merge-triggered production deployment reached active production domains, confirming the certificate wait fixed the browser TLS failure, but smoke then fell back to the local sandbox marketplace URL because production only passes landing/admin smoke targets. Follow-up smoke URL resolution now disables optional sandbox URL fallback whenever explicit target URLs are supplied.
 - Production smoke must still be confirmed after the production domain wait is merged and the latest main deployment reruns.
 
 ## Documentation To Promote
