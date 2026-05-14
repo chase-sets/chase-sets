@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useSearchParams } from "react-router";
+import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
@@ -19,9 +20,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createMarketplaceRequestApiClient(request);
 
   try {
-    return {
-      submittedOffer: await api.getSubmittedOffer(params.offerId!),
-    };
+    return await loadFreshlyWrittenResource({
+      request,
+      isNotFound: (error) =>
+        error instanceof MarketplaceApiError && error.status === 404,
+      load: async () => ({
+        submittedOffer: await api.getSubmittedOffer(params.offerId!),
+      }),
+    });
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
       throw new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.not.found"), { status: 404 });

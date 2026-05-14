@@ -5,6 +5,10 @@ import type {
   MetaFunction,
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -26,7 +30,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     batches: await api.listImportBatches(DEFAULT_IMPORT_QUERY),
     storageLocations: await api.listStorageLocations("limit=100&offset=0"),
-    detail: batchId ? await api.getImportBatch(batchId) : null,
+    detail: batchId
+      ? await loadFreshlyWrittenResource({
+          request,
+          isNotFound: (error) =>
+            error instanceof InventoryApiError && error.status === 404,
+          load: () => api.getImportBatch(batchId),
+        })
+      : null,
   };
 }
 
@@ -54,7 +65,12 @@ export async function action({ request }: ActionFunctionArgs) {
         sourceFilename:
           (file?.name ?? String(formData.get("sourceFilename") ?? "").trim()) || null,
       });
-      return redirect(`/account/inventory/imports/${result.batch_id}`);
+      return redirect(
+        appendFreshWriteToken(
+          `/account/inventory/imports/${result.batch_id}`,
+          result,
+        ),
+      );
     }
 
     if (intent === "commit-batch") {

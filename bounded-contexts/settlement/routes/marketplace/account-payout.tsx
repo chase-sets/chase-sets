@@ -4,6 +4,7 @@ import type {
   MetaFunction,
 } from "react-router";
 import { useLoaderData } from "react-router";
+import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -21,12 +22,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const settlementApi = createSettlementRequestApiClient(request);
 
   try {
-    const payout = await settlementApi.getPayout(params.payoutId!);
-    return {
-      payout,
-      requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
-      showSupportDetails: actor.permissions.includes("payouts.reconcile"),
-    };
+    return await loadFreshlyWrittenResource({
+      request,
+      isNotFound: (error) =>
+        error instanceof SettlementApiError && error.status === 404,
+      load: async () => ({
+        payout: await settlementApi.getPayout(params.payoutId!),
+        requestSuccess: new URL(request.url).searchParams.get("requested") === "1",
+        showSupportDetails: actor.permissions.includes("payouts.reconcile"),
+      }),
+    });
   } catch (error) {
     if (error instanceof SettlementApiError && error.status === 404) {
       throw new Response(t("settlement.routes.marketplace.accountPayout.payout.not.found"), { status: 404 });

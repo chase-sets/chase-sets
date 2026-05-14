@@ -6,6 +6,10 @@ import type {
 } from "react-router";
 import { useEffect } from "react";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -13,7 +17,10 @@ import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
-import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import {
+  CheckoutApiError,
+  createCheckoutRequestApiClient,
+} from "../support/request-support/api-client";
 import {
   createIdentityRequestApiClient,
   type ShippingAddress,
@@ -244,7 +251,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
   }
   const api = createCheckoutRequestApiClient(request);
-  const session = await api.getCheckoutSession(params.sessionId);
+  const session = await loadFreshlyWrittenResource({
+    request,
+    isNotFound: (error) =>
+      error instanceof CheckoutApiError && error.status === 404,
+    load: () => api.getCheckoutSession(params.sessionId!),
+  });
   if (session.payment_id) {
     throw redirect(paymentPathForActor(actor, session.payment_id));
   }
@@ -312,12 +324,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
         shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
       });
       if (result.offer_id) {
-        return redirect(`/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`);
+        return redirect(
+          appendFreshWriteToken(
+            `/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`,
+            result,
+          ),
+        );
       }
       if (!result.payment_id) {
         throw new Error("Checkout confirmation did not return a payment.");
       }
-      return redirect(paymentPathForActor(actor, result.payment_id));
+      return redirect(
+        appendFreshWriteToken(paymentPathForActor(actor, result.payment_id), result),
+      );
     }
 
     return null;
