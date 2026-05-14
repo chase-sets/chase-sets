@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { LayoutGroup } from "motion/react";
 import { ChaseSetsLogo } from "../../brand/chase-sets-logo";
 import type { IconName } from "../../icons";
@@ -57,27 +57,17 @@ function renderNavigationItem(
   );
 
   if (orientation === "horizontal" && item.children?.length) {
-    const childIsActive = active;
-
     return (
-      <details key={item.key} className="group relative">
-        <summary
-          className={cx(
-            className,
-            "list-none [&::-webkit-details-marker]:hidden",
-            childIsActive && "bg-surface-2 text-accent shadow-tokenSm"
-          )}
-        >
-          {childIsActive && groupId ? renderActivePill(groupId) : null}
-          <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
-          <Icon name="chevronDown" size="sm" tone={childIsActive ? "accent" : "secondary"} />
-        </summary>
-        <div className="modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay">
-          {item.children.map((child) =>
-            renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey)
-          )}
-        </div>
-      </details>
+      <NavigationItemGroup
+        key={item.key}
+        item={item}
+        active={active}
+        className={className}
+        content={content}
+        groupId={groupId}
+        onSelect={onSelect}
+        activeKey={activeKey}
+      />
     );
   }
 
@@ -100,6 +90,73 @@ function renderNavigationItem(
       {active && groupId ? renderActivePill(groupId) : null}
       <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
     </button>
+  );
+}
+
+function NavigationItemGroup({
+  item,
+  active,
+  className,
+  content,
+  groupId,
+  onSelect,
+  activeKey,
+}: {
+  item: NavigationItem;
+  active: boolean;
+  className: string;
+  content: ReactNode;
+  groupId?: string;
+  onSelect?: (key: string) => void;
+  activeKey?: string;
+}) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const closeWhenPointerStartsOutside = (event: PointerEvent) => {
+      const details = detailsRef.current;
+
+      if (!details || !(event.target instanceof Node) || details.contains(event.target)) {
+        return;
+      }
+
+      setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeWhenPointerStartsOutside, true);
+
+    return () => document.removeEventListener("pointerdown", closeWhenPointerStartsOutside, true);
+  }, [open]);
+
+  return (
+    <details
+      ref={detailsRef}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="group relative"
+    >
+      <summary
+        className={cx(
+          className,
+          "list-none [&::-webkit-details-marker]:hidden",
+          active && "bg-surface-2 text-accent shadow-tokenSm"
+        )}
+      >
+        {active && groupId ? renderActivePill(groupId) : null}
+        <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
+        <Icon name="chevronDown" size="sm" tone={active ? "accent" : "secondary"} />
+      </summary>
+      <div className="modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay">
+        {item.children?.map((child) =>
+          renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey)
+        )}
+      </div>
+    </details>
   );
 }
 
