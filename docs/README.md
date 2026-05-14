@@ -22,6 +22,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Postage Operations](./runbooks/postage-operations.md): postage label provider configuration and label smoke checks.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
+- [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
 
 ## Owner-Owned Documentation
@@ -38,6 +39,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Marketplace Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md)
 - [Marketplace Limited Offer Demand Signals](../bounded-contexts/marketplace/docs/limited-offer-demand-signals.md)
 - [Marketplace Seller Listing Availability](../bounded-contexts/marketplace/docs/seller-listing-availability.md)
+- [Auth Social Login Journey Policy](../bounded-contexts/auth/docs/social-login.md)
 - [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md)
 - [Settlement Account Money Navigation](../bounded-contexts/settlement/docs/account-money-navigation.md)
 

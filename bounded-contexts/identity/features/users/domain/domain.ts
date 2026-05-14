@@ -15,8 +15,16 @@ import {
   type ContactMethod,
   type ContactMethodType,
   type EmptyEventData,
+  type SocialLoginProviderKey,
   type UserStatus,
 } from "../../../support/runtime-support/common";
+
+export type SocialLoginLink = Readonly<{
+  providerName: SocialLoginProviderKey;
+  providerSubject: string;
+  email: string;
+  linkedAt: string;
+}>;
 
 export type UserState = Readonly<{
   id: UserId | null;
@@ -29,6 +37,7 @@ export type UserState = Readonly<{
   authMethods: readonly AuthMethodKey[];
   passwordCredentialId: string | null;
   passkeyCredentialIds: readonly string[];
+  socialLoginLinks: readonly SocialLoginLink[];
 }>;
 
 export const initialUserState: UserState = {
@@ -42,6 +51,7 @@ export const initialUserState: UserState = {
   authMethods: [],
   passwordCredentialId: null,
   passkeyCredentialIds: [],
+  socialLoginLinks: [],
 };
 
 export type CreateUserCommand = Readonly<{
@@ -88,6 +98,14 @@ export type RegisterPasskeyCredentialCommand = Readonly<{
   credentialId: string;
 }>;
 
+export type LinkSocialLoginCommand = Readonly<{
+  type: "LinkSocialLogin";
+  providerName: SocialLoginProviderKey;
+  providerSubject: string;
+  email: string;
+  linkedAt: string;
+}>;
+
 export type SuspendUserCommand = Readonly<{ type: "SuspendUser" }>;
 export type ReactivateUserCommand = Readonly<{ type: "ReactivateUser" }>;
 
@@ -99,6 +117,7 @@ export type UserCommand =
   | EnableAuthMethodCommand
   | AttachPasswordCredentialCommand
   | RegisterPasskeyCredentialCommand
+  | LinkSocialLoginCommand
   | SuspendUserCommand
   | ReactivateUserCommand;
 
@@ -161,6 +180,11 @@ export type PasskeyCredentialRegisteredEvent = DomainEvent<
   }>
 >;
 
+export type SocialLoginLinkedEvent = DomainEvent<
+  "identity.user.social-login-linked",
+  SocialLoginLink
+>;
+
 export type UserSuspendedEvent = DomainEvent<"identity.user.suspended", EmptyEventData>;
 export type UserReactivatedEvent = DomainEvent<
   "identity.user.reactivated",
@@ -175,6 +199,7 @@ export type UserEvent =
   | AuthMethodEnabledEvent
   | PasswordCredentialAttachedEvent
   | PasskeyCredentialRegisteredEvent
+  | SocialLoginLinkedEvent
   | UserSuspendedEvent
   | UserReactivatedEvent;
 
@@ -278,6 +303,30 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
           data: { credentialId: command.credentialId },
         },
       ];
+    case "LinkSocialLogin": {
+      requireCreatedUser(state);
+      const providerSubject = normalizeLabel(command.providerSubject);
+      assert(providerSubject.length > 0, "Social login subject is required.");
+      assert(
+        !state.socialLoginLinks.some(
+          (link) =>
+            link.providerName === command.providerName &&
+            link.providerSubject === providerSubject,
+        ),
+        "Social login is already linked.",
+      );
+      return [
+        {
+          type: "identity.user.social-login-linked",
+          data: {
+            providerName: command.providerName,
+            providerSubject,
+            email: normalizeEmail(command.email),
+            linkedAt: command.linkedAt,
+          },
+        },
+      ];
+    }
     case "SuspendUser":
       requireCreatedUser(state);
       assert(state.status === "active", "Only active users can be suspended.");
@@ -318,6 +367,7 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (
         authMethods: [],
         passwordCredentialId: null,
         passkeyCredentialIds: [],
+        socialLoginLinks: [],
       };
     case "identity.user.profile-updated":
       return {
@@ -365,6 +415,23 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (
           ...state.passkeyCredentialIds,
           event.data.credentialId,
         ]),
+      };
+    case "identity.user.social-login-linked":
+      return {
+        ...state,
+        socialLoginLinks: [
+          ...state.socialLoginLinks,
+          {
+            providerName: event.data.providerName,
+            providerSubject: event.data.providerSubject,
+            email: event.data.email,
+            linkedAt: event.data.linkedAt,
+          },
+        ].sort((left, right) =>
+          `${left.providerName}:${left.providerSubject}`.localeCompare(
+            `${right.providerName}:${right.providerSubject}`,
+          ),
+        ),
       };
     case "identity.user.suspended":
       return { ...state, status: "suspended" };

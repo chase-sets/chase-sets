@@ -56,6 +56,13 @@ function isAnonymousAllowed(method: string, pathname: string) {
     return true;
   }
 
+  if (
+    method.toUpperCase() === "GET" &&
+    pathname.startsWith("/api/auth/social/")
+  ) {
+    return true;
+  }
+
   return false;
 }
 

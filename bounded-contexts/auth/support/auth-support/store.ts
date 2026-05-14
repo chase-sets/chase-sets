@@ -343,6 +343,64 @@ export async function insertAccountSelectionToken(
   );
 }
 
+export async function insertSocialLoginState(
+  db: PgQueryable,
+  params: Readonly<{
+    stateHash: string;
+    providerName: string;
+    journey: string;
+    returnTo: string;
+    expiresAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO identity_social_login_states (
+       state_hash,
+       provider_name,
+       journey,
+       return_to,
+       expires_at,
+       created_at
+     )
+     VALUES ($1, $2, $3, $4, $5, now())`,
+    [
+      params.stateHash,
+      params.providerName,
+      params.journey,
+      params.returnTo,
+      params.expiresAt,
+    ],
+  );
+}
+
+export async function consumeSocialLoginState(
+  db: PgQueryable,
+  params: Readonly<{
+    stateHash: string;
+    providerName: string;
+  }>,
+) {
+  const result = await db.query<{
+    state_hash: string;
+    provider_name: string;
+    journey: string;
+    return_to: string;
+    expires_at: string;
+    consumed_at: string | null;
+  }>(
+    `UPDATE identity_social_login_states
+     SET consumed_at = now()
+     WHERE state_hash = $1
+       AND provider_name = $2
+       AND consumed_at IS NULL
+       AND expires_at > now()
+     RETURNING state_hash, provider_name, journey, return_to, expires_at, consumed_at`,
+    [params.stateHash, params.providerName],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 export async function getAccountSelectionTokenByHash(
   db: PgQueryable,
   tokenHash: string,
