@@ -106,12 +106,13 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - Follow-up PR #87 adds that production domain wait. Its first preview deploy found that DigitalOcean can return a null connection pool password during apply, so preview database URL construction now falls back to the owning database user's password while keeping the pool host, port, and pool-name path.
 - PR #87's next live preview deploy confirmed the password fallback and domain wait, then exposed a worker scheduler fairness bug: only the first four of 101 runners recorded status, starving the Public Presence waitlist projection. The worker runner loop now rotates through runners so low-concurrency preview workers eventually process every projector/subscription/job.
 - PR #87 preview passed and the preview cleanup destroyed the PR environment successfully after merge. The merge-triggered production deployment reached active production domains, confirming the certificate wait fixed the browser TLS failure, but smoke then fell back to the local sandbox marketplace URL because production only passes landing/admin smoke targets. Follow-up smoke URL resolution now disables optional sandbox URL fallback whenever explicit target URLs are supplied.
-- Production smoke must still be confirmed after the production domain wait is merged and the latest main deployment reruns.
+- PR #88 preview passed, preview cleanup destroyed the PR environment successfully after merge, and the merge-triggered production deployment passed the production domain wait, smoke check, and production branch fast-forward.
+- Direct checks against `https://chasesets.com` and `https://admin.chasesets.com` returned `200 OK` after production deployment, and DigitalOcean no longer listed PR #87 or PR #88 preview apps or databases.
 
 ## Documentation To Promote
 
 - `docs/runbooks/digitalocean-platform-deployment.md`: updated with preview environment lifecycle, required secrets, branch protection, production-on-main flow, and cleanup.
-- `.codex/skills/plan-with-context/SKILL.md`: updated cleanup and goal wording to say preview cleanup and production deploy verification instead of staging deploy verification.
+- `.codex/skills/plan-with-context/SKILL.md` and `.codex/skills/plan-with-context/agents/openai.yaml`: updated cleanup, goal, and default agent wording to say preview cleanup and production deploy verification instead of staging deploy verification.
 
 ## Goal Completion Criteria
 
