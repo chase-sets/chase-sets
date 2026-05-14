@@ -25,6 +25,7 @@ export function buildCheckoutSessionProjectionHandlers(
            optimization_goal,
            fulfillment_preview_revision,
            shipping_option,
+           shipping_address_id,
            shipping_address,
            lines,
            order_ids,
@@ -32,13 +33,14 @@ export function buildCheckoutSessionProjectionHandlers(
            submitted_offer_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, '[]'::jsonb, NULL, NULL, $8, $8)
+         ) VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, $7, '[]'::jsonb, NULL, NULL, $8, $8)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
              optimization_goal = EXCLUDED.optimization_goal,
              fulfillment_preview_revision = EXCLUDED.fulfillment_preview_revision,
              shipping_option = EXCLUDED.shipping_option,
+             shipping_address_id = EXCLUDED.shipping_address_id,
              shipping_address = EXCLUDED.shipping_address,
              lines = EXCLUDED.lines,
              updated_at = EXCLUDED.updated_at`,
@@ -107,16 +109,22 @@ export function buildCheckoutSessionProjectionHandlers(
     "checkout.session.shipping-address-set": async (event) => {
       const data = event.data as {
         sessionId: string;
-        shippingAddress: unknown;
+        shippingAddress: { shippingAddressId?: string | null } | null;
         selectedAt: string;
       };
 
       await db.query(
         `UPDATE checkout_session_pages
-         SET shipping_address = $2,
-             updated_at = $3
+         SET shipping_address_id = $2,
+             shipping_address = $3,
+             updated_at = $4
          WHERE session_id = $1`,
-        [data.sessionId, JSON.stringify(data.shippingAddress), data.selectedAt],
+        [
+          data.sessionId,
+          data.shippingAddress?.shippingAddressId ?? null,
+          JSON.stringify(data.shippingAddress),
+          data.selectedAt,
+        ],
       );
     },
     "checkout.session.orders-created": async (event) => {

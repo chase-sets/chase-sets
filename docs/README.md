@@ -29,6 +29,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 
 - [Design System](../packages/design-system/README.md)
 - [Marketplace Design Direction](../packages/design-system/MARKETPLACE_SYSTEM.md)
+- [Progressive Disclosure](../packages/design-system/PROGRESSIVE_DISCLOSURE.md)
 - [Localization Contract](../contracts/localization/README.md)
 - [MCP Contract](../contracts/mcp/README.md)
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)

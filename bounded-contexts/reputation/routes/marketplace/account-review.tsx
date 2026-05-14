@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
+import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -18,9 +19,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createReputationRequestApiClient(request);
 
   try {
-    return {
-      review: await api.getAccountReview(params.reviewId!),
-    };
+    return await loadFreshlyWrittenResource({
+      request,
+      isNotFound: (error) =>
+        error instanceof ReputationApiError && error.status === 404,
+      load: async () => ({
+        review: await api.getAccountReview(params.reviewId!),
+      }),
+    });
   } catch (error) {
     if (error instanceof ReputationApiError && error.status === 404) {
       throw new Response(t("reputation.routes.marketplace.accountReview.review.not.found"), { status: 404 });

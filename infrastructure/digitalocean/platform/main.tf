@@ -353,6 +353,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
+          value = "http://localhost:8080"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "STRIPE_SECRET_KEY"
           value = var.stripe_secret_key
           type  = "SECRET"

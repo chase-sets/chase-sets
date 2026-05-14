@@ -19,6 +19,7 @@ import { hasPermission } from "./support/request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 export type { CurrentActorDisplay } from "./support/request-support/current-actor-display";
+export type { ShippingAddress } from "./features/shipping-addresses/api/contracts";
 export {
   bootstrapPlatformAdminIdentity,
   type PlatformAdminBootstrapConfig,
@@ -56,7 +57,7 @@ export type IdentityAuthMutationClient = Readonly<{
     givenName?: string;
     familyName?: string;
     consents?: readonly { policyKey: string; policyVersion: string }[];
-  }>) => Promise<Readonly<{ userId: string; accountId: string }>>;
+  }>) => Promise<Readonly<{ userId: string; accountId: string; membershipId: string }>>;
   enablePasswordCredential: (params: Readonly<{
     userId: string;
     credentialId: string;

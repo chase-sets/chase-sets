@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { Form, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/server";
 import {
@@ -283,7 +284,9 @@ export async function action({ request }: ActionFunctionArgs) {
     const session = await api.createCheckoutSession(
       checkoutSessionRequestFromForm(formData),
     );
-    const response = redirect(`/checkout/${session.session_id}`);
+    const response = redirect(
+      appendFreshWriteToken(`/checkout/${session.session_id}`, session),
+    );
     if (anonymousCartId) {
       appendClearedAnonymousCartCookie(response.headers);
     }
@@ -342,7 +345,9 @@ export async function action({ request }: ActionFunctionArgs) {
   const session = await guestApi.createCheckoutSession(
     checkoutSessionRequestFromForm(formData),
   );
-  const response = redirect(`/checkout/${session.session_id}`);
+  const response = redirect(
+    appendFreshWriteToken(`/checkout/${session.session_id}`, session),
+  );
   appendGuestCheckoutCookie(response.headers, guest.guestToken);
   appendClearedAnonymousCartCookie(response.headers);
 

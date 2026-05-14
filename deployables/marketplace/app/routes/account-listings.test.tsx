@@ -4,10 +4,10 @@ import {
   loader as listingsLoader,
 } from "@chase-sets/marketplace/routes/account-listings";
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -120,5 +120,48 @@ describe("marketplace listing routes", () => {
       expect.stringContaining("/api/marketplace/account/listings/lst_1/publish"),
       expect.any(Object),
     );
+  });
+
+  it("carries write consistency metadata into create redirects", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            { id: "lst_1", version: 1 },
+            201,
+            {
+              "Chase-Sets-Consistency": "eventual",
+              "Chase-Sets-Commit-Position": "42",
+            },
+          ),
+        );
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-listing");
+    form.set("inventoryItemId", "inv_1");
+    form.set("priceAmount", "24.99");
+    form.set("quantityCap", "1");
+
+    const result = await listingsAction({
+      request: new Request("http://localhost/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    const location = (result as Response).headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?afterWrite=42\./);
   });
 });

@@ -11,6 +11,10 @@ import {
   useRouteError,
 } from "react-router";
 import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+} from "@chase-sets/http/responses";
+import {
   requireActorFromAuthApi,
   resolveActorFromAuthApi,
 } from "@chase-sets/platform-runtime/auth";
@@ -265,7 +269,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const orderingApi = createOrderingRequestApiClient(request);
 
   try {
-    const payment = await paymentsApi.getAccountPayment(params.paymentId!);
+    const payment = await loadFreshlyWrittenResource({
+      request,
+      isNotFound: (error) =>
+        (error instanceof PaymentsApiError && error.status === 404) ||
+        (error instanceof Error && "status" in error && error.status === 404),
+      load: () => paymentsApi.getAccountPayment(params.paymentId!),
+    });
     const orders = await Promise.all(
       payment.order_ids.map((orderId) => orderingApi.getPurchase(orderId)),
     );
@@ -357,7 +367,12 @@ export async function action({
           checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
         returnUrlPath: "/checkout/payments/:paymentId",
       });
-      return redirect(`/checkout/payments/${retryPayment.payment_id}`);
+      return redirect(
+        appendFreshWriteToken(
+          `/checkout/payments/${retryPayment.payment_id}`,
+          retryPayment,
+        ),
+      );
     }
 
     if (!isClaimablePayment(payment)) {

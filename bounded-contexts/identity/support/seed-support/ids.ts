@@ -5,6 +5,7 @@ import type {
   CredentialId,
   InvitationId,
   MembershipId,
+  ShippingAddressId,
   SessionId,
   UserId,
 } from "@chase-sets/primitives/typed-ids";
@@ -18,6 +19,7 @@ export const identitySeedIds = {
     credentialId: "crd_seed_demo_password" as CredentialId,
     sessionId: "ses_seed_demo_session" as SessionId,
     apiKeyId: "key_seed_demo_primary" as ApiKeyId,
+    shippingAddressId: "adr_seed_demo_shipping" as ShippingAddressId,
   },
   collector: {
     accountId: "acc_seed_collector_account" as AccountId,
@@ -26,6 +28,7 @@ export const identitySeedIds = {
     consentId: "cns_seed_collector_terms" as ConsentId,
     credentialId: "crd_seed_collector_password" as CredentialId,
     sessionId: "ses_seed_collector_session" as SessionId,
+    shippingAddressId: "adr_seed_collector_shipping" as ShippingAddressId,
   },
   valueTrader: {
     accountId: "acc_seed_value_trader_account" as AccountId,

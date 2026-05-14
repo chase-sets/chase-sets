@@ -462,10 +462,10 @@ describe("item detail buy now action", () => {
     });
   });
 
-  it("falls back to the anonymous cart when a resolved actor cannot manage checkout orders", async () => {
+  it("adds signed-in buyer cart lines to the account cart without order-management permissions", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_seller_only",
-      permissions: ["listings.manage"],
+      accountId: "acc_buyer",
+      permissions: [],
     });
     mockCreateDiscoveryRequestApiClient.mockReturnValue({
       getItemDetail: vi.fn().mockResolvedValue({
@@ -476,8 +476,8 @@ describe("item detail buy now action", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine,
-      addGuestCartLine: mockAddGuestCartLine.mockResolvedValue({ id: "cli_1" }),
+      addCartLine: mockAddCartLine.mockResolvedValue({ id: "cli_1" }),
+      addGuestCartLine: mockAddGuestCartLine,
       createCheckoutSession: mockCreateCheckoutSession,
     });
 
@@ -501,26 +501,20 @@ describe("item detail buy now action", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockAddGuestCartLine).toHaveBeenCalledWith(
-      "anon_cart_1",
-      expect.objectContaining({
-        productId: "cat_charizard::form:raw",
-        fulfillmentMode: "optimize",
-        quantity: 1,
-      }),
-    );
-    expect(mockAddCartLine).not.toHaveBeenCalled();
-    expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(
-      response.headers,
-      "anon_cart_1",
-    );
+    expect(mockAddCartLine).toHaveBeenCalledWith(expect.objectContaining({
+      productId: "cat_charizard::form:raw",
+      fulfillmentMode: "optimize",
+      quantity: 1,
+    }));
+    expect(mockAddGuestCartLine).not.toHaveBeenCalled();
+    expect(mockAppendAnonymousCartCookie).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
   });
 
-  it("routes buy now through guest checkout when the actor cannot manage checkout orders", async () => {
+  it("creates optimized buy-now sessions for signed-in buyers without order-management permissions", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_seller_only",
-      permissions: ["listings.manage"],
+      accountId: "acc_buyer",
+      permissions: [],
     });
     mockCreateDiscoveryRequestApiClient.mockReturnValue({
       getItemDetail: vi.fn().mockResolvedValue({
@@ -531,7 +525,9 @@ describe("item detail buy now action", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      createCheckoutSession: mockCreateCheckoutSession,
+      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue({
+        session_id: "chk_buy_now",
+      }),
       addCartLine: mockAddCartLine,
       addGuestCartLine: mockAddGuestCartLine,
     });
@@ -556,12 +552,72 @@ describe("item detail buy now action", () => {
       context: undefined,
     } as never)) as Response;
 
-    const location = response.headers.get("Location") ?? "";
-    const redirectUrl = new URL(location, "http://localhost");
-
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: expect.objectContaining({
+        type: "buy-now",
+        fulfillmentMode: "optimize",
+        lockedListingId: null,
+        quantity: 1,
+      }),
+    });
     expect(response.status).toBe(302);
-    expect(redirectUrl.pathname).toBe("/checkout/start");
-    expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("optimize");
-    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+    expect(response.headers.get("Location")).toBe("/checkout/chk_buy_now");
+    expect(mockAddGuestCartLine).not.toHaveBeenCalled();
+  });
+
+  it("creates seller-locked buy-now sessions for signed-in buyers without order-management permissions", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: [],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue({
+        session_id: "chk_locked",
+      }),
+      addCartLine: mockAddCartLine,
+      addGuestCartLine: mockAddGuestCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "buy-this-listing");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set(
+      "selectedOptions",
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    form.set("productSummary", "Raw");
+    form.set("quantity", "1");
+    form.set("lockedListingId", "lst_charizard");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: expect.objectContaining({
+        type: "buy-now",
+        listingId: "lst_charizard",
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_charizard",
+        quantity: 1,
+      }),
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_locked");
+    expect(mockAddGuestCartLine).not.toHaveBeenCalled();
   });
 });

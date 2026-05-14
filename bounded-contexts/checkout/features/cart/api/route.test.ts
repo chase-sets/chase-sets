@@ -139,6 +139,50 @@ describe("checkout cart routes", () => {
     );
   });
 
+  it("allows signed-in buyers without order-management permissions to use their account cart", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "viewer",
+        permissions: [],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form=raw",
+          itemTitle: "Charizard",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          quantity: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.addLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        productId: "cat_charizard::form=raw",
+      }),
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_buyer",
+          performedByUserId: "usr_1",
+        }),
+      }),
+    );
+  });
+
   it("adds signed-out marketplace intent to an anonymous cart owner", async () => {
     const services = createServices();
     const app = buildApp({

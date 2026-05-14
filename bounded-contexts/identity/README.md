@@ -14,6 +14,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 - API Key
 - Profile
 - Contact Method
+- Shipping Address
 - Verification
 - Invitation
 - Consent
@@ -32,6 +33,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 - Orders
 - Payments
 - Shipments
+- Inventory storage locations and Fulfillment ship-from locations
 
 ## Ubiquitous Language
 

@@ -1,7 +1,10 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
-import type { ListResponse } from "@chase-sets/http/responses";
-import { readApiErrorMessage } from "@chase-sets/http/responses";
+import {
+  attachResponseMetadata,
+  readApiErrorMessage,
+  type ListResponse,
+} from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 import type {
@@ -60,7 +63,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new InventoryApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createInventoryApiClient({
