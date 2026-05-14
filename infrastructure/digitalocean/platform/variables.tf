@@ -191,22 +191,12 @@ variable "google_social_login_client_id" {
   type      = string
   sensitive = true
   default   = ""
-
-  validation {
-    condition     = var.environment != "staging" || trimspace(var.google_social_login_client_id) != ""
-    error_message = "google_social_login_client_id is required for staging social login verification."
-  }
 }
 
 variable "google_social_login_client_secret" {
   type      = string
   sensitive = true
   default   = ""
-
-  validation {
-    condition     = var.environment != "staging" || trimspace(var.google_social_login_client_secret) != ""
-    error_message = "google_social_login_client_secret is required for staging social login verification."
-  }
 
   validation {
     condition     = (trimspace(var.google_social_login_client_id) == "") == (trimspace(var.google_social_login_client_secret) == "")
@@ -218,22 +208,12 @@ variable "facebook_social_login_client_id" {
   type      = string
   sensitive = true
   default   = ""
-
-  validation {
-    condition     = var.environment != "staging" || trimspace(var.facebook_social_login_client_id) != ""
-    error_message = "facebook_social_login_client_id is required for staging social login verification."
-  }
 }
 
 variable "facebook_social_login_client_secret" {
   type      = string
   sensitive = true
   default   = ""
-
-  validation {
-    condition     = var.environment != "staging" || trimspace(var.facebook_social_login_client_secret) != ""
-    error_message = "facebook_social_login_client_secret is required for staging social login verification."
-  }
 
   validation {
     condition     = (trimspace(var.facebook_social_login_client_id) == "") == (trimspace(var.facebook_social_login_client_secret) == "")

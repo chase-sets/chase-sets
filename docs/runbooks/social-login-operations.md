@@ -20,7 +20,7 @@ Staging deploys read the same values from GitHub environment secrets:
 - `FACEBOOK_SOCIAL_LOGIN_CLIENT_ID`
 - `FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET`
 
-Use non-production provider apps or documented safe provider test credentials for staging. The staging workflow requires all four secrets and the platform smoke check verifies both providers are returned by `/api/auth/social/providers` and visible on marketplace sign-in and registration.
+Use non-production provider apps or documented safe provider test credentials for staging. When all four staging secrets are present, the staging workflow sets `SMOKE_REQUIRE_SOCIAL_LOGIN=true` and the platform smoke check verifies both providers are returned by `/api/auth/social/providers` and visible on marketplace sign-in and registration. If those secrets are absent, staging deploys still run with Social Login disabled and explicitly skip the Social Login smoke assertions.
 
 ## Callback URLs
 
