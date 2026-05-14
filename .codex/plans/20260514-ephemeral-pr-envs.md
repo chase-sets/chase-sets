@@ -74,6 +74,9 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - `terraform -chdir=infrastructure/digitalocean/platform fmt -check -recursive` after adding the production domain wait and preview pool password fallback.
 - `terraform -chdir=infrastructure/digitalocean/platform validate` after adding the production domain wait and preview pool password fallback.
 - Preview Terraform plan with backend removed and PR validation inputs after adding the preview pool password fallback: passed.
+- `pnpm --filter @chase-sets/platform-runtime test` after fixing worker runner scheduling fairness.
+- `pnpm --filter @chase-sets/platform-runtime typecheck` after fixing worker runner scheduling fairness.
+- `pnpm run verify:static` after fixing worker runner scheduling fairness.
 - `docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.12 -color` after adding the production domain wait and preview pool password fallback.
 - `pnpm run verify:metadata` after adding the production domain wait and preview pool password fallback.
 - `git diff --check` after adding the production domain wait and preview pool password fallback.
@@ -98,6 +101,7 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - PR #86 preview cleanup and manual PR #85 cleanup both destroyed their DigitalOcean preview environments successfully.
 - The first production apply created the production App Platform app and database resources, but smoke raced first-time TLS certificate provisioning for `chasesets.com`; production now waits for App Platform domain activation before smoke.
 - Follow-up PR #87 adds that production domain wait. Its first preview deploy found that DigitalOcean can return a null connection pool password during apply, so preview database URL construction now falls back to the owning database user's password while keeping the pool host, port, and pool-name path.
+- PR #87's next live preview deploy confirmed the password fallback and domain wait, then exposed a worker scheduler fairness bug: only the first four of 101 runners recorded status, starving the Public Presence waitlist projection. The worker runner loop now rotates through runners so low-concurrency preview workers eventually process every projector/subscription/job.
 - Production smoke must still be confirmed after the production domain wait is merged and the latest main deployment reruns.
 
 ## Documentation To Promote

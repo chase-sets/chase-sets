@@ -170,16 +170,21 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   const activeRunnerNames = new Set<string>();
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let nextRunnerIndex = 0;
 
   const schedule = () => {
     if (stopped) {
       return;
     }
 
-    for (const runner of options.runners) {
-      if (active.size >= options.maxConcurrentRunners) {
-        break;
-      }
+    for (
+      let inspected = 0;
+      inspected < options.runners.length && active.size < options.maxConcurrentRunners;
+      inspected += 1
+    ) {
+      const runner = options.runners[nextRunnerIndex];
+      nextRunnerIndex = (nextRunnerIndex + 1) % options.runners.length;
+
       if (activeRunnerNames.has(runner.name)) {
         continue;
       }
