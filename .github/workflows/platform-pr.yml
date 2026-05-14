@@ -107,8 +107,8 @@ jobs:
         with:
           args: -color
 
-  terraform-plan:
-    name: Terraform Staging Plan
+  terraform-preview-plan:
+    name: Terraform Preview Plan
     runs-on: ubuntu-latest
     env:
       TF_IN_AUTOMATION: "true"
@@ -116,7 +116,8 @@ jobs:
       TF_VAR_digitalocean_token: pr-validation-token
       TF_VAR_spaces_access_id: pr-validation-access-id
       TF_VAR_spaces_secret_key: pr-validation-secret-key
-      TF_VAR_environment: staging
+      TF_VAR_environment: preview
+      TF_VAR_preview_identifier: pr-0
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: pr-validation
       TF_VAR_platform_internal_auth_secret: pr-validation-internal-auth-secret
@@ -127,8 +128,8 @@ jobs:
       TF_VAR_stripe_secret_key: sk_test_pr_validation
       TF_VAR_stripe_publishable_key: pk_test_pr_validation
       TF_VAR_stripe_webhook_secret: whsec_pr_validation
-      TF_VAR_stripe_connect_return_url: https://marketplace-staging.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace-staging.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_connect_return_url: https://marketplace-pr-0.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace-pr-0.chasesets.com/account/payouts/setup
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_easypost_mode: test
       TF_VAR_google_social_login_client_id: google-pr-validation-client
@@ -152,7 +153,7 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform validate
 
-      - name: Terraform plan platform
+      - name: Terraform plan preview platform
         run: |
           tmp="$(mktemp -d)"
           cp -R infrastructure/digitalocean/platform/. "$tmp/"
@@ -218,6 +219,194 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
 
+  preview-deploy-smoke:
+    name: Deploy Preview and Smoke
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    environment: preview
+    needs:
+      - static
+      - typecheck
+      - unit-tests
+      - db-tests
+      - build
+      - docker-image
+      - workflow-lint
+      - terraform-preview-plan
+      - terraform-production-plan
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+      TF_VAR_environment: preview
+      TF_VAR_preview_identifier: pr-${{ github.event.pull_request.number }}
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+      TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      TF_VAR_stripe_connect_return_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+    steps:
+      - name: Configure Git defaults
+        run: git config --global init.defaultBranch main
+
+      - uses: actions/checkout@v6
+
+      - name: Validate preview configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            DIGITALOCEAN_ACCESS_TOKEN \
+            TF_VAR_platform_internal_auth_secret \
+            TF_VAR_platform_admin_email \
+            TF_VAR_platform_admin_password \
+            TF_VAR_discord_invite_url \
+            TF_VAR_stripe_secret_key \
+            TF_VAR_stripe_publishable_key \
+            TF_VAR_stripe_webhook_secret \
+            TF_VAR_easypost_api_key
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required preview configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - uses: hashicorp/setup-terraform@v4
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and push App Platform image
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
+            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          docker build --pull --tag "$image" .
+          docker push "$image"
+
+      - name: Terraform init
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=platform/previews/pr-${{ github.event.pull_request.number }}.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Terraform format
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform plan
+        id: terraform_plan
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          terraform plan -out=tfplan
+          app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
+          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for previous App Platform deployment
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No existing App Platform app was found in Terraform state; skipping deployment wait."
+            exit 0
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+
+      - name: Terraform apply
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Wait for Terraform App Platform deployment
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+
+      - name: Deploy App Platform image
+        if: steps.terraform_plan.outputs.app_changed != 'true'
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
+
+      - name: Smoke check
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_WAITLIST_EMAIL: ops+preview-pr-${{ github.event.pull_request.number }}@chasesets.com
+          SMOKE_SOURCE: preview-smoke
+          SMOKE_UTM_CAMPAIGN: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          landing_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required preview smoke domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}"
+
   pr-required:
     name: PR Required
     runs-on: ubuntu-latest
@@ -230,11 +419,14 @@ jobs:
       - build
       - docker-image
       - workflow-lint
-      - terraform-plan
+      - terraform-preview-plan
       - terraform-production-plan
+      - preview-deploy-smoke
     steps:
       - name: Verify required jobs
         run: |
+          set -euo pipefail
+
           for result in \
             "${{ needs.static.result }}" \
             "${{ needs.typecheck.result }}" \
@@ -243,11 +435,22 @@ jobs:
             "${{ needs.build.result }}" \
             "${{ needs['docker-image'].result }}" \
             "${{ needs['workflow-lint'].result }}" \
-            "${{ needs['terraform-plan'].result }}" \
+            "${{ needs['terraform-preview-plan'].result }}" \
             "${{ needs['terraform-production-plan'].result }}"
           do
             if [ "$result" != "success" ]; then
-              echo "At least one required PR job failed or was skipped." >&2
+              echo "At least one required CI job failed or was skipped." >&2
               exit 1
             fi
           done
+
+          preview_result="${{ needs['preview-deploy-smoke'].result }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "$preview_result" != "success" ]; then
+              echo "Preview deployment and smoke must pass on pull requests." >&2
+              exit 1
+            fi
+          elif [ "$preview_result" != "skipped" ] && [ "$preview_result" != "success" ]; then
+            echo "Preview deployment had an unexpected result on a non-PR event: ${preview_result}." >&2
+            exit 1
+          fi

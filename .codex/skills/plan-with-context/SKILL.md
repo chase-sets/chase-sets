@@ -27,7 +27,7 @@ Plan a feature against the repo's domain model inside an isolated feature worktr
 5. Create or update `.codex/plans/<yyyymmdd>-<feature-slug>.md`, using the local current date for sortable ordering, for example `20260513-my-new-feature.md`.
 6. Ask the next blocking question with the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use interactive `request_user_input` prompts when available; otherwise ask in plain text.
 7. After each answer or finding, update the plan and any already-settled docs.
-8. When planning is complete, create a `/goal` whose objective references the worktree path, branch, plan path, and owns implementation, durable doc promotion, verification, visual checks, PR submission, passing CI, PR merge, staging deploy verification, and plan retention.
+8. When planning is complete, create a `/goal` whose objective references the worktree path, branch, plan path, and owns implementation, durable doc promotion, verification, visual checks, PR submission, passing CI, PR merge, preview deploy verification and cleanup, production deploy verification when the merge reaches `main`, and plan retention.
 
 Walk questions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
 
@@ -62,7 +62,7 @@ Use `.codex/plans/<yyyymmdd>-<feature-slug>.md` as durable memory for compaction
 ## Goal Completion Criteria
 ```
 
-Update the plan after every worktree setup finding, answered question, repo finding, accepted/rejected recommendation, and doc change. `Worktree` must list the path, branch, sandbox id, dependency setup status, and current setup blockers if any. `Goal Completion Criteria` must list what the later implementation goal must verify, promote, retain, submit, merge, and confirm in staging.
+Update the plan after every worktree setup finding, answered question, repo finding, accepted/rejected recommendation, and doc change. `Worktree` must list the path, branch, sandbox id, dependency setup status, and current setup blockers if any. `Goal Completion Criteria` must list what the later implementation goal must verify, promote, retain, submit, merge, and confirm in deployed preview or production environments as appropriate for the change.
 Do not delete the plan as part of cleanup; cleanup is limited to temporary artifacts. Keep the plan committed with the implementation so reviewers can inspect the planning decisions later.
 
 Treat "Use `$plan-with-context` to implement <feature>" as an explicit request to create the implementation goal after planning. If goal tooling is unavailable, write the exact goal prompt into the plan and tell the user.
@@ -104,4 +104,4 @@ Offer an ADR only when the choice is hard to reverse, surprising without context
 
 Before pausing, report the worktree path, branch, sandbox status, plan path, resolved decisions, docs updated, contradictions found, and next unresolved question.
 
-This skill is complete when the feature worktree exists, the plan/docs are written in that worktree, and the implementation goal exists. The goal is complete only after implementation in the feature worktree, durable doc promotion, automated checks, mobile/desktop visual verification, PR submission, passing CI, PR merge, successful staging deploy, and committing the retained `.codex/plans/<yyyymmdd>-<feature-slug>.md`.
+This skill is complete when the feature worktree exists, the plan/docs are written in that worktree, and the implementation goal exists. The goal is complete only after implementation in the feature worktree, durable doc promotion, automated checks, mobile/desktop visual verification when relevant, PR submission, passing CI, PR merge, successful preview deploy verification and cleanup, successful production deploy verification when the merge reaches `main`, and committing the retained `.codex/plans/<yyyymmdd>-<feature-slug>.md`.
