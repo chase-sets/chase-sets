@@ -84,7 +84,7 @@ locals {
       urlencode(digitalocean_database_connection_pool.contexts[context_name].password),
       digitalocean_database_connection_pool.contexts[context_name].host,
       digitalocean_database_connection_pool.contexts[context_name].port,
-      urlencode(digitalocean_database_connection_pool.contexts[context_name].db_name),
+      urlencode(digitalocean_database_connection_pool.contexts[context_name].name),
     ) : format("$${db-%s.DATABASE_URL}", context_name)
   }
 
