@@ -1,5 +1,6 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildPaymentsApi } from "./api";
 import type {
   PaymentsCheckoutStatus,
@@ -66,7 +67,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new PaymentsApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createPaymentsApiClient({

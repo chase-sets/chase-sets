@@ -5,6 +5,7 @@ import {
   useLoaderData,
   useNavigation,
 } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createReputationRequestApiClient,
@@ -119,7 +120,9 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
         feedback,
       })) as Readonly<{ id: string }>;
 
-      return redirect(`/account/reviews/${review.id}`);
+      return redirect(
+        appendFreshWriteToken(`/account/reviews/${review.id}`, review),
+      );
     } catch (error) {
       if (error instanceof ReputationApiError && error.status === 404) {
         throw new Response(config.notFoundMessage, { status: 404 });
