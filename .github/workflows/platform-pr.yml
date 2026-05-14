@@ -131,6 +131,10 @@ jobs:
       TF_VAR_stripe_connect_refresh_url: https://marketplace-staging.chasesets.com/account/payouts/setup
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_easypost_mode: test
+      TF_VAR_google_social_login_client_id: google-pr-validation-client
+      TF_VAR_google_social_login_client_secret: google-pr-validation-secret
+      TF_VAR_facebook_social_login_client_id: facebook-pr-validation-client
+      TF_VAR_facebook_social_login_client_secret: facebook-pr-validation-secret
     steps:
       - uses: actions/checkout@v6
 
@@ -189,6 +193,10 @@ jobs:
       TF_VAR_platform_admin_password: pr-validation-password-please-rotate
       TF_VAR_platform_admin_display_name: Platform Admin
       TF_VAR_discord_invite_url: https://discord.gg/pr-validation
+      TF_VAR_google_social_login_client_id: ""
+      TF_VAR_google_social_login_client_secret: ""
+      TF_VAR_facebook_social_login_client_id: ""
+      TF_VAR_facebook_social_login_client_secret: ""
     steps:
       - uses: actions/checkout@v6
 

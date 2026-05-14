@@ -45,6 +45,10 @@ jobs:
       TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
       TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
       TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+      TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID }}
+      TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET }}
+      TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID }}
+      TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
@@ -70,7 +74,11 @@ jobs:
             TF_VAR_stripe_webhook_secret \
             TF_VAR_stripe_connect_return_url \
             TF_VAR_stripe_connect_refresh_url \
-            TF_VAR_easypost_api_key
+            TF_VAR_easypost_api_key \
+            TF_VAR_google_social_login_client_id \
+            TF_VAR_google_social_login_client_secret \
+            TF_VAR_facebook_social_login_client_id \
+            TF_VAR_facebook_social_login_client_secret
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")

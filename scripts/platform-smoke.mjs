@@ -189,6 +189,36 @@ async function expectOk(label, input, init) {
   return response;
 }
 
+async function expectTextContains(label, input, expectedText) {
+  const response = await expectOk(label, input);
+  const text = await response.text();
+  const missing = expectedText.filter((value) => !text.includes(value));
+  if (missing.length > 0) {
+    throw new Error(`${label} did not include expected text: ${missing.join(", ")}.`);
+  }
+}
+
+async function expectSocialLoginProviders(marketplaceOrigin) {
+  const response = await expectOk(
+    "marketplace social login providers",
+    `${marketplaceOrigin}/api/auth/social/providers`,
+  );
+  const body = await response.json();
+  const providerNames = new Set(
+    Array.isArray(body.providers)
+      ? body.providers.map((provider) => provider?.providerName)
+      : [],
+  );
+
+  for (const providerName of ["google", "facebook"]) {
+    if (!providerNames.has(providerName)) {
+      throw new Error(
+        `Marketplace social login providers did not include '${providerName}'.`,
+      );
+    }
+  }
+}
+
 async function expectRedirect(label, input, expectedAuthority) {
   const response = await fetchWithRetry(
     label,
@@ -238,6 +268,15 @@ async function main() {
       "platform API health through marketplace",
       `${marketplaceUrl}/api/health/ready`,
     );
+    await expectSocialLoginProviders(marketplaceUrl);
+    await expectTextContains("marketplace sign-in social login controls", `${marketplaceUrl}/sign-in`, [
+      "Continue with Google",
+      "Continue with Facebook",
+    ]);
+    await expectTextContains("marketplace registration social login controls", `${marketplaceUrl}/register`, [
+      "Continue with Google",
+      "Continue with Facebook",
+    ]);
   }
 
   if (redirectUrl) {

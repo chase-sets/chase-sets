@@ -13,6 +13,15 @@ Configure provider credentials on the Platform API deployable:
 
 Configure each provider as a pair. If one side of a pair is missing, the provider is disabled outside production and rejected in production.
 
+Staging deploys read the same values from GitHub environment secrets:
+
+- `GOOGLE_SOCIAL_LOGIN_CLIENT_ID`
+- `GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET`
+- `FACEBOOK_SOCIAL_LOGIN_CLIENT_ID`
+- `FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET`
+
+Use non-production provider apps or documented safe provider test credentials for staging. The staging workflow requires all four secrets and the platform smoke check verifies both providers are returned by `/api/auth/social/providers` and visible on marketplace sign-in and registration.
+
 ## Callback URLs
 
 Use the Platform API origin for provider callbacks:

@@ -88,6 +88,7 @@ Completed locally on 2026-05-14:
 - Added Auth/Identity glossary terms, Auth journey policy documentation, operations runbook, docs index entries, and this plan artifact.
 - Added unit and route coverage for provider mapping, callback success, existing-email linking, new-user registration, account-selection continuation, invalid/unverified provider email fallback, provider failure, duplicate provider link fallback, config loading, and Identity domain behavior.
 - Completed desktop and mobile visual checks for marketplace sign-in and registration in the local browser against the dev stack.
+- Added DigitalOcean/Terraform deploy wiring for Google and Facebook Social Login credentials and extended staging smoke verification to require configured providers plus marketplace sign-in/register controls.
 
 Verified locally:
 
@@ -102,11 +103,11 @@ Verified locally:
 - `pnpm run verify:test-db`
 - `pnpm run verify:test`
 - `pnpm run verify:build`
+- `terraform fmt -check -recursive infrastructure/digitalocean/platform`
+- Terraform platform `init -backend=false` and `validate` with staging-safe Social Login variables.
 
 Remaining outside this local implementation pass:
 
-- Submit a PR from `codex/social-logins`.
-- Get CI passing.
 - Merge the PR.
 - Verify staging with Google and Facebook configured in non-production/test mode or documented safe provider test credentials.
 
