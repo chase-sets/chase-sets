@@ -140,6 +140,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
       - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform
@@ -202,6 +204,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
       - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform
@@ -299,6 +303,8 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
 
       - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 

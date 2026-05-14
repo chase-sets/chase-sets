@@ -53,6 +53,8 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
 
       - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 

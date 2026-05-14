@@ -152,6 +152,8 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
 
       - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 
