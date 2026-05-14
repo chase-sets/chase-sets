@@ -1,5 +1,6 @@
 import process from "node:process";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
+import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
@@ -9,39 +10,18 @@ function getSmokeEnv(name) {
   return process.env[name] ?? sandboxEnv[name] ?? "";
 }
 
-function getExplicitEnv(name) {
-  return process.env[name] ?? "";
-}
+const { landingUrl, adminUrl, marketplaceUrl, redirectUrl } = resolvePlatformSmokeUrls({
+  cliArgs,
+  env: process.env,
+  sandboxEnv,
+});
 
-function getConfiguredUrl(primaryName, cliValue, fallbackName) {
-  return (
-    getExplicitEnv(primaryName) ||
-    (fallbackName ? getExplicitEnv(fallbackName) : "") ||
-    cliValue ||
-    sandboxEnv[primaryName] ||
-    (fallbackName ? sandboxEnv[fallbackName] : "") ||
-    ""
+if (!landingUrl || !adminUrl) {
+  throw new Error(
+    "Usage: node scripts/platform-smoke.mjs https://landing... https://admin... [https://marketplace...] [https://legacy...]",
   );
 }
 
-const landingUrl = validateHttpUrl(
-  trimTrailingSlash(
-    getConfiguredUrl("LANDING_WEB_URL", cliArgs[0] || "", "PUBLIC_WEB_URL"),
-  ),
-  "landing URL",
-);
-const adminUrl = validateHttpUrl(
-  trimTrailingSlash(getConfiguredUrl("ADMIN_WEB_URL", cliArgs[1] || "")),
-  "admin URL",
-);
-const marketplaceUrl = validateHttpUrl(
-  trimTrailingSlash(getConfiguredUrl("MARKETPLACE_WEB_URL", cliArgs[2] || "")),
-  "marketplace URL",
-);
-const redirectUrl = validateHttpUrl(
-  trimTrailingSlash(getConfiguredUrl("LEGACY_PUBLIC_URL", cliArgs[3] || "")),
-  "legacy redirect URL",
-);
 const syntheticEmail =
   getSmokeEnv("SMOKE_WAITLIST_EMAIL") ||
   getSmokeEnv("SMOKE_EMAIL") ||
@@ -61,35 +41,6 @@ const smokeUtmContent = getSmokeEnv("SMOKE_UTM_CONTENT") || null;
 const smokeUtmTerm = getSmokeEnv("SMOKE_UTM_TERM") || null;
 const fetchAttempts = readPositiveIntegerEnv("SMOKE_FETCH_ATTEMPTS", 6);
 const fetchRetryDelayMs = readPositiveIntegerEnv("SMOKE_FETCH_RETRY_DELAY_MS", 5_000);
-
-if (!landingUrl || !adminUrl) {
-  throw new Error(
-    "Usage: node scripts/platform-smoke.mjs https://landing... https://admin... [https://marketplace...] [https://legacy...]",
-  );
-}
-
-function trimTrailingSlash(value) {
-  return value.replace(/\/+$/, "");
-}
-
-function validateHttpUrl(value, label) {
-  if (!value) {
-    return value;
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`${label} must be a valid absolute URL.`);
-  }
-
-  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname) {
-    throw new Error(`${label} must include an http(s) scheme and hostname.`);
-  }
-
-  return value;
-}
 
 function readBooleanEnv(name, defaultValue) {
   const value = getSmokeEnv(name).trim().toLowerCase();
