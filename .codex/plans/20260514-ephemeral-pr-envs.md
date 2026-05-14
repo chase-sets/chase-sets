@@ -85,7 +85,11 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - `Deploy Preview and Smoke` reached DigitalOcean and created `chase-sets-pr-85-platform`; the next failure was a smoke timing race while new App Platform custom domains were still configuring DNS/TLS.
 - Added an explicit App Platform domain readiness wait before preview smoke so CI waits for DigitalOcean-managed certificates before direct HTTPS smoke tests.
 - The next CI smoke reached authenticated admin verification and failed because the event-driven waitlist read model had not caught up to the synthetic signup yet; the smoke script now polls that admin read assertion for eventual consistency.
-- Live preview smoke, preview destroy, and production apply/smoke must still be confirmed by CI after the PR is rerun and merged.
+- PR #85 merged after preview smoke passed in CI.
+- The first merge cleanup run failed because the `pull_request_target` workflow checked out the base SHA from before the workflow and Terraform changes existed.
+- Follow-up PR #86 fixes cleanup checkout to use the merge commit for merged PRs, adds manual preview cleanup dispatch for orphan cleanup, and fixes preview runtime database URLs to build explicit DigitalOcean pool URLs with the pool name as the path.
+- PR #86 preview deploy reached smoke; the waitlist signup and admin sign-in succeeded, but the tiny preview environment needed a longer read-model polling window before the synthetic waitlist signup appeared. Preview and production CI smoke now use a two-minute polling window for event-driven read-model catch-up.
+- Live preview destroy and production apply/smoke must still be confirmed after PR #86 passes and merges.
 
 ## Documentation To Promote
 

@@ -422,6 +422,8 @@ jobs:
           SMOKE_WAITLIST_EMAIL: ops+preview-pr-${{ github.event.pull_request.number }}@chasesets.com
           SMOKE_SOURCE: preview-smoke
           SMOKE_UTM_CAMPAIGN: pr-${{ github.event.pull_request.number }}
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
         run: |
           set -euo pipefail
           landing_domain="$(terraform output -raw landing_domain)"

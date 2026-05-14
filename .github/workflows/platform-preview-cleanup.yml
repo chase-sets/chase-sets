@@ -4,12 +4,18 @@ on:
   pull_request_target:
     types:
       - closed
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Preview pull request number to destroy
+        required: true
+        type: number
 
 permissions:
   contents: read
 
 concurrency:
-  group: platform-preview-pr-${{ github.event.pull_request.number }}
+  group: platform-preview-pr-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
@@ -27,9 +33,9 @@ jobs:
       TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
       TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_environment: preview
-      TF_VAR_preview_identifier: pr-${{ github.event.pull_request.number }}
+      TF_VAR_preview_identifier: pr-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
       TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_image_tag: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      TF_VAR_platform_image_tag: pr-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}-${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.pull_request.head.sha }}
       TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
       TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
@@ -38,8 +44,8 @@ jobs:
       TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
       TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
       TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      TF_VAR_stripe_connect_return_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_connect_return_url: https://marketplace-pr-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace-pr-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}.chasesets.com/account/payouts/setup
       TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
       TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
       TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
@@ -50,7 +56,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.pull_request.merged && github.event.pull_request.merge_commit_sha || github.event.pull_request.base.ref }}
 
       - uses: hashicorp/setup-terraform@v4
         with:
@@ -74,7 +80,7 @@ jobs:
         run: |
           terraform init \
             -backend-config=bucket=chase-sets-terraform-state \
-            -backend-config=key=platform/previews/pr-${{ github.event.pull_request.number }}.tfstate \
+            -backend-config=key=platform/previews/pr-${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}.tfstate \
             -backend-config=region=us-east-1 \
             -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
             -backend-config=skip_credentials_validation=true \

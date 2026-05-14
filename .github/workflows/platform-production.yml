@@ -249,6 +249,8 @@ jobs:
           SMOKE_EMAIL: ops+smoke@chasesets.com
           SMOKE_SOURCE: production-smoke
           SMOKE_UTM_CAMPAIGN: production-main
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
         run: |
           set -euo pipefail
           public_domain="$(terraform output -raw landing_domain)"
