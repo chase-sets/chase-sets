@@ -240,6 +240,25 @@ jobs:
           app_id="$(terraform output -raw app_id)"
           node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
 
+      - name: Wait for production domains
+        working-directory: infrastructure/digitalocean/platform
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          mapfile -t public_domains < <(terraform output -json public_domains | jq -r '.[]')
+          admin_domain="$(terraform output -raw admin_domain)"
+          if [ "${#public_domains[@]}" -eq 0 ] || [ -z "$admin_domain" ]; then
+            echo "Required production domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
+            "$app_id" \
+            "${public_domains[@]}" \
+            "$admin_domain" \
+            --timeout-seconds=3600 \
+            --poll-seconds=30
+
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
         env:

@@ -71,6 +71,15 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - `docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.12 -color` after adding the preview domain wait step.
 - `pnpm run verify:metadata` after adding the preview domain wait step.
 - `pnpm run verify:static` after adding the preview domain wait step.
+- `terraform -chdir=infrastructure/digitalocean/platform fmt -check -recursive` after adding the production domain wait and preview pool password fallback.
+- `terraform -chdir=infrastructure/digitalocean/platform validate` after adding the production domain wait and preview pool password fallback.
+- Preview Terraform plan with backend removed and PR validation inputs after adding the preview pool password fallback: passed.
+- `pnpm --filter @chase-sets/platform-runtime test` after fixing worker runner scheduling fairness.
+- `pnpm --filter @chase-sets/platform-runtime typecheck` after fixing worker runner scheduling fairness.
+- `pnpm run verify:static` after fixing worker runner scheduling fairness.
+- `docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.12 -color` after adding the production domain wait and preview pool password fallback.
+- `pnpm run verify:metadata` after adding the production domain wait and preview pool password fallback.
+- `git diff --check` after adding the production domain wait and preview pool password fallback.
 - `node scripts/digitalocean-app-deployment.mjs wait-domains 758c4d1e-a753-4ae4-b35c-3c6f38ced9e4 landing-pr-85.chasesets.com admin-pr-85.chasesets.com marketplace-pr-85.chasesets.com --timeout-seconds=600 --poll-seconds=30`
 - `pnpm run smoke:platform -- "https://landing-pr-85.chasesets.com" "https://admin-pr-85.chasesets.com" "https://marketplace-pr-85.chasesets.com"` locally passed without admin credentials; CI still verifies authenticated admin smoke with environment secrets.
 - `pnpm run test:platform-smoke` after adding eventual-consistency polling for the authenticated admin waitlist check.
@@ -89,7 +98,11 @@ Replace the single persistent staging gate with per-PR ephemeral DigitalOcean en
 - The first merge cleanup run failed because the `pull_request_target` workflow checked out the base SHA from before the workflow and Terraform changes existed.
 - Follow-up PR #86 fixes cleanup checkout to use the merge commit for merged PRs, adds manual preview cleanup dispatch for orphan cleanup, and fixes preview runtime database URLs to build explicit DigitalOcean pool URLs with the pool name as the path.
 - PR #86 preview deploy reached smoke; the waitlist signup and admin sign-in succeeded, but the tiny preview environment needed a longer read-model polling window before the synthetic waitlist signup appeared. Preview and production CI smoke now use a two-minute polling window for event-driven read-model catch-up.
-- Live preview destroy and production apply/smoke must still be confirmed after PR #86 passes and merges.
+- PR #86 preview cleanup and manual PR #85 cleanup both destroyed their DigitalOcean preview environments successfully.
+- The first production apply created the production App Platform app and database resources, but smoke raced first-time TLS certificate provisioning for `chasesets.com`; production now waits for App Platform domain activation before smoke.
+- Follow-up PR #87 adds that production domain wait. Its first preview deploy found that DigitalOcean can return a null connection pool password during apply, so preview database URL construction now falls back to the owning database user's password while keeping the pool host, port, and pool-name path.
+- PR #87's next live preview deploy confirmed the password fallback and domain wait, then exposed a worker scheduler fairness bug: only the first four of 101 runners recorded status, starving the Public Presence waitlist projection. The worker runner loop now rotates through runners so low-concurrency preview workers eventually process every projector/subscription/job.
+- Production smoke must still be confirmed after the production domain wait is merged and the latest main deployment reruns.
 
 ## Documentation To Promote
 
