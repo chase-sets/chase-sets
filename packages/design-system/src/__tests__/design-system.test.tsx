@@ -17,6 +17,7 @@ import {
   UiDialog as Dialog,
   Input,
   NavigationHeader,
+  TopNav,
   ThemeToggle,
   ListingCard,
   TrustBadge,
@@ -587,6 +588,41 @@ describe("design-system", () => {
     );
 
     expect(screen.getByRole("link", { name: "Catalog Items" })).toBeTruthy();
+  });
+
+  it("closes top navigation child menus when clicking outside", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <div>
+        <TopNav
+          items={[
+            {
+              key: "selling-workspace",
+              label: "Sell",
+              children: [
+                { key: "listings", label: "Listings", href: "/account/listings" },
+                { key: "offer-matches", label: "Offer Matches", href: "/account/offers/matches" },
+              ],
+            },
+          ]}
+        />
+        <button type="button">Outside</button>
+      </div>
+    );
+
+    const summary = screen.getByText("Sell").closest("summary");
+    expect(summary).toBeTruthy();
+
+    const details = summary?.closest("details");
+    expect(details?.open).toBe(false);
+
+    await user.click(summary!);
+    expect(details?.open).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Outside" }));
+
+    await waitFor(() => expect(details?.open).toBe(false));
   });
 
   it("syncs theme toggle choices to the document theme", async () => {
