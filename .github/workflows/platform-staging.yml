@@ -74,11 +74,7 @@ jobs:
             TF_VAR_stripe_webhook_secret \
             TF_VAR_stripe_connect_return_url \
             TF_VAR_stripe_connect_refresh_url \
-            TF_VAR_easypost_api_key \
-            TF_VAR_google_social_login_client_id \
-            TF_VAR_google_social_login_client_secret \
-            TF_VAR_facebook_social_login_client_id \
-            TF_VAR_facebook_social_login_client_secret
+            TF_VAR_easypost_api_key
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
@@ -231,6 +227,7 @@ jobs:
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_MARKETPLACE: "true"
           SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
+          SMOKE_REQUIRE_SOCIAL_LOGIN: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID != '' && secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET != '' && secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID != '' && secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET != '' && 'true' || 'false' }}
           SMOKE_WRITE_WAITLIST: "false"
         run: |
           set -euo pipefail

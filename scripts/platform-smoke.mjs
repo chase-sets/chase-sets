@@ -53,6 +53,7 @@ const writeWaitlist =
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
 const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", false);
+const requireSocialLogin = readBooleanEnv("SMOKE_REQUIRE_SOCIAL_LOGIN", false);
 const smokeUtmSource = getSmokeEnv("SMOKE_UTM_SOURCE") || getSmokeEnv("SMOKE_SOURCE") || "smoke";
 const smokeUtmMedium = getSmokeEnv("SMOKE_UTM_MEDIUM") || "automation";
 const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
@@ -268,15 +269,19 @@ async function main() {
       "platform API health through marketplace",
       `${marketplaceUrl}/api/health/ready`,
     );
-    await expectSocialLoginProviders(marketplaceUrl);
-    await expectTextContains("marketplace sign-in social login controls", `${marketplaceUrl}/sign-in`, [
-      "Continue with Google",
-      "Continue with Facebook",
-    ]);
-    await expectTextContains("marketplace registration social login controls", `${marketplaceUrl}/register`, [
-      "Continue with Google",
-      "Continue with Facebook",
-    ]);
+    if (requireSocialLogin) {
+      await expectSocialLoginProviders(marketplaceUrl);
+      await expectTextContains("marketplace sign-in social login controls", `${marketplaceUrl}/sign-in`, [
+        "Continue with Google",
+        "Continue with Facebook",
+      ]);
+      await expectTextContains("marketplace registration social login controls", `${marketplaceUrl}/register`, [
+        "Continue with Google",
+        "Continue with Facebook",
+      ]);
+    } else {
+      console.warn("Skipping social login smoke; SMOKE_REQUIRE_SOCIAL_LOGIN is not true.");
+    }
   }
 
   if (redirectUrl) {

@@ -108,8 +108,11 @@ Verified locally:
 
 Remaining outside this local implementation pass:
 
-- Merge the PR.
 - Verify staging with Google and Facebook configured in non-production/test mode or documented safe provider test credentials.
+
+Staging audit note:
+
+- PR #83 was merged on 2026-05-14. The first staging run for merge commit `3f61a75345cbcb885282873eef9d8896624129b2` failed at configuration validation because the GitHub `staging` environment did not have the four Social Login provider secrets configured. A follow-up makes Social Login deploy configuration optional unless those secrets are present while preserving an explicit `SMOKE_REQUIRE_SOCIAL_LOGIN=true` check when staging is configured.
 
 ## Goal Completion Criteria
 
