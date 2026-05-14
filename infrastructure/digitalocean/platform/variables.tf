@@ -15,11 +15,11 @@ variable "spaces_secret_key" {
 
 variable "environment" {
   type        = string
-  description = "Deployment environment: preview or production."
+  description = "Deployment environment: preview, staging, or production."
 
   validation {
-    condition     = contains(["preview", "production"], var.environment)
-    error_message = "environment must be preview or production."
+    condition     = contains(["preview", "staging", "production"], var.environment)
+    error_message = "environment must be preview, staging, or production."
   }
 }
 
@@ -62,7 +62,7 @@ variable "database_size" {
 variable "non_production_database_size" {
   type        = string
   default     = "db-s-1vcpu-1gb"
-  description = "Preview database cluster size. Non-production uses managed Postgres connection pools to fit the full platform on the smallest tier."
+  description = "Preview and staging database cluster size. Non-production uses managed Postgres connection pools to fit the full platform on the smallest tier."
 }
 
 variable "database_node_count" {
