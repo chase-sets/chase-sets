@@ -17,6 +17,7 @@ import {
   createCheckoutProductDescriptor,
   type CheckoutVersionSchema,
 } from "../../../support/runtime-support/common";
+import { drainOwnedProjector } from "../../../support/runtime-support/projectors";
 import {
   decideCheckoutCart,
   evolveCheckoutCart,
@@ -121,6 +122,12 @@ export function createCheckoutCartRuntime(
     evolve: evolveCheckoutCart,
     decide: decideCheckoutCart,
   });
+  const cartProjector = createProjector({
+    projectorName: "checkout.cart-projection",
+    eventStore: deps.eventStore,
+    checkpointStore: deps.checkpointStore,
+    handlers: buildCheckoutCartProjectionHandlers(deps.db),
+  });
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
     const result = await deps.db.query<{
@@ -194,6 +201,7 @@ export function createCheckoutCartRuntime(
           },
           context,
         });
+        await drainOwnedProjector(cartProjector);
 
         return { lineId: existingLine.line_id as CartLineId, version: result.version };
       }
@@ -221,6 +229,7 @@ export function createCheckoutCartRuntime(
         },
         context,
       });
+      await drainOwnedProjector(cartProjector);
 
       return { lineId, version: result.version };
     },
@@ -234,6 +243,7 @@ export function createCheckoutCartRuntime(
         },
         context,
       });
+      await drainOwnedProjector(cartProjector);
 
       return { lineId: params.lineId, version: result.version };
     },
@@ -250,6 +260,7 @@ export function createCheckoutCartRuntime(
         },
         context,
       });
+      await drainOwnedProjector(cartProjector);
 
       return { lineId: params.lineId, version: result.version };
     },
@@ -262,6 +273,7 @@ export function createCheckoutCartRuntime(
         },
         context,
       });
+      await drainOwnedProjector(cartProjector);
 
       return { lineId: params.lineId, version: result.version };
     },
@@ -274,6 +286,7 @@ export function createCheckoutCartRuntime(
         },
         context,
       });
+      await drainOwnedProjector(cartProjector);
 
       return { version: result.version };
     },
@@ -317,6 +330,7 @@ export function createCheckoutCartRuntime(
             throw error;
           }
         }
+        await drainOwnedProjector(cartProjector);
       }
 
       if (sourceLines.length > 0) {
@@ -334,18 +348,12 @@ export function createCheckoutCartRuntime(
             throw error;
           }
         }
+        await drainOwnedProjector(cartProjector);
       }
 
       return { mergedLineCount: sourceLines.length };
     },
     listCartLines: (accountId) => listCartLines(deps.db, accountId),
-    projectors: [
-      createProjector({
-        projectorName: "checkout.cart-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildCheckoutCartProjectionHandlers(deps.db),
-      }),
-    ],
+    projectors: [cartProjector],
   };
 }

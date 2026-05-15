@@ -1,4 +1,4 @@
 interface:
   display_name: "Plan With Context"
   short_description: "Plan features in isolated worktrees"
-  default_prompt: "Use $plan-with-context to implement a feature by creating an isolated worktree, asking one question at a time, writing the dated plan/docs, and creating the implementation goal through staging deploy verification."
+  default_prompt: "Use $plan-with-context to implement a feature by creating an isolated worktree, asking one question at a time, writing the dated plan/docs, and creating the implementation goal through preview deploy cleanup and production deploy verification."

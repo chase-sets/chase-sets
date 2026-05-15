@@ -13,6 +13,7 @@ import {
   useNavigation,
   useSubmit,
 } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createForwardedAuthFetch,
@@ -185,7 +186,9 @@ export async function action({ request }: ActionFunctionArgs) {
       marketplaceCheckoutFeeQuoteFingerprint:
         checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
     });
-    return redirect(`/account/payments/${payment.payment_id}`);
+    return redirect(
+      appendFreshWriteToken(`/account/payments/${payment.payment_id}`, payment),
+    );
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : t("payments.routes.marketplace.accountPaymentNew.payment.could.not.be.started"),

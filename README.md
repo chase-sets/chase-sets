@@ -86,12 +86,12 @@ without the sandbox env:
 
 ## Prerequisites
 
-- Node.js 26.1.0.
+- Node.js 24 LTS.
 - pnpm 11.0.9. Run `npm install -g pnpm@11.0.9` if it is not already available.
 - Docker with Docker Compose.
 - Optional: Stripe CLI for webhook-driven payment smoke tests.
 
-CI runs on Node 26.1.0 and uses `pnpm install --frozen-lockfile`, so local development should do the same when starting from a fresh checkout. Worktrees share a pnpm content store at `../.chase-sets-pnpm-store` by default; set `CHASE_SETS_PNPM_STORE_DIR` to override it.
+CI, Docker, and remote preview sessions run on Node 24 LTS and use `pnpm install --frozen-lockfile`, so local development should do the same when starting from a fresh checkout. Worktrees share a pnpm content store at `../.chase-sets-pnpm-store` by default; set `CHASE_SETS_PNPM_STORE_DIR` to override it.
 
 ## Getting Started
 

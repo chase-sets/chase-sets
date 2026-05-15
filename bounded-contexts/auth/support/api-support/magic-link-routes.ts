@@ -8,6 +8,7 @@ import {
   consumeMagicLinkToken,
   insertMagicLinkToken,
 } from "../auth-support/store";
+import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
   createIdentityMutations,
@@ -77,7 +78,23 @@ export function registerMagicLinkRoutes(
         email: record.email,
         displayName: createOwnedUserDisplayName(record.email),
       });
-      user = await services.identity.getUser(identity.userId);
+      const authResult = await startInteractiveAuth(services, {
+        userId: identity.userId,
+        accountId: identity.accountId,
+        authenticationMethod: "magic-link",
+        context: getBootstrapContext(c),
+        membershipsOverride: [
+          {
+            membershipId: identity.membershipId,
+            accountId: identity.accountId,
+            roleKey: "owner",
+            status: "active",
+            rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+          },
+        ],
+      });
+
+      return c.json(authResult);
     }
 
     const authResult = await startInteractiveAuth(services, {

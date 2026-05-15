@@ -1,15 +1,15 @@
 # DigitalOcean Platform Infrastructure
 
-This Terraform root manages staging and production platform infrastructure. The operational deployment workflow lives in [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md).
+This Terraform root manages preview, staging, and production platform infrastructure. The operational deployment workflow lives in [DigitalOcean Platform Deployment Runbook](../../../docs/runbooks/digitalocean-platform-deployment.md).
 
 This root owns:
 
-- DigitalOcean App Platform composition for landing, admin, and staging marketplace web surfaces.
-- Staging full-system `platform-api`, `platform-worker`, and platform bootstrap job.
+- DigitalOcean App Platform composition for landing, admin, and non-production marketplace web surfaces.
+- Preview and staging full-system `platform-api`, `platform-worker`, and platform bootstrap job.
 - Production landing/admin-support components until production marketplace promotion is ready.
-- DigitalOcean managed PostgreSQL with per-context databases plus a control database. Staging also creates managed PgBouncer transaction pools for those databases so the full-system app can fit on the smallest database tier.
-- DigitalOcean DNS domain attachment and the temporary staging redirect from `staging.chasesets.com` to `landing-staging.chasesets.com`.
+- DigitalOcean managed PostgreSQL with per-context databases plus a control database. Preview and staging also create managed PgBouncer transaction pools for those databases so the full-system app can fit on the smallest database tier.
+- DigitalOcean DNS domain attachment for preview, staging, and production hostnames.
 
-Initialize this root only after the state bucket has been created by [state-bootstrap](../state-bootstrap/README.md). Use `landing/staging.tfstate` for staging and `landing/production.tfstate` for production until the remote state keys are intentionally migrated.
+Initialize this root only after the state bucket has been created by [state-bootstrap](../state-bootstrap/README.md). Use `platform/previews/pr-<number>.tfstate` for PR previews, `landing/staging.tfstate` for staging, and `landing/production.tfstate` for production.
 
 Run `pnpm install --frozen-lockfile` from the repo root before applying this Terraform root.

@@ -17,6 +17,7 @@ export type UserRow = Readonly<{
   auth_methods: readonly string[];
   password_credential_id: string | null;
   passkey_credential_ids: readonly string[];
+  social_login_links: readonly unknown[];
   updated_at: string;
 }>;
 
@@ -48,6 +49,21 @@ export async function getUserByEmail(db: PgQueryable, email: string) {
      INNER JOIN identity_users AS users ON users.user_id = emails.user_id
      WHERE emails.email = $1`,
     [normalizeEmail(email)],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function getUserBySocialLogin(
+  db: PgQueryable,
+  params: Readonly<{ providerName: string; providerSubject: string }>,
+) {
+  const result = await db.query<UserRow>(
+    `SELECT users.*
+     FROM identity_user_social_login_links AS links
+     INNER JOIN identity_users AS users ON users.user_id = links.user_id
+     WHERE links.provider_name = $1
+       AND links.provider_subject = $2`,
+    [params.providerName, params.providerSubject],
   );
   return result.rows[0] ?? null;
 }

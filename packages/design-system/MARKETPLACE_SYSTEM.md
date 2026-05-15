@@ -83,6 +83,28 @@ Each marketplace route should keep the most decision-critical information visibl
 - Trust copy should be calm and specific: explain verification, payment safety, return paths, delivery expectations, and support options without using alarmist language.
 - Promotional copy should not compete with checkout, policy, or payment comprehension.
 
+## Progressive Disclosure Defaults
+
+Use progressive disclosure for advanced marketplace depth, not for required buyer or seller comprehension. Required decision facts stay visible; optional controls and deeper explanation use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup`.
+
+Good disclosure candidates:
+
+- advanced search filters, saved-search recovery, and dense comparison controls
+- seller listing limits, offer matching thresholds, fulfillment exceptions, and publishing recovery detail
+- product specification depth, grading population context, certification extras, and market-history detail
+- checkout support diagnostics and provider-safe payment explanations after the final total is visible
+- payout verification reason detail, ledger context, and provider-safe settlement explanations
+
+Do not disclose the current price, final total, seller trust, availability, fulfillment expectation, buyer-protection summary, blocking error, or primary action. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
+
+Recommended migration order:
+
+1. Listing creation and listing management.
+2. Discovery item detail and advanced search.
+3. Checkout and payment recovery.
+4. Settlement payout readiness and payout requests.
+5. Catalog/admin setup flows.
+
 ## Before / After Direction
 
 - Before: attractive components could omit delivery, seller trust, policy, or total-cost context.

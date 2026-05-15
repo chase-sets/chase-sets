@@ -19,6 +19,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Term | Owning source | Notes |
 | --- | --- | --- |
 | Account | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Root identity for marketplace participation. |
+| Shipping Address | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Account-owned recipient destination reused during checkout; not an Inventory storage location or Fulfillment ship-from location. |
 | Buyer | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Transaction role played by an Account. |
 | Seller | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Transaction role played by an Account. |
 | Catalog Item | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Canonical parent definition of a thing. |
@@ -52,6 +53,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Notification Preference | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level setting that controls notification delivery or notification-center behavior. |
 | Product Alert | [Discovery](../bounded-contexts/discovery/GLOSSARY.md) | Account-owned watch on one resolved Catalog Product for listing or limited offer-demand notifications. |
 | Platform Feedback | [Experience](../bounded-contexts/experience/GLOSSARY.md) | Internal product feedback, not public account reputation. |
+| Social Login | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Auth-owned sign-in or registration journey through an external provider. |
+| Social Login Provider | [Auth](../bounded-contexts/auth/GLOSSARY.md) | External identity provider configured for Social Login, starting with Google and Facebook. |
+| Social Login Link | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Identity-owned User fact linking one external provider identity to one User. |
 
 ## Local Glossaries
 

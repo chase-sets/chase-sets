@@ -1,5 +1,6 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
@@ -89,6 +90,7 @@ export type SelectCheckoutOptimizationGoalRequest = Readonly<{
 }>;
 
 export type CheckoutShippingAddressInput = Readonly<{
+  shippingAddressId?: string | null;
   name: string;
   company?: string | null;
   line1: string;
@@ -160,7 +162,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new CheckoutApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createCheckoutApiClient({

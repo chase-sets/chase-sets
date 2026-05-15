@@ -1,11 +1,13 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
-import { ActorIdentityCue, Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
+import { AccountMenu, Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { NotificationCenterShell } from "@chase-sets/notification-center/web";
-import { resolveMarketplaceNavItems } from "../host";
+import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
+
+const signOutFormId = "marketplace-account-menu-sign-out";
 
 type MarketplaceActor = {
   permissions?: readonly string[];
@@ -127,6 +129,7 @@ export default function MarketplaceLayoutRoute() {
   }, []);
   const topNavItems = resolveMarketplaceNavItems("top-nav", actor, { cartCount });
   const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor, { cartCount });
+  const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
   const prompt = new URLSearchParams(location.search).get("authPrompt");
   const notificationParams = new URLSearchParams(location.search);
   const notificationState = notificationParams.get("notifications");
@@ -168,21 +171,27 @@ export default function MarketplaceLayoutRoute() {
         rootData?.actor ? (
           <>
             {rootData.actorDisplay ? (
-              <ActorIdentityCue
-                title={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.identity")}
-                accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.acting.as")}
-                accountName={displayActorAccountName(rootData.actorDisplay)}
-                userLabel={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.as")}
-                userName={displayActorUserName(rootData.actorDisplay)}
-                membershipLabel={t("identity.features.accounts.ui.currentActorDisplayCue.membership")}
-                membershipName={displayRole(rootData.actorDisplay.membership.role_key)}
-                className="hidden md:flex"
-              />
-            ) : null}
-            <form action="/sign-out" method="post">
-              <Button type="submit" tone="secondary">
-                {t("marketplace.app.routes.layout.sign.out")}</Button>
-            </form>
+              <>
+                <form id={signOutFormId} action="/sign-out" method="post" className="hidden" />
+                <AccountMenu
+                  menuLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account.menu")}
+                  accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account")}
+                  accountName={displayActorAccountName(rootData.actorDisplay)}
+                  userLabel={t("identity.features.accounts.ui.currentActorDisplayCue.user")}
+                  userName={displayActorUserName(rootData.actorDisplay)}
+                  roleLabel={t("identity.features.accounts.ui.currentActorDisplayCue.role")}
+                  roleName={displayRole(rootData.actorDisplay.membership.role_key)}
+                  items={accountMenuItems}
+                  signOutFormId={signOutFormId}
+                  signOutLabel={t("marketplace.app.routes.layout.sign.out")}
+                />
+              </>
+            ) : (
+              <form action="/sign-out" method="post">
+                <Button type="submit" tone="secondary">
+                  {t("marketplace.app.routes.layout.sign.out")}</Button>
+              </form>
+            )}
           </>
         ) : null
       }

@@ -7,7 +7,8 @@
     "membership",
     "invitation",
     "api-key",
-    "consent"
+    "consent",
+    "shipping-address"
   ],
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
@@ -17,7 +18,8 @@
     "memberships",
     "invitations",
     "api-keys",
-    "consents"
+    "consents",
+    "shipping-addresses"
   ],
   "allowedSupportDirectories": [
     "read-model-support",
@@ -145,6 +147,13 @@
           "routeId": "account-consents",
           "routePath": "account/consents",
           "fileExport": "./routes/marketplace/account-consents",
+          "routeType": "route",
+          "sourceContext": "identity"
+        },
+        {
+          "routeId": "account-shipping-addresses",
+          "routePath": "account/shipping-addresses",
+          "fileExport": "./routes/marketplace/account-shipping-addresses",
           "routeType": "route",
           "sourceContext": "identity"
         },
@@ -288,6 +297,15 @@
         "Internal identity module composition"
       ]
     },
+    "shipping-addresses": {
+      "classification": "slice",
+      "purpose": "Own reusable account recipient shipping address behavior, read models, and UI contracts for the identity context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal identity module composition",
+        "Checkout request-time address selection"
+      ]
+    },
     "read-model-support": {
       "classification": "support",
       "purpose": "Provide reusable read-model-support assets shared by identity-owned features and composition seams.",
@@ -312,6 +330,7 @@
         "accounts",
         "consents",
         "memberships",
+        "shipping-addresses",
         "users"
       ],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
@@ -341,6 +360,7 @@
         "consents",
         "invitations",
         "memberships",
+        "shipping-addresses",
         "users"
       ],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
@@ -47,6 +48,15 @@ export function registerRegistrationRoutes(
       accountId: identity.accountId,
       authenticationMethod: body.password ? "password" : "magic-link",
       context: getBootstrapContext(c),
+      membershipsOverride: [
+        {
+          membershipId: identity.membershipId,
+          accountId: identity.accountId,
+          roleKey: "owner",
+          status: "active",
+          rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+        },
+      ],
     });
 
     return c.json(

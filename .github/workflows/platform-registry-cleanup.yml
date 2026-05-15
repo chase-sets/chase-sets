@@ -1,0 +1,61 @@
+name: Platform Registry Cleanup
+
+on:
+  schedule:
+    - cron: "37 8 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print cleanup actions without deleting tags or running garbage collection.
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-registry-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Cleanup DOCR Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - uses: digitalocean/action-doctl@v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cleanup registry tags
+        run: |
+          set -euo pipefail
+          dry_run="${{ github.event.inputs.dry_run || 'false' }}"
+          dry_run_arg=""
+          if [ "$dry_run" = "true" ]; then
+            dry_run_arg="--dry-run"
+          fi
+
+          node ./scripts/digitalocean-registry-cleanup.mjs cleanup \
+            --repository="${PLATFORM_IMAGE_REPOSITORY}" \
+            --retention-days=30 \
+            --app-name=chase-sets-staging-platform \
+            --app-name=chase-sets-platform \
+            ${dry_run_arg}

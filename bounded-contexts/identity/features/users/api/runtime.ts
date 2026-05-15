@@ -14,7 +14,7 @@ import {
   type UserEvent,
   type UserState,
 } from "../domain/domain";
-import { getUser, getUserByEmail, listUsers } from "../read-model/queries";
+import { getUser, getUserByEmail, getUserBySocialLogin, listUsers } from "../read-model/queries";
 import { buildUserProjectionHandlers } from "../read-model/projection";
 
 export type UserServices = Readonly<{
@@ -22,6 +22,7 @@ export type UserServices = Readonly<{
   listUsers: (params?: Parameters<typeof listUsers>[1]) => ReturnType<typeof listUsers>;
   getUser: (userId: string) => ReturnType<typeof getUser>;
   getUserByEmail: (email: string) => ReturnType<typeof getUserByEmail>;
+  getUserBySocialLogin: (params: Parameters<typeof getUserBySocialLogin>[1]) => ReturnType<typeof getUserBySocialLogin>;
   projectors: readonly Projector[];
 }>;
 
@@ -42,6 +43,7 @@ export function createUserRuntime(deps: IdentityRuntimeDeps): UserServices {
     listUsers: (params) => listUsers(deps.db, params),
     getUser: (userId) => getUser(deps.db, userId),
     getUserByEmail: (email) => getUserByEmail(deps.db, email),
+    getUserBySocialLogin: (params) => getUserBySocialLogin(deps.db, params),
     projectors: [
       createProjector({
         projectorName: "identity-user-projection",

@@ -10,8 +10,12 @@ CREATE TABLE IF NOT EXISTS identity_users (
   auth_methods jsonb NOT NULL DEFAULT '[]'::jsonb,
   password_credential_id text NULL,
   passkey_credential_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  social_login_links jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identity_users
+  ADD COLUMN IF NOT EXISTS social_login_links jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS identity_user_emails (
   email text PRIMARY KEY,
@@ -19,4 +23,14 @@ CREATE TABLE IF NOT EXISTS identity_user_emails (
   contact_method_id text NOT NULL,
   is_verified boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS identity_user_social_login_links (
+  provider_name text NOT NULL,
+  provider_subject text NOT NULL,
+  user_id text NOT NULL,
+  email text NOT NULL,
+  linked_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_name, provider_subject)
 );`;

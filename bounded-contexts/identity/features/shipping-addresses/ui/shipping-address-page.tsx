@@ -1,0 +1,214 @@
+import { t } from "@chase-sets/localization";
+import {
+  Badge,
+  Button,
+  Grid,
+  Inline,
+  LinkButton,
+  MarketplaceEmptyState,
+  NativeSelect,
+  Page,
+  PageHeader,
+  PageSection,
+  Stack,
+  Surface,
+  Text,
+  TextInput,
+} from "@chase-sets/design-system";
+import type { ShippingAddress } from "./contracts";
+
+function addressLines(address: ShippingAddress) {
+  return [
+    address.recipient_name,
+    address.company,
+    address.line1,
+    address.line2,
+    `${address.city}, ${address.state} ${address.postal_code}`,
+    address.country,
+  ].filter(Boolean);
+}
+
+function AddressFields({ address }: { address?: ShippingAddress }) {
+  return (
+    <Grid columns={{ base: 1, md: 2 }} gap={3}>
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.label")}
+        name="label"
+        defaultValue={address?.label ?? ""}
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.recipient.name")}
+        name="name"
+        defaultValue={address?.recipient_name ?? ""}
+        required
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.company")}
+        name="company"
+        defaultValue={address?.company ?? ""}
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.country")}
+        name="country"
+        defaultValue={address?.country ?? "US"}
+        required
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line1")}
+        name="line1"
+        defaultValue={address?.line1 ?? ""}
+        required
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.address.line2")}
+        name="line2"
+        defaultValue={address?.line2 ?? ""}
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.city")}
+        name="city"
+        defaultValue={address?.city ?? ""}
+        required
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.state")}
+        name="state"
+        defaultValue={address?.state ?? ""}
+        required
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.postal.code")}
+        name="postalCode"
+        defaultValue={address?.postal_code ?? ""}
+        required
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.phone")}
+        name="phone"
+        defaultValue={address?.phone ?? ""}
+      />
+      <TextInput
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.email")}
+        name="email"
+        type="email"
+        defaultValue={address?.email ?? ""}
+      />
+      <NativeSelect
+        label={t("identity.features.shippingAddresses.ui.shippingAddressPage.default")}
+        name="makeDefault"
+        defaultValue={address?.is_default ? "true" : "false"}
+        items={[
+          { value: "false", label: t("identity.features.shippingAddresses.ui.shippingAddressPage.keep.default") },
+          { value: "true", label: t("identity.features.shippingAddresses.ui.shippingAddressPage.make.default") },
+        ]}
+      />
+    </Grid>
+  );
+}
+
+export function ShippingAddressPage({
+  addresses,
+  errorMessage,
+}: {
+  addresses: readonly ShippingAddress[];
+  errorMessage?: string | null;
+}) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("identity.features.shippingAddresses.ui.shippingAddressPage.account")}
+        title={t("identity.features.shippingAddresses.ui.shippingAddressPage.shipping.addresses")}
+        description={t("identity.features.shippingAddresses.ui.shippingAddressPage.manage.reusable.destinations")}
+        actions={<LinkButton href="/account" tone="secondary">{t("identity.features.shippingAddresses.ui.shippingAddressPage.back.to.account")}</LinkButton>}
+      />
+
+      {errorMessage ? (
+        <Surface elevated>
+          <Stack gap={2}>
+            <Badge tone="danger">{t("identity.features.shippingAddresses.ui.shippingAddressPage.address.issue")}</Badge>
+            <Text>{errorMessage}</Text>
+          </Stack>
+        </Surface>
+      ) : null}
+
+      <PageSection
+        title={t("identity.features.shippingAddresses.ui.shippingAddressPage.add.shipping.address")}
+        description={t("identity.features.shippingAddresses.ui.shippingAddressPage.add.description")}
+      >
+        <Surface elevated>
+          <form method="post">
+            <Stack gap={3}>
+              <input type="hidden" name="intent" value="create" />
+              <AddressFields />
+              <Button type="submit" leadingIcon="plus">
+                {t("identity.features.shippingAddresses.ui.shippingAddressPage.save.address")}
+              </Button>
+            </Stack>
+          </form>
+        </Surface>
+      </PageSection>
+
+      <PageSection
+        title={t("identity.features.shippingAddresses.ui.shippingAddressPage.saved.addresses")}
+        description={t("identity.features.shippingAddresses.ui.shippingAddressPage.saved.description")}
+      >
+        {addresses.length === 0 ? (
+          <MarketplaceEmptyState
+            title={t("identity.features.shippingAddresses.ui.shippingAddressPage.no.saved.addresses")}
+            description={t("identity.features.shippingAddresses.ui.shippingAddressPage.no.saved.addresses.description")}
+          />
+        ) : (
+          <Stack gap={3}>
+            {addresses.map((address) => (
+              <Surface key={address.shipping_address_id} elevated>
+                <Stack gap={3}>
+                  <Inline gap={2}>
+                    <Text weight="semibold">{address.label}</Text>
+                    {address.is_default ? (
+                      <Badge tone="success">
+                        {t("identity.features.shippingAddresses.ui.shippingAddressPage.default.badge")}
+                      </Badge>
+                    ) : null}
+                  </Inline>
+                  <Stack gap={1}>
+                    {addressLines(address).map((line) => (
+                      <Text key={line} size="sm" tone="secondary">{line}</Text>
+                    ))}
+                  </Stack>
+                  <form method="post">
+                    <Stack gap={3}>
+                      <input type="hidden" name="intent" value="update" />
+                      <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                      <AddressFields address={address} />
+                      <Button type="submit" tone="secondary">
+                        {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
+                      </Button>
+                    </Stack>
+                  </form>
+                  <Inline gap={2}>
+                    {!address.is_default ? (
+                      <form method="post">
+                        <input type="hidden" name="intent" value="default" />
+                        <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                        <Button type="submit" tone="secondary">
+                          {t("identity.features.shippingAddresses.ui.shippingAddressPage.set.default")}
+                        </Button>
+                      </form>
+                    ) : null}
+                    <form method="post">
+                      <input type="hidden" name="intent" value="archive" />
+                      <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                      <Button type="submit" tone="danger">
+                        {t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
+                      </Button>
+                    </form>
+                  </Inline>
+                </Stack>
+              </Surface>
+            ))}
+          </Stack>
+        )}
+      </PageSection>
+    </Page>
+  );
+}

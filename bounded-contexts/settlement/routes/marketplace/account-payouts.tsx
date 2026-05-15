@@ -5,6 +5,7 @@ import type {
   MetaFunction,
 } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -126,7 +127,12 @@ export async function action({ request }: ActionFunctionArgs) {
         note: formData.get("note") || null,
       })) as Readonly<{ id: string }>;
 
-      return redirect(`/account/payouts/${result.id}?requested=1`);
+      return redirect(
+        appendFreshWriteToken(
+          `/account/payouts/${result.id}?requested=1`,
+          result,
+        ),
+      );
     }
 
     if (intent === "start-payout-setup") {

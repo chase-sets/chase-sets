@@ -26,7 +26,7 @@ resource "digitalocean_database_user" "contexts" {
 }
 
 resource "digitalocean_database_connection_pool" "contexts" {
-  for_each = local.staging_connection_pool_contexts
+  for_each = local.non_production_connection_pool_contexts
 
   cluster_id = digitalocean_database_cluster.postgres.id
   name       = "${each.key}-runtime"
@@ -120,7 +120,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "database" {
-      for_each = local.is_staging ? {} : local.context_databases
+      for_each = local.is_non_production ? {} : local.context_databases
       content {
         name         = "db-${database.key}"
         engine       = "PG"
@@ -191,7 +191,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "marketplace"
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
@@ -280,7 +280,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "platform-api"
         run_command        = "pnpm --filter @chase-sets/app-platform-api run start:production"
@@ -353,6 +353,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
+          value = "http://localhost:8080"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "STRIPE_SECRET_KEY"
           value = var.stripe_secret_key
           type  = "SECRET"
@@ -411,26 +417,54 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.google_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.google_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.facebook_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.facebook_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "REALTIME_STREAM_LIMITER"
-          value = local.is_staging ? "local" : "postgres"
+          value = local.is_non_production ? "local" : "postgres"
           scope = "RUN_TIME"
         }
 
         env {
           key   = "REALTIME_BACKGROUND_MAINTENANCE_ENABLED"
-          value = local.is_staging ? "false" : "true"
+          value = local.is_non_production ? "false" : "true"
           scope = "RUN_TIME"
         }
 
         env {
           key   = "REALTIME_WAKE_SIGNAL_ENABLED"
-          value = local.is_staging ? "false" : "true"
+          value = local.is_non_production ? "false" : "true"
           scope = "RUN_TIME"
         }
 
         env {
           key   = "WRITE_CONSISTENCY_DRAIN_ENABLED"
-          value = local.is_staging ? "false" : "true"
+          value = local.is_non_production ? "false" : "true"
           scope = "RUN_TIME"
         }
 
@@ -447,7 +481,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [] : [1]
+      for_each = local.is_non_production ? [] : [1]
       content {
         name               = "admin-support-api"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run start:production"
@@ -532,7 +566,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "platform-worker"
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
@@ -656,6 +690,65 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.google_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.google_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.facebook_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.facebook_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "NOTIFICATION_EMAIL_PROVIDER"
+          value = var.notification_email_provider
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_AWS_REGION"
+          value = var.ses_aws_region
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_FROM_EMAIL"
+          value = var.ses_from_email
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_CONFIGURATION_SET_NAME"
+          value = var.ses_configuration_set_name
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_SOURCE_ARN"
+          value = var.ses_source_arn
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "DEPLOYMENT_ENVIRONMENT"
           value = var.environment
           scope = "RUN_TIME"
@@ -668,7 +761,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "worker" {
-      for_each = local.is_staging ? [] : [1]
+      for_each = local.is_non_production ? [] : [1]
       content {
         name               = "admin-support-worker"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
@@ -729,7 +822,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.is_staging ? [1] : []
+      for_each = local.is_non_production ? [1] : []
       content {
         name               = "platform-bootstrap"
         kind               = "PRE_DEPLOY"
@@ -818,7 +911,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.is_staging ? [] : [1]
+      for_each = local.is_non_production ? [] : [1]
       content {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"

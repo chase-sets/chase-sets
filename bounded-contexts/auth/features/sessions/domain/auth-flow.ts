@@ -1,9 +1,10 @@
-export type AuthMethod = "password" | "magic-link" | "passkey";
+export type AuthMethod = "password" | "magic-link" | "passkey" | "google" | "facebook";
 
 export const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 export const AUTH_ACCOUNT_SELECTION_TTL_MS = 1000 * 60 * 10;
 export const AUTH_MAGIC_LINK_TTL_MS = 1000 * 60 * 15;
 export const AUTH_CHALLENGE_TTL_MS = 1000 * 60 * 10;
+export const AUTH_SOCIAL_LOGIN_STATE_TTL_MS = 1000 * 60 * 10;
 
 export const AUTH_SESSION_STREAM_PREFIX = "auth.session-";
 

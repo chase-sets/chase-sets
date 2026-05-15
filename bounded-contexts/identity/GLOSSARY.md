@@ -53,7 +53,7 @@ Accounts:
 - Own tax settings and tax identity
 - Receive payouts
 - Manage users and automation through memberships
-- Own locations (addresses) and fulfillment settings
+- Own recipient shipping addresses used for checkout reuse
 
 Examples:
 
@@ -68,6 +68,7 @@ Notes:
 - All commerce activity is attributed to an account.
 - Even guest checkout users have an associated account for their orders and payments (even if it's not visible to them).
 - Buying and selling are not account capability classes; accounts may play buyer or seller roles only inside transaction-specific contexts.
+- Seller operational locations remain separate: Inventory owns storage locations for account-held stock, and Fulfillment owns ship-from locations and shipment execution.
 
 ### Membership
 
@@ -161,6 +162,22 @@ Notes:
 - A user may have multiple authentication methods.
 - Auth owns the sign-in and registration journey that uses these methods.
 
+### Social Login Link
+
+A **Social Login Link** records that one external provider identity can authenticate one User.
+
+Examples:
+
+- A Google subject linked to a User
+- A Facebook subject linked to a User
+
+Notes:
+
+- Identity owns the durable link fact because it belongs to the User's authentication methods.
+- Auth owns the provider redirect, callback verification, and session journey.
+- A provider identity must not be linked to more than one User.
+- Provider tokens and raw profile payloads are not Identity facts.
+
 ### API Key
 
 An **API Key** is a credential used by software or integrations to access the system without interactive login.
@@ -246,6 +263,26 @@ Notes:
 
 - Consents should be versioned.
 - Consents must be auditable.
+
+## Account Address Book
+
+### Shipping Address
+
+A **Shipping Address** is an account-owned recipient destination that can be reused during checkout.
+
+Shipping addresses:
+
+- Belong to exactly one account
+- Capture recipient name, optional company, street, city, state/region, postal code, country, and optional contact details
+- May be marked as the account default shipping address
+- May be selected, created, or explicitly updated from checkout before the checkout session records its immutable shipping destination snapshot
+
+Notes:
+
+- Shipping Address is an Identity term because it is reusable account state.
+- Checkout owns the active session selection and records a snapshot of the selected destination.
+- Ordering and Fulfillment consume immutable shipping destination snapshots, not live Identity address records.
+- Inventory Storage Location and Fulfillment Ship-from Location are separate operational concepts and must not be collapsed into Shipping Address.
 
 ## Auditing and Events
 
