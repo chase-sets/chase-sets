@@ -443,7 +443,15 @@ function createPlatformTransactionalEmailGateway(
     configurationSetName: ses.configurationSetName,
     sourceArn: ses.sourceArn,
     templateRenderer: platformEmailTemplateRenderer,
-    sendRequest: createSesSendRequest({ region: ses.region }),
+    sendRequest: createSesSendRequest({
+      region: ses.region,
+      clientConfig: {
+        credentials: {
+          accessKeyId: ses.accessKeyId,
+          secretAccessKey: ses.secretAccessKey,
+        },
+      },
+    }),
     onAttempt: (event) => {
       logger.info("Transactional email send attempted.", {
         type: "transactional-email.send.attempt",
@@ -484,17 +492,32 @@ function createPlatformEmailNotificationAdapter(
     configurationSetName: ses.configurationSetName,
     sourceArn: ses.sourceArn,
     templateRenderer: platformEmailTemplateRenderer,
-    sendRequest: createSesSendRequest({ region: ses.region }),
+    sendRequest: createSesSendRequest({
+      region: ses.region,
+      clientConfig: {
+        credentials: {
+          accessKeyId: ses.accessKeyId,
+          secretAccessKey: ses.secretAccessKey,
+        },
+      },
+    }),
   });
 }
 
 function requireCompleteSesConfig(ses: ReturnType<typeof loadConfig>["notificationEmail"]["ses"]) {
-  const { region, fromEmail, configurationSetName, sourceArn } = ses;
-  if (!region || !fromEmail || !configurationSetName || !sourceArn) {
+  const { region, accessKeyId, secretAccessKey, fromEmail, configurationSetName, sourceArn } = ses;
+  if (!region || !accessKeyId || !secretAccessKey || !fromEmail || !configurationSetName || !sourceArn) {
     throw new Error("Complete SES configuration is required when Amazon SES email is enabled.");
   }
 
-  return { region, fromEmail, configurationSetName, sourceArn };
+  return {
+    region,
+    accessKeyId,
+    secretAccessKey,
+    fromEmail,
+    configurationSetName,
+    sourceArn,
+  };
 }
 
 function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): readonly string[] {

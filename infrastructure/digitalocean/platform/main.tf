@@ -832,6 +832,20 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "SES_AWS_ACCESS_KEY_ID"
+          value = var.ses_aws_access_key_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_AWS_SECRET_ACCESS_KEY"
+          value = var.ses_aws_secret_access_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "SES_FROM_EMAIL"
           value = var.ses_from_email
           scope = "RUN_TIME"

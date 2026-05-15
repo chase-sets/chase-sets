@@ -15,12 +15,45 @@ Required worker environment:
 ```env
 NOTIFICATION_EMAIL_PROVIDER=amazon-ses
 SES_AWS_REGION=us-east-2
+SES_AWS_ACCESS_KEY_ID=<environment IAM access key id>
+SES_AWS_SECRET_ACCESS_KEY=<environment IAM secret access key>
 SES_FROM_EMAIL=<environment sender>
 SES_CONFIGURATION_SET_NAME=<environment configuration set>
 SES_SOURCE_ARN=<environment SES identity ARN>
 ```
 
-The worker refuses to start with `NOTIFICATION_EMAIL_PROVIDER=amazon-ses` unless all four `SES_*` values are present.
+The worker refuses to start with `NOTIFICATION_EMAIL_PROVIDER=amazon-ses` unless all six `SES_*` values are present.
+
+## Sender Credentials
+
+Create one IAM access key pair for the platform email sender, scoped to the SES identities and configuration sets used by Chase Sets. Store the key id and secret key as GitHub Environment secrets named `SES_AWS_ACCESS_KEY_ID` and `SES_AWS_SECRET_ACCESS_KEY` in `preview`, `staging`, and `production`.
+
+The IAM principal should allow only SES sending through the configured identities:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+      ],
+      "Resource": [
+        "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com",
+        "arn:aws:ses:us-east-2:812517519777:identity/staging.chasesets.com",
+        "arn:aws:ses:us-east-2:812517519777:identity/chasesets.com",
+        "arn:aws:ses:us-east-2:812517519777:configuration-set/transactional-preview",
+        "arn:aws:ses:us-east-2:812517519777:configuration-set/transactional-staging",
+        "arn:aws:ses:us-east-2:812517519777:configuration-set/transactional-production"
+      ]
+    }
+  ]
+}
+```
+
+Rotate the access key through the GitHub Environment secrets first. Then redeploy staging and confirm a controlled transactional message reaches `status = 'sent'` with provider `amazon-ses`.
 
 ## DNS Requirements
 

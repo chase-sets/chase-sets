@@ -17,6 +17,8 @@ const envNames = [
   "EASYPOST_MODE",
   "NOTIFICATION_EMAIL_PROVIDER",
   "SES_AWS_REGION",
+  "SES_AWS_ACCESS_KEY_ID",
+  "SES_AWS_SECRET_ACCESS_KEY",
   "SES_FROM_EMAIL",
   "SES_CONFIGURATION_SET_NAME",
   "SES_SOURCE_ARN",
@@ -148,7 +150,7 @@ describe("platform worker config", () => {
     process.env.SES_FROM_EMAIL = "notifications@preview.chasesets.com";
 
     expect(() => loadConfig()).toThrow(
-      "SES_AWS_REGION, SES_FROM_EMAIL, SES_CONFIGURATION_SET_NAME, and SES_SOURCE_ARN are required when NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
+      "SES_AWS_REGION, SES_AWS_ACCESS_KEY_ID, SES_AWS_SECRET_ACCESS_KEY, SES_FROM_EMAIL, SES_CONFIGURATION_SET_NAME, and SES_SOURCE_ARN are required when NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
   });
 
@@ -156,6 +158,8 @@ describe("platform worker config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NOTIFICATION_EMAIL_PROVIDER = "amazon-ses";
     process.env.SES_AWS_REGION = "us-east-2";
+    process.env.SES_AWS_ACCESS_KEY_ID = "AKIA_TEST";
+    process.env.SES_AWS_SECRET_ACCESS_KEY = "secret-test";
     process.env.SES_FROM_EMAIL = "notifications@preview.chasesets.com";
     process.env.SES_CONFIGURATION_SET_NAME = "transactional-preview";
     process.env.SES_SOURCE_ARN = "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com";
@@ -166,6 +170,8 @@ describe("platform worker config", () => {
       provider: "amazon-ses",
       ses: {
         region: "us-east-2",
+        accessKeyId: "AKIA_TEST",
+        secretAccessKey: "secret-test",
         fromEmail: "notifications@preview.chasesets.com",
         configurationSetName: "transactional-preview",
         sourceArn: "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com",

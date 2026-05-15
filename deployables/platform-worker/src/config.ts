@@ -76,6 +76,8 @@ export type PlatformWorkerNotificationEmailConfig = Readonly<{
   provider: "noop" | "amazon-ses";
   ses: Readonly<{
     region?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
     fromEmail?: string;
     configurationSetName?: string;
     sourceArn?: string;
@@ -132,6 +134,8 @@ export function loadConfig(): PlatformWorkerConfig {
   const notificationEmailProvider =
     getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER") === "amazon-ses" ? "amazon-ses" : "noop";
   const sesAwsRegion = getOptionalEnv("SES_AWS_REGION") ?? undefined;
+  const sesAwsAccessKeyId = getOptionalEnv("SES_AWS_ACCESS_KEY_ID") ?? undefined;
+  const sesAwsSecretAccessKey = getOptionalEnv("SES_AWS_SECRET_ACCESS_KEY") ?? undefined;
   const sesFromEmail = getOptionalEnv("SES_FROM_EMAIL") ?? undefined;
   const sesConfigurationSetName = getOptionalEnv("SES_CONFIGURATION_SET_NAME") ?? undefined;
   const sesSourceArn = getOptionalEnv("SES_SOURCE_ARN") ?? undefined;
@@ -151,10 +155,15 @@ export function loadConfig(): PlatformWorkerConfig {
   }
   if (
     notificationEmailProvider === "amazon-ses" &&
-    (!sesAwsRegion || !sesFromEmail || !sesConfigurationSetName || !sesSourceArn)
+    (!sesAwsRegion ||
+      !sesAwsAccessKeyId ||
+      !sesAwsSecretAccessKey ||
+      !sesFromEmail ||
+      !sesConfigurationSetName ||
+      !sesSourceArn)
   ) {
     throw new Error(
-      "SES_AWS_REGION, SES_FROM_EMAIL, SES_CONFIGURATION_SET_NAME, and SES_SOURCE_ARN are required when NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
+      "SES_AWS_REGION, SES_AWS_ACCESS_KEY_ID, SES_AWS_SECRET_ACCESS_KEY, SES_FROM_EMAIL, SES_CONFIGURATION_SET_NAME, and SES_SOURCE_ARN are required when NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
   }
   if (mobileMessagingProvider === "twilio" && (!twilioAccountSid || !twilioAuthToken || !twilioMessagingServiceSid)) {
@@ -226,6 +235,8 @@ export function loadConfig(): PlatformWorkerConfig {
       provider: notificationEmailProvider,
       ses: {
         region: sesAwsRegion,
+        accessKeyId: sesAwsAccessKeyId,
+        secretAccessKey: sesAwsSecretAccessKey,
         fromEmail: sesFromEmail,
         configurationSetName: sesConfigurationSetName,
         sourceArn: sesSourceArn,

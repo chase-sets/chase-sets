@@ -67,6 +67,8 @@ Configure these in `preview`, `staging`, and `production` GitHub Environments:
 - `PLATFORM_ADMIN_EMAIL`
 - `PLATFORM_ADMIN_PASSWORD`
 - `CHASE_SETS_DISCORD_INVITE_URL`
+- `SES_AWS_ACCESS_KEY_ID`
+- `SES_AWS_SECRET_ACCESS_KEY`
 - `SES_SOURCE_ARN`
 
 Additional `preview` and `staging` secrets for the full platform:
@@ -94,6 +96,8 @@ SES values configured for platform environments:
 | `preview` | `amazon-ses` | `us-east-2` | `notifications@preview.chasesets.com` | `transactional-preview` | `arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com` |
 | `staging` | `amazon-ses` | `us-east-2` | `notifications@staging.chasesets.com` | `transactional-staging` | `arn:aws:ses:us-east-2:812517519777:identity/staging.chasesets.com` |
 | `production` | `amazon-ses` | `us-east-2` | `notifications@chasesets.com` | `transactional-production` | `arn:aws:ses:us-east-2:812517519777:identity/chasesets.com` |
+
+`SES_AWS_ACCESS_KEY_ID` and `SES_AWS_SECRET_ACCESS_KEY` are environment secrets for the IAM principal allowed to send through those SES identities and configuration sets.
 
 The `platform-worker` component consumes these values in preview and staging. Production stores and validates the production SES values now, but production currently runs the landing/admin-support component set until marketplace production promotion adds the full `platform-worker`.
 
