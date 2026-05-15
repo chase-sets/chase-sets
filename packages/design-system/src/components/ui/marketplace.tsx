@@ -939,6 +939,8 @@ export interface SearchControlBarProps {
   search: ReactNode;
   sort?: ReactNode;
   filters?: ReactNode;
+  actions?: ReactNode;
+  filterControlsVisibility?: "always" | "desktop";
   appliedFilters?: ReactNode;
   summary?: ReactNode;
   savedSearch?: ReactNode;
@@ -948,16 +950,35 @@ export function SearchControlBar({
   search,
   sort,
   filters,
+  actions,
+  filterControlsVisibility = "always",
   appliedFilters,
   summary,
   savedSearch
 }: SearchControlBarProps) {
+  const hasControls = Boolean(sort || filters || actions);
+  const filterControlsClass =
+    filterControlsVisibility === "desktop" ? "hidden lg:flex" : "flex";
+
   return (
     <section className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-3 shadow-[var(--shadow-sm)]">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
-        <div>{search}</div>
-        {sort ? <div className="min-w-44">{sort}</div> : null}
-        {filters ? <div>{filters}</div> : null}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="min-w-0">{search}</div>
+        {hasControls ? (
+          <div className="flex min-w-0 flex-wrap items-end gap-3 lg:justify-end">
+            {sort ? <div className="min-w-44">{sort}</div> : null}
+            {filters || actions ? (
+              <div className={cn(filterControlsClass, "min-w-0 flex-wrap items-end gap-3")}>
+                {filters ? <div className="min-w-44">{filters}</div> : null}
+                {actions ? (
+                  <div className="flex min-h-11 items-end [&>a]:min-h-11 [&>button]:min-h-11">
+                    {actions}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {appliedFilters || summary || savedSearch ? (
         <div className="grid gap-3 border-t border-[var(--border)] pt-3 md:grid-cols-[1fr_auto] md:items-center">

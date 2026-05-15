@@ -30,6 +30,7 @@ import {
   ComparisonModule,
   SavedSearchPrompt,
   SearchFilterPanel,
+  SearchInput,
   StickyCtaBar,
   MarketplaceFacetChoiceGroup,
   MarketplaceMobileFilterBar,
@@ -350,6 +351,9 @@ describe("design-system", () => {
       <SearchControlBar
         search={<Input aria-label="Search" defaultValue="pikachu" />}
         sort={<Select label="Sort" items={[{ label: "Newest", value: "newest" }]} />}
+        filters={<Select label="Language" items={[{ label: "All languages", value: "all" }]} />}
+        actions={<Button variant="secondary">Clear filters</Button>}
+        filterControlsVisibility="desktop"
         appliedFilters={<AppliedFilterChips filters={[{ id: "q", label: "Search: pikachu" }]} />}
         savedSearch={
           <SavedSearchPrompt
@@ -362,7 +366,20 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain("Search: pikachu");
+    expect(markup).toContain("Clear filters");
+    expect(markup).toContain("min-h-11");
+    expect(markup).toContain("hidden lg:flex");
     expect(markup).toContain("Save this search");
+  });
+
+  it("does not reserve visible label spacing for hidden-label form controls", () => {
+    const markup = renderToString(
+      <SearchInput label="Search marketplace" hideLabel defaultValue="pikachu" />
+    );
+
+    expect(markup).toContain("Search marketplace");
+    expect(markup).toContain("grid gap-2");
+    expect(markup).not.toContain("space-y-2");
   });
 
   it("renders seller credibility and payment recovery contracts", () => {
