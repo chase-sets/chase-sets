@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchPage } from "./search-page";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
@@ -176,8 +176,9 @@ describe("SearchPage", () => {
       },
     });
 
-    expect(screen.getByText("Condition")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
+    expect(screen.getAllByText("Condition").length).toBeGreaterThan(1);
+    expect(screen.getAllByRole("button", { name: "Near Mint (3)" }).length).toBeGreaterThan(1);
+    expect(within(screen.getByLabelText("Condition")).getByRole("button", { name: "Any Condition" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove Condition: Near Mint" }));
 
     expect(props.onDynamicFilterChange).toHaveBeenCalledWith({

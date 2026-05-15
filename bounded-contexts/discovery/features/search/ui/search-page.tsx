@@ -6,7 +6,6 @@ import {
   Pagination,
   LoadingSpinner,
   Banner,
-  Button,
   Stack,
   Inline,
   SearchResultsLayout,
@@ -17,6 +16,7 @@ import {
   PlatformCredibilityCue,
   PromoStrip,
   MarketplaceFacetRail,
+  MarketplaceFacetStrip,
   MarketplaceLandingHero,
   SavedSearchPrompt,
   SearchControlBar,
@@ -285,24 +285,30 @@ export function SearchPage({
       })}
     </Stack>
   );
-  const categoryActions = [
-    {
-      id: "",
-      label: t("discovery.features.search.ui.searchPage.all.categories"),
-      count: undefined,
-      selected: !category,
-      onSelect: () => onCategoryChange(""),
-      leadingIcon: "grid" as const,
-    },
-    ...featuredCategories.map((item) => ({
-      id: item.slug,
-      label: item.name,
-      count: item.item_count,
-      selected: category === item.slug,
-      onSelect: () => onCategoryChange(item.slug),
-      leadingIcon: "tag" as const,
-    })),
-  ];
+  const mobileFacetStrips = (data?.facets ?? []).map((facet) => {
+    const selectedValues = facet.values.filter((value) => value.selected).map((value) => value.id);
+
+    return (
+      <MarketplaceFacetStrip
+        key={`${facet.kind}:${facet.id}`}
+        title={facet.label}
+        allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+        items={facet.values.map((value) => ({
+          id: value.id,
+          label: value.label,
+          count: value.count,
+        }))}
+        selectedIds={selectedValues}
+        onSelect={(value) => {
+          if (value) {
+            onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+          } else {
+            onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+          }
+        }}
+      />
+    );
+  });
 
   return (
     <SearchResultsLayout
@@ -416,28 +422,19 @@ export function SearchPage({
           />
         ) : null}
         {hasFocusedResults ? (
-          <div
-            className="w-full min-w-0 overflow-x-auto lg:hidden"
-            aria-label={t("discovery.features.search.ui.searchPage.browse.categories")}
-          >
-            <div className="flex min-w-max gap-2 pb-1">
-              {categoryActions.map((item) => (
-                <Button
-                  key={item.id}
-                  tone={item.selected ? "primary" : "ghost"}
-                  size="sm"
-                  leadingIcon={item.leadingIcon}
-                  onClick={item.onSelect}
-                >
-                  {item.count == null
-                    ? item.label
-                    : t("discovery.features.search.ui.searchPage.category.count.label", {
-                        category: item.label,
-                        count: item.count,
-                      })}
-                </Button>
-              ))}
-            </div>
+          <div className="grid min-w-0 gap-3 lg:hidden">
+            <MarketplaceFacetStrip
+              ariaLabel={t("discovery.features.search.ui.searchPage.browse.categories")}
+              allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
+              items={featuredCategories.map((item) => ({
+                id: item.slug,
+                label: item.name,
+                count: item.item_count,
+              }))}
+              selectedId={category}
+              onSelect={onCategoryChange}
+            />
+            {mobileFacetStrips}
           </div>
         ) : null}
 

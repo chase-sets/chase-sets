@@ -38,6 +38,7 @@ import {
   CommerceDrawer,
   MarketStatusBadge,
   MarketplaceFacetRail,
+  MarketplaceFacetStrip,
   MarketplaceLandingHero,
   MarketplaceMarketSummary,
   MarketplaceProductCard,
@@ -897,6 +898,15 @@ describe("design system", () => {
         onSelect={() => {}}
       />
     );
+    const facetStripMarkup = renderToString(
+      <MarketplaceFacetStrip
+        title="Condition"
+        allLabel="Any Condition"
+        items={[{ id: "near-mint", label: "Near Mint", count: 3 }]}
+        selectedIds={["near-mint"]}
+        onSelect={() => {}}
+      />
+    );
     const heroMarkup = renderToString(
       <MarketplaceLandingHero
         badges={[{ label: "Verified supply", tone: "success" }]}
@@ -911,6 +921,8 @@ describe("design system", () => {
 
     expect(facetMarkup).toContain("Browse Categories");
     expect(facetMarkup).toContain("Pokemon TCG (7)");
+    expect(facetStripMarkup).toContain("Condition");
+    expect(facetStripMarkup).toContain("Near Mint (3)");
     expect(heroMarkup).toContain("Find collectibles worth chasing.");
     expect(heroMarkup).toContain("Available Now");
     expect(statusMarkup).toContain("Market only");

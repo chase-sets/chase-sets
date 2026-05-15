@@ -65,10 +65,10 @@ Users need a best-in-class marketplace search experience that gets them to the r
 - [x] Apply dynamic filters in `searchDiscoveryItems` with safe structured SQL and existing pagination/count behavior.
 - [x] Return a `facets` payload with dynamic field and dimension facet groups, ordered by the resolved priority policy. Category remains supplied by the existing Discovery category API and rendered first in the rail.
 - [x] Update Discovery client contracts, API route parsing, request client use, route loader state, applied filter chips, and UI controls.
-- [x] Keep UI on design-system primitives/patterns; `MarketplaceFacetRail` now supports multi-selected values.
+- [x] Keep UI on design-system primitives/patterns; `MarketplaceFacetRail` now supports multi-selected values and `MarketplaceFacetStrip` provides compact mobile facet controls.
 - [x] Add acceptance coverage for filtering by a filterable field value and by a dimension option, including facet counts. This DB-backed file is present but skips locally when `TEST_DATABASE_URL` is absent.
 - [x] Add focused unit/component tests for applied chips, mobile category preservation, and dynamic filter rendering.
-- [x] Run targeted tests, `pnpm run typecheck`, `pnpm run test:fast`, `pnpm run build`, and seeded desktop visual checks against the marketplace route.
+- [x] Run targeted tests, `pnpm run typecheck`, `pnpm run test:fast`, `pnpm run build`, and seeded desktop/mobile visual checks against the marketplace route.
 
 ## Documentation To Promote
 
@@ -85,5 +85,7 @@ The implementation goal must:
 - [x] Retain this `.codex/plans/20260515-dynamic-search-filters.md` file with the implementation for reviewer context.
 - [x] Verify automated checks, including targeted Discovery search tests, typecheck, and the relevant broader test command that is practical for the final patch size.
 - [x] Run desktop visual verification of the marketplace search route after frontend changes.
-- [ ] Run mobile visual verification of the marketplace search route after frontend changes. Mobile interaction coverage is present in component/route tests; the in-app Browser viewport was not resizable in this session, and `data:` navigation for a narrow frame was blocked by browser policy, so mobile visual screenshot remains unresolved.
-- Submit a PR, ensure CI passes, merge it, verify staging deploy behavior, and keep the plan committed.
+- [x] Run mobile visual verification of the marketplace search route after frontend changes. Browser verification at `443x958` confirmed the applied `Card Number: 4/102` chip, top-ranked dynamic facet strips, selected `4/102 (1)` state, the narrowed Charizard result card, and bottom navigation without layout overlap.
+- [x] Submit a draft PR and ensure the first CI run passes.
+- [ ] Mark the PR ready after the mobile follow-up commit is pushed and CI passes again.
+- [ ] Merge the PR, verify staging deploy behavior, and keep the plan committed.
