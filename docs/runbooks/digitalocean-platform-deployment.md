@@ -106,12 +106,12 @@ Deployment safety depends on GitHub repository settings as well as workflow code
 - Protect or ruleset-match `production` so only the production workflow can move the deployed-release marker.
 - Restrict the `staging` GitHub Environment to deployments from `main`.
 - Restrict the `production` GitHub Environment to deployments from `main`.
-- Require approval on the `production` GitHub Environment before secrets are released to the job if production should stay human-gated after merge.
+- Do not require approval on the `production` GitHub Environment for the normal release path. Production deploys automatically after the `main` merge check, staging migration/bootstrap, and staging smoke check succeed.
 - Allow the `preview` GitHub Environment to deploy from pull requests created in this repository. Fork PRs do not receive preview secrets under the `pull_request` event.
 
 The Platform PR workflow validates static checks, typecheck, unit tests, DB-profile tests, workspace builds, Docker image builds, workflow syntax with Actionlint, preview Terraform shape, staging Terraform shape, production Terraform shape, state-bootstrap Terraform, and a live preview smoke check before reporting `PR Required` on pull requests. DB-profile tests run against an explicit GitHub Actions PostgreSQL service. The workflow also fails if generated Terraform working directories under `.terraform/` are tracked; keep only `.terraform.lock.hcl` in git.
 
-On pushes to `main`, the same `PR Required` workflow validates the merge commit without creating a preview environment. The deployment workflow waits for that merge-commit gate, deploys staging, and proceeds to production only after staging deployment and smoke checks pass.
+On pushes to `main`, the same `PR Required` workflow validates the merge commit without creating a preview environment. The deployment workflow waits for that merge-commit gate, deploys staging as an automated migration/bootstrap and smoke-test check, then automatically deploys production only after staging succeeds.
 
 ## One-Time State Bootstrap
 
@@ -151,25 +151,26 @@ The App Platform components share the same runtime image and differ only by run 
 
 ## Staging Deployment
 
-Staging deploys through `.github/workflows/platform-production.yml` on every push to `main`, before production. Manual dispatch is retained as a redeploy escape hatch for a ref already contained in `origin/main`; manual dispatch also runs staging before production.
+Staging deploys through `.github/workflows/platform-production.yml` on every push to `main`, before production. Staging is a pre-production verification check, not the release destination: it proves the release image can run Terraform-managed migrations/bootstrap and pass smoke checks against durable staging state. Manual dispatch is retained as a redeploy escape hatch for a ref already contained in `origin/main`; manual dispatch also runs staging before production.
 
 The staging job:
 
 1. Uses the release commit resolved by the deployment workflow.
 2. Waits for the release commit to have a completed successful `PR Required` check from the Platform PR workflow.
 3. Checks out the release commit.
-4. Validates required staging secrets and variables before any deploy step uses them.
-5. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:<release_commit>` with Docker Buildx cache and records the pushed digest in the workflow output.
-6. Initializes Terraform with backend key `landing/staging.tfstate`.
-7. Runs Terraform fmt and plan for `environment=staging` with the pushed image tag, and records whether `digitalocean_app.platform` will change.
-8. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
-9. Runs Terraform apply for `environment=staging`.
-10. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
-11. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-12. Waits for landing, admin, and marketplace domains.
-13. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements.
+4. Fails stale automatic deployments when the release commit is no longer the current `origin/main`.
+5. Validates required staging secrets and variables before any deploy step uses them.
+6. Builds and pushes `registry.digitalocean.com/<account-registry>/chase-sets-platform:<release_commit>` with Docker Buildx cache and records the pushed digest in the workflow output.
+7. Initializes Terraform with backend key `landing/staging.tfstate`.
+8. Runs Terraform fmt and plan for `environment=staging` with the pushed image tag, and records whether `digitalocean_app.platform` will change.
+9. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
+10. Runs Terraform apply for `environment=staging`, which runs the App Platform `PRE_DEPLOY` bootstrap and migration path before runtime traffic is validated.
+11. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
+12. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+13. Waits for landing, admin, and marketplace domains.
+14. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements.
 
-Production is not eligible to start until this staging job succeeds.
+Production starts automatically after this staging job succeeds. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.
 
 ## Preview Cleanup
 
@@ -181,20 +182,21 @@ If cleanup fails, rerun the cleanup workflow for the closed PR. If the state key
 
 ## Production Deployment
 
-Production deploys through `.github/workflows/platform-production.yml` after the staging job succeeds. It promotes the same immutable commit-tagged image that staging just deployed, instead of rebuilding a second artifact.
+Production deploys automatically through `.github/workflows/platform-production.yml` after the staging job succeeds. It promotes the same immutable commit-tagged image that staging just deployed, instead of rebuilding a second artifact.
 
 The workflow:
 
-1. Validates required production secrets and variables.
-2. Checks out the release commit that already passed `PR Required` and staging deployment.
-3. Verifies `registry.digitalocean.com/<account-registry>/chase-sets-platform:<release_commit>` already exists in DigitalOcean Container Registry. If it is missing, run a successful staging deployment for that commit before production promotion.
-4. Runs Terraform fmt and plan for `environment=production` with the staging-promoted image tag, and records whether `digitalocean_app.platform` will change.
-5. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
-6. Runs Terraform apply for `environment=production`.
-7. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
-8. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-9. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers.
-10. Fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
+1. Checks out the release commit that already passed `PR Required` and staging deployment.
+2. Fails stale automatic deployments when the release commit is no longer the current `origin/main`.
+3. Validates required production secrets and variables.
+4. Verifies `registry.digitalocean.com/<account-registry>/chase-sets-platform:<release_commit>` already exists in DigitalOcean Container Registry. If it is missing, run a successful staging deployment for that commit before production promotion.
+5. Runs Terraform fmt and plan for `environment=production` with the staging-promoted image tag, and records whether `digitalocean_app.platform` will change.
+6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
+7. Runs Terraform apply for `environment=production`.
+8. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
+9. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
+10. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers.
+11. Fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
 
 ## Smoke Coverage
 
