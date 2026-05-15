@@ -96,40 +96,13 @@ jobs:
     needs: resolve-release
     environment: staging
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_environment: staging
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-      TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
-      TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       TF_VAR_stripe_connect_return_url: https://marketplace-staging.chasesets.com/account/payouts
       TF_VAR_stripe_connect_refresh_url: https://marketplace-staging.chasesets.com/account/payouts/setup
-      TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
-      TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
-      TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
-      TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-      TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-      TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
-      TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
-      TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
-      TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
-      TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
@@ -152,6 +125,23 @@ jobs:
           fi
 
       - name: Validate staging configuration
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           missing=()
@@ -199,6 +189,9 @@ jobs:
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
@@ -211,10 +204,10 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: docker/setup-buildx-action@v3
 
       - name: Build and push App Platform image
+        id: image
         run: |
           set -euo pipefail
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
@@ -225,11 +218,24 @@ jobs:
 
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
-          docker build --pull --tag "$image" .
-          docker push "$image"
+          docker buildx build \
+            --pull \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --push \
+            --tag "$image" \
+            .
+
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${image}@${digest}"
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           terraform init \
             -backend-config=bucket=chase-sets-terraform-state \
@@ -250,6 +256,33 @@ jobs:
       - name: Terraform plan
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           terraform plan -out=tfplan
@@ -258,6 +291,9 @@ jobs:
 
       - name: Wait for previous App Platform deployment
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
 
@@ -271,10 +307,40 @@ jobs:
 
       - name: Terraform apply
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: terraform apply -auto-approve tfplan
 
       - name: Wait for Terraform App Platform deployment
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
@@ -283,6 +349,9 @@ jobs:
       - name: Deploy App Platform image
         if: steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
@@ -290,6 +359,9 @@ jobs:
 
       - name: Wait for staging domains
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
@@ -312,6 +384,12 @@ jobs:
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
@@ -351,31 +429,12 @@ jobs:
       - deploy-staging
     environment: production
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
       TF_VAR_environment: production
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
-      TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-      TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
-      TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
-      TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
-      TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
-      TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
-      TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
-      TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -396,6 +455,19 @@ jobs:
           fi
 
       - name: Validate production configuration
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           missing=()
@@ -439,6 +511,9 @@ jobs:
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
@@ -451,11 +526,35 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Verify promoted App Platform image
+        id: image
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry does not exist. Run staging for this commit before production promotion." >&2
+            exit 1
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          if ! docker buildx imagetools inspect "$image" >/tmp/promoted-image.txt; then
+            echo "Promoted image ${image} was not found. Run a successful staging deployment for ${TF_VAR_platform_image_tag} first." >&2
+            exit 1
+          fi
+
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Promoting ${image}@${digest}"
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           terraform init \
             -backend-config=bucket=chase-sets-terraform-state \
@@ -476,6 +575,26 @@ jobs:
       - name: Terraform plan
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           terraform plan -out=tfplan
@@ -484,6 +603,9 @@ jobs:
 
       - name: Wait for previous App Platform deployment
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
 
@@ -497,10 +619,33 @@ jobs:
 
       - name: Terraform apply
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: terraform apply -auto-approve tfplan
 
       - name: Wait for Terraform App Platform deployment
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
@@ -509,6 +654,9 @@ jobs:
       - name: Deploy App Platform image
         if: steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
@@ -516,6 +664,9 @@ jobs:
 
       - name: Wait for production domains
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
@@ -536,6 +687,8 @@ jobs:
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"

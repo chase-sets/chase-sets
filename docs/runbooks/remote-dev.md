@@ -1,6 +1,8 @@
 # Remote DigitalOcean Dev Sessions
 
-Remote dev sessions are disposable DigitalOcean Droplets for branch-level Codex work and real HTTPS preview URLs. They are dev/preview infrastructure only; production deployment is intentionally separate.
+Remote dev sessions are disposable DigitalOcean Droplets for branch-level Codex work and real HTTPS preview URLs. They are dev/preview infrastructure only; staging and production deployment are intentionally separate.
+
+GitHub Actions creates App Platform PR preview environments for repository pull requests. Remote dev sessions are an additional branch-level path for human review over HTTPS or remote Codex work when a disposable Droplet is more useful than the automatic PR preview. Keep them bounded with explicit TTLs and cleanup.
 
 ## Prerequisites
 
