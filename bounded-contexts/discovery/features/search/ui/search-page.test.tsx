@@ -129,7 +129,7 @@ describe("SearchPage", () => {
     const props = renderSearchPage({ category: "booster-packs" });
 
     expect(screen.getByText("Browse Categories")).toBeTruthy();
-    expect(screen.getByText("1 results in Booster Packs")).toBeTruthy();
+    expect(screen.getAllByText("1 results in Booster Packs").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Singles (7)" }).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Singles (7)" })[0]);
@@ -138,14 +138,23 @@ describe("SearchPage", () => {
   });
 
   it("keeps focused mobile category switching above recovery and saved-search content", () => {
-    renderSearchPage({ category: "booster-packs" });
+    const props = renderSearchPage({ category: "booster-packs" });
 
-    const mobileCategories = screen.getByLabelText("Browse categories");
+    const mobileFilters = screen.getByLabelText("Search filters");
     const savedSearch = screen.getByText("Save this search");
 
     expect(
-      mobileCategories.compareDocumentPosition(savedSearch) & Node.DOCUMENT_POSITION_FOLLOWING,
+      mobileFilters.compareDocumentPosition(savedSearch) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
+
+    const drawer = screen.getByRole("dialog", { name: "Filters" });
+    expect(within(drawer).getByText("Browse categories")).toBeTruthy();
+
+    fireEvent.click(within(drawer).getByRole("button", { name: "Singles (7)" }));
+
+    expect(props.onCategoryChange).toHaveBeenCalledWith("singles");
   });
 
   it("keeps applied category chips reversible", () => {
@@ -176,15 +185,28 @@ describe("SearchPage", () => {
       },
     });
 
-    expect(screen.getAllByText("Condition").length).toBeGreaterThan(1);
-    expect(screen.getAllByRole("button", { name: "Near Mint (3)" }).length).toBeGreaterThan(1);
-    expect(within(screen.getByLabelText("Condition")).getByRole("button", { name: "Any Condition" })).toBeTruthy();
+    expect(screen.getByText("1 active")).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Remove Condition: Near Mint" }));
 
     expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
       kind: "dimension",
       id: "dim_condition",
       value: "opt_near_mint",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
+
+    const drawer = screen.getByRole("dialog", { name: "Filters" });
+    expect(within(drawer).getByText("Condition")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Any Condition" })).toBeTruthy();
+    fireEvent.click(within(drawer).getByRole("button", { name: "Excellent (2)" }));
+
+    expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
+      kind: "dimension",
+      id: "dim_condition",
+      value: "opt_excellent",
     });
   });
 });

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -30,6 +31,9 @@ import {
   SavedSearchPrompt,
   SearchFilterPanel,
   StickyCtaBar,
+  MarketplaceFacetChoiceGroup,
+  MarketplaceMobileFilterBar,
+  MarketplaceMobileFilterDrawer,
   MarketplaceEmptyState,
   MarketplaceCartLineItem,
   MarketplaceStatusTimeline,
@@ -445,6 +449,64 @@ describe("design-system", () => {
     expect(screen.getByLabelText("Remove Ships today")).toBeTruthy();
     expect(screen.getAllByText("Verified sellers").length).toBeGreaterThan(1);
     expect(screen.getByText("Save this search")).toBeTruthy();
+  });
+
+  it("renders the marketplace mobile filter bottom sheet pattern", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const onSelect = vi.fn();
+
+    function MobileFilterHarness() {
+      const [open, setOpen] = useState(false);
+
+      return (
+        <div>
+          <MarketplaceMobileFilterBar
+            title="Filters"
+            summary="12 results in Pokemon TCG"
+            activeFilterCount={2}
+            activeFilterLabel="2 active"
+            openLabel="Open filters"
+            onOpen={() => {
+              onOpen();
+              setOpen(true);
+            }}
+          />
+          <MarketplaceMobileFilterDrawer
+            open={open}
+            onOpenChange={setOpen}
+            title="Filters"
+            description="Refine results."
+            resultSummary="12 results in Pokemon TCG"
+            footer={<Button>Show results</Button>}
+          >
+            <MarketplaceFacetChoiceGroup
+              title="Condition"
+              description="Narrow by condition."
+              allLabel="Any Condition"
+              items={[
+                { id: "near-mint", label: "Near Mint", count: 7 },
+                { id: "excellent", label: "Excellent", count: 3 },
+              ]}
+              selectedIds={["near-mint"]}
+              onSelect={onSelect}
+            />
+          </MarketplaceMobileFilterDrawer>
+        </div>
+      );
+    }
+
+    render(<MobileFilterHarness />);
+
+    await user.click(screen.getByRole("button", { name: "Open filters" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeTruthy();
+    expect(screen.getByText("2 active")).toBeTruthy();
+    expect(screen.getAllByText("12 results in Pokemon TCG").length).toBeGreaterThan(1);
+
+    await user.click(screen.getByRole("button", { name: "Excellent (3)" }));
+    expect(onSelect).toHaveBeenCalledWith("excellent");
   });
 
   it("renders sticky checkout CTAs without hiding context", () => {

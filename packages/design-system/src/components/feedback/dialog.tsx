@@ -14,6 +14,7 @@ function renderDialogFrame({
   footer,
   onDismiss,
   kind,
+  drawerPlacement = "side",
   reducedMotion,
   durations,
   easing,
@@ -26,6 +27,7 @@ function renderDialogFrame({
   footer?: ReactNode;
   onDismiss?: () => void;
   kind: "dialog" | "drawer";
+  drawerPlacement?: DrawerPlacement;
   reducedMotion: boolean;
   durations: { base: number; slow: number };
   easing: [number, number, number, number];
@@ -86,8 +88,10 @@ function renderDialogFrame({
           className: (baseClassName) => cx(
               "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none md:w-full md:max-w-2xl",
               kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
-              kind === "drawer" &&
+              kind === "drawer" && drawerPlacement === "side" &&
                 "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]",
+              kind === "drawer" && drawerPlacement === "bottomSheet" &&
+                "inset-x-3 bottom-3 w-auto max-h-[88vh] rounded-tokenXl md:inset-x-6 md:bottom-6 lg:hidden",
               baseClassName
             )
         })}
@@ -170,7 +174,11 @@ export function Dialog({
   );
 }
 
-export interface DrawerProps extends DialogProps {}
+export type DrawerPlacement = "side" | "bottomSheet";
+
+export interface DrawerProps extends DialogProps {
+  placement?: DrawerPlacement;
+}
 
 export function Drawer({
   open,
@@ -181,7 +189,8 @@ export function Drawer({
   trigger,
   children,
   footer,
-  closeLabel
+  closeLabel,
+  placement = "side"
 }: DrawerProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
@@ -200,6 +209,7 @@ export function Drawer({
           description,
           footer,
           kind: "drawer",
+          drawerPlacement: placement,
           children,
           reducedMotion: motionSettings.reducedMotion,
           durations: motionSettings.durations,

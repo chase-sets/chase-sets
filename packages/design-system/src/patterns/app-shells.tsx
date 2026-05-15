@@ -886,6 +886,180 @@ export function MarketplaceFacetStrip({
   );
 }
 
+export interface MarketplaceFacetChoiceGroupProps {
+  title: ReactNode;
+  description?: ReactNode;
+  allLabel: string;
+  items: MarketplaceFacetItem[];
+  selectedId?: string;
+  selectedIds?: readonly string[];
+  onSelect: (id: string) => void;
+  allLeadingIcon?: IconName;
+  itemLeadingIcon?: IconName;
+}
+
+export function MarketplaceFacetChoiceGroup({
+  title,
+  description,
+  allLabel,
+  items,
+  selectedId = "",
+  selectedIds,
+  onSelect,
+  allLeadingIcon = "grid",
+  itemLeadingIcon = "tag"
+}: MarketplaceFacetChoiceGroupProps) {
+  const selectedValues = selectedIds ? new Set(selectedIds) : null;
+  const anySelected = selectedValues ? selectedValues.size > 0 : Boolean(selectedId);
+
+  const renderChoice = (
+    id: string,
+    label: string,
+    count: number | undefined,
+    selected: boolean,
+    icon: IconName
+  ) => (
+    <button
+      key={id || "__all__"}
+      type="button"
+      aria-label={count == null ? label : `${label} (${count})`}
+      aria-pressed={selected}
+      onClick={() => onSelect(id)}
+      className={cx(
+        "focus-ring flex min-h-11 w-full items-center justify-between gap-3 rounded-tokenMd border px-3 py-2 text-left text-sm font-semibold transition",
+        selected
+          ? "border-accent bg-accent text-inverse shadow-tokenSm"
+          : "border-muted bg-surface text-foreground hover:border-accent hover:bg-elevated"
+      )}
+    >
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <Icon name={icon} size="sm" tone={selected ? "inverse" : "accent"} />
+        <span className="min-w-0 truncate">{label}</span>
+      </span>
+      {count == null ? null : (
+        <span
+          className={cx(
+            "shrink-0 rounded-full px-2 py-0.5 text-xs tabular-nums",
+            selected ? "bg-accent-contrast/20 text-inverse" : "bg-surface-2 text-secondary"
+          )}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+
+  return (
+    <section className="grid gap-3" aria-label={typeof title === "string" ? title : undefined}>
+      <div className="space-y-1">
+        <h3 className="m-0 font-heading text-sm font-semibold text-foreground">{title}</h3>
+        {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
+      </div>
+      <div className="grid gap-2">
+        {renderChoice("", allLabel, undefined, !anySelected, allLeadingIcon)}
+        {items.map((item) =>
+          renderChoice(
+            item.id,
+            item.label,
+            item.count,
+            selectedValues?.has(item.id) ?? selectedId === item.id,
+            itemLeadingIcon
+          )
+        )}
+      </div>
+    </section>
+  );
+}
+
+export interface MarketplaceMobileFilterBarProps {
+  title?: ReactNode;
+  summary?: ReactNode;
+  activeFilterCount?: number;
+  openLabel?: ReactNode;
+  activeFilterLabel?: ReactNode;
+  ariaLabel?: string;
+  onOpen: () => void;
+  clearAction?: ReactNode;
+}
+
+export function MarketplaceMobileFilterBar({
+  title = "Filters",
+  summary,
+  activeFilterCount = 0,
+  openLabel = "Filters",
+  activeFilterLabel,
+  ariaLabel = "Search filters",
+  onOpen,
+  clearAction
+}: MarketplaceMobileFilterBarProps) {
+  const hasActiveFilters = activeFilterCount > 0;
+
+  return (
+    <section className="grid min-w-0 gap-2 lg:hidden" aria-label={ariaLabel}>
+      <div className="modern-surface rounded-tokenLg border border-muted p-3 shadow-tokenSm">
+        <div className="grid gap-3 min-[420px]:grid-cols-[minmax(0,1fr)_auto] min-[420px]:items-center">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Icon name="filter" size="sm" tone="accent" />
+                {title}
+              </span>
+              {hasActiveFilters ? (
+                <Badge tone="accent">
+                  {activeFilterLabel ?? `${activeFilterCount} active`}
+                </Badge>
+              ) : null}
+            </div>
+            {summary ? <div className="mt-1 text-sm leading-5 text-secondary">{summary}</div> : null}
+          </div>
+          <div className="grid grid-cols-[1fr_auto] gap-2 min-[420px]:flex min-[420px]:items-center">
+            <Button
+              type="button"
+              tone={hasActiveFilters ? "primary" : "secondary"}
+              size="sm"
+              leadingIcon="filter"
+              onClick={onOpen}
+            >
+              {openLabel}
+            </Button>
+            {clearAction}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export interface MarketplaceMobileFilterDrawerProps
+  extends Omit<DrawerProps, "children" | "placement" | "trigger"> {
+  children?: ReactNode;
+  resultSummary?: ReactNode;
+}
+
+export function MarketplaceMobileFilterDrawer({
+  children,
+  resultSummary,
+  footer,
+  ...rest
+}: MarketplaceMobileFilterDrawerProps) {
+  return (
+    <Drawer
+      {...rest}
+      placement="bottomSheet"
+      footer={footer}
+    >
+      <div className="grid gap-5">
+        {resultSummary ? (
+          <div className="rounded-tokenMd border border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-foreground">
+            {resultSummary}
+          </div>
+        ) : null}
+        {children}
+      </div>
+    </Drawer>
+  );
+}
+
 export interface MarketplaceFilterAction {
   id: string;
   label: ReactNode;

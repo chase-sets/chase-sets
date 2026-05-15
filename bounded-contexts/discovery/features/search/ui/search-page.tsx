@@ -1,6 +1,8 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { useState } from "react";
 import {
   AppliedFilterChips,
+  Button,
   SearchInput,
   Select,
   Pagination,
@@ -15,9 +17,11 @@ import {
   NoResultsRecovery,
   PlatformCredibilityCue,
   PromoStrip,
+  MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
-  MarketplaceFacetStrip,
   MarketplaceLandingHero,
+  MarketplaceMobileFilterBar,
+  MarketplaceMobileFilterDrawer,
   SavedSearchPrompt,
   SearchControlBar,
 } from "@chase-sets/design-system";
@@ -188,6 +192,7 @@ export function SearchPage({
   onDynamicFilterClear,
   onPageChange,
 }: SearchPageProps) {
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const exactTotal = data?.total ?? data?.items.length ?? 0;
   const totalPages = data?.total ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const featuredCategories = categories.slice(0, 5);
@@ -202,6 +207,10 @@ export function SearchPage({
     categories.find((item) => item.slug === category)?.name ?? t("discovery.features.search.ui.searchPage.all.categories");
   const activeLanguageLabel = language ? findLanguageLabel(language) : t("discovery.features.search.ui.searchPage.all.languages");
   const activeDynamicFilterCount = dynamicFilters.length;
+  const resultsSummary = t("discovery.features.search.ui.searchPage.results.summary", {
+    count: exactTotal,
+    category: activeCategoryLabel,
+  });
   const hasFocusedResults =
     committedSearch.trim().length > 0 || Boolean(category) || Boolean(language) || activeDynamicFilterCount > 0 || sort !== "relevance" || page > 1;
   const dynamicAppliedFilters = buildDynamicAppliedFilters(
@@ -285,30 +294,6 @@ export function SearchPage({
       })}
     </Stack>
   );
-  const mobileFacetStrips = (data?.facets ?? []).map((facet) => {
-    const selectedValues = facet.values.filter((value) => value.selected).map((value) => value.id);
-
-    return (
-      <MarketplaceFacetStrip
-        key={`${facet.kind}:${facet.id}`}
-        title={facet.label}
-        allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-        items={facet.values.map((value) => ({
-          id: value.id,
-          label: value.label,
-          count: value.count,
-        }))}
-        selectedIds={selectedValues}
-        onSelect={(value) => {
-          if (value) {
-            onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-          } else {
-            onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-          }
-        }}
-      />
-    );
-  });
 
   return (
     <SearchResultsLayout
@@ -383,20 +368,22 @@ export function SearchPage({
               />
             }
             filters={
-              <Inline gap={2} align="end">
-                <Select
-                  label={t("discovery.features.search.ui.searchPage.language")}
-                  items={[
-                    { label: t("discovery.features.search.ui.searchPage.all.languages"), value: ALL_LANGUAGES },
-                    ...languageOptions,
-                  ]}
-                  value={language || ALL_LANGUAGES}
-                  onValueChange={(value) => onLanguageChange(value === ALL_LANGUAGES ? "" : value)}
-                />
-                <LinkButton href="/search" tone="secondary" size="sm">
-                  {t("discovery.features.search.ui.searchPage.clear.all.filters")}
-                </LinkButton>
-              </Inline>
+              <div className="hidden lg:block">
+                <Inline gap={2} align="end">
+                  <Select
+                    label={t("discovery.features.search.ui.searchPage.language")}
+                    items={[
+                      { label: t("discovery.features.search.ui.searchPage.all.languages"), value: ALL_LANGUAGES },
+                      ...languageOptions,
+                    ]}
+                    value={language || ALL_LANGUAGES}
+                    onValueChange={(value) => onLanguageChange(value === ALL_LANGUAGES ? "" : value)}
+                  />
+                  <LinkButton href="/search" tone="secondary" size="sm">
+                    {t("discovery.features.search.ui.searchPage.clear.all.filters")}
+                  </LinkButton>
+                </Inline>
+              </div>
             }
             appliedFilters={
               <AppliedFilterChips
@@ -415,27 +402,102 @@ export function SearchPage({
                 }
               />
             }
-            summary={t("discovery.features.search.ui.searchPage.results.summary", {
-              count: exactTotal,
-              category: activeCategoryLabel,
-            })}
+            summary={resultsSummary}
           />
         ) : null}
         {hasFocusedResults ? (
-          <div className="grid min-w-0 gap-3 lg:hidden">
-            <MarketplaceFacetStrip
-              ariaLabel={t("discovery.features.search.ui.searchPage.browse.categories")}
-              allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
-              items={featuredCategories.map((item) => ({
-                id: item.slug,
-                label: item.name,
-                count: item.item_count,
-              }))}
-              selectedId={category}
-              onSelect={onCategoryChange}
+          <>
+            <MarketplaceMobileFilterBar
+              title={t("discovery.features.search.ui.searchPage.filters")}
+              summary={resultsSummary}
+              activeFilterCount={appliedFilters.length}
+              activeFilterLabel={t("discovery.features.search.ui.searchPage.active.filter.count", {
+                count: appliedFilters.length,
+              })}
+              openLabel={t("discovery.features.search.ui.searchPage.open.filters")}
+              onOpen={() => setMobileFiltersOpen(true)}
+              clearAction={
+                appliedFilters.length ? (
+                  <LinkButton href="/search" tone="ghost" size="sm">
+                    {t("discovery.features.search.ui.searchPage.clear.all")}
+                  </LinkButton>
+                ) : null
+              }
             />
-            {mobileFacetStrips}
-          </div>
+            <MarketplaceMobileFilterDrawer
+              open={mobileFiltersOpen}
+              onOpenChange={setMobileFiltersOpen}
+              title={t("discovery.features.search.ui.searchPage.filters")}
+              description={t("discovery.features.search.ui.searchPage.mobile.filters.description")}
+              closeLabel={t("discovery.features.search.ui.searchPage.close.filters")}
+              resultSummary={resultsSummary}
+              footer={
+                <Inline gap={2} align="end">
+                  <LinkButton href="/search" tone="ghost" size="sm">
+                    {t("discovery.features.search.ui.searchPage.clear.all")}
+                  </LinkButton>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setMobileFiltersOpen(false)}
+                  >
+                    {t("discovery.features.search.ui.searchPage.show.results")}
+                  </Button>
+                </Inline>
+              }
+            >
+              <MarketplaceFacetChoiceGroup
+                title={t("discovery.features.search.ui.searchPage.browse.categories")}
+                description={t("discovery.features.search.ui.searchPage.mobile.categories.description")}
+                allLabel={t("discovery.features.search.ui.searchPage.all.categories")}
+                items={categories.map((item) => ({
+                  id: item.slug,
+                  label: item.name,
+                  count: item.item_count,
+                }))}
+                selectedId={category}
+                onSelect={onCategoryChange}
+              />
+              <MarketplaceFacetChoiceGroup
+                title={t("discovery.features.search.ui.searchPage.language")}
+                description={t("discovery.features.search.ui.searchPage.mobile.language.description")}
+                allLabel={t("discovery.features.search.ui.searchPage.all.languages")}
+                items={languageOptions.map((item) => ({
+                  id: item.value,
+                  label: item.label,
+                }))}
+                selectedId={language}
+                onSelect={(value) => onLanguageChange(value)}
+                allLeadingIcon="book"
+                itemLeadingIcon="book"
+              />
+              {(data?.facets ?? []).map((facet) => {
+                const selectedValues = facet.values.filter((value) => value.selected).map((value) => value.id);
+
+                return (
+                  <MarketplaceFacetChoiceGroup
+                    key={`${facet.kind}:${facet.id}`}
+                    title={facet.label}
+                    description={formatFacetDescription(facet)}
+                    allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+                    items={facet.values.map((value) => ({
+                      id: value.id,
+                      label: value.label,
+                      count: value.count,
+                    }))}
+                    selectedIds={selectedValues}
+                    onSelect={(value) => {
+                      if (value) {
+                        onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+                      } else {
+                        onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+                      }
+                    }}
+                  />
+                );
+              })}
+            </MarketplaceMobileFilterDrawer>
+          </>
         ) : null}
 
         {error ? <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} /> : null}
