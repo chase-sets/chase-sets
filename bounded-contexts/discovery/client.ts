@@ -92,12 +92,9 @@ export function createDiscoveryApiClient({
 
   return {
     async searchItems(query = ""): Promise<DiscoverySearchResponse> {
-      return parseJsonResponse(
-        await client.items.$get({
-          query: Object.fromEntries(new URLSearchParams(query)),
-          header: headers,
-        }),
-      );
+      const normalizedQuery = query.startsWith("?") ? query.slice(1) : query;
+      const url = `${baseUrl.replace(/\/$/, "")}/items${normalizedQuery ? `?${normalizedQuery}` : ""}`;
+      return parseJsonResponse(await configuredFetch(url, { headers }));
     },
     async getItemDetail(id: string): Promise<DiscoveryItemDetail> {
       return parseJsonResponse(

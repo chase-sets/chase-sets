@@ -11,8 +11,23 @@ import {
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
+const FIELD_STREAM_PREFIX = "catalog.field-";
+const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
 
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
+type SearchFieldDefinition = Readonly<{
+  field_id: string;
+  name: string;
+  value_type: string;
+  filterable: boolean;
+}>;
+type SearchDimensionFilterValue = Readonly<{
+  dimensionId: string;
+  label: string;
+  optionId: string;
+  optionLabel: string;
+  displayOrder: number;
+}>;
 
 type SearchCatalogItemRow = Readonly<{
   catalog_item_id: string;
@@ -91,6 +106,71 @@ async function loadCategoryMap(
   );
 }
 
+async function loadFilterableFieldDefinitions(
+  db: PgQueryable,
+  ids: readonly string[],
+): Promise<Map<string, SearchFieldDefinition>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<SearchFieldDefinition>(
+    `SELECT field_id, name, value_type, filterable
+     FROM discovery_search_catalog_fields
+     WHERE filterable = true
+       AND field_id = ANY($1)`,
+    [ids],
+  );
+
+  return new Map(result.rows.map((row) => [row.field_id, row]));
+}
+
+async function loadDimensionFilterValues(
+  db: PgQueryable,
+  blueprintId: string | null,
+): Promise<SearchDimensionFilterValue[]> {
+  if (!blueprintId) {
+    return [];
+  }
+
+  const result = await db.query<{
+    dimension_id: string;
+    dimension_name: string;
+    option_id: string;
+    option_label: string;
+    blueprint_display_order: number;
+    option_display_order: number;
+  }>(
+    `SELECT
+       rule.dimension_id,
+       dimension.name AS dimension_name,
+       option.option_id,
+       option.label AS option_label,
+       rule.display_order AS blueprint_display_order,
+       option.display_order AS option_display_order
+     FROM discovery_search_catalog_blueprint_dimensions AS rule
+     INNER JOIN discovery_search_catalog_dimensions AS dimension
+       ON dimension.dimension_id = rule.dimension_id
+     INNER JOIN LATERAL jsonb_array_elements_text(rule.allowed_option_ids) WITH ORDINALITY AS allowed(option_id, allowed_order)
+       ON true
+     INNER JOIN discovery_search_catalog_dimension_options AS option
+       ON option.option_id = allowed.option_id
+      AND option.dimension_id = rule.dimension_id
+      AND option.status = 'active'
+     WHERE rule.blueprint_id = $1
+     ORDER BY rule.display_order ASC, allowed.allowed_order ASC, option.display_order ASC, option.label ASC`,
+    [blueprintId],
+  );
+
+  return result.rows.map((row) => ({
+    dimensionId: row.dimension_id,
+    label: row.dimension_name,
+    optionId: row.option_id,
+    optionLabel: row.option_label,
+    displayOrder: row.blueprint_display_order * 10_000 + row.option_display_order,
+  }));
+}
+
 async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<SearchCatalogItemRow>(
     `SELECT * FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
@@ -109,6 +189,30 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
   const tags = asStringArray(item.tags);
   const imageUrls = asStringArray(item.image_urls);
   const fieldValues = asArray<FieldValue>(item.field_values);
+  const filterableFields = await loadFilterableFieldDefinitions(
+    db,
+    uniqueStrings(fieldValues.map((fieldValue) => fieldValue.fieldId)),
+  );
+  const fieldFilterValues = fieldValues.flatMap((fieldValue) => {
+    const definition = filterableFields.get(fieldValue.fieldId);
+    if (!definition) {
+      return [];
+    }
+
+    const normalized = normalizeFilterValue(fieldValue.value);
+    if (!normalized) {
+      return [];
+    }
+
+    return [{
+      fieldId: fieldValue.fieldId,
+      label: definition.name,
+      value: normalized,
+      valueLabel: formatFilterValueLabel(fieldValue.value),
+      valueType: definition.value_type,
+    }];
+  });
+  const dimensionFilterValues = await loadDimensionFilterValues(db, item.blueprint_id);
 
   if (categoryIds.length !== rawCategoryIds.length) {
     await db.query(
@@ -175,11 +279,13 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       category_slugs,
       tags,
       field_values_text,
+      field_filter_values,
+      dimension_filter_values,
       image_urls,
       search_text,
       search_text_simple,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, to_tsvector('english', $18), to_tsvector('simple', $19), $20)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, to_tsvector('english', $20), to_tsvector('simple', $21), $22)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -196,6 +302,8 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       category_slugs = EXCLUDED.category_slugs,
       tags = EXCLUDED.tags,
       field_values_text = EXCLUDED.field_values_text,
+      field_filter_values = EXCLUDED.field_filter_values,
+      dimension_filter_values = EXCLUDED.dimension_filter_values,
       image_urls = EXCLUDED.image_urls,
       search_text = EXCLUDED.search_text,
       search_text_simple = EXCLUDED.search_text_simple,
@@ -217,6 +325,8 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       JSON.stringify(categorySlugList),
       JSON.stringify(tags),
       fieldValuesText,
+      JSON.stringify(fieldFilterValues),
+      JSON.stringify(dimensionFilterValues),
       JSON.stringify(imageUrls),
       searchText,
       normalizeSimpleSearchText(searchText),
@@ -241,6 +351,16 @@ function searchableValueText(value: unknown): string[] {
   return value === null || value === undefined ? [] : [String(value)];
 }
 
+function formatFilterValueLabel(value: unknown): string {
+  const searchableText = searchableValueText(value).find((entry) => entry.trim().length > 0);
+
+  return searchableText ?? String(value ?? "");
+}
+
+function normalizeFilterValue(value: unknown): string {
+  return formatFilterValueLabel(value).trim().toLocaleLowerCase("en-US");
+}
+
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
   await db.query(`TRUNCATE discovery_search_items`);
 
@@ -257,6 +377,30 @@ async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Pr
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT catalog_item_id FROM discovery_search_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
+  );
+
+  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
+}
+
+async function refreshItemsByField(db: PgQueryable, fieldId: string): Promise<void> {
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id
+     FROM discovery_search_catalog_items
+     WHERE field_values @> $1::jsonb`,
+    [JSON.stringify([{ fieldId }])],
+  );
+
+  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
+}
+
+async function refreshItemsByDimension(db: PgQueryable, dimensionId: string): Promise<void> {
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM discovery_search_catalog_items AS item
+     INNER JOIN discovery_search_catalog_blueprint_dimensions AS rule
+       ON rule.blueprint_id = item.blueprint_id
+     WHERE rule.dimension_id = $1`,
+    [dimensionId],
   );
 
   await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
@@ -561,6 +705,260 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       );
 
       await refreshItemsByBlueprint(db, blueprintId);
+    },
+    "catalog.blueprint.dimensions-set": async (event) => {
+      const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
+      const { dimensionRules } = event.data as {
+        dimensionRules: Array<{
+          dimensionId: string;
+          required?: boolean;
+          allowedOptionIds?: string[];
+          appliesWhen?: unknown[];
+        }>;
+      };
+
+      await db.query(
+        `DELETE FROM discovery_search_catalog_blueprint_dimensions WHERE blueprint_id = $1`,
+        [blueprintId],
+      );
+
+      for (const [index, rule] of dimensionRules.entries()) {
+        await db.query(
+          `INSERT INTO discovery_search_catalog_blueprint_dimensions (
+             blueprint_id,
+             dimension_id,
+             required,
+             allowed_option_ids,
+             applies_when,
+             display_order,
+             updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (blueprint_id, dimension_id) DO UPDATE SET
+             required = EXCLUDED.required,
+             allowed_option_ids = EXCLUDED.allowed_option_ids,
+             applies_when = EXCLUDED.applies_when,
+             display_order = EXCLUDED.display_order,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            blueprintId,
+            rule.dimensionId,
+            Boolean(rule.required),
+            JSON.stringify(asStringArray(rule.allowedOptionIds)),
+            JSON.stringify(asArray(rule.appliesWhen)),
+            index,
+            event.timing.recordedAt,
+          ],
+        );
+      }
+
+      await refreshItemsByBlueprint(db, blueprintId);
+    },
+
+    "catalog.field.created": async (event) => {
+      const { fieldId, name, valueType, behavior } = event.data as {
+        fieldId: string;
+        name: unknown;
+        valueType?: string;
+        behavior?: { filterable?: boolean; searchable?: boolean; sortable?: boolean };
+      };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO discovery_search_catalog_fields (
+           field_id,
+           name,
+           value_type,
+           filterable,
+           searchable,
+           sortable,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (field_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           value_type = EXCLUDED.value_type,
+           filterable = EXCLUDED.filterable,
+           searchable = EXCLUDED.searchable,
+           sortable = EXCLUDED.sortable,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          fieldId,
+          resolvedName,
+          valueType ?? "string",
+          Boolean(behavior?.filterable),
+          Boolean(behavior?.searchable),
+          Boolean(behavior?.sortable),
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByField(db, fieldId);
+    },
+    "catalog.field.configured": async (event) => {
+      const fieldId = extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX);
+      const { name, valueType, behavior } = event.data as {
+        name: unknown;
+        valueType?: string;
+        behavior?: { filterable?: boolean; searchable?: boolean; sortable?: boolean };
+      };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO discovery_search_catalog_fields (
+           field_id,
+           name,
+           value_type,
+           filterable,
+           searchable,
+           sortable,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (field_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           value_type = EXCLUDED.value_type,
+           filterable = EXCLUDED.filterable,
+           searchable = EXCLUDED.searchable,
+           sortable = EXCLUDED.sortable,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          fieldId,
+          resolvedName,
+          valueType ?? "string",
+          Boolean(behavior?.filterable),
+          Boolean(behavior?.searchable),
+          Boolean(behavior?.sortable),
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByField(db, fieldId);
+    },
+
+    "catalog.dimension.created": async (event) => {
+      const { dimensionId, name, valueKind } = event.data as {
+        dimensionId: string;
+        name: unknown;
+        valueKind?: string;
+      };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO discovery_search_catalog_dimensions (dimension_id, name, value_kind, updated_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (dimension_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           value_kind = EXCLUDED.value_kind,
+           updated_at = EXCLUDED.updated_at`,
+        [dimensionId, resolvedName, valueKind ?? "unordered", event.timing.recordedAt],
+      );
+
+      await refreshItemsByDimension(db, dimensionId);
+    },
+    "catalog.dimension.revised": async (event) => {
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
+      const { name, valueKind } = event.data as { name: unknown; valueKind?: string };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO discovery_search_catalog_dimensions (dimension_id, name, value_kind, updated_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (dimension_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           value_kind = EXCLUDED.value_kind,
+           updated_at = EXCLUDED.updated_at`,
+        [dimensionId, resolvedName, valueKind ?? "unordered", event.timing.recordedAt],
+      );
+
+      await refreshItemsByDimension(db, dimensionId);
+    },
+    "catalog.dimension.option-added": async (event) => {
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
+      const { optionId, code, label, displayOrder, numericValue, status } = event.data as {
+        optionId: string;
+        code?: string;
+        label: unknown;
+        displayOrder?: number;
+        numericValue?: number | null;
+        status?: string;
+      };
+      const resolvedLabel = resolveLocalizedText(coerceLocalizedTextMap(label));
+
+      await db.query(
+        `INSERT INTO discovery_search_catalog_dimension_options (
+           option_id,
+           dimension_id,
+           code,
+           label,
+           display_order,
+           numeric_value,
+           status,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (option_id) DO UPDATE SET
+           dimension_id = EXCLUDED.dimension_id,
+           code = EXCLUDED.code,
+           label = EXCLUDED.label,
+           display_order = EXCLUDED.display_order,
+           numeric_value = EXCLUDED.numeric_value,
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          optionId,
+          dimensionId,
+          code ?? "",
+          resolvedLabel,
+          displayOrder ?? 0,
+          numericValue ?? null,
+          status ?? "active",
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByDimension(db, dimensionId);
+    },
+    "catalog.dimension.option-revised": async (event) => {
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
+      const { optionId, code, label, displayOrder, numericValue, status } = event.data as {
+        optionId: string;
+        code?: string;
+        label: unknown;
+        displayOrder?: number;
+        numericValue?: number | null;
+        status?: string;
+      };
+      const resolvedLabel = resolveLocalizedText(coerceLocalizedTextMap(label));
+
+      await db.query(
+        `INSERT INTO discovery_search_catalog_dimension_options (
+           option_id,
+           dimension_id,
+           code,
+           label,
+           display_order,
+           numeric_value,
+           status,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (option_id) DO UPDATE SET
+           dimension_id = EXCLUDED.dimension_id,
+           code = EXCLUDED.code,
+           label = EXCLUDED.label,
+           display_order = EXCLUDED.display_order,
+           numeric_value = EXCLUDED.numeric_value,
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          optionId,
+          dimensionId,
+          code ?? "",
+          resolvedLabel,
+          displayOrder ?? 0,
+          numericValue ?? null,
+          status ?? "active",
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByDimension(db, dimensionId);
     },
 
     "catalog.category.created": async (event) => {

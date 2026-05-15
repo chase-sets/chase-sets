@@ -23,6 +23,7 @@ import {
 } from "@chase-sets/design-system";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type {
+  DiscoveryFacetGroup,
   DiscoverySearchItem,
   DiscoverySearchResponse,
 } from "../../../support/client-support/contracts";
@@ -39,6 +40,12 @@ const sortOptions = [
 ];
 
 const ALL_LANGUAGES = "__all__";
+
+type DynamicSearchFilterSelection = Readonly<{
+  kind: "field" | "dimension";
+  id: string;
+  value: string;
+}>;
 
 const languageOptions = [
   { label: t("discovery.features.search.ui.searchPage.english"), value: "en" },
@@ -106,6 +113,38 @@ function formatValueCue(item: DiscoverySearchItem): string | undefined {
     : t("discovery.features.search.ui.searchPage.make.an.offer.or.list.yours");
 }
 
+function formatFacetDescription(facet: DiscoveryFacetGroup): string {
+  return facet.kind === "dimension"
+    ? t("discovery.features.search.ui.searchPage.dimension.facet.description")
+    : t("discovery.features.search.ui.searchPage.field.facet.description");
+}
+
+function buildDynamicAppliedFilters(
+  facets: readonly DiscoveryFacetGroup[],
+  dynamicFilters: readonly DynamicSearchFilterSelection[],
+  onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void,
+) {
+  return dynamicFilters.map((filter) => {
+    const facet = facets.find((entry) => entry.kind === filter.kind && entry.id === filter.id);
+    const value = facet?.values.find((entry) => entry.id === filter.value);
+    const label = facet && value
+      ? t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
+          facet: facet.label,
+          value: value.label,
+        })
+      : t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
+          facet: filter.id,
+          value: filter.value,
+        });
+
+    return {
+      id: `${filter.kind}:${filter.id}:${filter.value}`,
+      label,
+      onRemove: () => onDynamicFilterChange(filter),
+    };
+  });
+}
+
 export interface SearchPageProps {
   search: string;
   committedSearch?: string;
@@ -113,6 +152,7 @@ export interface SearchPageProps {
   language: string;
   sort: string;
   page: number;
+  dynamicFilters: readonly DynamicSearchFilterSelection[];
   data: DiscoverySearchResponse | null;
   categories: DiscoveryCategoryItem[];
   loading?: boolean;
@@ -122,6 +162,8 @@ export interface SearchPageProps {
   onCategoryChange: (value: string) => void;
   onLanguageChange: (value: string) => void;
   onSortChange: (value: string) => void;
+  onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void;
+  onDynamicFilterClear: (value: Omit<DynamicSearchFilterSelection, "value">) => void;
   onPageChange: (page: number) => void;
 }
 
@@ -132,6 +174,7 @@ export function SearchPage({
   language,
   sort,
   page,
+  dynamicFilters,
   data,
   categories,
   loading = false,
@@ -141,6 +184,8 @@ export function SearchPage({
   onCategoryChange,
   onLanguageChange,
   onSortChange,
+  onDynamicFilterChange,
+  onDynamicFilterClear,
   onPageChange,
 }: SearchPageProps) {
   const exactTotal = data?.total ?? data?.items.length ?? 0;
@@ -156,8 +201,14 @@ export function SearchPage({
   const activeCategoryLabel =
     categories.find((item) => item.slug === category)?.name ?? t("discovery.features.search.ui.searchPage.all.categories");
   const activeLanguageLabel = language ? findLanguageLabel(language) : t("discovery.features.search.ui.searchPage.all.languages");
+  const activeDynamicFilterCount = dynamicFilters.length;
   const hasFocusedResults =
-    committedSearch.trim().length > 0 || Boolean(category) || Boolean(language) || sort !== "relevance" || page > 1;
+    committedSearch.trim().length > 0 || Boolean(category) || Boolean(language) || activeDynamicFilterCount > 0 || sort !== "relevance" || page > 1;
+  const dynamicAppliedFilters = buildDynamicAppliedFilters(
+    data?.facets ?? [],
+    dynamicFilters,
+    onDynamicFilterChange,
+  );
   const appliedFilters = [
     ...(committedSearch.trim()
       ? [{
@@ -195,17 +246,44 @@ export function SearchPage({
           onRemove: () => onSortChange("relevance"),
         }]
       : []),
+    ...dynamicAppliedFilters,
   ];
   const categoryFacet = (
-    <MarketplaceFacetRail
-      items={categories.map((item) => ({
-        id: item.slug,
-        label: item.name,
-        count: item.item_count,
-      }))}
-      selectedId={category}
-      onSelect={onCategoryChange}
-    />
+    <Stack gap={3}>
+      <MarketplaceFacetRail
+        items={categories.map((item) => ({
+          id: item.slug,
+          label: item.name,
+          count: item.item_count,
+        }))}
+        selectedId={category}
+        onSelect={onCategoryChange}
+      />
+      {(data?.facets ?? []).map((facet) => {
+        const selectedValues = facet.values.filter((value) => value.selected).map((value) => value.id);
+        return (
+          <MarketplaceFacetRail
+            key={`${facet.kind}:${facet.id}`}
+            title={facet.label}
+            description={formatFacetDescription(facet)}
+            allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+            items={facet.values.map((value) => ({
+              id: value.id,
+              label: value.label,
+              count: value.count,
+            }))}
+            selectedIds={selectedValues}
+            onSelect={(value) => {
+              if (value) {
+                onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+              } else {
+                onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+              }
+            }}
+          />
+        );
+      })}
+    </Stack>
   );
   const categoryActions = [
     {
@@ -371,7 +449,7 @@ export function SearchPage({
           <NoResultsRecovery
             title={t("discovery.features.search.ui.searchPage.no.items.found")}
             description={
-              search || category || language
+              search || category || language || activeDynamicFilterCount > 0
                 ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
                 : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
             }

@@ -776,6 +776,7 @@ export interface MarketplaceFacetRailProps {
   allLabel?: string;
   items: MarketplaceFacetItem[];
   selectedId?: string;
+  selectedIds?: readonly string[];
   onSelect: (id: string) => void;
 }
 
@@ -785,8 +786,10 @@ export function MarketplaceFacetRail({
   allLabel = "All Categories",
   items,
   selectedId = "",
+  selectedIds,
   onSelect
 }: MarketplaceFacetRailProps) {
+  const selectedValues = selectedIds ? new Set(selectedIds) : null;
   return (
     <Card variant="feature">
       <div className="space-y-4">
@@ -797,7 +800,7 @@ export function MarketplaceFacetRail({
         <div className="h-px bg-border" />
         <div className="space-y-2">
           <Button
-            tone={!selectedId ? "primary" : "ghost"}
+            tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
             size="sm"
             onClick={() => onSelect("")}
             leadingIcon="grid"
@@ -808,7 +811,7 @@ export function MarketplaceFacetRail({
           {items.map((item) => (
             <Button
               key={item.id}
-              tone={selectedId === item.id ? "primary" : "ghost"}
+              tone={(selectedValues?.has(item.id) ?? selectedId === item.id) ? "primary" : "ghost"}
               size="sm"
               onClick={() => onSelect(item.id)}
               leadingIcon="tag"

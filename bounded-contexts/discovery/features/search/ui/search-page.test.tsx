@@ -64,6 +64,7 @@ const japaneseSearchResult: DiscoverySearchItem = {
 
 const searchResponse: DiscoverySearchResponse = {
   items: [searchResult],
+  facets: [],
   total: 1,
   count: 1,
   nextCursor: null,
@@ -93,12 +94,15 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     language: "",
     sort: "relevance",
     page: 1,
+    dynamicFilters: [],
     data: searchResponse,
     categories,
     onSearchChange: vi.fn(),
     onCategoryChange: vi.fn(),
     onLanguageChange: vi.fn(),
     onSortChange: vi.fn(),
+    onDynamicFilterChange: vi.fn(),
+    onDynamicFilterClear: vi.fn(),
     onPageChange: vi.fn(),
     ...overrides,
   };
@@ -113,7 +117,7 @@ describe("SearchPage", () => {
     renderSearchPage({
       search: "bulbasaur",
       committedSearch: "bulbasaur",
-      data: { items: [japaneseSearchResult], total: 1, count: 1, nextCursor: null },
+      data: { items: [japaneseSearchResult], facets: [], total: 1, count: 1, nextCursor: null },
       categories: [],
     });
 
@@ -150,5 +154,36 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove Category: Booster Packs" }));
 
     expect(props.onCategoryChange).toHaveBeenCalledWith("");
+  });
+
+  it("renders dynamic facets and reversible dynamic filter chips", () => {
+    const props = renderSearchPage({
+      dynamicFilters: [{ kind: "dimension", id: "dim_condition", value: "opt_near_mint" }],
+      data: {
+        items: [searchResult],
+        facets: [{
+          id: "dim_condition",
+          kind: "dimension",
+          label: "Condition",
+          values: [
+            { id: "opt_near_mint", label: "Near Mint", count: 3, selected: true },
+            { id: "opt_excellent", label: "Excellent", count: 2, selected: false },
+          ],
+        }],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+      },
+    });
+
+    expect(screen.getByText("Condition")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Condition: Near Mint" }));
+
+    expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
+      kind: "dimension",
+      id: "dim_condition",
+      value: "opt_near_mint",
+    });
   });
 });

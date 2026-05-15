@@ -33,11 +33,6 @@ export interface DiscoveryApiClientOptions {
   fetch?: typeof globalThis.fetch;
 }
 
-function queryFromString(query: string) {
-  const params = new URLSearchParams(query);
-  return Object.fromEntries(params.entries());
-}
-
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
@@ -55,9 +50,9 @@ export function createDiscoveryApiClient({
 
   return {
     async searchItems(query: string): Promise<DiscoveryItemsResponse> {
-      const response = await client.items.$get({
-        query: queryFromString(query),
-      });
+      const normalizedQuery = query.startsWith("?") ? query.slice(1) : query;
+      const url = `${baseUrl.replace(/\/$/, "")}/items${normalizedQuery ? `?${normalizedQuery}` : ""}`;
+      const response = await fetch(url);
       return parseJsonResponse<DiscoveryItemsResponse>(response);
     },
     async getItemDetail(id: string): Promise<DiscoveryItemResponse> {
