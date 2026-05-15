@@ -124,10 +124,19 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readon
   realtime: PlatformApiRealtimeConfig;
   paymentProcessor: PlatformApiPaymentProcessorConfig;
   moneyMovement: PlatformApiMoneyMovementConfig;
+  mobileMessaging: PlatformApiMobileMessagingConfig;
   postage: PlatformApiPostageConfig;
   socialLogin: PlatformApiSocialLoginConfig;
   stripeGoLive: StripeGoLiveCheckReport;
 }>;
+
+export type PlatformApiMobileMessagingConfig =
+  | Readonly<{ kind: "noop" }>
+  | Readonly<{
+      kind: "twilio";
+      authToken: string;
+      requireWebhookSignature: boolean;
+    }>;
 
 export const STRIPE_PLATFORM_API_VERSION = "2026-02-25.clover";
 
@@ -337,6 +346,12 @@ export function loadConfig(): PlatformApiConfig {
   const googleSocialLoginClientSecret = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET");
   const facebookSocialLoginClientId = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_ID");
   const facebookSocialLoginClientSecret = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET");
+  const mobileMessagingProvider = getOptionalEnv("MOBILE_MESSAGING_PROVIDER");
+  const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
+  const twilioRequireWebhookSignature = getBooleanEnv(
+    "TWILIO_WEBHOOK_SIGNATURE_REQUIRED",
+    true,
+  );
   const productionLike = isProductionDeployment();
 
   if (
@@ -391,6 +406,11 @@ export function loadConfig(): PlatformApiConfig {
       "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID and FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.",
     );
   }
+  if (mobileMessagingProvider === "twilio" && !twilioAuthToken) {
+    throw new Error(
+      "TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.",
+    );
+  }
 
   const socialLogin: PlatformApiSocialLoginConfig = {
     ...(googleSocialLoginClientId && googleSocialLoginClientSecret
@@ -423,11 +443,21 @@ export function loadConfig(): PlatformApiConfig {
     : {
         kind: "fake" as const,
       };
+  const mobileMessaging = mobileMessagingProvider === "twilio"
+    ? {
+        kind: "twilio" as const,
+        authToken: twilioAuthToken as string,
+        requireWebhookSignature: twilioRequireWebhookSignature,
+      }
+    : {
+        kind: "noop" as const,
+      };
 
   if (stripeSecretKey && stripePublishableKey && stripeWebhookSecret) {
     return {
       ...baseConfig,
       moneyMovement,
+      mobileMessaging,
       postage: easyPostApiKey
         ? {
             kind: "easypost",
@@ -461,6 +491,7 @@ export function loadConfig(): PlatformApiConfig {
   return {
     ...baseConfig,
     moneyMovement,
+    mobileMessaging,
     postage: easyPostApiKey
       ? {
           kind: "easypost",

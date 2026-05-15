@@ -125,13 +125,16 @@ Fit judgment:
 
 ## Recommended integration design (DDD + event-sourced)
 
-Create a new bounded context: `bounded-contexts/notifications`.
+Use the existing `bounded-contexts/notifications` context as the behavior owner.
+The first SMS/RCS implementation uses provider-neutral `sms` and `rcs` channels
+in the Notifications contract and dispatches them through the existing
+`notification_outbox`; source contexts still publish facts only.
 
 Vertical slices:
-1. `transactional-messages`
-2. `marketing-messages`
-3. `preferences-and-consent`
-4. `delivery-health`
+1. `notification-center`
+2. `preferences`
+3. Future `sms-rcs-delivery`
+4. Future `delivery-health`
 
 Core domain concepts:
 - `NotificationIntent`
@@ -146,6 +149,11 @@ Implementation notes:
 - Persist notification read models for support visibility and replay safety.
 - Use idempotency keys for provider sends.
 - Keep provider payloads/secrets in infrastructure boundary only.
+- Use `infrastructure/twilio-messaging` for Twilio Programmable Messaging sends
+  and signed status/inbound webhook normalization.
+- Mount unauthenticated provider callbacks at
+  `/api/notifications/provider/mobile-messaging/webhooks`; the route records
+  normalized provider events in Notifications-owned storage.
 - Emit delivery outcome events back into the event stream (sent, delivered, failed, suppressed, retried).
 
 ## Cost controls to keep margins healthy

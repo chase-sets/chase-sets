@@ -42,6 +42,7 @@ import {
   createPostgresNotificationOutbox,
 } from "@chase-sets/notification-outbox";
 import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notifications";
+import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -358,6 +359,30 @@ function createNotificationDispatchRunners(
   const notificationCenterContext = runtime.mountedContexts.find(
     (context) => context.contextName === "notifications",
   );
+  const mobileMessageAdapters: readonly NotificationChannelAdapter[] =
+    config.mobileMessaging.kind === "twilio"
+      ? [
+          createTwilioMessagingAdapter({
+            accountSid: config.mobileMessaging.accountSid,
+            authToken: config.mobileMessaging.authToken,
+            messagingServiceSid: config.mobileMessaging.messagingServiceSid,
+            channel: "sms",
+            apiBaseUrl: config.mobileMessaging.apiBaseUrl,
+            statusCallbackBaseUrl: config.mobileMessaging.statusCallbackBaseUrl,
+          }),
+          createTwilioMessagingAdapter({
+            accountSid: config.mobileMessaging.accountSid,
+            authToken: config.mobileMessaging.authToken,
+            messagingServiceSid: config.mobileMessaging.messagingServiceSid,
+            channel: "rcs",
+            apiBaseUrl: config.mobileMessaging.apiBaseUrl,
+            statusCallbackBaseUrl: config.mobileMessaging.statusCallbackBaseUrl,
+          }),
+        ]
+      : [
+          createNoopNotificationAdapter("sms"),
+          createNoopNotificationAdapter("rcs"),
+        ];
   const notificationOutboxContextNames = new Set<string>(
     workerContextRegistry
       .filter((entry) =>
@@ -376,6 +401,7 @@ function createNotificationDispatchRunners(
         outbox: createPostgresNotificationOutbox({ db: context.pool }),
         adapters: [
           emailAdapter,
+          ...mobileMessageAdapters,
           createPostgresWebNotificationAdapter({ db: webNotificationDb }),
         ],
         claimOwnerId: `${workerId}:${context.contextName}:notifications`,

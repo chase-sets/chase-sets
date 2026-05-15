@@ -465,6 +465,9 @@
       "@chase-sets/transactional-email-outbox": [
         "./infrastructure/transactional-email-outbox/index.ts"
       ],
+      "@chase-sets/twilio-messaging": [
+        "./infrastructure/twilio-messaging/index.ts"
+      ],
       "@chase-sets/web-notifications": [
         "./infrastructure/web-notifications/index.ts"
       ]

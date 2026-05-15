@@ -60,6 +60,9 @@ describe("notifications contract", () => {
     expect(createNotificationDeliveryId(message, message.channels[0], 0)).toBe(
       "ordering:order_confirmed:ord_123:email:1",
     );
+    expect(createNotificationDeliveryId(message, message.channels[1], 1)).toBe(
+      "ordering:order_confirmed:ord_123:sms:2",
+    );
     expect(message.channels.map((channel) => channel.channel)).toEqual([
       "email",
       "sms",
@@ -162,6 +165,16 @@ describe("notifications contract", () => {
       templateData: { orderId: "ord_123" },
       channels: [
         { channel: "email", to: [{ email: "buyer@example.com" }] },
+        {
+          channel: "sms",
+          to: { e164: "+15551234567" },
+          body: "Order ord_123 is confirmed.",
+        },
+        {
+          channel: "rcs",
+          to: { e164: "+15551234567" },
+          body: "Order ord_123 is confirmed.",
+        },
         { channel: "web", recipient: { accountId: "acc_buyer" as never } },
       ],
       idempotencyKey: "ordering:order_confirmed:ord_123",
@@ -171,10 +184,16 @@ describe("notifications contract", () => {
 
     expect(applyNotificationChannelPreferences(commerceMessage, [
       { channel: "email", enabled: false },
-    ])?.channels.map((channel) => channel.channel)).toEqual(["web"]);
+    ])?.channels.map((channel) => channel.channel)).toEqual([
+      "sms",
+      "rcs",
+      "web",
+    ]);
 
     expect(applyNotificationChannelPreferences(commerceMessage, [
       { channel: "email", enabled: false },
+      { channel: "sms", enabled: false },
+      { channel: "rcs", enabled: false },
       { channel: "web", enabled: false },
     ])).toBeNull();
 
@@ -183,7 +202,14 @@ describe("notifications contract", () => {
       criticality: "security",
     }, [
       { channel: "email", enabled: false },
+      { channel: "sms", enabled: false },
+      { channel: "rcs", enabled: false },
       { channel: "web", enabled: false },
-    ])?.channels.map((channel) => channel.channel)).toEqual(["email", "web"]);
+    ])?.channels.map((channel) => channel.channel)).toEqual([
+      "email",
+      "sms",
+      "rcs",
+      "web",
+    ]);
   });
 });

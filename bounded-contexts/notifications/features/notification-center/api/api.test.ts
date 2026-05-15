@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import { buildNotificationsApi, type NotificationsApiEnv } from "../../../api";
+import {
+  buildNotificationsApi,
+  buildNotificationsMobileMessageWebhookApi,
+  type NotificationsApiEnv,
+} from "../../../api";
 import type { NotificationsServices } from "./services";
 
 function buildApp(services: NotificationsServices) {
@@ -44,6 +48,12 @@ describe("notifications api", () => {
         markWebNotificationRead: vi.fn(async () => undefined),
         markAllWebNotificationsRead: vi.fn(async () => undefined),
       },
+      mobileMessages: {
+        recordProviderEvent: vi.fn(),
+      },
+      mobileMessageWebhookGateway: {
+        processMobileMessageWebhook: vi.fn(),
+      },
       notificationOutbox: {},
       preferences: {
         listPreferences: vi.fn(async () => []),
@@ -78,6 +88,12 @@ describe("notifications api", () => {
         markWebNotificationRead: vi.fn(),
         markAllWebNotificationsRead: vi.fn(),
       },
+      mobileMessages: {
+        recordProviderEvent: vi.fn(),
+      },
+      mobileMessageWebhookGateway: {
+        processMobileMessageWebhook: vi.fn(),
+      },
       notificationOutbox: {},
       preferences: {
         listPreferences: vi.fn(async () => [{ key: "product-alerts", enabled: true }]),
@@ -106,5 +122,69 @@ describe("notifications api", () => {
       key: "product-alerts",
       enabled: false,
     });
+  });
+
+  it("records provider SMS/RCS webhooks without marketplace auth", async () => {
+    const event = {
+      providerEventId: "twilio:SM123:delivery-status:delivered",
+      providerName: "twilio" as const,
+      eventKind: "delivery-status" as const,
+      providerMessageId: "SM123",
+      deliveryId: "delivery_1",
+      status: "delivered",
+      occurredAt: "2026-05-15T12:00:00.000Z",
+    };
+    const services = {
+      feed: {
+        listWebNotifications: vi.fn(),
+        countUnreadWebNotifications: vi.fn(),
+        markWebNotificationRead: vi.fn(),
+        markAllWebNotificationsRead: vi.fn(),
+      },
+      mobileMessages: {
+        recordProviderEvent: vi.fn(async () => ({ recorded: true })),
+      },
+      mobileMessageWebhookGateway: {
+        processMobileMessageWebhook: vi.fn(async () => event),
+      },
+      notificationOutbox: {},
+      preferences: {
+        listPreferences: vi.fn(async () => []),
+        setPreference: vi.fn(),
+      },
+    } as unknown as NotificationsServices;
+    const app = new Hono();
+    app.route(
+      "/api/notifications/provider",
+      buildNotificationsMobileMessageWebhookApi(services),
+    );
+
+    const response = await app.request(
+      "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks?deliveryId=delivery_1",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Twilio-Signature": "sig_test",
+        },
+        body: "MessageSid=SM123&MessageStatus=delivered",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "recorded",
+      event_kind: "delivery-status",
+      provider_message_id: "SM123",
+    });
+    expect(
+      services.mobileMessageWebhookGateway.processMobileMessageWebhook,
+    ).toHaveBeenCalledWith({
+      rawBody: "MessageSid=SM123&MessageStatus=delivered",
+      url: "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks?deliveryId=delivery_1",
+      contentType: "application/x-www-form-urlencoded",
+      signatureHeader: "sig_test",
+    });
+    expect(services.mobileMessages.recordProviderEvent).toHaveBeenCalledWith(event);
   });
 });

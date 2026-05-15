@@ -1738,6 +1738,7 @@ export const englishTranslations = {
   "marketplace.app.root.unknown.error": "Unknown error",
   "notifications.api.authentication.required": "Authentication required.",
   "notifications.api.forbidden": "Forbidden.",
+  "notifications.api.mobile.webhook.failed": "Mobile message webhook failed.",
   "notifications.api.preference.invalid": "Notification preference is not supported.",
   "notifications.features.notificationCenter.ui.shell.open": "Open",
   "notifications.features.notificationCenter.ui.shell.preference.email.description": "Allow email delivery for eligible marketplace updates.",

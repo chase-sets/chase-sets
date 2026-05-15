@@ -1,5 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
+import {
+  createNoopMobileMessageWebhookGateway,
+  type MobileMessageProviderWebhookEvent,
+  type MobileMessageWebhookGateway,
+} from "@chase-sets/notifications";
 import { createPostgresWebNotificationFeed } from "@chase-sets/web-notifications";
 import {
   defaultNotificationPreferences,
@@ -24,15 +29,80 @@ export interface NotificationPreferenceStore {
 
 export type NotificationsServices = Readonly<{
   feed: ReturnType<typeof createPostgresWebNotificationFeed>;
+  mobileMessages: MobileMessageProviderEventStore;
+  mobileMessageWebhookGateway: MobileMessageWebhookGateway;
   notificationOutbox: ReturnType<typeof createPostgresNotificationOutbox>;
   preferences: NotificationPreferenceStore;
 }>;
 
-export function createNotificationsServices(db: PgQueryable): NotificationsServices {
+export type NotificationsHostPorts = Readonly<{
+  mobileMessageWebhookGateway?: MobileMessageWebhookGateway;
+}>;
+
+export interface MobileMessageProviderEventStore {
+  recordProviderEvent(
+    event: MobileMessageProviderWebhookEvent,
+  ): Promise<Readonly<{ recorded: boolean }>>;
+}
+
+export function createNotificationsServices(
+  db: PgQueryable,
+  ports: NotificationsHostPorts = {},
+): NotificationsServices {
   return {
     feed: createPostgresWebNotificationFeed({ db }),
+    mobileMessages: createPostgresMobileMessageProviderEventStore(db),
+    mobileMessageWebhookGateway:
+      ports.mobileMessageWebhookGateway ?? createNoopMobileMessageWebhookGateway(),
     notificationOutbox: createPostgresNotificationOutbox({ db }),
     preferences: createPostgresNotificationPreferenceStore(db),
+  };
+}
+
+function createPostgresMobileMessageProviderEventStore(
+  db: PgQueryable,
+): MobileMessageProviderEventStore {
+  return {
+    async recordProviderEvent(event) {
+      const receivedAt = event.receivedAt ?? new Date().toISOString();
+      const result = await db.query(
+        `INSERT INTO notification_mobile_message_provider_events (
+           provider_event_id,
+           provider_name,
+           event_kind,
+           provider_object_reference,
+           delivery_id,
+           status,
+           failure_code,
+           failure_message,
+           from_phone_number,
+           to_phone_number,
+           message_body,
+           occurred_at,
+           received_at,
+           payload_json
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         ON CONFLICT (provider_event_id) DO NOTHING`,
+        [
+          event.providerEventId,
+          event.providerName,
+          event.eventKind,
+          event.providerMessageId,
+          event.deliveryId ?? null,
+          event.status ?? null,
+          event.failureCode ?? null,
+          event.failureMessage ?? null,
+          event.fromPhoneNumber ?? null,
+          event.toPhoneNumber ?? null,
+          event.body ?? null,
+          event.occurredAt,
+          receivedAt,
+          JSON.stringify(event),
+        ],
+      );
+
+      return { recorded: (result.rowCount ?? 0) > 0 };
+    },
   };
 }
 

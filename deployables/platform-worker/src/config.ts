@@ -28,6 +28,7 @@ export type PlatformWorkerConfig = Readonly<{
   payoutReconciliationIntervalMs: number | null;
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
+  mobileMessaging: PlatformWorkerMobileMessagingConfig;
   postage: PlatformWorkerPostageConfig;
   notificationEmail: PlatformWorkerNotificationEmailConfig;
 }>;
@@ -61,6 +62,17 @@ export type PlatformWorkerPostageConfig =
       apiKey: string;
       apiBaseUrl?: string;
       mode: "test" | "production";
+    }>;
+
+export type PlatformWorkerMobileMessagingConfig =
+  | Readonly<{ kind: "noop" }>
+  | Readonly<{
+      kind: "twilio";
+      accountSid: string;
+      authToken: string;
+      messagingServiceSid: string;
+      apiBaseUrl?: string;
+      statusCallbackBaseUrl?: string;
     }>;
 
 export type PlatformWorkerNotificationEmailConfig = Readonly<{
@@ -117,6 +129,13 @@ export function loadConfig(): PlatformWorkerConfig {
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
   const easyPostMode =
     getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
+  const mobileMessagingProvider = getOptionalEnv("MOBILE_MESSAGING_PROVIDER");
+  const twilioAccountSid = getOptionalEnv("TWILIO_ACCOUNT_SID");
+  const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
+  const twilioMessagingServiceSid = getOptionalEnv("TWILIO_MESSAGING_SERVICE_SID");
+  const twilioApiBaseUrl = getOptionalEnv("TWILIO_API_BASE_URL") ?? undefined;
+  const twilioStatusCallbackBaseUrl =
+    getOptionalEnv("TWILIO_STATUS_CALLBACK_BASE_URL") ?? undefined;
   const productionLike = process.env.NODE_ENV === "production";
   const notificationEmailProvider =
     getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER") === "amazon-ses"
@@ -158,6 +177,14 @@ export function loadConfig(): PlatformWorkerConfig {
   ) {
     throw new Error(
       "SES_AWS_REGION, SES_FROM_EMAIL, SES_CONFIGURATION_SET_NAME, and SES_SOURCE_ARN are required when NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
+    );
+  }
+  if (
+    mobileMessagingProvider === "twilio" &&
+    (!twilioAccountSid || !twilioAuthToken || !twilioMessagingServiceSid)
+  ) {
+    throw new Error(
+      "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_MESSAGING_SERVICE_SID are required when MOBILE_MESSAGING_PROVIDER=twilio.",
     );
   }
 
@@ -210,6 +237,16 @@ export function loadConfig(): PlatformWorkerConfig {
           onboardingRefreshUrl: stripeConnectRefreshUrl,
         }
       : { kind: "fake" },
+    mobileMessaging: mobileMessagingProvider === "twilio"
+      ? {
+          kind: "twilio",
+          accountSid: twilioAccountSid as string,
+          authToken: twilioAuthToken as string,
+          messagingServiceSid: twilioMessagingServiceSid as string,
+          apiBaseUrl: twilioApiBaseUrl,
+          statusCallbackBaseUrl: twilioStatusCallbackBaseUrl,
+        }
+      : { kind: "noop" },
     postage: easyPostApiKey
       ? {
           kind: "easypost",

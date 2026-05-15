@@ -11,6 +11,8 @@ export type NotificationsApiEnv = AuthenticatedApiEnv;
 const preferenceKeys = new Set<NotificationPreferenceKey>([
   "web",
   "email",
+  "sms",
+  "rcs",
   "product-alerts",
 ]);
 
@@ -148,6 +150,48 @@ export function buildNotificationsApi(services: NotificationsServices) {
     });
 
     return c.json({ item: preference });
+  });
+
+  return app;
+}
+
+export function buildNotificationsMobileMessageWebhookApi(
+  services: NotificationsServices,
+) {
+  const app = new Hono();
+
+  app.post("/mobile-messaging/webhooks", async (c) => {
+    try {
+      const rawBody = await c.req.raw.text();
+      const event =
+        await services.mobileMessageWebhookGateway.processMobileMessageWebhook({
+          rawBody,
+          url: c.req.url,
+          contentType: c.req.header("Content-Type") ?? null,
+          signatureHeader: c.req.header("X-Twilio-Signature") ?? null,
+        });
+
+      if (!event) {
+        return c.json({ status: "ignored" });
+      }
+
+      const result = await services.mobileMessages.recordProviderEvent(event);
+
+      return c.json({
+        status: result.recorded ? "recorded" : "duplicate",
+        event_kind: event.eventKind,
+        provider_message_id: event.providerMessageId,
+      });
+    } catch (error) {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: error instanceof Error
+            ? error.message
+            : t("notifications.api.mobile.webhook.failed"),
+        },
+      }, 400);
+    }
   });
 
   return app;

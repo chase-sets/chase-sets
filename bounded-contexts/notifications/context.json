@@ -78,6 +78,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable notification outbox owned by Notifications and dispatched through channel adapters."
+    },
+    {
+      "portName": "mobileMessageWebhookGateway",
+      "providedBy": "platform-api",
+      "purpose": "Provider-specific SMS/RCS webhook verifier and normalizer for mobile messaging interactions."
     }
   ],
   "apiDeployables": [
@@ -88,6 +93,12 @@
       "mountPath": "/api/notifications",
       "kind": "primary",
       "requiresAuth": true,
+      "drainProjectorsOnWrite": false
+    },
+    {
+      "mountPath": "/api/notifications/provider",
+      "kind": "additional",
+      "requiresAuth": false,
       "drainProjectorsOnWrite": false
     }
   ],
