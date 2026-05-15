@@ -776,6 +776,7 @@ export interface MarketplaceFacetRailProps {
   allLabel?: string;
   items: MarketplaceFacetItem[];
   selectedId?: string;
+  selectedIds?: readonly string[];
   onSelect: (id: string) => void;
 }
 
@@ -785,8 +786,10 @@ export function MarketplaceFacetRail({
   allLabel = "All Categories",
   items,
   selectedId = "",
+  selectedIds,
   onSelect
 }: MarketplaceFacetRailProps) {
+  const selectedValues = selectedIds ? new Set(selectedIds) : null;
   return (
     <Card variant="feature">
       <div className="space-y-4">
@@ -797,7 +800,7 @@ export function MarketplaceFacetRail({
         <div className="h-px bg-border" />
         <div className="space-y-2">
           <Button
-            tone={!selectedId ? "primary" : "ghost"}
+            tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
             size="sm"
             onClick={() => onSelect("")}
             leadingIcon="grid"
@@ -808,7 +811,7 @@ export function MarketplaceFacetRail({
           {items.map((item) => (
             <Button
               key={item.id}
-              tone={selectedId === item.id ? "primary" : "ghost"}
+              tone={(selectedValues?.has(item.id) ?? selectedId === item.id) ? "primary" : "ghost"}
               size="sm"
               onClick={() => onSelect(item.id)}
               leadingIcon="tag"
@@ -820,6 +823,66 @@ export function MarketplaceFacetRail({
         </div>
       </div>
     </Card>
+  );
+}
+
+export interface MarketplaceFacetStripProps {
+  title?: ReactNode;
+  ariaLabel?: string;
+  allLabel: string;
+  items: MarketplaceFacetItem[];
+  selectedId?: string;
+  selectedIds?: readonly string[];
+  onSelect: (id: string) => void;
+  allLeadingIcon?: IconName;
+  itemLeadingIcon?: IconName;
+}
+
+export function MarketplaceFacetStrip({
+  title,
+  ariaLabel,
+  allLabel,
+  items,
+  selectedId = "",
+  selectedIds,
+  onSelect,
+  allLeadingIcon = "grid",
+  itemLeadingIcon = "tag"
+}: MarketplaceFacetStripProps) {
+  const selectedValues = selectedIds ? new Set(selectedIds) : null;
+
+  return (
+    <section
+      className="grid min-w-0 gap-2"
+      aria-label={ariaLabel ?? (typeof title === "string" ? title : allLabel)}
+    >
+      {title ? (
+        <div className="font-heading text-sm font-semibold text-foreground">{title}</div>
+      ) : null}
+      <div className="w-full min-w-0 overflow-x-auto">
+        <div className="flex min-w-max gap-2 pb-1">
+          <Button
+            tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
+            size="sm"
+            onClick={() => onSelect("")}
+            leadingIcon={allLeadingIcon}
+          >
+            {allLabel}
+          </Button>
+          {items.map((item) => (
+            <Button
+              key={item.id}
+              tone={(selectedValues?.has(item.id) ?? selectedId === item.id) ? "primary" : "ghost"}
+              size="sm"
+              onClick={() => onSelect(item.id)}
+              leadingIcon={itemLeadingIcon}
+            >
+              {item.count == null ? item.label : `${item.label} (${item.count})`}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -284,6 +284,58 @@ describeWithDatabase("marketplace search", () => {
     const searchBody = await searchResponse.json();
     expect(searchBody.total).toBe(1);
     expect(searchBody.items[0].title).toBe("Charizard");
+    expect(searchBody.facets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: itemSeed.dimensionId,
+          kind: "dimension",
+          label: "Condition",
+          values: expect.arrayContaining([
+            expect.objectContaining({
+              id: itemSeed.optionId,
+              label: "Near Mint",
+              count: 1,
+            }),
+          ]),
+        }),
+        expect.objectContaining({
+          id: itemSeed.fieldId,
+          kind: "field",
+          label: "Card Name",
+          values: expect.arrayContaining([
+            expect.objectContaining({
+              id: "charizard",
+              label: "Charizard",
+              count: 1,
+            }),
+          ]),
+        }),
+      ]),
+    );
+
+    const fieldFilterResponse = await app.request(`/api/marketplace/items?field.${itemSeed.fieldId}=charizard&includeTotal=true`);
+    expect(fieldFilterResponse.status).toBe(200);
+    const fieldFilterBody = await fieldFilterResponse.json();
+    expect(fieldFilterBody.total).toBe(1);
+    expect(fieldFilterBody.items[0].catalog_item_id).toBe(itemSeed.itemId);
+    expect(
+      fieldFilterBody.facets
+        .find((facet: { id: string }) => facet.id === itemSeed.fieldId)
+        .values.find((value: { id: string }) => value.id === "charizard")
+        .selected,
+    ).toBe(true);
+
+    const dimensionFilterResponse = await app.request(`/api/marketplace/items?dimension.${itemSeed.dimensionId}=${itemSeed.optionId}&includeTotal=true`);
+    expect(dimensionFilterResponse.status).toBe(200);
+    const dimensionFilterBody = await dimensionFilterResponse.json();
+    expect(dimensionFilterBody.total).toBe(1);
+    expect(dimensionFilterBody.items[0].catalog_item_id).toBe(itemSeed.itemId);
+    expect(
+      dimensionFilterBody.facets
+        .find((facet: { id: string }) => facet.id === itemSeed.dimensionId)
+        .values.find((value: { id: string }) => value.id === itemSeed.optionId)
+        .selected,
+    ).toBe(true);
 
     const detailResponse = await app.request(`/api/marketplace/items/${itemSeed.itemId}`);
     expect(detailResponse.status).toBe(200);

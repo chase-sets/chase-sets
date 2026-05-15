@@ -29,6 +29,7 @@ const EMPTY_SEARCH_RESULT = {
   language: "",
   sort: "relevance",
   page: 1,
+  dynamicFilters: [],
   data: null,
   categories: [],
 } as const;
@@ -39,10 +40,17 @@ const EMPTY_CATEGORY_LIST: CategoryListResponse = {
 };
 const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
   items: [],
+  facets: [],
   total: 0,
   count: 0,
   nextCursor: null,
 };
+
+type DynamicSearchFilterSelection = Readonly<{
+  kind: "field" | "dimension";
+  id: string;
+  value: string;
+}>;
 
 function buildSearchQuery({
   search,
@@ -50,12 +58,14 @@ function buildSearchQuery({
   language,
   sort,
   page,
+  dynamicFilters,
 }: {
   search: string;
   category: string;
   language: string;
   sort: string;
   page: number;
+  dynamicFilters: readonly DynamicSearchFilterSelection[];
 }) {
   const params = new URLSearchParams();
   if (search) {
@@ -70,6 +80,7 @@ function buildSearchQuery({
   params.set("sort", sort);
   params.set("limit", String(PAGE_SIZE));
   params.set("offset", String((page - 1) * PAGE_SIZE));
+  appendDynamicSearchFilters(params, dynamicFilters);
   return params.toString();
 }
 
@@ -89,6 +100,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const language = url.searchParams.get("language") ?? "";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
+  const dynamicFilters = readDynamicSearchFilters(url.searchParams);
   const api = createDiscoveryRequestApiClient(request);
 
   const [categoryBySlug, categories] = await Promise.all([
@@ -112,7 +124,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const data = await api.searchItems(
-    buildSearchQuery({ search, category, language, sort, page }),
+    buildSearchQuery({ search, category, language, sort, page, dynamicFilters }),
   ).catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
   const canonicalPath = params.categorySlug && resolvedCategory
     ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -124,6 +136,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     language,
     sort,
     page,
+    dynamicFilters,
     data,
     categories: categories.items,
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
@@ -168,9 +181,10 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     committedSearch: data.search,
     value: data.search,
   }));
+  const dynamicFilters = data.dynamicFilters ?? [];
   const realtimeData = useRealtimePatchedSnapshot<DiscoverySearchResponse | null>({
     initialSnapshot: data.data,
-    snapshotKey: JSON.stringify([data.search, data.category, data.language, data.sort, data.page, data.data]),
+    snapshotKey: JSON.stringify([data.search, data.category, data.language, data.sort, data.page, dynamicFilters, data.data]),
     topics: discoveryRealtimeRouteTopics.search().topics,
     applyPatch: applyDiscoverySearchPatch,
     onSyncRequired: reloadForRealtimeSync,
@@ -205,6 +219,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     language?: string;
     sort?: string;
     page?: number;
+    dynamicFilter?: DynamicSearchFilterSelection;
+    dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
   }, replace = false) => {
     if (nextValues.category !== undefined) {
       const current = new URLSearchParams(searchParams);
@@ -261,6 +277,16 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         }
       }
 
+      if (nextValues.dynamicFilter !== undefined) {
+        toggleDynamicSearchFilter(next, nextValues.dynamicFilter);
+        next.delete("page");
+      }
+
+      if (nextValues.dynamicFilterClear !== undefined) {
+        next.delete(dynamicSearchFilterKey({ ...nextValues.dynamicFilterClear, value: "" }));
+        next.delete("page");
+      }
+
       return next;
     }, { preventScrollReset: true, replace });
   }, [navigate, searchParams, setSearchParams]);
@@ -281,6 +307,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     language?: string;
     sort?: string;
     page?: number;
+    dynamicFilter?: DynamicSearchFilterSelection;
+    dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
   }) {
     clearSearchTimer();
     const search = pendingSearchRef.current ?? draftSearchRef.current;
@@ -296,6 +324,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       language={data.language}
       sort={data.sort}
       page={data.page}
+      dynamicFilters={dynamicFilters}
       data={realtimeData}
       categories={[...data.categories]}
       loading={navigation.state !== "idle"}
@@ -304,6 +333,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
       onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
       onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
+      onDynamicFilterChange={(value) => handleImmediateSearchParamChange({ dynamicFilter: value })}
+      onDynamicFilterClear={(value) => handleImmediateSearchParamChange({ dynamicFilterClear: value })}
       onPageChange={(value) => handleImmediateSearchParamChange({ page: value })}
     />
   );
@@ -313,4 +344,50 @@ function reloadForRealtimeSync() {
   if (typeof window !== "undefined") {
     window.location.reload();
   }
+}
+
+function readDynamicSearchFilters(searchParams: URLSearchParams): DynamicSearchFilterSelection[] {
+  return [...searchParams.entries()]
+    .flatMap(([key, value]): DynamicSearchFilterSelection[] => {
+      if (key.startsWith("field.") && value) {
+        return [{ kind: "field", id: key.slice("field.".length), value }];
+      }
+      if (key.startsWith("dimension.") && value) {
+        return [{ kind: "dimension", id: key.slice("dimension.".length), value }];
+      }
+      return [];
+    })
+    .filter((filter) => filter.id.length > 0 && filter.value.length > 0);
+}
+
+function appendDynamicSearchFilters(
+  searchParams: URLSearchParams,
+  filters: readonly DynamicSearchFilterSelection[],
+) {
+  for (const filter of filters) {
+    searchParams.append(dynamicSearchFilterKey(filter), filter.value);
+  }
+}
+
+function toggleDynamicSearchFilter(
+  searchParams: URLSearchParams,
+  filter: DynamicSearchFilterSelection,
+) {
+  const key = dynamicSearchFilterKey(filter);
+  const nextValues = searchParams
+    .getAll(key)
+    .filter((value) => value !== filter.value);
+
+  if (nextValues.length === searchParams.getAll(key).length) {
+    nextValues.push(filter.value);
+  }
+
+  searchParams.delete(key);
+  for (const value of nextValues) {
+    searchParams.append(key, value);
+  }
+}
+
+function dynamicSearchFilterKey(filter: DynamicSearchFilterSelection): string {
+  return `${filter.kind}.${filter.id}`;
 }

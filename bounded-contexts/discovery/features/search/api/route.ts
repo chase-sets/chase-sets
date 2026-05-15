@@ -5,6 +5,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
   const app = new Hono();
 
   app.get("/", async (c) => {
+    const url = new URL(c.req.url);
     const search = c.req.query("search");
     const category = c.req.query("category");
     const tag = c.req.query("tag");
@@ -29,10 +30,13 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       offset: offset ? Number.parseInt(offset, 10) : undefined,
       cursor: cursor || undefined,
       includeTotal: includeTotal === "true",
+      fieldFilters: readFieldFilters(url.searchParams),
+      dimensionFilters: readDimensionFilters(url.searchParams),
     });
 
     return c.json({
       items: result.items,
+      facets: result.facets,
       total: result.total,
       count: result.items.length,
       nextCursor: result.nextCursor,
@@ -40,4 +44,24 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
   });
 
   return app;
+}
+
+function readFieldFilters(searchParams: URLSearchParams) {
+  return [...searchParams.entries()]
+    .filter(([key]) => key.startsWith("field."))
+    .map(([key, value]) => ({
+      fieldId: key.slice("field.".length),
+      value,
+    }))
+    .filter((filter) => filter.fieldId.length > 0 && filter.value.length > 0);
+}
+
+function readDimensionFilters(searchParams: URLSearchParams) {
+  return [...searchParams.entries()]
+    .filter(([key]) => key.startsWith("dimension."))
+    .map(([key, value]) => ({
+      dimensionId: key.slice("dimension.".length),
+      optionId: value,
+    }))
+    .filter((filter) => filter.dimensionId.length > 0 && filter.optionId.length > 0);
 }

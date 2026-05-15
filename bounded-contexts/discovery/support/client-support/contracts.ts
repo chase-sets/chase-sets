@@ -21,9 +21,24 @@ export interface DiscoverySearchItem {
 
 export interface DiscoverySearchResponse {
   items: DiscoverySearchItem[];
+  facets: DiscoveryFacetGroup[];
   total: number | null;
   count: number;
   nextCursor: string | null;
+}
+
+export interface DiscoveryFacetValue {
+  id: string;
+  label: string;
+  count: number;
+  selected: boolean;
+}
+
+export interface DiscoveryFacetGroup {
+  id: string;
+  kind: "field" | "dimension";
+  label: string;
+  values: DiscoveryFacetValue[];
 }
 
 export interface ProductApplicabilityClause {
