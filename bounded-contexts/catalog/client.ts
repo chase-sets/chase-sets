@@ -16,4 +16,6 @@ export type {
   Dimension,
   DimensionDetail,
   Field,
+  SourceObservationDetail,
+  SourceObservationListItem,
 } from "./support/client-support/contracts";

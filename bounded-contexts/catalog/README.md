@@ -21,6 +21,7 @@ Catalog authoring uses these supporting concepts:
 Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity and product resolution. `Blueprint`, `Field`, `Component`, and `Category` define how that catalog truth is authored, described, composed, and organized.
 
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
+Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
 
 ## Owns
 
@@ -29,6 +30,7 @@ Graded card product modeling is documented in [Graded Card Data Model](./docs/gr
 - Blueprint-driven product resolution rules
 - Product schema snapshots used by downstream contexts
 - Field values and category membership for Catalog Items
+- Provider Source Observations before review and promotion into canonical Catalog Items
 
 ## Does Not Own
 
@@ -74,6 +76,15 @@ Owns the canonical parent item.
 
 - Commands use explicit Catalog Item naming such as `CreateCatalogItem`, `AssignBlueprintToCatalogItem`, and `PublishCatalogItem`
 - A Product cannot exist without exactly one Catalog Item
+
+### Source Observation
+
+Owns a provider-sourced candidate record before it becomes Catalog truth.
+
+- TCGdex is the first provider.
+- Source Observations carry provider identity, source URL, source hash, normalized candidate fields, image URLs, and review status.
+- Promotion emits Catalog Item commands; rejection records why the source record should not be used.
+- Source Observations are not downstream product truth until promoted into Catalog Items.
 
 ## Product Resolution
 

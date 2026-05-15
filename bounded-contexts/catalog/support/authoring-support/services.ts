@@ -11,6 +11,7 @@ import { createCategoryRuntime } from "../../features/categories/api/runtime";
 import { createComponentRuntime } from "../../features/components/api/runtime";
 import { createDimensionRuntime } from "../../features/dimensions/api/runtime";
 import { createFieldRuntime } from "../../features/fields/api/runtime";
+import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 
 export type CatalogServices = Readonly<{
   dimensions: ReturnType<typeof createDimensionRuntime>;
@@ -19,6 +20,7 @@ export type CatalogServices = Readonly<{
   blueprints: ReturnType<typeof createBlueprintRuntime>;
   categories: ReturnType<typeof createCategoryRuntime>;
   items: ReturnType<typeof createCatalogItemRuntime>;
+  sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -36,6 +38,7 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
   const blueprints = createBlueprintRuntime(deps);
   const categories = createCategoryRuntime(deps);
   const items = createCatalogItemRuntime(deps);
+  const sourceObservations = createSourceObservationRuntime(deps, items);
 
   return {
     dimensions,
@@ -44,6 +47,7 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
     blueprints,
     categories,
     items,
+    sourceObservations,
     projectors: [
       ...dimensions.projectors,
       ...fields.projectors,
@@ -51,6 +55,7 @@ export function createCatalogServices(pool: PgTransactionalPool): CatalogService
       ...blueprints.projectors,
       ...categories.projectors,
       ...items.projectors,
+      ...sourceObservations.projectors,
     ],
     pool,
     db,
