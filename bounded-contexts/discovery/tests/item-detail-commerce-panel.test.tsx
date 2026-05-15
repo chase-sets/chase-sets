@@ -562,6 +562,94 @@ describe("item detail commerce panel", () => {
     );
   });
 
+  it("initializes product selection from dimension filters carried by search", () => {
+    const rawListing: DiscoveryMarketListing = {
+      ...baseListing,
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+    };
+    const gradedListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      product_id: "cat_charizard::form:graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      product_summary: "Graded",
+    };
+
+    renderWithDataRouter(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: variantSchema,
+          market_listings: [rawListing, gradedListing],
+        })}
+        initialSelectedOptions={[{ dimensionId: "form", optionId: "graded" }]}
+        renderCommerce={(context) => ({
+          buy: (
+            <>
+              <input
+                data-testid="selected-product-id"
+                readOnly
+                value={context.selectedProductId ?? ""}
+              />
+              <input
+                data-testid="selected-options"
+                readOnly
+                value={JSON.stringify(context.selectedProductOptions)}
+              />
+              <input
+                data-testid="visible-listing-count"
+                readOnly
+                value={String(context.visibleListings.length)}
+              />
+            </>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-product-id")).toHaveProperty(
+      "value",
+      "cat_charizard::form:graded",
+    );
+    expect(screen.getByTestId("selected-options")).toHaveProperty(
+      "value",
+      JSON.stringify([{ dimensionId: "form", optionId: "graded" }]),
+    );
+    expect(screen.getByTestId("visible-listing-count")).toHaveProperty("value", "1");
+    expect(screen.getByText("1 of 2 listings")).toBeTruthy();
+  });
+
+  it("does not fall back to single-listing selection when URL dimension filters were ambiguous", () => {
+    renderWithDataRouter(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: requiredSchema,
+          market_listings: [{
+            ...baseListing,
+            product_id: "cat_charizard::form:raw",
+            selected_options: [{ dimensionId: "form", optionId: "raw" }],
+            product_summary: "Raw",
+          }],
+        })}
+        initialSelectedOptions={[]}
+        hasInitialSelectedOptionFilters
+        renderCommerce={(context) => ({
+          buy: (
+            <input
+              data-testid="selected-product-id"
+              readOnly
+              value={context.selectedProductId ?? ""}
+            />
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-product-id")).toHaveProperty("value", "");
+  });
+
   it("orders listings by lowest price and selects the cheapest listing by default", () => {
     const cheaperListing: DiscoveryMarketListing = {
       ...alternateListing,

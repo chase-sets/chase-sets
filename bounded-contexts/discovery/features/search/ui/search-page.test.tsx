@@ -209,4 +209,25 @@ describe("SearchPage", () => {
       value: "opt_excellent",
     });
   });
+
+  it("carries dimension filters into item detail links without field filters", () => {
+    renderSearchPage({
+      committedSearch: "bulbasaur",
+      dynamicFilters: [
+        { kind: "dimension", id: "dim_condition", value: "opt_near_mint" },
+        { kind: "dimension", id: "dim_finish", value: "opt_holo" },
+        { kind: "field", id: "fld_seed_card_number", value: "44/102" },
+      ],
+      data: {
+        items: [japaneseSearchResult],
+        facets: [],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+      },
+    });
+
+    expect(screen.getByRole("link", { name: "View details" }).getAttribute("href"))
+      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo");
+  });
 });
