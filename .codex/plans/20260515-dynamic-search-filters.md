@@ -87,5 +87,5 @@ The implementation goal must:
 - [x] Run desktop visual verification of the marketplace search route after frontend changes.
 - [x] Run mobile visual verification of the marketplace search route after frontend changes. Browser verification at `443x958` confirmed the applied `Card Number: 4/102` chip, top-ranked dynamic facet strips, selected `4/102 (1)` state, the narrowed Charizard result card, and bottom navigation without layout overlap.
 - [x] Submit a draft PR and ensure the first CI run passes.
-- [ ] Mark the PR ready after the mobile follow-up commit is pushed and CI passes again.
+- [x] Mark the PR ready after the mobile follow-up commit is pushed and CI passes again.
 - [ ] Merge the PR, verify staging deploy behavior, and keep the plan committed.
