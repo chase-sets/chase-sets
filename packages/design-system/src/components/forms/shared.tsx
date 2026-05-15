@@ -42,7 +42,7 @@ export function FieldChrome({
   const hintId = fieldHintId(htmlFor);
 
   return (
-    <BaseField.Root {...rest} invalid={!!error} className="space-y-2">
+    <BaseField.Root {...rest} invalid={!!error} className="grid gap-2">
       {label ? (
         <BaseField.Label
           htmlFor={htmlFor}

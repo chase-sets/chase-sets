@@ -384,23 +384,22 @@ export function SearchPage({
                 onValueChange={onSortChange}
               />
             }
+            filterControlsVisibility="desktop"
             filters={
-              <div className="hidden lg:block">
-                <Inline gap={2} align="end">
-                  <Select
-                    label={t("discovery.features.search.ui.searchPage.language")}
-                    items={[
-                      { label: t("discovery.features.search.ui.searchPage.all.languages"), value: ALL_LANGUAGES },
-                      ...languageOptions,
-                    ]}
-                    value={language || ALL_LANGUAGES}
-                    onValueChange={(value) => onLanguageChange(value === ALL_LANGUAGES ? "" : value)}
-                  />
-                  <LinkButton href="/search" tone="secondary" size="sm">
-                    {t("discovery.features.search.ui.searchPage.clear.all.filters")}
-                  </LinkButton>
-                </Inline>
-              </div>
+              <Select
+                label={t("discovery.features.search.ui.searchPage.language")}
+                items={[
+                  { label: t("discovery.features.search.ui.searchPage.all.languages"), value: ALL_LANGUAGES },
+                  ...languageOptions,
+                ]}
+                value={language || ALL_LANGUAGES}
+                onValueChange={(value) => onLanguageChange(value === ALL_LANGUAGES ? "" : value)}
+              />
+            }
+            actions={
+              <LinkButton href="/search" tone="secondary">
+                {t("discovery.features.search.ui.searchPage.clear.all.filters")}
+              </LinkButton>
             }
             appliedFilters={
               <AppliedFilterChips
