@@ -40,6 +40,21 @@
         "public-presence.waitlist-signup-"
       ],
       "order": 10
+    },
+    {
+      "sourceContextName": "public-presence",
+      "projectionName": "public-presence-waitlist-transactional-email-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "public-presence-waitlist-transactional-email-projection"
+      ],
+      "eventTypes": [
+        "public-presence.waitlist-signup.recorded"
+      ],
+      "streamPrefixes": [
+        "public-presence.waitlist-signup-"
+      ],
+      "order": 20
     }
   ],
   "projectionGroups": [
@@ -52,9 +67,25 @@
         "public_presence_waitlist_signups"
       ],
       "requiredDuringBootstrap": true
+    },
+    {
+      "projectionName": "public-presence-waitlist-transactional-email-projection",
+      "sourceContextNames": [
+        "public-presence"
+      ],
+      "ownedTables": [
+        "transactional_email_outbox"
+      ],
+      "requiredDuringBootstrap": true
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "transactionalEmailOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable transactional email outbox consumed only by event projectors."
+    }
+  ],
   "apiDeployables": [
     "admin-support-api",
     "platform-api"

@@ -8,6 +8,7 @@ import type {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildPublicPresenceAdminApi, buildPublicPresencePublicApi } from "./api";
+import { buildWaitlistTransactionalEmailProjectionHandlers } from "./features/waitlist/integrations/transactional-email/transactional-email-projector";
 import { buildWaitlistProjectionHandlers } from "./features/waitlist/read-model/projection";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
 import { createPublicPresenceServices } from "./support/runtime-support/services";
@@ -37,7 +38,11 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<PublicPresenceServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<
+  PublicPresenceServices,
+  PgTransactionalPool,
+  Parameters<typeof createPublicPresenceServices>[1]
+> = {
   contextName: "public-presence",
   routePrefix: "/api/public-presence",
   streamPrefix: "public-presence.",
@@ -45,10 +50,10 @@ export const module: BcApiModule<PublicPresenceServices, PgTransactionalPool, vo
   apiMounts: contextManifest.apiMounts as BcApiModule<
     PublicPresenceServices,
     PgTransactionalPool,
-    void
+    Parameters<typeof createPublicPresenceServices>[1]
   >["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createPublicPresenceServices(pool),
+  createServices: (pool, ports) => createPublicPresenceServices(pool, ports),
   buildApis: (services) => [
     buildPublicPresencePublicApi(services),
     buildPublicPresenceAdminApi(services),
@@ -58,6 +63,10 @@ export const module: BcApiModule<PublicPresenceServices, PgTransactionalPool, vo
     const waitlistSubscription = getEventSubscription(
       "public-presence",
       "public-presence-waitlist-projection",
+    );
+    const waitlistEmailSubscription = getEventSubscription(
+      "public-presence",
+      "public-presence-waitlist-transactional-email-projection",
     );
 
     return [
@@ -70,6 +79,19 @@ export const module: BcApiModule<PublicPresenceServices, PgTransactionalPool, vo
         eventTypes: waitlistSubscription.eventTypes,
         streamPrefixes: waitlistSubscription.streamPrefixes,
         order: waitlistSubscription.order,
+      },
+      {
+        subscriptionName: "public-presence.waitlist-transactional-email",
+        sourceContextName: "public-presence",
+        projectionName: waitlistEmailSubscription.projectionName,
+        subscriptionVersion: waitlistEmailSubscription.subscriptionVersion,
+        handlers: buildWaitlistTransactionalEmailProjectionHandlers(
+          services.transactionalEmailOutbox,
+          waitlistEmailSubscription.projectionName,
+        ),
+        eventTypes: waitlistEmailSubscription.eventTypes,
+        streamPrefixes: waitlistEmailSubscription.streamPrefixes,
+        order: waitlistEmailSubscription.order,
       },
     ];
   },

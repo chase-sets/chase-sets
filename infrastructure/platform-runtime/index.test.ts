@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createApiHost,
   getApiHostContextNames,
   getApiHostSeedOrder,
   type ApiContextRegistry,
 } from "./api";
+import {
+  createWorkerRunnerLoop,
+  type WorkerRunner,
+} from "./worker";
 import {
   getWebHostSections,
   resolveWebHostNavItems,
@@ -147,6 +151,40 @@ const webRegistry = [
       ],
     },
   },
+  {
+    contextName: "public-presence",
+    packageName: "@test/public-presence",
+    manifest: {
+      contextName: "public-presence",
+      deployableContributions: [
+        {
+          deployable: "admin-web",
+          routes: [
+            {
+              routeId: "waitlist",
+              routePath: "waitlist",
+              fileExport: "./routes/admin/waitlist",
+              routeType: "route",
+              sourceContext: "public-presence",
+            },
+          ],
+        },
+      ],
+      shellContributions: [
+        {
+          deployable: "admin-web",
+          slot: "primary-nav",
+          key: "waitlist",
+          label: "Waitlist",
+          icon: "message",
+          href: "/waitlist",
+          order: 20,
+          visibility: "signed-in",
+          requiredPermissions: ["public-presence.view"],
+        },
+      ],
+    },
+  },
 ] as const satisfies WebContextRegistry;
 
 describe("platform host api registry", () => {
@@ -205,6 +243,31 @@ describe("platform host web registry", () => {
     ]);
   });
 
+  it("places public-presence waitlist review in the experience admin section", () => {
+    const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
+    const navItems = resolveWebHostNavItems(
+      webRegistry,
+      "admin-web",
+      "primary-nav",
+      { permissions: ["public-presence.view"] },
+      { section: "experience" },
+    );
+
+    expect(routes).toContainEqual(
+      expect.objectContaining({
+        contextName: "public-presence",
+        routePath: "experience/waitlist",
+        section: "experience",
+      }),
+    );
+    expect(navItems).toEqual([
+      expect.objectContaining({
+        href: "/experience/waitlist",
+        label: "Waitlist",
+      }),
+    ]);
+  });
+
   it("filters marketplace nav items by actor visibility and permissions", () => {
     expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", null))
       .toEqual([
@@ -251,5 +314,55 @@ describe("platform host web registry", () => {
         file: "../../../bounded-contexts/marketplace/routes/search.tsx",
       }),
     ]);
+  });
+});
+
+describe("platform worker runner loop", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rotates runner scheduling so later runners are not starved", async () => {
+    vi.useFakeTimers();
+    const runOrder: string[] = [];
+    const runners: WorkerRunner[] = Array.from({ length: 6 }, (_, index) => ({
+      name: `runner-${index + 1}`,
+      kind: "job",
+      runOnce: vi.fn(async () => {
+        runOrder.push(`runner-${index + 1}`);
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      }),
+    }));
+    const controlPlane = {
+      acquireLease: vi.fn(async (input) => ({
+        leaseName: input.leaseName,
+        ownerId: input.ownerId,
+        fencingToken: "1",
+        expiresAt: new Date(Date.now() + 1000).toISOString(),
+      })),
+      renewLease: vi.fn(async () => true),
+      releaseLease: vi.fn(async () => undefined),
+      recordRunnerStatus: vi.fn(async () => undefined),
+      heartbeatWorker: vi.fn(async () => undefined),
+      listWorkerHeartbeats: vi.fn(async () => []),
+      listRunnerStatuses: vi.fn(async () => []),
+      listLeases: vi.fn(async () => []),
+    };
+
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-test",
+      controlPlane,
+      runners,
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 1000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 10,
+    });
+
+    loop.start();
+    await vi.advanceTimersByTimeAsync(100);
+    await loop.stop();
+
+    expect(new Set(runOrder)).toEqual(new Set(runners.map((runner) => runner.name)));
   });
 });

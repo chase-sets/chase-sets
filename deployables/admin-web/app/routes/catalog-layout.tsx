@@ -28,6 +28,9 @@ export default function CatalogAdminLayoutRoute() {
       navItems={navItems}
       actions={
         <Inline gap={2}>
+          <LinkButton href="/experience/waitlist" tone="secondary">
+            {t("adminWeb.app.routes.catalogLayout.experience")}
+          </LinkButton>
           <LinkButton href="/identity/accounts" tone="secondary">
             {t("adminWeb.app.routes.catalogLayout.identity")}
           </LinkButton>

@@ -9,6 +9,10 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createNoopTransactionalEmailOutbox,
+  type TransactionalEmailOutbox,
+} from "@chase-sets/communications-email";
 import { stableWaitlistSignupId, type WaitlistSource } from "../domain/common";
 import {
   decideWaitlistSignup,
@@ -20,11 +24,16 @@ import {
 } from "../domain/domain";
 import { buildWaitlistProjectionHandlers } from "../read-model/projection";
 import { getWaitlistMetrics, listWaitlistSignups } from "../read-model/queries";
+import {
+  PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
+  buildWaitlistTransactionalEmailProjectionHandlers,
+} from "../integrations/transactional-email/transactional-email-projector";
 
 type WaitlistRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type WaitlistServices = Readonly<{
@@ -51,6 +60,8 @@ export type WaitlistServices = Readonly<{
 }>;
 
 export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServices {
+  const transactionalEmailOutbox =
+    deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -91,6 +102,15 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
         eventStore: deps.eventStore,
         checkpointStore: deps.checkpointStore,
         handlers: buildWaitlistProjectionHandlers(deps.db),
+      }),
+      createProjector({
+        projectorName: PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
+        eventStore: deps.eventStore,
+        checkpointStore: deps.checkpointStore,
+        handlers: buildWaitlistTransactionalEmailProjectionHandlers(
+          transactionalEmailOutbox,
+          PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
+        ),
       }),
     ],
   };
