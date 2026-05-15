@@ -17,10 +17,6 @@ permissions:
   actions: read
   checks: read
 
-concurrency:
-  group: platform-deploy
-  cancel-in-progress: false
-
 jobs:
   resolve-release:
     name: Resolve Release
@@ -95,6 +91,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: resolve-release
     environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -121,6 +120,18 @@ jobs:
           checked_out_commit="$(git rev-parse HEAD)"
           if [ "$checked_out_commit" != "$release_commit" ]; then
             echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
+            exit 1
+          fi
+
+      - name: Confirm automatic deploy is latest main
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          latest_main="$(git rev-parse origin/main)"
+          if [ "$release_commit" != "$latest_main" ]; then
+            echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale staging check." >&2
             exit 1
           fi
 
@@ -428,6 +439,9 @@ jobs:
       - resolve-release
       - deploy-staging
     environment: production
+    concurrency:
+      group: platform-deploy-production
+      cancel-in-progress: false
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -451,6 +465,18 @@ jobs:
           checked_out_commit="$(git rev-parse HEAD)"
           if [ "$checked_out_commit" != "$release_commit" ]; then
             echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
+            exit 1
+          fi
+
+      - name: Confirm automatic deploy is latest main
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          latest_main="$(git rev-parse origin/main)"
+          if [ "$release_commit" != "$latest_main" ]; then
+            echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale production deployment." >&2
             exit 1
           fi
 
