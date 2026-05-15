@@ -16,6 +16,7 @@ import {
   PageHeader,
   PageSection,
   PriceBreakdown,
+  ProgressiveDisclosure,
   SecurePaymentIndicator,
   Stack,
   StickyCtaBar,
@@ -502,27 +503,37 @@ export function CheckoutSessionPage({
                         />
                       </Grid>
                       {canManageShippingAddresses ? (
-                        <Grid columns={{ base: 1, md: 2 }} gap={3}>
-                          <NativeSelect
-                            label={t("checkout.features.sessions.ui.checkoutPage.address.book.action")}
-                            name="addressBookAction"
-                            defaultValue={savedShippingAddresses.length > 0 ? "checkout-only" : "save-new"}
-                            items={[
-                              { value: "checkout-only", label: t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout") },
-                              { value: "save-new", label: t("checkout.features.sessions.ui.checkoutPage.save.as.new.address") },
-                              { value: "update-selected", label: t("checkout.features.sessions.ui.checkoutPage.update.selected.address") },
-                            ]}
-                          />
-                          <NativeSelect
-                            label={t("checkout.features.sessions.ui.checkoutPage.saved.address.default")}
-                            name="makeDefaultShippingAddress"
-                            defaultValue="false"
-                            items={[
-                              { value: "false", label: t("checkout.features.sessions.ui.checkoutPage.do.not.change.default") },
-                              { value: "true", label: t("checkout.features.sessions.ui.checkoutPage.make.this.default") },
-                            ]}
-                          />
-                        </Grid>
+                        <ProgressiveDisclosure
+                          title={t("checkout.features.sessions.ui.checkoutPage.address.book.action")}
+                          summary={
+                            savedShippingAddresses.length > 0
+                              ? t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout")
+                              : t("checkout.features.sessions.ui.checkoutPage.save.as.new.address")
+                          }
+                          tone="info"
+                        >
+                          <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                            <NativeSelect
+                              label={t("checkout.features.sessions.ui.checkoutPage.address.book.action")}
+                              name="addressBookAction"
+                              defaultValue={savedShippingAddresses.length > 0 ? "checkout-only" : "save-new"}
+                              items={[
+                                { value: "checkout-only", label: t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout") },
+                                { value: "save-new", label: t("checkout.features.sessions.ui.checkoutPage.save.as.new.address") },
+                                { value: "update-selected", label: t("checkout.features.sessions.ui.checkoutPage.update.selected.address") },
+                              ]}
+                            />
+                            <NativeSelect
+                              label={t("checkout.features.sessions.ui.checkoutPage.saved.address.default")}
+                              name="makeDefaultShippingAddress"
+                              defaultValue="false"
+                              items={[
+                                { value: "false", label: t("checkout.features.sessions.ui.checkoutPage.do.not.change.default") },
+                                { value: "true", label: t("checkout.features.sessions.ui.checkoutPage.make.this.default") },
+                              ]}
+                            />
+                          </Grid>
+                        </ProgressiveDisclosure>
                       ) : null}
                       <NativeSelect
                         label={t("checkout.features.sessions.ui.checkoutPage.shipping.option")}
@@ -547,12 +558,9 @@ export function CheckoutSessionPage({
                             ]}
                             description={t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description")}
                           />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
-                            name="requestedBalanceCreditAmount"
-                            placeholder="0.00"
-                            inputMode="decimal"
-                            description={
+                          <ProgressiveDisclosure
+                            title={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
+                            summary={
                               wallet
                                 ? t("checkout.features.sessions.ui.checkoutPage.wallet.available.description", {
                                     amount: wallet.available_balance_amount,
@@ -560,7 +568,23 @@ export function CheckoutSessionPage({
                                   })
                                 : t("checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this")
                             }
-                          />
+                            tone="info"
+                          >
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
+                              name="requestedBalanceCreditAmount"
+                              placeholder="0.00"
+                              inputMode="decimal"
+                              description={
+                                wallet
+                                  ? t("checkout.features.sessions.ui.checkoutPage.wallet.available.description", {
+                                      amount: wallet.available_balance_amount,
+                                      currency: wallet.currency_code.toUpperCase(),
+                                    })
+                                  : t("checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this")
+                              }
+                            />
+                          </ProgressiveDisclosure>
                         </>
                       ) : null}
                       <Divider />

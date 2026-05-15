@@ -9,6 +9,7 @@ import {
   Inline,
   KeyValueList,
   PageSection,
+  ProgressiveDisclosure,
   Stack,
   Text,
   TextInput,
@@ -333,6 +334,13 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
             </PageSection>
 
             <PageSection title={t("catalog.features.blueprints.ui.blueprintDetailPage.field.rules")}>
+              <ProgressiveDisclosure
+                title={t("catalog.features.blueprints.ui.blueprintDetailPage.field.rules")}
+                summary={t("catalog.features.blueprints.ui.blueprintDetailPage.field.rules.summary", {
+                  count: fieldRules.length,
+                })}
+                tone={fieldRules.some((rule) => rule.required) ? "warning" : "info"}
+              >
               <Stack gap={3}>
                 {data.status === "draft" && (
                   <Inline>
@@ -349,9 +357,17 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                   emptyTitle={t("catalog.features.blueprints.ui.blueprintDetailPage.no.field.rules")}
                 />
               </Stack>
+              </ProgressiveDisclosure>
             </PageSection>
 
             <PageSection title={t("catalog.features.blueprints.ui.blueprintDetailPage.dimension.rules")}>
+              <ProgressiveDisclosure
+                title={t("catalog.features.blueprints.ui.blueprintDetailPage.dimension.rules")}
+                summary={t("catalog.features.blueprints.ui.blueprintDetailPage.dimension.rules.summary", {
+                  count: dimensionRules.length,
+                })}
+                tone={dimensionRules.some((rule) => rule.required) ? "warning" : "info"}
+              >
               <Stack gap={3}>
                 {data.status === "draft" && (
                   <Inline>
@@ -378,9 +394,19 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                   emptyTitle={t("catalog.features.blueprints.ui.blueprintDetailPage.no.dimension.rules")}
                 />
               </Stack>
+              </ProgressiveDisclosure>
             </PageSection>
 
             <PageSection title={t("catalog.features.blueprints.ui.blueprintDetailPage.product.resolution.rules")}>
+              <ProgressiveDisclosure
+                title={t("catalog.features.blueprints.ui.blueprintDetailPage.product.resolution.rules")}
+                summary={
+                  canonicalDimensionOrder.length > 0
+                    ? canonicalDimensionOrder.map((dimension) => dimension.dimensionName).join(", ")
+                    : t("catalog.features.blueprints.ui.blueprintDetailPage.not.set")
+                }
+                tone={canonicalDimensionOrder.length > 0 ? "info" : "warning"}
+              >
               <Stack gap={3}>
                 <KeyValueList
                   items={[
@@ -397,6 +423,7 @@ export function BlueprintDetailPage({ id, initialData }: { id: string; initialDa
                   </Inline>
                 )}
               </Stack>
+              </ProgressiveDisclosure>
             </PageSection>
           </Stack>
         )}

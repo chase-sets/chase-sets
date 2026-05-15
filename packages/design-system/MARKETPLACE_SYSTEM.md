@@ -97,13 +97,18 @@ Good disclosure candidates:
 
 Do not disclose the current price, final total, seller trust, availability, fulfillment expectation, buyer-protection summary, blocking error, or primary action. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
 
-Recommended migration order:
+Recommended first flows:
 
-1. Listing creation and listing management.
-2. Discovery item detail and advanced search.
-3. Checkout and payment recovery.
+1. Marketplace seller listing creation and listing management.
+   Keep inventory identity, price, quantity cap, fee preview, status, and publish controls visible. Move optional seller limits, fee-lock history, stale quote recovery detail, grading population depth, and certification extras into disclosure.
+2. Discovery search and item detail.
+   Keep primary filters, applied filter chips, result count, item identity, listing/offer comparison, and commerce actions visible. Move dynamic advanced facets, specification depth, policy explanation, market-history detail, and saved-search recovery into disclosure.
+3. Checkout session and payment recovery.
+   Keep fulfillment state, final cost, wallet credit, selected destination, payment method, secure payment cue, blocking failure copy, and the payment or recovery action visible. Checkout owns session/fulfillment disclosure; Payments owns payment fee quote, confirmation, provider event, support detail, claim-token fallback, and recovery diagnostic disclosure.
 4. Settlement payout readiness and payout requests.
-5. Catalog/admin setup flows.
+   Keep payout readiness status, available amount, amount policy, destination status, unavailable state, and setup/preview/confirm actions visible. Move grouped verification requirement detail, provider capability detail, ledger context, unavailable reason detail, optional payout note, and provider-safe payout explanations into disclosure.
+5. Catalog admin authoring and setup.
+   Keep entity identity, status, lifecycle controls, current blueprint/category assignment, required field state, and publish action visible. Move field rules, dimension rules, product-resolution rules, external references, tag/image URL management, automation settings, and audit/history detail into disclosure.
 
 ## Before / After Direction
 

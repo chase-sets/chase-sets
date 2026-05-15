@@ -44,6 +44,7 @@ import {
   PageSection,
   PaymentRecoveryPanel,
   PriceBreakdown,
+  ProgressiveDisclosure,
   SecurePaymentIndicator,
   Stack,
   Surface,
@@ -750,12 +751,15 @@ function GuestClaimPrompt({
               </Form>
             </Surface>
           ) : null}
-          <details>
-            <summary>{t("payments.routes.marketplace.accountPayment.other.options")}</summary>
+          <ProgressiveDisclosure
+            title={t("payments.routes.marketplace.accountPayment.other.options")}
+            summary={t("payments.routes.marketplace.accountPayment.password.setup.is.available.only.after")}
+            tone="info"
+          >
             <Text size="sm" tone="secondary">
               {t("payments.routes.marketplace.accountPayment.password.setup.is.available.only.after")}
             </Text>
-          </details>
+          </ProgressiveDisclosure>
         </Stack>
       </Surface>
     </PageSection>
@@ -961,6 +965,15 @@ export default function MarketplaceAccountPaymentRoute() {
 
           {data.showSupportDetails ? (
             <PageSection title={t("payments.routes.marketplace.accountPayment.support.details")}>
+              <ProgressiveDisclosure
+                title={t("payments.routes.marketplace.accountPayment.support.details")}
+                summary={t("payments.routes.marketplace.accountPayment.provider.events.status.summary", {
+                  count: data.payment.provider_events.length,
+                  status: data.payment.processor_status,
+                })}
+                tone={data.payment.failure_code ? "warning" : "info"}
+                defaultOpen={Boolean(data.payment.failure_code)}
+              >
               <Surface elevated>
                 <Stack gap={2}>
                   <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPayment.internal.payment")}{data.payment.payment_id}</Text>
@@ -992,6 +1005,7 @@ export default function MarketplaceAccountPaymentRoute() {
                   ) : null}
                 </Stack>
               </Surface>
+              </ProgressiveDisclosure>
             </PageSection>
           ) : null}
 
