@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -78,6 +79,42 @@ export function appPlatformChanges(plan) {
   );
 }
 
+export function destructiveResourceChanges(plan) {
+  return (plan.resource_changes ?? [])
+    .filter((resourceChange) => {
+      const actions = resourceChange.change?.actions ?? [];
+      return actions.includes("delete");
+    })
+    .map((resourceChange) => ({
+      address: resourceChange.address ?? `${resourceChange.type}.${resourceChange.name}`,
+      type: resourceChange.type ?? "",
+      name: resourceChange.name ?? "",
+      actions: resourceChange.change?.actions ?? [],
+    }));
+}
+
+export function assertNoDestructiveChanges(plan, options = {}) {
+  const destructiveChanges = destructiveResourceChanges(plan);
+  if (destructiveChanges.length === 0) {
+    return destructiveChanges;
+  }
+
+  if (options.allowDestructiveChanges) {
+    console.warn("Production destructive-change override marker is present.");
+    for (const change of destructiveChanges) {
+      console.warn(`- ${change.address}: ${change.actions.join(",")}`);
+    }
+    return destructiveChanges;
+  }
+
+  const summary = destructiveChanges
+    .map((change) => `- ${change.address}: ${change.actions.join(",")}`)
+    .join("\n");
+  throw new Error(
+    `Production Terraform plan contains destructive changes and no reviewed override marker was found:\n${summary}`,
+  );
+}
+
 export function activeDeployments(deployments) {
   return deployments
     .map(normalizeDeployment)
@@ -109,6 +146,15 @@ export async function planAppChanged(tfplanPath, options = {}) {
     tfplanPath,
   ]);
   return appPlatformChanges(JSON.parse(output));
+}
+
+export async function assertTerraformPlanSafe(tfplanPath, options = {}) {
+  const output = await (options.commandOutput ?? commandOutput)("terraform", [
+    "show",
+    "-json",
+    tfplanPath,
+  ]);
+  return assertNoDestructiveChanges(JSON.parse(output), options);
 }
 
 export async function waitForDeployments(appId, options = {}) {
@@ -251,6 +297,23 @@ async function main(argv) {
     return;
   }
 
+  if (command === "assert-no-destructive-changes") {
+    const [tfplanPath, ...options] = args;
+    if (!tfplanPath) {
+      throw new Error(
+        "Usage: node ./scripts/digitalocean-app-deployment.mjs assert-no-destructive-changes <tfplan> [--allow-file=<path>]",
+      );
+    }
+
+    const allowFilePath = options
+      .find((option) => option.startsWith("--allow-file="))
+      ?.slice("--allow-file=".length);
+    const allowDestructiveChanges = Boolean(allowFilePath && existsSync(allowFilePath));
+
+    await assertTerraformPlanSafe(tfplanPath, { allowDestructiveChanges });
+    return;
+  }
+
   if (command === "wait") {
     const [appId, ...options] = args;
     if (!appId) {
@@ -291,7 +354,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|wait|deploy|wait-domains>",
+    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|wait|deploy|wait-domains>",
   );
 }
 

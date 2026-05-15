@@ -1,9 +1,11 @@
 name: Platform Deploy
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - Platform PR
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       release_ref:
@@ -21,6 +23,12 @@ jobs:
   resolve-release:
     name: Resolve Release
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     outputs:
       release_commit: ${{ steps.release.outputs.release_commit }}
     steps:
@@ -34,8 +42,8 @@ jobs:
           set -euo pipefail
 
           git fetch origin main
-          if [ "${{ github.event_name }}" = "push" ]; then
-            release_commit="${{ github.sha }}"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            release_commit="${{ github.event.workflow_run.head_sha }}"
           else
             release_ref="${{ inputs.release_ref }}"
             git fetch origin "${release_ref}" || true
@@ -89,6 +97,7 @@ jobs:
   deploy-staging:
     name: Deploy Staging
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     needs: resolve-release
     environment: staging
     concurrency:
@@ -124,7 +133,7 @@ jobs:
           fi
 
       - name: Confirm automatic deploy is latest main
-        if: github.event_name == 'push'
+        if: github.event_name == 'workflow_run'
         run: |
           set -euo pipefail
           git fetch origin main
@@ -231,8 +240,8 @@ jobs:
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
           docker buildx build \
             --pull \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
+            --cache-from type=gha,scope=platform-image \
+            --cache-to type=gha,scope=platform-image,mode=min \
             --push \
             --tag "$image" \
             .
@@ -435,6 +444,7 @@ jobs:
   deploy-production:
     name: Deploy Production
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     needs:
       - resolve-release
       - deploy-staging
@@ -449,6 +459,7 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -469,7 +480,7 @@ jobs:
           fi
 
       - name: Confirm automatic deploy is latest main
-        if: github.event_name == 'push'
+        if: github.event_name == 'workflow_run'
         run: |
           set -euo pipefail
           git fetch origin main
@@ -624,6 +635,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform plan -out=tfplan
+          node ../../../scripts/digitalocean-app-deployment.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
           app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
@@ -730,11 +742,23 @@ jobs:
           cd ../../..
           pnpm run smoke:platform -- "https://${public_domain}" "https://${admin_domain}"
 
-      - name: Fast-forward production
+      - name: Mark production release
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          release_tag="release-$(date -u +%Y%m%d%H%M%S)-$(printf '%s' "$release_commit" | cut -c1-8)"
+          promoted_image="${{ steps.image.outputs.image }}"
+          release_image="${promoted_image%:*}:${release_tag}"
+
+          docker buildx imagetools create --tag "$release_image" "$promoted_image"
+
           git fetch origin production || true
+          git fetch origin --tags || true
+
+          if ! git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            git tag -a "$release_tag" "$release_commit" -m "Production release ${release_tag}"
+            git push origin "refs/tags/${release_tag}"
+          fi
 
           if git show-ref --verify --quiet refs/remotes/origin/production; then
             git checkout -B production origin/production
