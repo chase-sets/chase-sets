@@ -8,3 +8,10 @@ export {
   createAuthRequestApiClient,
   createInternalAuthRequestApiClient,
 } from "./support/request-support/api-client";
+export {
+  createFacebookSocialLoginProvider,
+  createGoogleSocialLoginProvider,
+  type SocialLoginProvider,
+  type SocialLoginProviderName,
+  type SocialLoginProfile,
+} from "./support/social-login-support/providers";

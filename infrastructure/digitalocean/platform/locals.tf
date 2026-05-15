@@ -1,30 +1,31 @@
 locals {
-  is_production = var.environment == "production"
-  is_staging    = var.environment == "staging"
-  name_prefix   = local.is_production ? "chase-sets" : "chase-sets-${var.environment}"
+  is_production       = var.environment == "production"
+  is_staging          = var.environment == "staging"
+  is_non_production   = !local.is_production
+  environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
+  database_name_token = replace(local.environment_slug, "-", "_")
+  name_prefix         = local.is_production ? "chase-sets" : "chase-sets-${local.environment_slug}"
 
   public_domains = local.is_production ? [
     var.root_domain,
     "www.${var.root_domain}",
     ] : [
-    "landing-${var.environment}.${var.root_domain}",
+    "landing-${local.environment_slug}.${var.root_domain}",
   ]
 
-  legacy_public_redirect_domains = local.is_staging ? [
-    "${var.environment}.${var.root_domain}",
+  legacy_public_redirect_domains = []
+
+  marketplace_domains = local.is_non_production ? [
+    "marketplace-${local.environment_slug}.${var.root_domain}",
   ] : []
 
-  marketplace_domains = local.is_staging ? [
-    "marketplace-${var.environment}.${var.root_domain}",
-  ] : []
-
-  admin_domain       = local.is_production ? "admin.${var.root_domain}" : "admin-${var.environment}.${var.root_domain}"
+  admin_domain       = local.is_production ? "admin.${var.root_domain}" : "admin-${local.environment_slug}.${var.root_domain}"
   landing_domain     = local.public_domains[0]
   marketplace_domain = length(local.marketplace_domains) > 0 ? local.marketplace_domains[0] : null
-  api_component_name = local.is_staging ? "platform-api" : "admin-support-api"
-  api_private_url    = local.is_staging ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
+  api_component_name = local.is_non_production ? "platform-api" : "admin-support-api"
+  api_private_url    = local.is_non_production ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
   marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
-  database_size      = local.is_staging ? var.staging_database_size : var.database_size
+  database_size      = local.is_non_production ? var.non_production_database_size : var.database_size
 
   database_pool_max                   = "1"
   database_pool_idle_timeout_ms       = "5000"
@@ -62,23 +63,33 @@ locals {
     "support",
   ]
 
-  context_names = local.is_staging ? local.platform_context_names : local.landing_context_names
+  context_names = local.is_non_production ? local.platform_context_names : local.landing_context_names
 
   context_databases = {
     for context_name in local.context_names :
-    context_name => "chase_sets_${var.environment}_${replace(context_name, "-", "_")}"
+    context_name => "chase_sets_${local.database_name_token}_${replace(context_name, "-", "_")}"
   }
 
   context_database_users = {
     for context_name in local.context_names :
-    context_name => "cs_${var.environment}_${replace(context_name, "-", "_")}"
+    context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}"
   }
 
-  staging_connection_pool_contexts = local.is_staging ? local.context_databases : {}
+  non_production_connection_pool_contexts = local.is_non_production ? local.context_databases : {}
 
   context_database_urls = {
     for context_name in local.context_names :
-    context_name => local.is_staging ? digitalocean_database_connection_pool.contexts[context_name].uri : format("$${db-%s.DATABASE_URL}", context_name)
+    context_name => local.is_non_production ? format(
+      "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+      urlencode(digitalocean_database_connection_pool.contexts[context_name].user),
+      urlencode(coalesce(
+        digitalocean_database_connection_pool.contexts[context_name].password,
+        digitalocean_database_user.contexts[context_name].password,
+      )),
+      digitalocean_database_connection_pool.contexts[context_name].host,
+      digitalocean_database_connection_pool.contexts[context_name].port,
+      urlencode(digitalocean_database_connection_pool.contexts[context_name].name),
+    ) : format("$${db-%s.DATABASE_URL}", context_name)
   }
 
   context_database_env = {

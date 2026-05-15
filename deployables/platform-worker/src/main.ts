@@ -3,8 +3,19 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
   createNoopNotificationAdapter,
+  type NotificationChannelAdapter,
 } from "@chase-sets/notifications";
-import { createNoopTransactionalEmailGateway } from "@chase-sets/communications-email";
+import {
+  createNoopTransactionalEmailGateway,
+  type TransactionalEmailGateway,
+  type TransactionalEmailMessage,
+  type TransactionalEmailTemplateRenderer,
+} from "@chase-sets/communications-email";
+import {
+  createSesEmailNotificationAdapter,
+  createSesSendRequest,
+  createSesTransactionalEmailGateway,
+} from "@chase-sets/ses-email";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
@@ -45,6 +56,31 @@ import { workerContextRegistry } from "./generated/worker-context-registry";
 
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
+const platformEmailTemplateRenderer: TransactionalEmailTemplateRenderer = {
+  render(message) {
+    const bodyLines = renderPlatformEmailBodyLines(message);
+    const textBody = [message.subject, "", ...bodyLines].join("\n");
+    const htmlBody = [
+      "<!doctype html>",
+      '<html lang="en">',
+      "<body>",
+      `<h1>${escapeHtml(message.subject)}</h1>`,
+      ...bodyLines.map((line) =>
+        line.trim().length === 0
+          ? "<br>"
+          : `<p>${linkifyEscapedText(escapeHtml(line))}</p>`,
+      ),
+      "</body>",
+      "</html>",
+    ].join("");
+
+    return {
+      subject: message.subject,
+      htmlBody,
+      textBody,
+    };
+  },
+};
 const config = loadConfig();
 const pools = createPlatformWorkerPools(config);
 await bootstrapPlatformControlPlane(pools.control);
@@ -92,6 +128,12 @@ const commercialTermsResolver = pools["commercial-terms"]
 const balanceCreditResolver = pools.settlement
   ? createSettlementBalanceCreditResolver(pools.settlement)
   : undefined;
+const transactionalEmailGateway = createPlatformTransactionalEmailGateway(
+  config.notificationEmail,
+);
+const emailNotificationAdapter = createPlatformEmailNotificationAdapter(
+  config.notificationEmail,
+);
 
 const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   pools,
@@ -107,8 +149,16 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
 
 const runners = [
   ...collectWorkerRunners(runtime),
-  ...createNotificationDispatchRunners(runtime, config.workerId),
-  ...createTransactionalEmailDispatchRunners(runtime, config.workerId),
+  ...createNotificationDispatchRunners(
+    runtime,
+    config.workerId,
+    emailNotificationAdapter,
+  ),
+  ...createTransactionalEmailDispatchRunners(
+    runtime,
+    config.workerId,
+    transactionalEmailGateway,
+  ),
   ...createScheduledJobRunners(runtime.services, config),
 ];
 const runnerLoop = createWorkerRunnerLoop({
@@ -270,8 +320,8 @@ function createScheduledJobRunners(
 function createTransactionalEmailDispatchRunners(
   runtime: WorkerHostRuntime,
   workerId: string,
+  gateway: TransactionalEmailGateway,
 ): readonly WorkerRunner[] {
-  const gateway = createNoopTransactionalEmailGateway();
   const emailOutboxContextNames = new Set<string>(
     workerContextRegistry
       .filter((entry) =>
@@ -303,6 +353,7 @@ function createTransactionalEmailDispatchRunners(
 function createNotificationDispatchRunners(
   runtime: WorkerHostRuntime,
   workerId: string,
+  emailAdapter: NotificationChannelAdapter,
 ): readonly WorkerRunner[] {
   const notificationCenterContext = runtime.mountedContexts.find(
     (context) => context.contextName === "notifications",
@@ -324,7 +375,7 @@ function createNotificationDispatchRunners(
       const dispatcher = createNotificationOutboxDispatcher({
         outbox: createPostgresNotificationOutbox({ db: context.pool }),
         adapters: [
-          createNoopNotificationAdapter("email"),
+          emailAdapter,
           createPostgresWebNotificationAdapter({ db: webNotificationDb }),
         ],
         claimOwnerId: `${workerId}:${context.contextName}:notifications`,
@@ -358,6 +409,139 @@ function createScheduledJobRunner(
       return { processed, lastGlobalPosition: "0" as never };
     },
   };
+}
+
+function createPlatformTransactionalEmailGateway(
+  input: ReturnType<typeof loadConfig>["notificationEmail"],
+): TransactionalEmailGateway {
+  if (input.provider !== "amazon-ses") {
+    return createNoopTransactionalEmailGateway();
+  }
+
+  const ses = requireCompleteSesConfig(input.ses);
+
+  return createSesTransactionalEmailGateway({
+    fromEmail: ses.fromEmail,
+    configurationSetName: ses.configurationSetName,
+    sourceArn: ses.sourceArn,
+    templateRenderer: platformEmailTemplateRenderer,
+    sendRequest: createSesSendRequest({ region: ses.region }),
+    onAttempt: (event) => {
+      logger.info("Transactional email send attempted.", {
+        type: "transactional-email.send.attempt",
+        provider: "amazon-ses",
+        messageType: event.messageType,
+        attempt: event.attempt,
+        correlationId: event.correlationId,
+      });
+    },
+    onResult: (event) => {
+      const payload = {
+        type: "transactional-email.send.result",
+        provider: "amazon-ses",
+        messageType: event.messageType,
+        success: event.success,
+        ...(event.error ? { error: event.error } : {}),
+      };
+      if (event.success) {
+        logger.info("Transactional email send accepted.", payload);
+      } else {
+        logger.warn("Transactional email send failed.", payload);
+      }
+    },
+  });
+}
+
+function createPlatformEmailNotificationAdapter(
+  input: ReturnType<typeof loadConfig>["notificationEmail"],
+): NotificationChannelAdapter {
+  if (input.provider !== "amazon-ses") {
+    return createNoopNotificationAdapter("email");
+  }
+
+  const ses = requireCompleteSesConfig(input.ses);
+
+  return createSesEmailNotificationAdapter({
+    fromEmail: ses.fromEmail,
+    configurationSetName: ses.configurationSetName,
+    sourceArn: ses.sourceArn,
+    templateRenderer: platformEmailTemplateRenderer,
+    sendRequest: createSesSendRequest({ region: ses.region }),
+  });
+}
+
+function requireCompleteSesConfig(
+  ses: ReturnType<typeof loadConfig>["notificationEmail"]["ses"],
+) {
+  const { region, fromEmail, configurationSetName, sourceArn } = ses;
+  if (!region || !fromEmail || !configurationSetName || !sourceArn) {
+    throw new Error(
+      "Complete SES configuration is required when Amazon SES email is enabled.",
+    );
+  }
+
+  return { region, fromEmail, configurationSetName, sourceArn };
+}
+
+function renderPlatformEmailBodyLines(
+  message: TransactionalEmailMessage,
+): readonly string[] {
+  if (message.templateId === "auth_magic_link") {
+    return [
+      "Use this secure link to sign in to Chase Sets:",
+      String(message.templateData.magicLink ?? ""),
+      "",
+      "This link expires soon. If you did not request this email, you can ignore it.",
+      "",
+      "Chase Sets",
+    ];
+  }
+
+  if (message.templateId === "order_confirmed") {
+    return [
+      "Your Chase Sets order has been confirmed.",
+      `Order ID: ${String(message.templateData.orderId ?? "")}`,
+      `Order total: ${String(message.templateData.orderTotal ?? "")}`,
+      "",
+      "Chase Sets",
+    ];
+  }
+
+  if (message.templateId === "shipment_delivered") {
+    return [
+      "Your Chase Sets shipment has been delivered.",
+      `Order ID: ${String(message.templateData.orderId ?? "")}`,
+      `Tracking number: ${String(message.templateData.trackingNumber ?? "")}`,
+      "",
+      "Chase Sets",
+    ];
+  }
+
+  const dataLines = Object.entries(message.templateData).map(
+    ([key, value]) => `${key}: ${String(value ?? "")}`,
+  );
+  return [
+    "A Chase Sets account update is available.",
+    ...dataLines,
+    "",
+    "Chase Sets",
+  ];
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function linkifyEscapedText(value: string) {
+  return value.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" rel="noopener noreferrer">$1</a>',
+  );
 }
 
 const SYSTEM_CONTEXT = {

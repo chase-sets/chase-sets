@@ -19,6 +19,7 @@ import { hasPermission } from "./support/request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 export type { CurrentActorDisplay } from "./support/request-support/current-actor-display";
+export type { ShippingAddress } from "./features/shipping-addresses/api/contracts";
 export {
   bootstrapPlatformAdminIdentity,
   type PlatformAdminBootstrapConfig,
@@ -56,7 +57,7 @@ export type IdentityAuthMutationClient = Readonly<{
     givenName?: string;
     familyName?: string;
     consents?: readonly { policyKey: string; policyVersion: string }[];
-  }>) => Promise<Readonly<{ userId: string; accountId: string }>>;
+  }>) => Promise<Readonly<{ userId: string; accountId: string; membershipId: string }>>;
   enablePasswordCredential: (params: Readonly<{
     userId: string;
     credentialId: string;
@@ -64,6 +65,12 @@ export type IdentityAuthMutationClient = Readonly<{
   registerPasskeyCredential: (params: Readonly<{
     userId: string;
     credentialId: string;
+  }>) => Promise<void>;
+  linkSocialLogin: (params: Readonly<{
+    userId: string;
+    providerName: "google" | "facebook";
+    providerSubject: string;
+    email: string;
   }>) => Promise<void>;
   claimGuestAccount: (params: Readonly<{
     accountId: string;
@@ -112,6 +119,13 @@ export function createIdentityAuthRequestClient(
     },
     registerPasskeyCredential: async ({ userId, credentialId }) => {
       await postJson(`users/${userId}/passkey-credential`, { credentialId });
+    },
+    linkSocialLogin: async ({ userId, providerName, providerSubject, email }) => {
+      await postJson(`users/${userId}/social-login-link`, {
+        providerName,
+        providerSubject,
+        email,
+      });
     },
     claimGuestAccount: ({ accountId, userId, roleKey }) =>
       postJson(`guest-accounts/${accountId}/claim`, {

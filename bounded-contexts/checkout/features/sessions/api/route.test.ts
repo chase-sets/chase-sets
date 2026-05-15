@@ -273,6 +273,51 @@ describe("checkout session routes", () => {
     expect(services.createOfferIntent).not.toHaveBeenCalled();
   });
 
+  it("allows signed-in buyers without order-management permissions to start buy-now sessions", async () => {
+    const services = createServices();
+    const app = buildApp(services, {
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_1",
+      accountId: "acc_buyer",
+      membershipId: "mbr_1",
+      roleKey: "viewer",
+      permissions: [],
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "buy-now",
+            listingId: "",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            quantity: 1,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createBuyNow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        productId: "cat_1::form:raw",
+      }),
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_buyer",
+          performedByUserId: "usr_1",
+        }),
+      }),
+    );
+  });
+
   it("records shipping selection on the checkout session", async () => {
     const services = createServices();
     const app = buildApp(services);

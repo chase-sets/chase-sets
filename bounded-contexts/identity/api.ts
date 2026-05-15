@@ -21,6 +21,7 @@ import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
+import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
 import { createIdentityBootstrapContext } from "./support/runtime-support/bootstrap-context";
 import { buildCurrentActorDisplay } from "./support/request-support/current-actor-display";
 
@@ -136,7 +137,7 @@ async function createPersonalIdentityForAuth(
   }
 
   await drainProjectors(services);
-  return { userId, accountId };
+  return { userId, accountId, membershipId };
 }
 
 async function createGuestAccountForAuth(
@@ -263,6 +264,72 @@ async function registerPasskeyCredentialForAuth(
     },
     context: params.context,
   });
+  await drainProjectors(services);
+}
+
+class SocialLoginLinkConflictError extends Error {
+  constructor() {
+    super("Social login is already linked to another user.");
+  }
+}
+
+async function linkSocialLoginForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    providerName: "google" | "facebook";
+    providerSubject: string;
+    email: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const existingLink = await services.users.getUserBySocialLogin({
+    providerName: params.providerName,
+    providerSubject: params.providerSubject,
+  });
+
+  if (existingLink && existingLink.user_id !== params.userId) {
+    throw new SocialLoginLinkConflictError();
+  }
+
+  const user = await services.users.getUser(params.userId);
+  if (!user) {
+    throw new Error("User not found.");
+  }
+
+  if (!user.auth_methods.includes("social-login")) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${params.userId}`,
+      command: { type: "EnableAuthMethod", authMethod: "social-login" },
+      context: params.context,
+    });
+  }
+
+  const alreadyLinked = user.social_login_links.some((link) => {
+    if (!link || typeof link !== "object") {
+      return false;
+    }
+    const record = link as { providerName?: unknown; providerSubject?: unknown };
+    return (
+      record.providerName === params.providerName &&
+      record.providerSubject === params.providerSubject
+    );
+  });
+
+  if (!alreadyLinked) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${params.userId}`,
+      command: {
+        type: "LinkSocialLogin",
+        providerName: params.providerName,
+        providerSubject: params.providerSubject,
+        email: params.email,
+        linkedAt: new Date().toISOString(),
+      },
+      context: params.context,
+    });
+  }
+
   await drainProjectors(services);
 }
 
@@ -406,6 +473,41 @@ export function buildIdentityApi(services: IdentityServices) {
     return c.json({ ok: true });
   });
 
+  app.post("/internal/auth/users/:id/social-login-link", async (c) => {
+    const body = await c.req.json();
+    const providerName = String(body.providerName ?? "");
+    if (providerName !== "google" && providerName !== "facebook") {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: "Social login provider is unsupported.",
+        },
+      }, 400);
+    }
+
+    try {
+      await linkSocialLoginForAuth(services, {
+        userId: c.req.param("id"),
+        providerName,
+        providerSubject: String(body.providerSubject ?? ""),
+        email: String(body.email ?? ""),
+        context: getBootstrapContext(c),
+      });
+    } catch (error) {
+      if (error instanceof SocialLoginLinkConflictError) {
+        return c.json({
+          error: {
+            code: "social_login_already_linked",
+            message: "Social login is already linked to another user.",
+          },
+        }, 409);
+      }
+
+      throw error;
+    }
+    return c.json({ ok: true });
+  });
+
   app.post("/internal/auth/invitations/:id/accept", async (c) => {
     const body = await c.req.json();
     const membershipId = await acceptInvitationForUserFromAuth(services, {
@@ -457,6 +559,10 @@ export function buildIdentityApi(services: IdentityServices) {
   app.use("/api-keys/*", requirePermission("security.manage"));
 
   app.route("/accounts", accountRoutes(services.accounts));
+  app.route(
+    "/accounts/:accountId/shipping-addresses",
+    shippingAddressRoutes(services.shippingAddresses),
+  );
   app.route("/users", userRoutes(services.users));
   app.route("/memberships", membershipRoutes(services.memberships));
   app.route("/invitations", invitationRoutes(services.invitations));

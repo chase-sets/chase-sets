@@ -7,7 +7,6 @@ function requireCartAccess(
   c: {
     get(key: "actor"): CheckoutApiEnv["Variables"]["actor"];
   },
-  permission: "orders.view" | "orders.manage",
   options: Readonly<{ allowGuestCheckout?: boolean }> = {},
 ) {
   const actor = c.get("actor");
@@ -21,14 +20,10 @@ function requireCartAccess(
     };
   }
 
-  if (!actor.permissions.includes(permission)) {
-    if (
-      options.allowGuestCheckout &&
-      actor.permissions.includes("guest-checkout.manage")
-    ) {
-      return { actor, response: null };
-    }
-
+  if (
+    actor.permissions.includes("guest-checkout.manage") &&
+    !options.allowGuestCheckout
+  ) {
     return {
       actor: null,
       response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("checkout.features.cart.api.route.forbidden") } }), {
@@ -101,7 +96,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.get("/cart", async (c) => {
-    const access = requireCartAccess(c, "orders.view");
+    const access = requireCartAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -114,7 +109,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
   });
 
   app.post("/cart", async (c) => {
-    const access = requireCartAccess(c, "orders.manage");
+    const access = requireCartAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -160,7 +155,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
   });
 
   app.post("/cart/:lineId/quantity", async (c) => {
-    const access = requireCartAccess(c, "orders.manage");
+    const access = requireCartAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -189,7 +184,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
   });
 
   app.post("/cart/:lineId/fulfillment", async (c) => {
-    const access = requireCartAccess(c, "orders.manage");
+    const access = requireCartAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -225,7 +220,7 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
   });
 
   app.post("/cart/:lineId/remove", async (c) => {
-    const access = requireCartAccess(c, "orders.manage");
+    const access = requireCartAccess(c);
     if (access.response) {
       return access.response;
     }
@@ -399,9 +394,7 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
   });
 
   app.post("/cart/merge-to-account", async (c) => {
-    const access = requireCartAccess(c, "orders.manage", {
-      allowGuestCheckout: true,
-    });
+    const access = requireCartAccess(c, { allowGuestCheckout: true });
     if (access.response) {
       return access.response;
     }

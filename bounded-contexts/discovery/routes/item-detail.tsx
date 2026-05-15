@@ -31,6 +31,7 @@ import {
   requireActorFromAuthApi,
   resolveActorFromAuthApi,
 } from "@chase-sets/platform-runtime/auth";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import {
@@ -130,7 +131,7 @@ function notifyCartCountChanged(quantity: number) {
 function canUseAccountCheckoutCart(
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
 ) {
-  return Boolean(actor?.permissions.includes("orders.manage"));
+  return Boolean(actor);
 }
 
 function formatAllowancePercentage(bps: number) {
@@ -1559,7 +1560,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         source,
       });
 
-      return redirect(`/checkout/${session.session_id}`);
+      return redirect(
+        appendFreshWriteToken(`/checkout/${session.session_id}`, session),
+      );
     }
 
     if (intent === "sell-now") {

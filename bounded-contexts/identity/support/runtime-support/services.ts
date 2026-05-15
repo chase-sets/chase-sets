@@ -10,6 +10,7 @@ import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
 import { createConsentRuntime } from "../../features/consents/api/runtime";
 import { createInvitationRuntime } from "../../features/invitations/api/runtime";
 import { createMembershipRuntime } from "../../features/memberships/api/runtime";
+import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
 import { createUserRuntime } from "../../features/users/api/runtime";
 
 export type IdentityServices = Readonly<{
@@ -19,6 +20,7 @@ export type IdentityServices = Readonly<{
   invitations: ReturnType<typeof createInvitationRuntime>;
   apiKeys: ReturnType<typeof createApiKeyRuntime>;
   consents: ReturnType<typeof createConsentRuntime>;
+  shippingAddresses: ReturnType<typeof createShippingAddressRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -38,6 +40,7 @@ export function createIdentityServices(pool: PgTransactionalPool): IdentityServi
   const invitations = createInvitationRuntime(deps);
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
+  const shippingAddresses = createShippingAddressRuntime(deps);
 
   return {
     accounts,
@@ -46,6 +49,7 @@ export function createIdentityServices(pool: PgTransactionalPool): IdentityServi
     invitations,
     apiKeys,
     consents,
+    shippingAddresses,
     projectors: [
       ...accounts.projectors,
       ...users.projectors,
@@ -53,6 +57,7 @@ export function createIdentityServices(pool: PgTransactionalPool): IdentityServi
       ...invitations.projectors,
       ...apiKeys.projectors,
       ...consents.projectors,
+      ...shippingAddresses.projectors,
     ],
     pool,
     db,

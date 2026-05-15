@@ -29,8 +29,15 @@ Application code should not introduce:
 - Layout should be built from primitives such as `Page`, `Grid`, `Stack`, `SplitPane`, `Surface`, and shell components.
 - Form screens should use `Field`, `FormSection`, and field controls rather than direct inputs.
 - Overlays should use `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, and `AlertDialog`.
+- Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionBar`, and `MetricStrip`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
+
+## Progressive Disclosure
+
+Progressive disclosure is the package-wide default for advanced use cases. Keep required decision facts and the current primary action visible, then disclose supporting controls or deeper explanation through the exported disclosure primitives.
+
+Use [Progressive Disclosure](./PROGRESSIVE_DISCLOSURE.md) for the full component contract, accessibility rules, and first-flow recommendations.
 
 ## Responsive Defaults
 

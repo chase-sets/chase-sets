@@ -17,7 +17,16 @@ import {
   ToolbarSeparator,
 } from "../components/actions";
 import { Card, DataTable, ImageGallery } from "../components/data-display";
-import { Accordion, Dialog, Menu, Rating, ToastRegion, Tooltip } from "../components/feedback";
+import {
+  Accordion,
+  Dialog,
+  Menu,
+  ProgressiveDisclosure,
+  ProgressiveDisclosureGroup,
+  Rating,
+  ToastRegion,
+  Tooltip
+} from "../components/feedback";
 import {
   Checkbox,
   Combobox,
@@ -715,6 +724,76 @@ describe("design system", () => {
 
     expect(screen.getByText("Section 1")).toBeTruthy();
     expect(screen.getByText("Section 2")).toBeTruthy();
+  });
+
+  it("renders progressive disclosure with a visible summary and controlled state", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <ProgressiveDisclosure
+          title="Advanced seller controls"
+          description="Low-frequency listing constraints stay out of the primary form."
+          summary="Limits are not set"
+          open={false}
+          onOpenChange={onOpenChange}
+          tone="info"
+          icon="settings"
+        >
+          <button type="button">Set account limits</button>
+        </ProgressiveDisclosure>
+      </ChaseRoot>
+    );
+
+    const trigger = screen.getByRole("button", { name: /Advanced seller controls/ });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Limits are not set")).toBeTruthy();
+
+    await user.click(trigger);
+
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  it("renders progressive disclosure groups for advanced flow sections", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <ProgressiveDisclosureGroup
+          title="Advanced options"
+          description="Use this for optional workflow depth."
+          value={["policy"]}
+          onValueChange={onValueChange}
+          items={[
+            {
+              value: "policy",
+              title: "Policy details",
+              summary: "Return window visible",
+              content: <div>Buyer protection and return paths.</div>,
+              icon: "shield",
+              tone: "accent"
+            },
+            {
+              value: "automation",
+              title: "Automation settings",
+              summary: "Manual review",
+              content: <div>Routing and notification controls.</div>,
+              icon: "spark",
+              tone: "warning"
+            }
+          ]}
+        />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("Advanced options")).toBeTruthy();
+    expect(screen.getByText("Return window visible")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Automation settings/ }));
+
+    expect(onValueChange).toHaveBeenCalledWith(["policy", "automation"]);
   });
 
   it("renders ImageGallery with thumbnails", () => {

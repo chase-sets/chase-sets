@@ -1,5 +1,5 @@
-import type { MetaFunction } from "react-router";
-import { useActionData } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { Container } from "@chase-sets/design-system";
 import { marketplaceAuthHostConfig } from "../../support/route-support/host-config";
@@ -11,15 +11,28 @@ export const meta: MetaFunction = () =>
 
 export const action = marketplaceAuthHost.createSignInAction();
 
+export function loader({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  return {
+    returnTo: marketplaceAuthHost.getReturnTo(request),
+    socialLoginError: url.searchParams.get("socialLoginError"),
+  };
+}
+
 export default function MarketplaceSignInRoute() {
   const actionData = useActionData<typeof action>();
+  const data = useLoaderData<typeof loader>();
   return (
     <Container width="narrow" paddingX={0}>
       <SignInPage
-        errorMessage={actionData && "error" in actionData ? actionData.error : null}
+        errorMessage={
+          actionData && "error" in actionData
+            ? actionData.error
+            : data.socialLoginError
+        }
         notice={actionData && "status" in actionData ? actionData : null}
+        returnTo={data.returnTo}
       />
     </Container>
   );
 }
-

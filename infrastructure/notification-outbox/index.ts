@@ -2,6 +2,7 @@ import type { ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  createNotificationChannelAdapterRegistry,
   createNotificationDeliveryId,
   type ClaimNotificationDeliveriesInput,
   type ClaimedNotificationDelivery,
@@ -23,7 +24,7 @@ export const notificationOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${DEFAULT
   outbox_id bigserial PRIMARY KEY,
   delivery_id text NOT NULL UNIQUE,
   idempotency_key text NOT NULL,
-  channel text NOT NULL CHECK (channel IN ('email', 'web')),
+  channel text NOT NULL,
   message_type text NOT NULL,
   criticality text NOT NULL,
   correlation_id text NOT NULL,
@@ -287,8 +288,8 @@ export function createNotificationOutboxDispatcher(options: Readonly<{
   const claimTtlMs = Math.max(1, options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS);
   const retryDelayMs =
     options.retryDelayMs ?? ((attemptCount) => Math.min(15 * 60_000, attemptCount * 30_000));
-  const adapters = new Map(
-    options.adapters.map((adapter) => [adapter.channel, adapter]),
+  const adapterRegistry = createNotificationChannelAdapterRegistry(
+    options.adapters,
   );
 
   return {
@@ -302,7 +303,9 @@ export function createNotificationOutboxDispatcher(options: Readonly<{
 
       for (const delivery of deliveries) {
         try {
-          const adapter = adapters.get(delivery.channel.channel);
+          const adapter = adapterRegistry.adapterForChannel(
+            delivery.channel.channel,
+          );
           if (!adapter) {
             throw new Error(
               `No notification adapter configured for '${delivery.channel.channel}'.`,

@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS identity_account_selection_tokens (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS identity_social_login_states (
+  state_hash text PRIMARY KEY,
+  provider_name text NOT NULL,
+  journey text NOT NULL,
+  return_to text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS identity_guest_checkout_tokens (
   token_id text PRIMARY KEY,
   account_id text NOT NULL,

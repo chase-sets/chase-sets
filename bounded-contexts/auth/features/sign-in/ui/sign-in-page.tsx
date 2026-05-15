@@ -3,6 +3,8 @@ import {
   Banner,
   Button,
   Card,
+  Inline,
+  LinkButton,
   PasswordInput,
   SegmentedControl,
   Stack,
@@ -28,6 +30,7 @@ export function SignInPage(props: Readonly<{
   errorMessage?: string | null;
   hiddenFields?: readonly { name: string; value: string }[];
   notice?: AuthActionNotice | null;
+  returnTo?: string;
 }>) {
   const [method, setMethod] = useState<SignInMethod>("password");
   const [passkeyPayload, setPasskeyPayload] =
@@ -93,6 +96,27 @@ export function SignInPage(props: Readonly<{
           }
         />
       ) : null}
+
+      <Card>
+        <Stack gap={3}>
+          <Text size="sm" tone="secondary">
+            {t("auth.features.signIn.ui.signInPage.continue.with.social.login")}</Text>
+          <Inline>
+            <LinkButton
+              href={`/api/auth/social/google/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              leadingIcon="badgeCheck"
+              block
+            >
+              {t("auth.features.signIn.ui.signInPage.continue.with.google")}</LinkButton>
+            <LinkButton
+              href={`/api/auth/social/facebook/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+              leadingIcon="users"
+              block
+            >
+              {t("auth.features.signIn.ui.signInPage.continue.with.facebook")}</LinkButton>
+          </Inline>
+        </Stack>
+      </Card>
 
       <SegmentedControl
         fullWidth

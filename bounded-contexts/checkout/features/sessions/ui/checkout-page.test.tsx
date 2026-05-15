@@ -11,6 +11,7 @@ const session: CheckoutSessionRow = {
   optimization_goal: "lowest-total",
   fulfillment_preview_revision: "rev_1",
   shipping_option: "standard",
+  shipping_address_id: null,
   shipping_address: null,
   lines: [
     {
@@ -181,5 +182,38 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("Payment method");
     expect(markup).not.toContain("Live fulfillment preview");
     expect(markup).not.toContain("Destination is required before purchases are created");
+  });
+
+  it("renders saved shipping address selection with explicit address-book actions", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={session}
+        fulfillmentPreview={fulfillmentPreview}
+        canManageShippingAddresses
+        savedShippingAddresses={[
+          {
+            shipping_address_id: "adr_home",
+            label: "Home",
+            recipient_name: "Jane Smith",
+            company: null,
+            line1: "100 Market Street",
+            line2: null,
+            city: "Chicago",
+            state: "IL",
+            postal_code: "60601",
+            country: "US",
+            phone: null,
+            email: null,
+            is_default: true,
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Saved shipping address");
+    expect(markup).toContain("Home (default)");
+    expect(markup).toContain("Address book action");
+    expect(markup).toContain("Use for this checkout only");
+    expect(markup).toContain("Save as new address");
   });
 });

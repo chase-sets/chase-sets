@@ -1,6 +1,9 @@
 export { Button, IconButton, LinkButton, ButtonGroup } from "./button";
 export type { ButtonProps, IconButtonProps, LinkButtonProps, ButtonGroupProps } from "./button";
 
+export { AccountMenu } from "./account-menu";
+export type { AccountMenuItem, AccountMenuProps } from "./account-menu";
+
 export { Tabs } from "./tabs";
 export type { TabItem, TabsProps } from "./tabs";
 

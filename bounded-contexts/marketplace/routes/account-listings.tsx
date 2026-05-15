@@ -8,7 +8,10 @@ import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "reac
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import type { ListResponse } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  type ListResponse,
+} from "@chase-sets/http/responses";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -165,9 +168,12 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       return redirect(
-        intent === "create-and-publish-listing"
-          ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
-          : `/account/listings/${result.id}`,
+        appendFreshWriteToken(
+          intent === "create-and-publish-listing"
+            ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
+            : `/account/listings/${result.id}`,
+          result,
+        ),
       );
     }
 

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { action as listingAction } from "@chase-sets/marketplace/routes/account-listing";
+import {
+  action as listingAction,
+  loader as listingLoader,
+} from "@chase-sets/marketplace/routes/account-listing";
 import type {
   MarketplaceListingTermsPreview,
 } from "@chase-sets/marketplace/server";
@@ -34,6 +37,50 @@ const currentQuote: MarketplaceListingTermsPreview = {
 };
 
 describe("marketplace listing detail route", () => {
+  it("retries a fresh create redirect before treating the listing as missing", async () => {
+    let listingReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        if (url.includes("/fee-history")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        listingReads += 1;
+        if (listingReads === 1) {
+          return Promise.resolve(
+            jsonResponse({ error: { code: "not_found", message: "Missing." } }, 404),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            listing_id: "lst_1",
+            inventory_item_id: "inv_1",
+            status: "draft",
+          }),
+        );
+      }),
+    );
+
+    const result = await listingLoader({
+      request: new Request(
+        `http://localhost/account/listings/lst_1?afterWrite=42.${Date.now()}`,
+      ),
+      params: { listingId: "lst_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.listing).toMatchObject({ listing_id: "lst_1" });
+    expect(listingReads).toBe(2);
+  });
+
   it("returns the current quote when a confirmed price update is stale", async () => {
     vi.stubGlobal(
       "fetch",

@@ -48,3 +48,11 @@ export type { RatingSize, RatingProps } from "./rating";
 
 export { Accordion } from "./accordion";
 export type { AccordionItem, AccordionProps } from "./accordion";
+
+export { ProgressiveDisclosure, ProgressiveDisclosureGroup } from "./disclosure";
+export type {
+  ProgressiveDisclosureGroupProps,
+  ProgressiveDisclosureItem,
+  ProgressiveDisclosureProps,
+  ProgressiveDisclosureTone
+} from "./disclosure";

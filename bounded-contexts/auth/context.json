@@ -21,6 +21,7 @@
     "route-support",
     "runtime-support",
     "seed-support",
+    "social-login-support",
     "ui-support"
   ],
   "publicExports": [
@@ -54,6 +55,7 @@
         "identity.user.auth-method-enabled",
         "identity.user.password-credential-attached",
         "identity.user.passkey-registered",
+        "identity.user.social-login-linked",
         "identity.user.suspended",
         "identity.user.reactivated"
       ],
@@ -413,6 +415,19 @@
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "social-login-support": {
+      "classification": "support",
+      "purpose": "Provide provider-neutral social-login adapter contracts and provider implementations for Auth-owned sign-in and registration journeys.",
+      "allowedWhen": "Allowed because Google and Facebook provider behavior is shared by sign-in, registration, and API callback composition.",
+      "expectedConsumers": [
+        "sign-in",
+        "registration",
+        "Deployable composition for auth"
+      ],
+      "justification": "social-login-support keeps provider adapter details out of feature UI and session aggregates while still staying inside the Auth boundary.",
+      "createdFor": "sign-in and registration Social Login journeys.",
+      "sunsetWhen": "Remove when social login support is extracted to a dedicated provider contract or no longer spans multiple Auth slices."
     },
     "ui-support": {
       "classification": "support",

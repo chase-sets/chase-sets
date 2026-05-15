@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   activeDeployments,
+  assertNoDestructiveChanges,
   appNotFound,
   appPlatformChanges,
+  destructiveResourceChanges,
   deployApp,
+  pendingDomains,
   planAppChanged,
+  waitForDomains,
   waitForDeployments,
 } from "./digitalocean-app-deployment.mjs";
 
@@ -18,6 +22,15 @@ function appChange(actions) {
   return {
     type: "digitalocean_app",
     name: "platform",
+    change: { actions },
+  };
+}
+
+function resourceChange(address, actions) {
+  return {
+    address,
+    type: address.split(".")[0],
+    name: address.split(".").at(-1),
     change: { actions },
   };
 }
@@ -42,6 +55,47 @@ describe("digitalocean-app-deployment", () => {
         ]),
       ),
     ).toBe(false);
+  });
+
+  it("summarizes destructive Terraform changes", () => {
+    expect(
+      destructiveResourceChanges(
+        planFor([
+          resourceChange("digitalocean_app.platform", ["update"]),
+          resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
+          resourceChange("digitalocean_database_db.contexts[\"auth\"]", ["delete"]),
+        ]),
+      ),
+    ).toEqual([
+      {
+        address: "digitalocean_database_cluster.postgres",
+        type: "digitalocean_database_cluster",
+        name: "postgres",
+        actions: ["delete", "create"],
+      },
+      {
+        address: "digitalocean_database_db.contexts[\"auth\"]",
+        type: "digitalocean_database_db",
+        name: "contexts[\"auth\"]",
+        actions: ["delete"],
+      },
+    ]);
+  });
+
+  it("blocks destructive Terraform changes unless an override marker is present", () => {
+    const plan = planFor([resourceChange("digitalocean_app.platform", ["delete", "create"])]);
+
+    expect(() => assertNoDestructiveChanges(plan)).toThrow(
+      "Production Terraform plan contains destructive changes",
+    );
+    expect(assertNoDestructiveChanges(plan, { allowDestructiveChanges: true })).toEqual([
+      {
+        address: "digitalocean_app.platform",
+        type: "digitalocean_app",
+        name: "platform",
+        actions: ["delete", "create"],
+      },
+    ]);
   });
 
   it("reads Terraform JSON plan output for app-change detection", async () => {
@@ -73,6 +127,23 @@ describe("digitalocean-app-deployment", () => {
     ]);
   });
 
+  it("reports App Platform domains that are not active yet", () => {
+    expect(
+      pendingDomains(
+        {
+          domains: [
+            { spec: { domain: "landing.test" }, phase: "ACTIVE" },
+            { spec: { domain: "admin.test" }, phase: "CONFIGURING" },
+          ],
+        },
+        ["landing.test", "admin.test", "marketplace.test"],
+      ),
+    ).toEqual([
+      { name: "admin.test", phase: "CONFIGURING" },
+      { name: "marketplace.test", phase: "MISSING" },
+    ]);
+  });
+
   it("waits until active DigitalOcean deployments finish", async () => {
     const responses = [
       [{ id: "first", phase: "BUILDING" }],
@@ -94,6 +165,60 @@ describe("digitalocean-app-deployment", () => {
     });
 
     expect(sleeps).toBe(1);
+  });
+
+  it("waits until App Platform domains are active", async () => {
+    const responses = [
+      [
+        {
+          domains: [
+            { spec: { domain: "landing.test" }, phase: "CONFIGURING" },
+            { spec: { domain: "admin.test" }, phase: "ACTIVE" },
+          ],
+        },
+      ],
+      [
+        {
+          domains: [
+            { spec: { domain: "landing.test" }, phase: "ACTIVE" },
+            { spec: { domain: "admin.test" }, phase: "ACTIVE" },
+          ],
+        },
+      ],
+    ];
+    let sleeps = 0;
+
+    await waitForDomains("app-id", ["landing.test", "admin.test"], {
+      commandJson: async (command, args) => {
+        expect(command).toBe("doctl");
+        expect(args).toEqual(["apps", "get", "app-id", "--output", "json"]);
+        return responses.shift();
+      },
+      now: () => 0,
+      sleep: async (duration) => {
+        sleeps += 1;
+        expect(duration).toBe(30_000);
+      },
+    });
+
+    expect(sleeps).toBe(1);
+  });
+
+  it("times out with domain names and phases", async () => {
+    const timestamps = [0, 2_000];
+
+    await expect(
+      waitForDomains("app-id", ["landing.test"], {
+        commandJson: async () => [
+          {
+            domains: [{ spec: { domain: "landing.test" }, phase: "CONFIGURING" }],
+          },
+        ],
+        now: () => timestamps.shift() ?? 2_000,
+        timeoutSeconds: 1,
+        sleep: async () => {},
+      }),
+    ).rejects.toThrow("landing.test: CONFIGURING");
   });
 
   it("treats a deleted App Platform app as no active deployment to wait for", async () => {

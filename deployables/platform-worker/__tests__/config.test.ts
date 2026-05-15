@@ -15,6 +15,11 @@ const envNames = [
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
+  "NOTIFICATION_EMAIL_PROVIDER",
+  "SES_AWS_REGION",
+  "SES_FROM_EMAIL",
+  "SES_CONFIGURATION_SET_NAME",
+  "SES_SOURCE_ARN",
 ];
 
 afterEach(() => {
@@ -99,6 +104,40 @@ describe("platform worker config", () => {
       apiKey: "EZTK_test",
       apiBaseUrl: undefined,
       mode: "test",
+    });
+  });
+
+  it("fails when Amazon SES email is selected without complete SES config", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NOTIFICATION_EMAIL_PROVIDER = "amazon-ses";
+    process.env.SES_AWS_REGION = "us-east-2";
+    process.env.SES_FROM_EMAIL = "notifications@preview.chasesets.com";
+
+    expect(() => loadConfig()).toThrow(
+      "SES_AWS_REGION, SES_FROM_EMAIL, SES_CONFIGURATION_SET_NAME, and SES_SOURCE_ARN are required when NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
+    );
+  });
+
+  it("loads Amazon SES email provider config when complete", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NOTIFICATION_EMAIL_PROVIDER = "amazon-ses";
+    process.env.SES_AWS_REGION = "us-east-2";
+    process.env.SES_FROM_EMAIL = "notifications@preview.chasesets.com";
+    process.env.SES_CONFIGURATION_SET_NAME = "transactional-preview";
+    process.env.SES_SOURCE_ARN =
+      "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com";
+
+    const config = loadConfig();
+
+    expect(config.notificationEmail).toEqual({
+      provider: "amazon-ses",
+      ses: {
+        region: "us-east-2",
+        fromEmail: "notifications@preview.chasesets.com",
+        configurationSetName: "transactional-preview",
+        sourceArn:
+          "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com",
+      },
     });
   });
 });

@@ -156,6 +156,55 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     });
   }
 
+  await services.shippingAddresses.commandHandler({
+    streamId: `identity.shipping-address-book-${demo.accountId}`,
+    command: {
+      type: "AddShippingAddress",
+      accountId: demo.accountId,
+      shippingAddressId: demo.shippingAddressId,
+      label: "Office receiving",
+      address: {
+        name: "Demo Receiving",
+        company: "Chase Sets",
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        phone: "312 555 0101",
+        email: "receiving@chasesets.test",
+      },
+      makeDefault: true,
+      addedAt: isoDate("2026-03-01T10:00:00.000Z"),
+    },
+    context,
+  });
+  await services.shippingAddresses.commandHandler({
+    streamId: `identity.shipping-address-book-${collector.accountId}`,
+    command: {
+      type: "AddShippingAddress",
+      accountId: collector.accountId,
+      shippingAddressId: collector.shippingAddressId,
+      label: "Home",
+      address: {
+        name: "Demo Collector",
+        company: null,
+        line1: "42 Binder Lane",
+        line2: null,
+        city: "Evanston",
+        state: "IL",
+        postalCode: "60201",
+        country: "US",
+        phone: null,
+        email: "collector@chasesets.test",
+      },
+      makeDefault: true,
+      addedAt: isoDate("2026-03-01T10:05:00.000Z"),
+    },
+    context,
+  });
+
   await services.users.commandHandler({
     streamId: `identity.user-${demo.userId}`,
     command: {

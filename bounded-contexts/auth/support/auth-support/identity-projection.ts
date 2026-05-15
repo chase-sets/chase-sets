@@ -24,8 +24,12 @@ CREATE TABLE IF NOT EXISTS auth_identity_users (
   auth_methods jsonb NOT NULL DEFAULT '[]'::jsonb,
   password_credential_id text NULL,
   passkey_credential_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  social_login_links jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE auth_identity_users
+  ADD COLUMN IF NOT EXISTS social_login_links jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS auth_identity_user_emails (
   email text PRIMARY KEY,
@@ -33,6 +37,16 @@ CREATE TABLE IF NOT EXISTS auth_identity_user_emails (
   contact_method_id text NOT NULL,
   is_verified boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS auth_identity_user_social_login_links (
+  provider_name text NOT NULL,
+  provider_subject text NOT NULL,
+  user_id text NOT NULL,
+  email text NOT NULL,
+  linked_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_name, provider_subject)
 );
 
 CREATE TABLE IF NOT EXISTS auth_identity_memberships (
@@ -77,6 +91,7 @@ export type AuthIdentityUserRow = Readonly<{
   auth_methods: readonly string[];
   password_credential_id: string | null;
   passkey_credential_ids: readonly string[];
+  social_login_links: readonly unknown[];
   updated_at: string;
 }>;
 
@@ -114,6 +129,13 @@ type ContactMethodRow = Readonly<{
   type: string;
   value: string;
   verifiedAt: string | null;
+}>;
+
+type SocialLoginLinkRow = Readonly<{
+  providerName: string;
+  providerSubject: string;
+  email: string;
+  linkedAt: string;
 }>;
 
 function extractIdFromStreamId(streamId: string, prefix: string): string {
@@ -245,9 +267,10 @@ export function buildAuthIdentityUserProjectionHandlers(
            auth_methods,
            password_credential_id,
            passkey_credential_ids,
+           social_login_links,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, 'active', $6::jsonb, '[]'::jsonb, NULL, '[]'::jsonb, $7)
+         VALUES ($1, $2, $3, $4, $5, 'active', $6::jsonb, '[]'::jsonb, NULL, '[]'::jsonb, '[]'::jsonb, $7)
          ON CONFLICT (user_id) DO UPDATE
          SET display_name = $2,
              given_name = $3,
@@ -389,6 +412,65 @@ export function buildAuthIdentityUserProjectionHandlers(
              updated_at = $3
          WHERE user_id = $1`,
         [userId, JSON.stringify(passkeys), event.timing.recordedAt],
+      );
+    },
+    "identity.user.social-login-linked": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, "identity.user-");
+      const link = event.data as {
+        providerName: string;
+        providerSubject: string;
+        email: string;
+        linkedAt: string;
+      };
+      const current = await db.query<{ social_login_links: unknown[] }>(
+        `SELECT social_login_links FROM auth_identity_users WHERE user_id = $1`,
+        [userId],
+      );
+      const currentLinks =
+        (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
+      const links = [
+        ...currentLinks.filter((currentLink) =>
+          currentLink.providerName !== link.providerName ||
+          currentLink.providerSubject !== link.providerSubject
+        ),
+        link,
+      ].sort((left, right) =>
+        `${left.providerName}:${left.providerSubject}`
+          .localeCompare(
+            `${right.providerName}:${right.providerSubject}`,
+          ),
+      );
+
+      await db.query(
+        `UPDATE auth_identity_users
+         SET social_login_links = $2::jsonb,
+             updated_at = $3
+         WHERE user_id = $1`,
+        [userId, JSON.stringify(links), event.timing.recordedAt],
+      );
+      await db.query(
+        `INSERT INTO auth_identity_user_social_login_links (
+           provider_name,
+           provider_subject,
+           user_id,
+           email,
+           linked_at,
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (provider_name, provider_subject) DO UPDATE
+         SET user_id = $3,
+             email = $4,
+             linked_at = $5,
+             updated_at = $6`,
+        [
+          link.providerName,
+          link.providerSubject,
+          userId,
+          normalizeAuthEmail(link.email),
+          link.linkedAt,
+          event.timing.recordedAt,
+        ],
       );
     },
     "identity.user.suspended": async (event) => {
@@ -671,6 +753,21 @@ export async function getAuthIdentityUserByEmail(
      INNER JOIN auth_identity_users AS users ON users.user_id = emails.user_id
      WHERE emails.email = $1`,
     [normalizeAuthEmail(email)],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function getAuthIdentityUserBySocialLogin(
+  db: PgQueryable,
+  params: Readonly<{ providerName: string; providerSubject: string }>,
+) {
+  const result = await db.query<AuthIdentityUserRow>(
+    `SELECT users.*
+     FROM auth_identity_user_social_login_links AS links
+     INNER JOIN auth_identity_users AS users ON users.user_id = links.user_id
+     WHERE links.provider_name = $1
+       AND links.provider_subject = $2`,
+    [params.providerName, params.providerSubject],
   );
   return result.rows[0] ?? null;
 }

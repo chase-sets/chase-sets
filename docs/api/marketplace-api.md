@@ -34,6 +34,14 @@ Command endpoints return:
 { "id": "resource_id", "version": 1, "status": "accepted" }
 ```
 
+Write responses may also include consistency headers:
+
+- `Chase-Sets-Consistency: eventual`
+- `Chase-Sets-Commit-Position: <global event position>`
+- `Chase-Sets-Commit-Event-Ids: <comma-separated event ids>` when the compact value fits in response headers
+
+Browser routes that redirect to a read-model-backed detail page after creating a resource carry the commit position as a short-lived `afterWrite` query token. Detail loaders use that token to retry bounded `404` reads before treating the resource as missing. Clients must not treat every `404` as retryable; only a fresh write token means the resource may still be waiting for projections.
+
 Errors use one envelope:
 
 ```json

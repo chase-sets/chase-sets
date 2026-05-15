@@ -1,14 +1,15 @@
-name: Platform Production
+name: Platform Deploy
 
 on:
+  workflow_run:
+    workflows:
+      - Platform PR
+    types:
+      - completed
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: Release tag to promote to production.
-        required: true
-        type: string
       release_ref:
-        description: Ref to tag if release_tag does not already exist.
+        description: Ref to deploy. Defaults to main.
         required: false
         default: main
         type: string
@@ -18,31 +19,98 @@ permissions:
   actions: read
   checks: read
 
-concurrency:
-  group: platform-production
-  cancel-in-progress: false
-
 jobs:
-  promote-and-deploy:
-    name: Promote and Deploy Production
+  resolve-release:
+    name: Resolve Release
     runs-on: ubuntu-latest
-    environment: production
+    timeout-minutes: 35
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    outputs:
+      release_commit: ${{ steps.release.outputs.release_commit }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        id: release
+        run: |
+          set -euo pipefail
+
+          git fetch origin main
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            release_commit="${{ github.event.workflow_run.head_sha }}"
+          else
+            release_ref="${{ inputs.release_ref }}"
+            git fetch origin "${release_ref}" || true
+            if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
+              release_commit="$(git rev-parse "${release_ref}^{commit}")"
+            elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
+              release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
+            else
+              echo "Release ref '${release_ref}' does not resolve to a commit." >&2
+              exit 1
+            fi
+          fi
+
+          git merge-base --is-ancestor "$release_commit" origin/main
+          echo "release_commit=$release_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          required_check="PR Required"
+          release_commit="${{ steps.release.outputs.release_commit }}"
+          deadline=$((SECONDS + 1800))
+
+          while true; do
+            completed_checks="$(gh api --paginate "repos/${{ github.repository }}/commits/${release_commit}/check-runs?per_page=100" \
+              --jq ".check_runs[] | select(.name == \"${required_check}\" and .status == \"completed\") | [.conclusion, .html_url] | @tsv")"
+            successful_check_url="$(printf '%s\n' "$completed_checks" | awk -F '\t' '$1 == "success" { print $2; exit }')"
+
+            if [ -n "$successful_check_url" ]; then
+              echo "Validated ${required_check}: ${successful_check_url}"
+              break
+            fi
+
+            failed_check_url="$(printf '%s\n' "$completed_checks" | awk -F '\t' '$1 != "success" { print $2; exit }')"
+            if [ -n "$failed_check_url" ]; then
+              echo "Release commit ${release_commit} has a completed non-success '${required_check}' check: ${failed_check_url}" >&2
+              exit 1
+            fi
+
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for '${required_check}' on ${release_commit}." >&2
+              exit 1
+            fi
+
+            echo "Waiting for '${required_check}' on ${release_commit}..."
+            sleep 30
+          done
+
+  deploy-staging:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    needs: resolve-release
+    environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-      TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-      TF_VAR_environment: production
+      TF_VAR_environment: staging
       TF_VAR_platform_image_repository: chase-sets-platform
-      TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
-      TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-      TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-      TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
-      TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+      TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
+      TF_VAR_stripe_connect_return_url: https://marketplace-staging.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace-staging.chasesets.com/account/payouts/setup
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
@@ -53,7 +121,390 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check out release commit
+        run: |
+          set -euo pipefail
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          git checkout --detach "$release_commit"
+          checked_out_commit="$(git rev-parse HEAD)"
+          if [ "$checked_out_commit" != "$release_commit" ]; then
+            echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
+            exit 1
+          fi
+
+      - name: Confirm automatic deploy is latest main
+        if: github.event_name == 'workflow_run'
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          latest_main="$(git rev-parse origin/main)"
+          if [ "$release_commit" != "$latest_main" ]; then
+            echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale staging check." >&2
+            exit 1
+          fi
+
+      - name: Validate staging configuration
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            AWS_ACCESS_KEY_ID \
+            AWS_SECRET_ACCESS_KEY \
+            DIGITALOCEAN_ACCESS_TOKEN \
+            TF_VAR_platform_internal_auth_secret \
+            TF_VAR_platform_admin_email \
+            TF_VAR_platform_admin_password \
+            TF_VAR_discord_invite_url \
+            TF_VAR_stripe_secret_key \
+            TF_VAR_stripe_publishable_key \
+            TF_VAR_stripe_webhook_secret \
+            TF_VAR_easypost_api_key
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required staging configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          if [ "${TF_VAR_notification_email_provider:-}" = "amazon-ses" ]; then
+            ses_missing=()
+            for name in \
+              TF_VAR_ses_aws_region \
+              TF_VAR_ses_from_email \
+              TF_VAR_ses_configuration_set_name \
+              TF_VAR_ses_source_arn
+            do
+              if [ -z "${!name:-}" ]; then
+                ses_missing+=("$name")
+              fi
+            done
+
+            if [ "${#ses_missing[@]}" -gt 0 ]; then
+              printf 'Missing required staging SES configuration: %s\n' "${ses_missing[*]}" >&2
+              exit 1
+            fi
+          fi
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build and push App Platform image
+        id: image
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
+            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
+          docker buildx build \
+            --pull \
+            --cache-from type=gha,scope=platform-image \
+            --cache-to type=gha,scope=platform-image,mode=min \
+            --push \
+            --tag "$image" \
+            .
+
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${image}@${digest}"
+
+      - name: Terraform init
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Terraform format
+        working-directory: infrastructure/digitalocean/platform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform plan
+        id: terraform_plan
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+        run: |
+          set -euo pipefail
+          terraform plan -out=tfplan
+          app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
+          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for previous App Platform deployment
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No existing App Platform app was found in Terraform state; skipping deployment wait."
+            exit 0
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+
+      - name: Terraform apply
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
+          TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
+          TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+          TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Wait for Terraform App Platform deployment
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+
+      - name: Deploy App Platform image
+        if: steps.terraform_plan.outputs.app_changed != 'true'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
+
+      - name: Wait for staging domains
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          landing_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required staging domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
+            "$app_id" \
+            "$landing_domain" \
+            "$admin_domain" \
+            "$marketplace_domain" \
+            --timeout-seconds=1800 \
+            --poll-seconds=30
+
+      - name: Smoke check
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_WRITE_WAITLIST: "false"
+          SMOKE_SOURCE: staging-smoke
+          SMOKE_UTM_CAMPAIGN: staging-main
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
+        run: |
+          set -euo pipefail
+          landing_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required staging smoke domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+
+          if [ -n "$TF_VAR_google_social_login_client_id" ] &&
+            [ -n "$TF_VAR_google_social_login_client_secret" ] &&
+            [ -n "$TF_VAR_facebook_social_login_client_id" ] &&
+            [ -n "$TF_VAR_facebook_social_login_client_secret" ]; then
+            export SMOKE_REQUIRE_SOCIAL_LOGIN=true
+          else
+            export SMOKE_REQUIRE_SOCIAL_LOGIN=false
+          fi
+
+          cd ../../..
+          pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}"
+
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    needs:
+      - resolve-release
+      - deploy-staging
+    environment: production
+    concurrency:
+      group: platform-deploy-production
+      cancel-in-progress: false
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_environment: production
+      TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
+    steps:
+      - name: Configure Git defaults
+        run: git config --global init.defaultBranch main
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check out release commit
+        run: |
+          set -euo pipefail
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          git checkout --detach "$release_commit"
+          checked_out_commit="$(git rev-parse HEAD)"
+          if [ "$checked_out_commit" != "$release_commit" ]; then
+            echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
+            exit 1
+          fi
+
+      - name: Confirm automatic deploy is latest main
+        if: github.event_name == 'workflow_run'
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          latest_main="$(git rev-parse origin/main)"
+          if [ "$release_commit" != "$latest_main" ]; then
+            echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale production deployment." >&2
+            exit 1
+          fi
+
       - name: Validate production configuration
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           missing=()
@@ -76,83 +527,33 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve release commit
-        id: promote
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.release_tag }}"
-          release_ref="${{ inputs.release_ref }}"
-          git fetch origin main --tags
-          git fetch origin production || true
+          if [ "${TF_VAR_notification_email_provider:-}" = "amazon-ses" ]; then
+            ses_missing=()
+            for name in \
+              TF_VAR_ses_aws_region \
+              TF_VAR_ses_from_email \
+              TF_VAR_ses_configuration_set_name \
+              TF_VAR_ses_source_arn
+            do
+              if [ -z "${!name:-}" ]; then
+                ses_missing+=("$name")
+              fi
+            done
 
-          if git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
-            release_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
-            release_tag_exists=true
-          else
-            release_tag_exists=false
-            git fetch origin "${release_ref}" || true
-            if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
-              release_commit="$(git rev-parse "${release_ref}^{commit}")"
-            elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
-              release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
-            else
-              echo "Release ref '${release_ref}' does not resolve to a commit." >&2
+            if [ "${#ses_missing[@]}" -gt 0 ]; then
+              printf 'Missing required production SES configuration: %s\n' "${ses_missing[*]}" >&2
               exit 1
             fi
           fi
 
-          git merge-base --is-ancestor "$release_commit" origin/main
-          echo "release_commit=$release_commit" >> "$GITHUB_OUTPUT"
-          echo "release_tag_exists=$release_tag_exists" >> "$GITHUB_OUTPUT"
-          echo "TF_VAR_platform_image_tag=$release_commit" >> "$GITHUB_ENV"
-
-      - name: Validate release checks
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          required_check="PR Required"
-          release_commit="${{ steps.promote.outputs.release_commit }}"
-          completed_checks="$(gh api --paginate "repos/${{ github.repository }}/commits/${release_commit}/check-runs?per_page=100" \
-            --jq ".check_runs[] | select(.name == \"${required_check}\" and .status == \"completed\") | [.conclusion, .html_url] | @tsv")"
-          successful_check_url="$(printf '%s\n' "$completed_checks" | awk -F '\t' '$1 == "success" { print $2; exit }')"
-
-          if [ -z "$successful_check_url" ]; then
-            echo "Release commit ${release_commit} must have a completed successful '${required_check}' check before production deploy." >&2
-            if [ -z "$completed_checks" ]; then
-              echo "No completed '${required_check}' check run was found on the release commit." >&2
-            else
-              echo "Completed '${required_check}' check runs found:" >&2
-              printf '%s\n' "$completed_checks" >&2
-            fi
-            exit 1
-          fi
-
-          echo "Validated ${required_check}: ${successful_check_url}"
-
-      - name: Create release tag
-        if: steps.promote.outputs.release_tag_exists != 'true'
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.release_tag }}"
-          release_commit="${{ steps.promote.outputs.release_commit }}"
-          git tag -a "$tag" "$release_commit" -m "Release ${tag}"
-          git push origin "refs/tags/${tag}"
-
-      - name: Check out release commit
-        run: |
-          set -euo pipefail
-          release_commit="${{ steps.promote.outputs.release_commit }}"
-          git checkout --detach "$release_commit"
-          checked_out_commit="$(git rev-parse HEAD)"
-          if [ "$checked_out_commit" != "$release_commit" ]; then
-            echo "Checked out ${checked_out_commit}, expected release commit ${release_commit}." >&2
-            exit 1
-          fi
-
       - uses: ./.github/actions/setup-pnpm-workspace
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 
@@ -162,25 +563,35 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: docker/setup-buildx-action@v4
 
-      - name: Build and push App Platform image
+      - name: Verify promoted App Platform image
+        id: image
         run: |
           set -euo pipefail
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
           if [ -z "$registry_name" ]; then
-            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
-            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
+            echo "DigitalOcean Container Registry does not exist. Run staging for this commit before production promotion." >&2
+            exit 1
           fi
 
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
-          docker build --pull --tag "$image" .
-          docker push "$image"
+          if ! docker buildx imagetools inspect "$image" >/tmp/promoted-image.txt; then
+            echo "Promoted image ${image} was not found. Run a successful staging deployment for ${TF_VAR_platform_image_tag} first." >&2
+            exit 1
+          fi
+
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Promoting ${image}@${digest}"
 
       - name: Terraform init
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           terraform init \
             -backend-config=bucket=chase-sets-terraform-state \
@@ -201,14 +612,38 @@ jobs:
       - name: Terraform plan
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: |
           set -euo pipefail
           terraform plan -out=tfplan
+          node ../../../scripts/digitalocean-app-deployment.mjs assert-no-destructive-changes tfplan --allow-file="../../../${DESTRUCTIVE_CHANGE_ALLOW_FILE}"
           app_changed="$(node ../../../scripts/digitalocean-app-deployment.mjs plan-app-changed tfplan)"
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for previous App Platform deployment
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
 
@@ -222,10 +657,33 @@ jobs:
 
       - name: Terraform apply
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_platform_internal_auth_secret: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
+          TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
+          TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
+          TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
+          TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
+          TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
+          TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
         run: terraform apply -auto-approve tfplan
 
       - name: Wait for Terraform App Platform deployment
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
@@ -234,20 +692,49 @@ jobs:
       - name: Deploy App Platform image
         if: steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
           node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
 
+      - name: Wait for production domains
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          mapfile -t public_domains < <(terraform output -json public_domains | jq -r '.[]')
+          admin_domain="$(terraform output -raw admin_domain)"
+          if [ "${#public_domains[@]}" -eq 0 ] || [ -z "$admin_domain" ]; then
+            echo "Required production domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+
+          node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
+            "$app_id" \
+            "${public_domains[@]}" \
+            "$admin_domain" \
+            --timeout-seconds=3600 \
+            --poll-seconds=30
+
       - name: Smoke check
         working-directory: infrastructure/digitalocean/platform
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_EMAIL: ops+smoke@chasesets.com
           SMOKE_SOURCE: production-smoke
-          SMOKE_UTM_CAMPAIGN: production-release
+          SMOKE_UTM_CAMPAIGN: production-main
+          SMOKE_FETCH_ATTEMPTS: "24"
+          SMOKE_FETCH_RETRY_DELAY_MS: "5000"
         run: |
           set -euo pipefail
           public_domain="$(terraform output -raw landing_domain)"
@@ -255,11 +742,25 @@ jobs:
           cd ../../..
           pnpm run smoke:platform -- "https://${public_domain}" "https://${admin_domain}"
 
-      - name: Fast-forward production
+      - name: Mark production release
         run: |
           set -euo pipefail
-          release_commit="${{ steps.promote.outputs.release_commit }}"
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          release_tag="release-$(date -u +%Y%m%d%H%M%S)-$(printf '%s' "$release_commit" | cut -c1-8)"
+          promoted_image="${{ steps.image.outputs.image }}"
+          release_image="${promoted_image%:*}:${release_tag}"
+
+          docker buildx imagetools create --tag "$release_image" "$promoted_image"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin production || true
+          git fetch origin --tags || true
+
+          if ! git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            git tag -a "$release_tag" "$release_commit" -m "Production release ${release_tag}"
+            git push origin "refs/tags/${release_tag}"
+          fi
 
           if git show-ref --verify --quiet refs/remotes/origin/production; then
             git checkout -B production origin/production

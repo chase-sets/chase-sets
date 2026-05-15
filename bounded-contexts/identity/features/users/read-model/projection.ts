@@ -5,6 +5,13 @@ import { extractIdFromStreamId } from "../../../support/read-model-support/extra
 
 const STREAM_PREFIX = "identity.user-";
 
+type SocialLoginLinkRow = Readonly<{
+  providerName: string;
+  providerSubject: string;
+  email: string;
+  linkedAt: string;
+}>;
+
 async function syncUserEmailLookups(
   db: PgQueryable,
   userId: string,
@@ -75,9 +82,10 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
            auth_methods,
            password_credential_id,
            passkey_credential_ids,
+           social_login_links,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, 'active', $6::jsonb, '[]'::jsonb, NULL, '[]'::jsonb, $7)
+         VALUES ($1, $2, $3, $4, $5, 'active', $6::jsonb, '[]'::jsonb, NULL, '[]'::jsonb, '[]'::jsonb, $7)
          ON CONFLICT (user_id) DO UPDATE
          SET display_name = $2,
              given_name = $3,
@@ -230,6 +238,65 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
              updated_at = $3
          WHERE user_id = $1`,
         [userId, JSON.stringify(passkeys), event.timing.recordedAt],
+      );
+    },
+    "identity.user.social-login-linked": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const link = event.data as {
+        providerName: string;
+        providerSubject: string;
+        email: string;
+        linkedAt: string;
+      };
+      const current = await db.query<{ social_login_links: unknown[] }>(
+        `SELECT social_login_links FROM identity_users WHERE user_id = $1`,
+        [userId],
+      );
+      const currentLinks =
+        (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
+      const links = [
+        ...currentLinks.filter((currentLink) =>
+          currentLink.providerName !== link.providerName ||
+          currentLink.providerSubject !== link.providerSubject
+        ),
+        link,
+      ].sort((left, right) =>
+        `${left.providerName}:${left.providerSubject}`
+          .localeCompare(
+            `${right.providerName}:${right.providerSubject}`,
+          ),
+      );
+
+      await db.query(
+        `UPDATE identity_users
+         SET social_login_links = $2::jsonb,
+             updated_at = $3
+         WHERE user_id = $1`,
+        [userId, JSON.stringify(links), event.timing.recordedAt],
+      );
+      await db.query(
+        `INSERT INTO identity_user_social_login_links (
+           provider_name,
+           provider_subject,
+           user_id,
+           email,
+           linked_at,
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (provider_name, provider_subject) DO UPDATE
+         SET user_id = $3,
+             email = $4,
+             linked_at = $5,
+             updated_at = $6`,
+        [
+          link.providerName,
+          link.providerSubject,
+          userId,
+          normalizeEmail(link.email),
+          link.linkedAt,
+          event.timing.recordedAt,
+        ],
       );
     },
     "identity.user.suspended": async (event) => {

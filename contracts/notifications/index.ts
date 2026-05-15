@@ -1,12 +1,27 @@
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
-export type NotificationChannelName = "email" | "web";
-export type NotificationProviderName =
+export type KnownNotificationChannelName =
+  | "email"
+  | "sms"
+  | "rcs"
+  | "web"
+  | "push";
+export type NotificationChannelName =
+  | KnownNotificationChannelName
+  | (string & {});
+export type KnownNotificationProviderName =
   | "amazon-ses"
+  | "twilio"
   | "web-notification-feed"
+  | "push-notification-service"
   | "noop";
+export type NotificationProviderName =
+  | KnownNotificationProviderName
+  | (string & {});
 export type NotificationCriticality = "security" | "commerce" | "operational";
 export type NotificationMessageType = `${string}.${string}`;
+export type NotificationTemplateData = Readonly<Record<string, string | number | boolean | null>>;
+export type NotificationProviderMetadata = Readonly<Record<string, string | number | boolean | null>>;
 
 export type NotificationActor = Readonly<{
   userId?: UserId | null;
@@ -18,6 +33,21 @@ export type NotificationEmailAddress = Readonly<{
   displayName?: string | null;
 }>;
 
+export type NotificationPhoneNumber = Readonly<{
+  e164: string;
+  displayName?: string | null;
+}>;
+
+export type NotificationRecipient = Readonly<{
+  userId?: UserId | null;
+  accountId?: AccountId | null;
+}>;
+
+export type NotificationChannelProviderOptions = Readonly<{
+  providerName?: NotificationProviderName | null;
+  providerMetadata?: NotificationProviderMetadata;
+}>;
+
 export type EmailNotificationChannel = Readonly<{
   channel: "email";
   to: readonly [NotificationEmailAddress, ...NotificationEmailAddress[]];
@@ -26,8 +56,27 @@ export type EmailNotificationChannel = Readonly<{
   subject?: string | null;
   templateId?: string | null;
   templateVersion?: number | null;
-  templateData?: Readonly<Record<string, string | number | boolean | null>>;
-}>;
+  templateData?: NotificationTemplateData;
+}> & NotificationChannelProviderOptions;
+
+export type SmsNotificationChannel = Readonly<{
+  channel: "sms";
+  to: NotificationPhoneNumber;
+  from?: string | null;
+  body?: string | null;
+  mediaUrls?: readonly string[];
+}> & NotificationChannelProviderOptions;
+
+export type RcsNotificationChannel = Readonly<{
+  channel: "rcs";
+  to: NotificationPhoneNumber;
+  from?: string | null;
+  title?: string | null;
+  body?: string | null;
+  mediaUrl?: string | null;
+  actionHref?: string | null;
+  smsFallback?: Omit<SmsNotificationChannel, "channel"> | null;
+}> & NotificationChannelProviderOptions;
 
 export type WebNotificationRecipient = Readonly<{
   userId?: UserId | null;
@@ -40,11 +89,30 @@ export type WebNotificationChannel = Readonly<{
   title?: string | null;
   body?: string | null;
   actionHref?: string | null;
-}>;
+}> & NotificationChannelProviderOptions;
+
+export type PushNotificationChannel = Readonly<{
+  channel: "push";
+  recipient: NotificationRecipient;
+  title?: string | null;
+  body?: string | null;
+  actionHref?: string | null;
+  badgeCount?: number | null;
+  collapseKey?: string | null;
+}> & NotificationChannelProviderOptions;
+
+export type CustomNotificationChannel = Readonly<{
+  channel: NotificationChannelName;
+  payload: NotificationTemplateData;
+}> & NotificationChannelProviderOptions;
 
 export type NotificationChannel =
   | EmailNotificationChannel
-  | WebNotificationChannel;
+  | SmsNotificationChannel
+  | RcsNotificationChannel
+  | WebNotificationChannel
+  | PushNotificationChannel
+  | CustomNotificationChannel;
 
 export type NotificationMessage = Readonly<{
   messageType: NotificationMessageType;
@@ -55,7 +123,7 @@ export type NotificationMessage = Readonly<{
   templateId: string;
   templateVersion: number;
   locale: string;
-  templateData: Readonly<Record<string, string | number | boolean | null>>;
+  templateData: NotificationTemplateData;
   channels: readonly [NotificationChannel, ...NotificationChannel[]];
   idempotencyKey: string;
   correlationId: string;
@@ -110,9 +178,39 @@ export type SentNotificationReceipt = Readonly<{
 
 export interface NotificationChannelAdapter {
   channel: NotificationChannelName;
+  providerName?: NotificationProviderName;
   sendNotificationChannel(
     delivery: NotificationDelivery,
   ): Promise<SentNotificationReceipt>;
+}
+
+export type NotificationChannelAdapterRegistry = Readonly<{
+  configuredChannels: readonly NotificationChannelName[];
+  adapterForChannel(
+    channel: NotificationChannelName,
+  ): NotificationChannelAdapter | null;
+}>;
+
+export function createNotificationChannelAdapterRegistry(
+  adapters: readonly NotificationChannelAdapter[],
+): NotificationChannelAdapterRegistry {
+  const adapterByChannel = new Map<NotificationChannelName, NotificationChannelAdapter>();
+
+  for (const adapter of adapters) {
+    if (adapterByChannel.has(adapter.channel)) {
+      throw new Error(
+        `Multiple notification adapters configured for '${adapter.channel}'.`,
+      );
+    }
+    adapterByChannel.set(adapter.channel, adapter);
+  }
+
+  return {
+    configuredChannels: [...adapterByChannel.keys()],
+    adapterForChannel(channel) {
+      return adapterByChannel.get(channel) ?? null;
+    },
+  };
 }
 
 export interface NotificationOutbox {
@@ -215,9 +313,10 @@ export function createNoopNotificationAdapter(
 ): NotificationChannelAdapter {
   return {
     channel,
+    providerName: "noop",
     async sendNotificationChannel(delivery) {
       return {
-        channel,
+        channel: delivery.channel.channel,
         providerName: "noop",
         providerMessageId: `noop:${delivery.deliveryId}`,
         acceptedAt: new Date().toISOString(),

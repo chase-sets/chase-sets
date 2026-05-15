@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createSesSendRequest,
   createSesEmailNotificationAdapter,
   createSesTransactionalEmailGateway,
   parseSesNotificationEvent,
@@ -15,6 +16,36 @@ describe("ses email adapter", () => {
       textBody: String(message.templateData.magicLink),
     }),
   };
+
+  it("creates an AWS SDK send request from SES request input", async () => {
+    const send = vi.fn(async () => ({ MessageId: "ses_msg_sdk" }));
+    const sendRequest = createSesSendRequest({
+      region: "us-east-2",
+      client: { send },
+    });
+
+    const response = await sendRequest({
+      FromEmailAddress: "notifications@chasesets.com",
+      Destination: { ToAddresses: ["buyer@example.com"] },
+      Content: {
+        Simple: {
+          Subject: { Data: "Order confirmed", Charset: "UTF-8" },
+          Body: {
+            Html: { Data: "<p>Order confirmed</p>", Charset: "UTF-8" },
+            Text: { Data: "Order confirmed", Charset: "UTF-8" },
+          },
+          Headers: [],
+        },
+      },
+      EmailTags: [],
+    });
+
+    expect(response).toEqual({ MessageId: "ses_msg_sdk" });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0].input.FromEmailAddress).toBe(
+      "notifications@chasesets.com",
+    );
+  });
 
   it("maps transactional messages into SES SendEmail requests", async () => {
     const sendRequest = vi.fn(async () => ({ MessageId: "ses_msg_123" }));

@@ -120,6 +120,7 @@ Shared IDs in [contracts/primitives/typed-ids.ts](../../contracts/primitives/typ
 - `AuthenticationMethodId`
 - `SessionId`
 - `CheckoutSessionId`
+- `ShippingAddressId`
 - `ApiKeyId`
 - `InventoryItemId`
 - `ListingId`

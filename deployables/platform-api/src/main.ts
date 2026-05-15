@@ -3,6 +3,10 @@ import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
+import {
+  createFacebookSocialLoginProvider,
+  createGoogleSocialLoginProvider,
+} from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
@@ -79,6 +83,24 @@ const postageLabelProvider =
         mode: config.postage.mode,
       })
     : createSandboxPostageLabelProvider();
+const socialLoginProviders = [
+  ...(config.socialLogin.google
+    ? [
+        createGoogleSocialLoginProvider({
+          clientId: config.socialLogin.google.clientId,
+          clientSecret: config.socialLogin.google.clientSecret,
+        }),
+      ]
+    : []),
+  ...(config.socialLogin.facebook
+    ? [
+        createFacebookSocialLoginProvider({
+          clientId: config.socialLogin.facebook.clientId,
+          clientSecret: config.socialLogin.facebook.clientSecret,
+        }),
+      ]
+    : []),
+];
 
 if (config.paymentProcessor.kind === "fake") {
   logger.warn("Platform API is using the fake payment processor.", {
@@ -110,6 +132,7 @@ const runtime = createPlatformApiHost({
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
+    socialLoginProviders,
   },
 });
 const realtimeStores = runtime.mountedContexts

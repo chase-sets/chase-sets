@@ -72,6 +72,63 @@ export function createIdentityApiClient({
         await client.accounts[":id"].$get({ param: { id }, header: headers }),
       );
     },
+    async listShippingAddresses<T>(accountId: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":accountId"]["shipping-addresses"].$get({
+          param: { accountId },
+          header: headers,
+        }),
+      );
+    },
+    async createShippingAddress<T>(
+      accountId: string,
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":accountId"]["shipping-addresses"].$post({
+          param: { accountId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async updateShippingAddress<T>(
+      accountId: string,
+      shippingAddressId: string,
+      body: Record<string, unknown>,
+    ): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].$put({
+          param: { accountId, shippingAddressId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async setDefaultShippingAddress<T>(
+      accountId: string,
+      shippingAddressId: string,
+    ): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].default.$post({
+          param: { accountId, shippingAddressId },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async archiveShippingAddress<T>(
+      accountId: string,
+      shippingAddressId: string,
+    ): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].archive.$post({
+          param: { accountId, shippingAddressId },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
     async getCurrentActorDisplay<T>(): Promise<T> {
       return parseJsonResponse<T>(
         await client["current-actor-display"].$get({ header: headers }),
