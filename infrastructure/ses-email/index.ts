@@ -166,6 +166,7 @@ export function createSesEmailNotificationAdapter(
 
   return {
     channel: "email",
+    providerName: "amazon-ses",
     async sendNotificationChannel(
       delivery: NotificationDelivery,
     ): Promise<SentNotificationReceipt> {
@@ -208,5 +209,5 @@ function assertEmailChannel(
     throw new Error(`SES email adapter cannot send '${channel.channel}'.`);
   }
 
-  return channel;
+  return channel as EmailNotificationChannel;
 }

@@ -92,6 +92,7 @@ export function createPostgresWebNotificationAdapter(
 
   return {
     channel: "web",
+    providerName: "web-notification-feed",
     async sendNotificationChannel(
       delivery: NotificationDelivery,
     ): Promise<SentNotificationReceipt> {
@@ -233,11 +234,12 @@ function assertWebChannel(channel: NotificationDelivery["channel"]): WebNotifica
     throw new Error(`Web notification adapter cannot send '${channel.channel}'.`);
   }
 
-  if (!channel.recipient.userId && !channel.recipient.accountId) {
+  const webChannel = channel as WebNotificationChannel;
+  if (!webChannel.recipient.userId && !webChannel.recipient.accountId) {
     throw new Error("Web notification recipient requires a user or account.");
   }
 
-  return channel;
+  return webChannel;
 }
 
 type WebNotificationRow = Readonly<{
