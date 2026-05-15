@@ -13,9 +13,7 @@ locals {
     "landing-${local.environment_slug}.${var.root_domain}",
   ]
 
-  legacy_public_redirect_domains = local.is_staging ? [
-    "staging.${var.root_domain}",
-  ] : []
+  legacy_public_redirect_domains = []
 
   marketplace_domains = local.is_non_production ? [
     "marketplace-${local.environment_slug}.${var.root_domain}",
