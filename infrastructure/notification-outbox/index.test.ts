@@ -23,6 +23,22 @@ const message: NotificationMessage = {
   channels: [
     { channel: "email", to: [{ email: "buyer@example.com" }] },
     {
+      channel: "sms",
+      to: { e164: "+15551234567" },
+      body: "Order ord_1 is confirmed.",
+    },
+    {
+      channel: "rcs",
+      to: { e164: "+15551234567" },
+      title: "Order confirmed",
+      body: "Order ord_1 is confirmed.",
+      actionHref: "/account/purchases/ord_1",
+      smsFallback: {
+        to: { e164: "+15551234567" },
+        body: "Order ord_1 is confirmed.",
+      },
+    },
+    {
       channel: "web",
       recipient: { accountId: "acc_buyer" as never },
       actionHref: "/account/purchases/ord_1",
@@ -39,18 +55,6 @@ describe("notification outbox", () => {
       ...message,
       channels: [
         ...message.channels,
-        {
-          channel: "sms",
-          to: { e164: "+15551234567" },
-          body: "Order ord_1 is confirmed.",
-        },
-        {
-          channel: "rcs",
-          to: { e164: "+15551234567" },
-          title: "Order confirmed",
-          body: "Order ord_1 is confirmed.",
-          actionHref: "/account/purchases/ord_1",
-        },
         {
           channel: "push",
           recipient: { accountId: "acc_buyer" as never },
@@ -84,9 +88,9 @@ describe("notification outbox", () => {
 
     expect(db.query).toHaveBeenCalledTimes(5);
     expect(queries[0]?.[0]).toBe("ordering:order_confirmed:ord_1:email:1");
-    expect(queries[1]?.[0]).toBe("ordering:order_confirmed:ord_1:web:2");
-    expect(queries[2]?.[0]).toBe("ordering:order_confirmed:ord_1:sms:3");
-    expect(queries[3]?.[0]).toBe("ordering:order_confirmed:ord_1:rcs:4");
+    expect(queries[1]?.[0]).toBe("ordering:order_confirmed:ord_1:sms:2");
+    expect(queries[2]?.[0]).toBe("ordering:order_confirmed:ord_1:rcs:3");
+    expect(queries[3]?.[0]).toBe("ordering:order_confirmed:ord_1:web:4");
     expect(queries[4]?.[0]).toBe("ordering:order_confirmed:ord_1:push:5");
     expect(notificationOutboxSchemaSql).toContain("notification_outbox");
     expect(notificationOutboxSchemaSql).not.toContain("channel IN ('email', 'web')");
@@ -95,9 +99,9 @@ describe("notification outbox", () => {
   it("dispatches claimed deliveries through their channel adapters", async () => {
     const delivery: ClaimedNotificationDelivery = {
       outboxId: "1",
-      deliveryId: "ordering:order_confirmed:ord_1:web:2",
+      deliveryId: "ordering:order_confirmed:ord_1:web:4",
       message,
-      channel: message.channels[1],
+      channel: message.channels[3],
       source: {
         sourceEventId: "evt_1",
         sourceGlobalPosition: "12",
@@ -202,17 +206,76 @@ describe("notification outbox", () => {
     expect(adapter.sendNotificationChannel).toHaveBeenCalledWith(delivery);
     expect(outbox.sent).toEqual([delivery.deliveryId]);
   });
+
+  it("returns failed provider sends to pending status with a retry delay", async () => {
+    const delivery: ClaimedNotificationDelivery = {
+      outboxId: "2",
+      deliveryId: "ordering:order_confirmed:ord_1:sms:2",
+      message,
+      channel: message.channels[1],
+      source: {
+        sourceEventId: "evt_1",
+        sourceGlobalPosition: "12",
+        projectionName: "ordering-order-notification-projection",
+        occurredAt: "2026-05-09T00:00:00.000Z",
+      },
+      status: "sending",
+      attemptCount: 1,
+      maxAttempts: 3,
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+      nextAttemptAt: "2026-05-09T00:00:00.000Z",
+      lastError: null,
+    };
+    const outbox = createMemoryOutbox([delivery]);
+    const adapter = {
+      channel: "sms" as const,
+      sendNotificationChannel: vi.fn(async () => {
+        throw new Error("Twilio temporarily unavailable.");
+      }),
+    };
+    const dispatcher = createNotificationOutboxDispatcher({
+      outbox,
+      adapters: [adapter],
+      claimOwnerId: "worker_1",
+      retryDelayMs: () => 60_000,
+      now: () => new Date("2026-05-09T00:00:00.000Z"),
+    });
+
+    const result = await dispatcher.runOnce();
+
+    expect(result.processed).toBe(1);
+    expect(outbox.failed).toEqual([{
+      deliveryId: delivery.deliveryId,
+      error: "Twilio temporarily unavailable.",
+      retryAt: "2026-05-09T00:01:00.000Z",
+      now: "2026-05-09T00:00:00.000Z",
+    }]);
+  });
 });
 
 function createMemoryOutbox(
   claimed: readonly ClaimedNotificationDelivery[],
 ): NotificationOutboxStore & Readonly<{
   sent: readonly string[];
+  failed: readonly {
+    deliveryId: string;
+    error: string;
+    retryAt: string | null | undefined;
+    now: string | undefined;
+  }[];
 }> {
   const sent: string[] = [];
+  const failed: {
+    deliveryId: string;
+    error: string;
+    retryAt: string | null | undefined;
+    now: string | undefined;
+  }[] = [];
 
   return {
     sent,
+    failed,
     async enqueueNotification() {
       return undefined;
     },
@@ -222,7 +285,13 @@ function createMemoryOutbox(
     async markNotificationDeliverySent(input) {
       sent.push(input.deliveryId);
     },
-    async markNotificationDeliveryFailed() {
+    async markNotificationDeliveryFailed(input) {
+      failed.push({
+        deliveryId: input.deliveryId,
+        error: input.error,
+        retryAt: input.retryAt,
+        now: input.now,
+      });
       return undefined;
     },
   };

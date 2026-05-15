@@ -20,6 +20,12 @@ const envNames = [
   "SES_FROM_EMAIL",
   "SES_CONFIGURATION_SET_NAME",
   "SES_SOURCE_ARN",
+  "MOBILE_MESSAGING_PROVIDER",
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_MESSAGING_SERVICE_SID",
+  "TWILIO_API_BASE_URL",
+  "TWILIO_STATUS_CALLBACK_BASE_URL",
 ];
 
 afterEach(() => {
@@ -36,7 +42,39 @@ describe("platform worker config", () => {
 
     expect(config.paymentProcessor).toEqual({ kind: "fake" });
     expect(config.moneyMovement).toEqual({ kind: "fake" });
+    expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
+  });
+
+  it("loads Twilio mobile messaging configuration when enabled", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.MOBILE_MESSAGING_PROVIDER = "twilio";
+    process.env.TWILIO_ACCOUNT_SID = "AC123";
+    process.env.TWILIO_AUTH_TOKEN = "secret";
+    process.env.TWILIO_MESSAGING_SERVICE_SID = "MG123";
+    process.env.TWILIO_API_BASE_URL = "https://twilio.test";
+    process.env.TWILIO_STATUS_CALLBACK_BASE_URL =
+      "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks";
+
+    expect(loadConfig().mobileMessaging).toEqual({
+      kind: "twilio",
+      accountSid: "AC123",
+      authToken: "secret",
+      messagingServiceSid: "MG123",
+      apiBaseUrl: "https://twilio.test",
+      statusCallbackBaseUrl:
+        "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks",
+    });
+  });
+
+  it("requires Twilio sender config when mobile messaging is enabled", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.MOBILE_MESSAGING_PROVIDER = "twilio";
+    process.env.TWILIO_ACCOUNT_SID = "AC123";
+
+    expect(() => loadConfig()).toThrow(
+      "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_MESSAGING_SERVICE_SID are required when MOBILE_MESSAGING_PROVIDER=twilio.",
+    );
   });
 
   it("fails production config when Stripe provider secrets are missing", () => {
