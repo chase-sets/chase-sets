@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
+  ProgressiveDisclosure,
   SpecificationList,
   Stack,
   Text,
@@ -187,6 +188,13 @@ export function PayoutReadinessPanel({
   );
   const progress = buildPayoutSetupProgress(payoutReadiness);
   const canReceivePayouts = payoutReadiness.status === "ready";
+  const setupDetailSummary = missingRequirementGroups.length > 0
+    ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.needs.attention", {
+        group: missingRequirementGroups[0]?.[0],
+      })
+    : canReceivePayouts
+      ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready")
+      : setupStatusLabel(payoutReadiness.onboarding_status);
 
   return (
     <Stack gap={4}>
@@ -221,37 +229,46 @@ export function PayoutReadinessPanel({
         ))}
       </Stack>
 
-      <SpecificationList
-        specs={[
-          {
-            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.onboarding"),
-            value: setupStatusLabel(payoutReadiness.onboarding_status),
-          },
-          {
-            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers"),
-            value: setupStatusLabel(payoutReadiness.transfer_capability_status),
-          },
-          {
-            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts"),
-            value: setupStatusLabel(payoutReadiness.payout_capability_status),
-          },
-          {
-            label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination"),
-            value: setupStatusLabel(payoutReadiness.payout_destination_status),
-          },
-        ]}
-      />
+      <ProgressiveDisclosure
+        title={t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}
+        summary={setupDetailSummary}
+        tone={missingRequirementGroups.length > 0 ? "warning" : "info"}
+        defaultOpen={payoutReadiness.status === "restricted"}
+      >
+        <Stack gap={3}>
+          <SpecificationList
+            specs={[
+              {
+                label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.onboarding"),
+                value: setupStatusLabel(payoutReadiness.onboarding_status),
+              },
+              {
+                label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers"),
+                value: setupStatusLabel(payoutReadiness.transfer_capability_status),
+              },
+              {
+                label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payouts"),
+                value: setupStatusLabel(payoutReadiness.payout_capability_status),
+              },
+              {
+                label: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.destination"),
+                value: setupStatusLabel(payoutReadiness.payout_destination_status),
+              },
+            ]}
+          />
 
-      {missingRequirementGroups.length > 0 ? (
-        <Stack gap={1}>
-          <Text size="sm" weight="semibold">{t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}</Text>
-          {missingRequirementGroups.map(([group, requirements]) => (
-            <Text key={group} size="sm" tone="secondary">
-              {group}: {requirements.join(", ")}
-            </Text>
-          ))}
+          {missingRequirementGroups.length > 0 ? (
+            <Stack gap={1}>
+              <Text size="sm" weight="semibold">{t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}</Text>
+              {missingRequirementGroups.map(([group, requirements]) => (
+                <Text key={group} size="sm" tone="secondary">
+                  {group}: {requirements.join(", ")}
+                </Text>
+              ))}
+            </Stack>
+          ) : null}
         </Stack>
-      ) : null}
+      </ProgressiveDisclosure>
       {canReceivePayouts ? (
         <Text size="sm" tone="secondary">
           {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.eligible.seller.balances")}

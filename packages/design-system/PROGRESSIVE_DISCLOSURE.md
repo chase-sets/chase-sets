@@ -47,10 +47,40 @@ Disclosure is appropriate for:
 
 ## Recommended First Flows
 
-1. Marketplace listing creation and listing management: move seller limits, grading population detail, certification extras, and publishing recovery detail into disclosure while keeping price, availability, fulfillment, and primary publish actions visible.
-2. Discovery item detail and search: keep buy/sell comparison facts visible; disclose advanced filters, specification depth, policy explanation, and market-history detail.
-3. Checkout and payment: keep final cost and payment action visible; disclose provider-safe security explanation, editable low-frequency sections, support detail, and recovery diagnostics.
-4. Settlement payout readiness and payout requests: keep payout availability, amount, destination status, and primary actions visible; disclose verification reason detail, ledger context, and provider-safe explanations.
-5. Catalog and admin setup flows: disclose blueprint rules, product-resolution rules, external references, automation settings, and audit history after the current state and primary action are visible.
+Adopt the pattern in code-backed slices first. Each slice stays in its owning bounded context; deployables only compose the routes.
+
+1. Marketplace seller listing creation and listing management.
+   - Owners: Marketplace routes for account listings and listing detail.
+   - Keep visible: inventory identity, price, quantity cap, fee preview, listing status, and create/publish/pause/withdraw actions.
+   - Disclose first: optional per-order/per-day/per-customer limits, fee-lock history, stale quote recovery detail, grading population detail, and certification extras when present.
+   - Summary rule: if a disclosed limit changes buyer commitment or low-value card margin, show the active limit in the collapsed summary.
+2. Discovery search and item detail.
+   - Owners: Discovery search, mobile filter drawer, facet rail, and item detail routes.
+   - Keep visible: category and language filters, applied filter chips, result count, listing/offer comparison, buy/sell actions, and item identity.
+   - Disclose first: dynamic advanced facets after the primary filters, specification depth, policy explanation, market-history detail, and saved-search recovery.
+   - Summary rule: collapsed advanced filters must state whether none, some, or a named set of advanced filters is active.
+3. Checkout session and payment recovery.
+   - Owners: Checkout for session review and fulfillment; Payments for payment fee quote, confirmation, provider events, and recovery.
+   - Keep visible: ready/unavailable line counts, fulfillment estimate, final cost, wallet credit, selected shipping destination, payment method, secure payment cue, and the primary payment or recovery action.
+   - Disclose first: address-book defaults, optional wallet custom amount detail, provider-safe security explanation, support details, raw provider event history, claim-token fallback, and recovery diagnostics.
+   - Summary rule: payment disclosure summaries must never hide final total, processor state, blocking failure copy, or the next action.
+4. Settlement payout readiness and payout requests.
+   - Owners: Settlement payout readiness panel and payout request routes.
+   - Keep visible: payout readiness status, available amount, payout amount policy, destination status, setup/preview/confirm actions, and blocking unavailable state.
+   - Disclose first: grouped verification requirement details, provider capability detail, ledger context, unavailable reason detail, optional payout note, and provider-safe payout explanations.
+   - Summary rule: if payouts are unavailable, the collapsed summary must name the highest-priority reason.
+5. Catalog admin authoring and setup.
+   - Owners: Catalog blueprint, catalog item, component, dimension, field, and category admin slices.
+   - Keep visible: entity identity, status, lifecycle controls, current blueprint/category assignment, required field state, and publish action.
+   - Disclose first: field rules, dimension rules, product-resolution rules, external product references, tag/image URL management, automation settings, and audit/history detail.
+   - Summary rule: collapsed authoring depth must show whether identity-affecting or publish-blocking rules exist.
 
 Pressure-test each migration against mobile scanning, stale read models, replayed events, failed/canceled actions, and low-value card economics. If a disclosed control affects price, margin, eligibility, or order commitment, show its current effect in the visible summary.
+
+## First-Pass Implementation Notes
+
+The first adoption pass validated that disclosure works best when the trigger owns the advanced-section label and nested controls avoid repeating the same heading. This matters most in mobile drawers where both the collapsed trigger and expanded content remain mounted for accessibility.
+
+When a disclosed section is expanded by default because it blocks progress, keep the warning summary specific enough to explain the block without requiring expansion.
+
+Disclosure summaries are visible UI copy. Keep them localized and data-backed, even when the expanded content already uses localized field labels.

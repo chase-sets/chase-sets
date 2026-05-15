@@ -9,6 +9,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  ProgressiveDisclosure,
   Stack,
   Text,
   TextInput,
@@ -200,14 +201,20 @@ export function SettlementPayoutListPage({
                 {t("settlement.features.payouts.ui.payoutListPage.payouts.must.be.between")}{formatMoney(payoutAmountPolicy.minimumAmount, payoutAmountPolicy.currencyCode)} {t("settlement.features.payouts.ui.payoutListPage.and")}{formatMoney(payoutAmountPolicy.maximumAmount, payoutAmountPolicy.currencyCode)}{t("settlement.features.payouts.ui.payoutListPage.arrival.is.usually.1.3.business")}</Text>
             </Stack>
             {unavailableReasons.length > 0 ? (
-              <Stack gap={1}>
-                <Text size="sm" weight="semibold">{t("settlement.features.payouts.ui.payoutListPage.why.payouts.are.unavailable")}</Text>
-                {unavailableReasons.map((reason) => (
-                  <Text key={reason} size="sm" tone="secondary">
-                    {reason}
-                  </Text>
-                ))}
-              </Stack>
+              <ProgressiveDisclosure
+                title={t("settlement.features.payouts.ui.payoutListPage.why.payouts.are.unavailable")}
+                summary={unavailableReasons[0]}
+                tone="warning"
+                defaultOpen
+              >
+                <Stack gap={1}>
+                  {unavailableReasons.map((reason) => (
+                    <Text key={reason} size="sm" tone="secondary">
+                      {reason}
+                    </Text>
+                  ))}
+                </Stack>
+              </ProgressiveDisclosure>
             ) : null}
             {payoutConfirmation ? (
               <Stack gap={2}>
@@ -233,17 +240,22 @@ export function SettlementPayoutListPage({
                       <Text size="sm" tone="secondary">
                         {t("settlement.features.payouts.ui.payoutListPage.if.the.provider.cannot.complete.the")}</Text>
                       {payoutConfirmation.preview?.unavailable_reason_details.length ? (
-                        <Stack gap={1}>
-                          <Text size="sm" weight="semibold">
-                            {t("settlement.features.payouts.ui.payoutListPage.before.this.can.be.requested")}</Text>
-                          {payoutConfirmation.preview.unavailable_reason_details.map(
-                            (reason) => (
-                              <Text key={reason.code} size="sm" tone="secondary">
-                                {reason.message}
-                              </Text>
-                            ),
-                          )}
-                        </Stack>
+                        <ProgressiveDisclosure
+                          title={t("settlement.features.payouts.ui.payoutListPage.before.this.can.be.requested")}
+                          summary={payoutConfirmation.preview.unavailable_reason_details[0]?.message}
+                          tone="warning"
+                          defaultOpen
+                        >
+                          <Stack gap={1}>
+                            {payoutConfirmation.preview.unavailable_reason_details.map(
+                              (reason) => (
+                                <Text key={reason.code} size="sm" tone="secondary">
+                                  {reason.message}
+                                </Text>
+                              ),
+                            )}
+                          </Stack>
+                        </ProgressiveDisclosure>
                       ) : null}
                       {payoutConfirmation.note ? (
                         <Text size="sm" tone="secondary">
@@ -309,13 +321,23 @@ export function SettlementPayoutListPage({
                     )}
                   </Button>
                 </Stack>
-                <TextInput
-                  label={t("settlement.features.payouts.ui.payoutListPage.note.2")}
-                  name="note"
-                  placeholder={t("settlement.features.payouts.ui.payoutListPage.optional.memo")}
-                  disabled={!canRequestPayout}
-                  defaultValue={payoutDraft?.note ?? ""}
-                />
+                <ProgressiveDisclosure
+                  title={t("settlement.features.payouts.ui.payoutListPage.note.2")}
+                  summary={payoutDraft?.note
+                    ? t("settlement.features.payouts.ui.payoutListPage.note.summary", {
+                        note: payoutDraft.note,
+                      })
+                    : t("settlement.features.payouts.ui.payoutListPage.optional.memo")}
+                  tone="info"
+                >
+                  <TextInput
+                    label={t("settlement.features.payouts.ui.payoutListPage.note.2")}
+                    name="note"
+                    placeholder={t("settlement.features.payouts.ui.payoutListPage.optional.memo")}
+                    disabled={!canRequestPayout}
+                    defaultValue={payoutDraft?.note ?? ""}
+                  />
+                </ProgressiveDisclosure>
                 <Button type="submit" disabled={!canRequestPayout}>
                   {t("settlement.features.payouts.ui.payoutListPage.preview.payout")}</Button>
               </Stack>

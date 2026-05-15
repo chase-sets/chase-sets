@@ -13,6 +13,7 @@ import {
   PageHeader,
   PageSection,
   PriceBreakdown,
+  ProgressiveDisclosure,
   ProductSelectionSummary,
   Stack,
   Text,
@@ -100,6 +101,38 @@ function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
       percentage: formatAllowancePercentage(preview.shipping_allowance_percentage_bps),
     }),
   ].join(". ");
+}
+
+function purchaseLimitSummary({
+  maxUnitsPerOrder,
+  maxUnitsPerDay,
+  maxUnitsPerCustomerAccount,
+}: {
+  maxUnitsPerOrder?: string | number | null;
+  maxUnitsPerDay?: string | number | null;
+  maxUnitsPerCustomerAccount?: string | number | null;
+}) {
+  const limits = [
+    maxUnitsPerOrder
+      ? t("marketplace.features.listings.ui.listingListPage.purchase.limit.order.summary", {
+          limit: maxUnitsPerOrder,
+        })
+      : null,
+    maxUnitsPerDay
+      ? t("marketplace.features.listings.ui.listingListPage.purchase.limit.day.summary", {
+          limit: maxUnitsPerDay,
+        })
+      : null,
+    maxUnitsPerCustomerAccount
+      ? t("marketplace.features.listings.ui.listingListPage.purchase.limit.customer.summary", {
+          limit: maxUnitsPerCustomerAccount,
+        })
+      : null,
+  ].filter(Boolean);
+
+  return limits.length > 0
+    ? t("marketplace.features.listings.ui.listingListPage.active.purchase.limits", { limits: limits.join(", ") })
+    : t("marketplace.features.listings.ui.listingListPage.no.seller.purchase.limits");
 }
 
 function termsSource(row: MarketplaceListingFeeLockReportEntry) {
@@ -358,32 +391,37 @@ export function MarketplaceListingListPage({
               <Text size="sm" tone="secondary">
                 {t("marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy")}
               </Text>
-              <Inline>
-                <NumberInput
-                  label={t("marketplace.features.listings.ui.listingListPage.limit.per.order")}
-                  name="maxUnitsPerOrder"
-                  min="1"
-                  defaultValue={createForm?.maxUnitsPerOrder ?? ""}
-                  disabled={!hasInventory}
-                />
-                <NumberInput
-                  label={t("marketplace.features.listings.ui.listingListPage.limit.per.day")}
-                  name="maxUnitsPerDay"
-                  min="1"
-                  defaultValue={createForm?.maxUnitsPerDay ?? ""}
-                  disabled={!hasInventory}
-                />
-                <NumberInput
-                  label={t("marketplace.features.listings.ui.listingListPage.limit.per.customer")}
-                  name="maxUnitsPerCustomerAccount"
-                  min="1"
-                  defaultValue={createForm?.maxUnitsPerCustomerAccount ?? ""}
-                  disabled={!hasInventory}
-                />
-              </Inline>
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.purchase.limits.copy")}
-              </Text>
+              <ProgressiveDisclosure
+                title={t("marketplace.features.listings.ui.listingListPage.purchase.limits.copy")}
+                summary={purchaseLimitSummary(createForm ?? {})}
+                tone="info"
+              >
+                <Stack gap={3}>
+                  <Inline>
+                    <NumberInput
+                      label={t("marketplace.features.listings.ui.listingListPage.limit.per.order")}
+                      name="maxUnitsPerOrder"
+                      min="1"
+                      defaultValue={createForm?.maxUnitsPerOrder ?? ""}
+                      disabled={!hasInventory}
+                    />
+                    <NumberInput
+                      label={t("marketplace.features.listings.ui.listingListPage.limit.per.day")}
+                      name="maxUnitsPerDay"
+                      min="1"
+                      defaultValue={createForm?.maxUnitsPerDay ?? ""}
+                      disabled={!hasInventory}
+                    />
+                    <NumberInput
+                      label={t("marketplace.features.listings.ui.listingListPage.limit.per.customer")}
+                      name="maxUnitsPerCustomerAccount"
+                      min="1"
+                      defaultValue={createForm?.maxUnitsPerCustomerAccount ?? ""}
+                      disabled={!hasInventory}
+                    />
+                  </Inline>
+                </Stack>
+              </ProgressiveDisclosure>
               <Inline>
                 <Button
                   type="submit"
@@ -521,10 +559,17 @@ export function MarketplaceListingListPage({
       </PageSection>
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.fee.lock.report")}>
-        <DataTable
-          rows={[...(feeLockReport?.items ?? [])]}
-          getRowId={(row) => row.listing_id}
-          columns={[
+          <ProgressiveDisclosure
+          title={t("marketplace.features.listings.ui.listingListPage.fee.lock.report")}
+          summary={t("marketplace.features.listings.ui.listingListPage.fee.lock.records.summary", {
+            count: feeLockReport?.items.length ?? 0,
+          })}
+          tone={(feeLockReport?.items.length ?? 0) > 0 ? "info" : "neutral"}
+        >
+          <DataTable
+            rows={[...(feeLockReport?.items ?? [])]}
+            getRowId={(row) => row.listing_id}
+            columns={[
             {
               key: "listing",
               header: t("marketplace.features.listings.ui.listingListPage.listing"),
@@ -583,6 +628,7 @@ export function MarketplaceListingListPage({
           emptyTitle={t("marketplace.features.listings.ui.listingListPage.no.fee.locks")}
           emptyDescription={t("marketplace.features.listings.ui.listingListPage.fee.lock.report.empty")}
         />
+        </ProgressiveDisclosure>
       </PageSection>
     </Page>
   );

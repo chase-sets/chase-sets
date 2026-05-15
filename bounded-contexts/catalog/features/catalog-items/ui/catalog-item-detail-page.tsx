@@ -7,6 +7,7 @@ import {
   Inline,
   KeyValueList,
   PageSection,
+  ProgressiveDisclosure,
   Stack,
   Text,
   TextInput,
@@ -390,6 +391,15 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
             </PageSection>
 
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags")}>
+              <ProgressiveDisclosure
+                title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags")}
+                summary={(data.tags ?? []).length === 0
+                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.tags")
+                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags.summary", {
+                      count: (data.tags ?? []).length,
+                    })}
+                tone="info"
+              >
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
@@ -402,9 +412,19 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
                   <Text>{(data.tags ?? []).join(", ")}</Text>
                 )}
               </Stack>
+              </ProgressiveDisclosure>
             </PageSection>
 
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls")}>
+              <ProgressiveDisclosure
+                title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls")}
+                summary={(data.image_urls ?? []).length === 0
+                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.urls")
+                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.summary", {
+                      count: (data.image_urls ?? []).length,
+                    })}
+                tone="info"
+              >
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
@@ -421,9 +441,19 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
                   </Stack>
                 )}
               </Stack>
+              </ProgressiveDisclosure>
             </PageSection>
 
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}>
+              <ProgressiveDisclosure
+                title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}
+                summary={externalReferences.length === 0
+                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references")
+                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.references.summary", {
+                      count: externalReferences.length,
+                    })}
+                tone={externalReferences.length > 0 ? "info" : "neutral"}
+              >
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
@@ -472,6 +502,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
                   emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references")}
                 />
               </Stack>
+              </ProgressiveDisclosure>
             </PageSection>
           </Stack>
         )}
