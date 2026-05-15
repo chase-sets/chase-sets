@@ -68,6 +68,8 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   sellerAccountId: null,
   viewerAccountId: null,
   initialMarketIntent: "buy" as const,
+  initialSelectedOptions: [],
+  hasInitialSelectedOptionFilters: false,
   showSellerTab: true,
   canUseSellerFeatures: false,
   canSubmitOffers: false,
@@ -230,6 +232,41 @@ function buildRegisterToSellHref(request: Request) {
   const returnTo = `${url.pathname}${url.search}`;
 
   return `/register?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+export function readInitialSelectedOptions(searchParams: URLSearchParams) {
+  const selectedByDimension = new Map<string, Set<string>>();
+
+  for (const [key, value] of searchParams.entries()) {
+    if (!key.startsWith("dimension.") || !value.trim()) {
+      continue;
+    }
+
+    const dimensionId = key.slice("dimension.".length).trim();
+    const optionId = value.trim();
+
+    if (!dimensionId || !optionId) {
+      continue;
+    }
+
+    selectedByDimension.set(
+      dimensionId,
+      new Set([...(selectedByDimension.get(dimensionId) ?? []), optionId]),
+    );
+  }
+
+  return [...selectedByDimension.entries()]
+    .filter(([, optionIds]) => optionIds.size === 1)
+    .map(([dimensionId, optionIds]) => ({
+      dimensionId,
+      optionId: [...optionIds][0],
+    }));
+}
+
+function hasInitialSelectedOptionFilters(searchParams: URLSearchParams) {
+  return [...searchParams.entries()].some(([key, value]) =>
+    key.startsWith("dimension.") && value.trim().length > 0,
+  );
 }
 
 function toSellerInventoryItem(
@@ -1312,6 +1349,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const initialMarketIntent: "buy" | "sell" =
     url.searchParams.get("market") === "sell" ? "sell" : "buy";
+  const initialSelectedOptions = readInitialSelectedOptions(url.searchParams);
+  const initialSelectedOptionFiltersPresent = hasInitialSelectedOptionFilters(url.searchParams);
 
   if (!id) {
     return {
@@ -1321,6 +1360,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       sellerAccountId: null,
       viewerAccountId: null,
       initialMarketIntent,
+      initialSelectedOptions,
+      hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: false,
       canUseSellerFeatures: false,
       canSubmitOffers: false,
@@ -1388,6 +1429,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       sellerAccountId: canSellOnItem ? actor?.accountId ?? null : null,
       viewerAccountId: actor?.accountId ?? null,
       initialMarketIntent,
+      initialSelectedOptions,
+      hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: true,
       canUseSellerFeatures: canReviewAccountOfferMatches || canSellOnItem,
       canSubmitOffers,
@@ -1404,6 +1447,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         sellerAccountId: null,
         viewerAccountId: null,
         initialMarketIntent,
+        initialSelectedOptions,
+        hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
         showSellerTab: false,
         canUseSellerFeatures: false,
         canSubmitOffers: false,
@@ -1421,6 +1466,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       sellerAccountId: null,
       viewerAccountId: null,
       initialMarketIntent,
+      initialSelectedOptions,
+      hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: false,
       canUseSellerFeatures: false,
       canSubmitOffers: false,
@@ -1707,6 +1754,8 @@ function DiscoveryItemDetailRealtimeView({
       accountOfferMatches={data.accountOfferMatches}
       viewerAccountId={data.viewerAccountId}
       initialMarketIntent={data.initialMarketIntent}
+      initialSelectedOptions={data.initialSelectedOptions}
+      hasInitialSelectedOptionFilters={data.hasInitialSelectedOptionFilters}
       notFound={data.notFound}
       error={data.error}
       renderCommerce={

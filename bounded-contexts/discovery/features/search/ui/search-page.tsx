@@ -149,6 +149,23 @@ function buildDynamicAppliedFilters(
   });
 }
 
+function buildItemDetailHref(
+  slug: string,
+  dynamicFilters: readonly DynamicSearchFilterSelection[],
+) {
+  const params = new URLSearchParams();
+
+  for (const filter of dynamicFilters) {
+    if (filter.kind === "dimension" && filter.id && filter.value) {
+      params.append(`dimension.${filter.id}`, filter.value);
+    }
+  }
+
+  const query = params.toString();
+
+  return `/items/${slug}${query ? `?${query}` : ""}`;
+}
+
 export interface SearchPageProps {
   search: string;
   committedSearch?: string;
@@ -539,11 +556,12 @@ export function SearchPage({
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
+                const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
 
                 return (
                   <ListingCard
                     key={item.catalog_item_id}
-                    href={`/items/${item.slug}`}
+                    href={itemDetailHref}
                     title={item.title}
                     imageSrc={item.image_urls[0] ?? discoveryAssetUrls.defaultProductImage}
                     imageAlt={item.title}
@@ -566,7 +584,7 @@ export function SearchPage({
                         : t("discovery.features.search.ui.searchPage.supply.wanted")
                     }
                     primaryAction={
-                      <LinkButton href={`/items/${item.slug}`} size="sm">
+                      <LinkButton href={itemDetailHref} size="sm">
                         {hasActiveListings
                           ? t("discovery.features.search.ui.searchPage.view.details")
                           : t("discovery.features.search.ui.searchPage.view.market")}

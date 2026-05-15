@@ -42,6 +42,14 @@ Multiple values for the same Field or Dimension use repeated query parameters. D
 
 Labels, display order, and localized copy must not be used as durable filter identifiers.
 
+## Detail Page Handoff
+
+Search Result links preserve selected Dimension filters on item detail URLs so a buyer who narrows search by Product-defining Options lands on the Detail Page with the same Product Options selected. This keeps the path from filter to listing purchase short: matching listings, add-to-cart, buy-now, offer, and Product Alert affordances all receive the selected Product context immediately.
+
+Field filters are intentionally not carried into Product selection because Fields describe Catalog Items and do not define Products.
+
+If Search carries exactly one selected Option for a Dimension, Item Detail validates and applies that selection against the projected Product Schema. If Search carries multiple selected Options for the same Dimension, Item Detail leaves that Dimension unset rather than guessing. Invalid or inapplicable Dimension selections are ignored during Product Schema normalization.
+
 ## Boundary Rules
 
 - Discovery decides filter presentation, ranking, query normalization, and counts.
