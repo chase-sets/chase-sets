@@ -13,6 +13,9 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import {
+  createTwilioMessagingWebhookGateway,
+} from "@chase-sets/twilio-messaging";
+import {
   createMergedRealtimeWakeSignal,
   createPostgresRealtimeStreamLimiter,
   createPostgresRealtimeWakeSignal,
@@ -101,6 +104,12 @@ const socialLoginProviders = [
       ]
     : []),
 ];
+const mobileMessageWebhookGateway = config.mobileMessaging.kind === "twilio"
+  ? createTwilioMessagingWebhookGateway({
+      authToken: config.mobileMessaging.authToken,
+      requireSignature: config.mobileMessaging.requireWebhookSignature,
+    })
+  : undefined;
 
 if (config.paymentProcessor.kind === "fake") {
   logger.warn("Platform API is using the fake payment processor.", {
@@ -133,6 +142,7 @@ const runtime = createPlatformApiHost({
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
     socialLoginProviders,
+    ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
 });
 const realtimeStores = runtime.mountedContexts

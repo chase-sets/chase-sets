@@ -42,6 +42,9 @@ function resetConfigEnv() {
   delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET;
   delete process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID;
   delete process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET;
+  delete process.env.MOBILE_MESSAGING_PROVIDER;
+  delete process.env.TWILIO_AUTH_TOKEN;
+  delete process.env.TWILIO_WEBHOOK_SIGNATURE_REQUIRED;
   delete process.env.PAYMENT_RECONCILIATION_INTERVAL_MS;
   delete process.env.PAYOUT_RECONCILIATION_INTERVAL_MS;
   delete process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS;
@@ -161,6 +164,29 @@ describe("platform api config", () => {
 
     expect(loadConfig().paymentProcessor).toEqual({ kind: "fake" });
     expect(loadConfig().moneyMovement).toEqual({ kind: "fake" });
+    expect(loadConfig().mobileMessaging).toEqual({ kind: "noop" });
+  });
+
+  it("loads Twilio SMS/RCS webhook configuration when enabled", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.MOBILE_MESSAGING_PROVIDER = "twilio";
+    process.env.TWILIO_AUTH_TOKEN = "secret";
+    process.env.TWILIO_WEBHOOK_SIGNATURE_REQUIRED = "false";
+
+    expect(loadConfig().mobileMessaging).toEqual({
+      kind: "twilio",
+      authToken: "secret",
+      requireWebhookSignature: false,
+    });
+  });
+
+  it("requires Twilio auth token when mobile messaging webhooks are enabled", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.MOBILE_MESSAGING_PROVIDER = "twilio";
+
+    expect(() => loadConfig()).toThrow(
+      "TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.",
+    );
   });
 
   it("loads Stripe Connect money movement config from Stripe env vars", () => {

@@ -245,6 +245,47 @@ export interface NotificationOutboxStore extends NotificationOutbox {
   markNotificationDeliveryFailed(input: MarkNotificationDeliveryFailedInput): Promise<void>;
 }
 
+export type MobileMessageProviderWebhookEventKind =
+  | "delivery-status"
+  | "inbound-message";
+
+export type MobileMessageProviderWebhookEvent = Readonly<{
+  providerEventId: string;
+  providerName: NotificationProviderName;
+  eventKind: MobileMessageProviderWebhookEventKind;
+  providerMessageId: string;
+  deliveryId?: string | null;
+  status?: string | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
+  fromPhoneNumber?: string | null;
+  toPhoneNumber?: string | null;
+  body?: string | null;
+  occurredAt: string;
+  receivedAt?: string;
+}>;
+
+export type MobileMessageProviderWebhookInput = Readonly<{
+  rawBody: string;
+  url: string;
+  contentType?: string | null;
+  signatureHeader?: string | null;
+}>;
+
+export interface MobileMessageWebhookGateway {
+  processMobileMessageWebhook(
+    input: MobileMessageProviderWebhookInput,
+  ): Promise<MobileMessageProviderWebhookEvent | null>;
+}
+
+export function createNoopMobileMessageWebhookGateway(): MobileMessageWebhookGateway {
+  return {
+    async processMobileMessageWebhook() {
+      return null;
+    },
+  };
+}
+
 export type NotificationChannelPreference = Readonly<{
   channel: NotificationChannelName;
   enabled: boolean;

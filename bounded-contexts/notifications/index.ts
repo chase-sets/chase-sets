@@ -7,10 +7,14 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import { buildNotificationsApi } from "./api";
+import {
+  buildNotificationsApi,
+  buildNotificationsMobileMessageWebhookApi,
+} from "./api";
 import { notificationsSchemaSql } from "./support/runtime-support/schema";
 import {
   createNotificationsServices,
+  type NotificationsHostPorts,
   type NotificationsServices,
 } from "./features/notification-center/api/services";
 import {
@@ -44,7 +48,11 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<NotificationsServices, PgTransactionalPool, void> = {
+export const module: BcApiModule<
+  NotificationsServices,
+  PgTransactionalPool,
+  NotificationsHostPorts
+> = {
   contextName: "notifications",
   routePrefix: "/api/notifications",
   streamPrefix: "notifications.",
@@ -52,11 +60,14 @@ export const module: BcApiModule<NotificationsServices, PgTransactionalPool, voi
   apiMounts: contextManifest.apiMounts as BcApiModule<
     NotificationsServices,
     PgTransactionalPool,
-    void
+    NotificationsHostPorts
   >["apiMounts"],
   projectionGroups,
-  createServices: (pool) => createNotificationsServices(pool),
-  buildApis: (services) => [buildNotificationsApi(services)],
+  createServices: (pool, ports) => createNotificationsServices(pool, ports),
+  buildApis: (services) => [
+    buildNotificationsApi(services),
+    buildNotificationsMobileMessageWebhookApi(services),
+  ],
   projectors: () => [],
   buildSubscriptions: (services) => {
     const orderingSubscription = getEventSubscription(
