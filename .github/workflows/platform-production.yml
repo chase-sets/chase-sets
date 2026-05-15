@@ -752,6 +752,8 @@ jobs:
 
           docker buildx imagetools create --tag "$release_image" "$promoted_image"
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin production || true
           git fetch origin --tags || true
 
