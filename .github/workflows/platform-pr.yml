@@ -17,6 +17,7 @@ jobs:
   static:
     name: Static Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -34,6 +35,7 @@ jobs:
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -48,6 +50,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -62,6 +65,7 @@ jobs:
   db-tests:
     name: DB Profile Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -92,6 +96,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -106,6 +111,7 @@ jobs:
   docker-image:
     name: Docker Image Build
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
 
@@ -115,8 +121,8 @@ jobs:
         run: |
           docker buildx build \
             --pull \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
+            --cache-from type=gha,scope=platform-image-pr \
+            --cache-to type=gha,scope=platform-image-pr,mode=min \
             --load \
             --tag chase-sets-platform:pr-validation \
             .
@@ -124,6 +130,7 @@ jobs:
   workflow-lint:
     name: Workflow Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
@@ -144,6 +151,7 @@ jobs:
   terraform-preview-plan:
     name: Terraform Preview Plan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -217,6 +225,7 @@ jobs:
   terraform-production-plan:
     name: Terraform Production Plan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -262,6 +271,7 @@ jobs:
   terraform-staging-plan:
     name: Terraform Staging Plan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -314,7 +324,11 @@ jobs:
   preview-deploy-smoke:
     name: Deploy Preview and Smoke
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    timeout-minutes: 75
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'preview')
     environment: preview
     needs:
       - static
@@ -440,8 +454,8 @@ jobs:
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
           docker buildx build \
             --pull \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
+            --cache-from type=gha,scope=platform-image-preview \
+            --cache-to type=gha,scope=platform-image-preview,mode=min \
             --push \
             --tag "$image" \
             .
@@ -622,6 +636,7 @@ jobs:
   pr-required:
     name: PR Required
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always()
     needs:
       - static
@@ -659,9 +674,10 @@ jobs:
           done
 
           preview_result="${{ needs['preview-deploy-smoke'].result }}"
+          preview_required="${{ contains(github.event.pull_request.labels.*.name, 'preview') }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if [ "$preview_result" != "success" ]; then
-              echo "Preview deployment and smoke must pass on pull requests." >&2
+            if [ "$preview_required" = "true" ] && [ "$preview_result" != "success" ]; then
+              echo "Preview deployment and smoke must pass when the preview label is present." >&2
               exit 1
             fi
           elif [ "$preview_result" != "skipped" ] && [ "$preview_result" != "success" ]; then

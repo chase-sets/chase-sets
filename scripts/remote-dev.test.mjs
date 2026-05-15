@@ -61,6 +61,7 @@ describe("remote-dev planning helpers", () => {
       domain: "dev.example.com",
       dnsZone: "example.com",
       sshKeyId: "12345",
+      sshCidr: "198.51.100.10/32",
       userDataPath: "/tmp/cloud-init.yml",
       publicIpPlaceholder: "203.0.113.10",
     });
@@ -76,8 +77,28 @@ describe("remote-dev planning helpers", () => {
       "Create wildcard DNS record",
     ]);
     expect(plan.find((step) => step.label === "Create Droplet").args).toContain("ubuntu-24-04-x64");
+    expect(plan.find((step) => step.label === "Create cloud firewall").args).toContain(
+      "protocol:tcp,ports:22,address:198.51.100.10/32",
+    );
     expect(plan.at(-2).args).toContain("main-fedefa2-x1y2z3.dev");
     expect(plan.at(-1).args).toContain("*.main-fedefa2-x1y2z3.dev");
+  });
+
+  it("requires an explicit SSH CIDR for remote-dev create plans", () => {
+    expect(() =>
+      buildCreatePlan({
+        slug: "main-fedefa2-x1y2z3",
+        branch: "main",
+        expiresAt: new Date("2026-05-05T12:00:00.000Z"),
+        region: "nyc3",
+        size: "s-2vcpu-4gb",
+        image: "ubuntu-24-04-x64",
+        domain: "dev.example.com",
+        dnsZone: "example.com",
+        sshKeyId: "12345",
+        userDataPath: "/tmp/cloud-init.yml",
+      }),
+    ).toThrow("REMOTE_DEV_SSH_CIDR or --ssh-cidr is required");
   });
 
   it("builds destroy plans for droplet, DNS, firewall, and session tag cleanup", () => {

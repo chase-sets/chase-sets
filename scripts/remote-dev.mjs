@@ -311,6 +311,7 @@ export function buildCreatePlan(config) {
   });
   const tagNames = tags.join(",");
   const sshKey = assertNonBlank(config.sshKeyId, "REMOTE_DEV_SSH_KEY_ID");
+  const sshCidr = assertNonBlank(config.sshCidr, "REMOTE_DEV_SSH_CIDR or --ssh-cidr");
   const firewallName = firewallNameForSlug(slug);
 
   return [
@@ -338,7 +339,7 @@ export function buildCreatePlan(config) {
         "--tag-names",
         tagNames,
         "--inbound-rules",
-        `protocol:tcp,ports:22,address:${config.sshCidr ?? "0.0.0.0/0"},address:::/0`,
+        `protocol:tcp,ports:22,address:${sshCidr}`,
         "--inbound-rules",
         "protocol:tcp,ports:80,address:0.0.0.0/0,address:::/0",
         "--inbound-rules",
@@ -934,6 +935,7 @@ function validateCreateEnvironment(env, { dryRun }) {
   assertNonBlank(env.domain, "REMOTE_DEV_DOMAIN");
   assertNonBlank(env.dnsZone, "REMOTE_DEV_DNS_ZONE");
   assertNonBlank(env.sshKeyId, "REMOTE_DEV_SSH_KEY_ID");
+  assertNonBlank(env.sshCidr, "REMOTE_DEV_SSH_CIDR or --ssh-cidr");
   assertNonBlank(env.basicAuthUser, "REMOTE_DEV_BASIC_AUTH_USER");
   if (!env.basicAuthHash && !env.basicAuthPassword) {
     throw new Error("REMOTE_DEV_BASIC_AUTH_HASH or REMOTE_DEV_BASIC_AUTH_PASSWORD is required.");

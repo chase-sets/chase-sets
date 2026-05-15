@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   activeDeployments,
+  assertNoDestructiveChanges,
   appNotFound,
   appPlatformChanges,
+  destructiveResourceChanges,
   deployApp,
   pendingDomains,
   planAppChanged,
@@ -20,6 +22,15 @@ function appChange(actions) {
   return {
     type: "digitalocean_app",
     name: "platform",
+    change: { actions },
+  };
+}
+
+function resourceChange(address, actions) {
+  return {
+    address,
+    type: address.split(".")[0],
+    name: address.split(".").at(-1),
     change: { actions },
   };
 }
@@ -44,6 +55,47 @@ describe("digitalocean-app-deployment", () => {
         ]),
       ),
     ).toBe(false);
+  });
+
+  it("summarizes destructive Terraform changes", () => {
+    expect(
+      destructiveResourceChanges(
+        planFor([
+          resourceChange("digitalocean_app.platform", ["update"]),
+          resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
+          resourceChange("digitalocean_database_db.contexts[\"auth\"]", ["delete"]),
+        ]),
+      ),
+    ).toEqual([
+      {
+        address: "digitalocean_database_cluster.postgres",
+        type: "digitalocean_database_cluster",
+        name: "postgres",
+        actions: ["delete", "create"],
+      },
+      {
+        address: "digitalocean_database_db.contexts[\"auth\"]",
+        type: "digitalocean_database_db",
+        name: "contexts[\"auth\"]",
+        actions: ["delete"],
+      },
+    ]);
+  });
+
+  it("blocks destructive Terraform changes unless an override marker is present", () => {
+    const plan = planFor([resourceChange("digitalocean_app.platform", ["delete", "create"])]);
+
+    expect(() => assertNoDestructiveChanges(plan)).toThrow(
+      "Production Terraform plan contains destructive changes",
+    );
+    expect(assertNoDestructiveChanges(plan, { allowDestructiveChanges: true })).toEqual([
+      {
+        address: "digitalocean_app.platform",
+        type: "digitalocean_app",
+        name: "platform",
+        actions: ["delete", "create"],
+      },
+    ]);
   });
 
   it("reads Terraform JSON plan output for app-change detection", async () => {
