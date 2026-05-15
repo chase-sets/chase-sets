@@ -96,7 +96,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "projectorNames": [
         "discovery-search-item-projection"
       ],
