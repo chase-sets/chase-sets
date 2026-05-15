@@ -122,6 +122,11 @@ export function loadConfig(): PlatformWorkerConfig {
     getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER") === "amazon-ses"
       ? "amazon-ses"
       : "noop";
+  const sesAwsRegion = getOptionalEnv("SES_AWS_REGION") ?? undefined;
+  const sesFromEmail = getOptionalEnv("SES_FROM_EMAIL") ?? undefined;
+  const sesConfigurationSetName =
+    getOptionalEnv("SES_CONFIGURATION_SET_NAME") ?? undefined;
+  const sesSourceArn = getOptionalEnv("SES_SOURCE_ARN") ?? undefined;
 
   if (
     productionLike &&
@@ -142,6 +147,17 @@ export function loadConfig(): PlatformWorkerConfig {
   ) {
     throw new Error(
       "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for platform worker hosted payout setup in production.",
+    );
+  }
+  if (
+    notificationEmailProvider === "amazon-ses" &&
+    (!sesAwsRegion ||
+      !sesFromEmail ||
+      !sesConfigurationSetName ||
+      !sesSourceArn)
+  ) {
+    throw new Error(
+      "SES_AWS_REGION, SES_FROM_EMAIL, SES_CONFIGURATION_SET_NAME, and SES_SOURCE_ARN are required when NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
   }
 
@@ -205,11 +221,10 @@ export function loadConfig(): PlatformWorkerConfig {
     notificationEmail: {
       provider: notificationEmailProvider,
       ses: {
-        region: getOptionalEnv("SES_AWS_REGION") ?? undefined,
-        fromEmail: getOptionalEnv("SES_FROM_EMAIL") ?? undefined,
-        configurationSetName:
-          getOptionalEnv("SES_CONFIGURATION_SET_NAME") ?? undefined,
-        sourceArn: getOptionalEnv("SES_SOURCE_ARN") ?? undefined,
+        region: sesAwsRegion,
+        fromEmail: sesFromEmail,
+        configurationSetName: sesConfigurationSetName,
+        sourceArn: sesSourceArn,
       },
     },
   };

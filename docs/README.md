@@ -17,6 +17,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 ## Runbooks
 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
+- [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
 - [Observability](./runbooks/observability.md): local OpenTelemetry and LGTM stack.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
 - [Postage Operations](./runbooks/postage-operations.md): postage label provider configuration and label smoke checks.

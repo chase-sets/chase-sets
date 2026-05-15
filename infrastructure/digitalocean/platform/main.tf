@@ -718,6 +718,37 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "NOTIFICATION_EMAIL_PROVIDER"
+          value = var.notification_email_provider
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_AWS_REGION"
+          value = var.ses_aws_region
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_FROM_EMAIL"
+          value = var.ses_from_email
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_CONFIGURATION_SET_NAME"
+          value = var.ses_configuration_set_name
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SES_SOURCE_ARN"
+          value = var.ses_source_arn
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "DEPLOYMENT_ENVIRONMENT"
           value = var.environment
           scope = "RUN_TIME"

@@ -11,6 +11,7 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1045.0",
     "@chase-sets/communications-email": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/notifications": "workspace:*"

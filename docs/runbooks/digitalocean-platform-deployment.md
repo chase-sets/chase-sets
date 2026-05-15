@@ -57,6 +57,7 @@ Configure these in `preview`, `staging`, and `production` GitHub Environments:
 - `PLATFORM_ADMIN_EMAIL`
 - `PLATFORM_ADMIN_PASSWORD`
 - `CHASE_SETS_DISCORD_INVITE_URL`
+- `SES_SOURCE_ARN`
 
 Additional `preview` and `staging` secrets for the full platform:
 
@@ -71,6 +72,20 @@ Optional `preview` and `staging` variables:
 - `EASYPOST_API_BASE_URL`
 - `EASYPOST_MODE`
 - `PLATFORM_ADMIN_DISPLAY_NAME`
+- `NOTIFICATION_EMAIL_PROVIDER`
+- `SES_AWS_REGION`
+- `SES_FROM_EMAIL`
+- `SES_CONFIGURATION_SET_NAME`
+
+SES values configured for platform environments:
+
+| Environment | `NOTIFICATION_EMAIL_PROVIDER` | `SES_AWS_REGION` | `SES_FROM_EMAIL` | `SES_CONFIGURATION_SET_NAME` | `SES_SOURCE_ARN` |
+| --- | --- | --- | --- | --- | --- |
+| `preview` | `amazon-ses` | `us-east-2` | `notifications@preview.chasesets.com` | `transactional-preview` | `arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com` |
+| `staging` | `amazon-ses` | `us-east-2` | `notifications@staging.chasesets.com` | `transactional-staging` | `arn:aws:ses:us-east-2:812517519777:identity/staging.chasesets.com` |
+| `production` | `amazon-ses` | `us-east-2` | `notifications@chasesets.com` | `transactional-production` | `arn:aws:ses:us-east-2:812517519777:identity/chasesets.com` |
+
+The `platform-worker` component consumes these values in preview and staging. Production stores and validates the production SES values now, but production currently runs the landing/admin-support component set until marketplace production promotion adds the full `platform-worker`.
 
 Preview and staging Terraform validation requires test-mode provider values:
 
