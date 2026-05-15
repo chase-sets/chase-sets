@@ -14,6 +14,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Field`
 - `Component`
 - `Category`
+- `Source Observation`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -34,6 +35,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Field` — a descriptive attribute definition for Catalog Items that does not create Product variation
 - `Component` — a reusable bundle of Field and Dimension rules used to compose Blueprints
 - `Category` — a consumer-facing grouping for browsing and merchandising that does not affect Product identity
+- `Source Observation` — a provider-sourced candidate record reviewed before it becomes Catalog truth
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
 
@@ -52,6 +54,7 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Field` describes a Catalog Item without changing Product identity.
 - A `Component` contributes reusable Field and Dimension rules to Blueprints.
 - A `Category` organizes Catalog Items without changing Product identity.
+- A `Source Observation` may be promoted into a Catalog Item after review.
 
 ## Identity and IDs
 
@@ -139,6 +142,7 @@ Catalog defines:
 - the resolved set of valid Products
 - the relationship between Dimensions, Options, and Products
 - the authoring relationship between Blueprints, Fields, Components, Categories, and Catalog Items
+- the review and promotion policy for provider Source Observations
 
 Catalog does not define:
 

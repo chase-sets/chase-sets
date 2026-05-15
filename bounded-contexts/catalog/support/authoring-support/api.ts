@@ -7,6 +7,7 @@ import { categoryRoutes } from "../../features/categories/api/route";
 import { componentRoutes } from "../../features/components/api/route";
 import { dimensionRoutes } from "../../features/dimensions/api/route";
 import { fieldRoutes } from "../../features/fields/api/route";
+import { sourceObservationRoutes } from "../../features/source-observations/api/route";
 
 export type CatalogAuthoringEnv = {
   Variables: {
@@ -23,6 +24,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/blueprints", blueprintRoutes(services.blueprints));
   app.route("/categories", categoryRoutes(services.categories));
   app.route("/items", catalogItemRoutes(services.items));
+  app.route("/source-observations", sourceObservationRoutes(services.sourceObservations));
 
   return app;
 }

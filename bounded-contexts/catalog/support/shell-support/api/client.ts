@@ -551,6 +551,43 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+
+    async listSourceObservations<T>(query: string): Promise<T> {
+      const response = await client["source-observations"].$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async getSourceObservation<T>(id: string): Promise<T> {
+      const response = await client["source-observations"][":id"].$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async importTcgdexSet<T>(body: unknown): Promise<T> {
+      const response = await client["source-observations"].imports["tcgdex-set"].$post({
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async promoteSourceObservation<T>(id: string): Promise<T> {
+      const response = await client["source-observations"][":id"].promote.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async rejectSourceObservation<T>(id: string, reason: string): Promise<T> {
+      const response = await client["source-observations"][":id"].reject.$post({
+        param: { id },
+        json: { reason },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
   };
 }
 
