@@ -53,6 +53,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Notification Preference | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level setting that controls notification delivery or notification-center behavior. |
 | Product Alert | [Discovery](../bounded-contexts/discovery/GLOSSARY.md) | Account-owned watch on one resolved Catalog Product for listing or limited offer-demand notifications. |
 | Platform Feedback | [Experience](../bounded-contexts/experience/GLOSSARY.md) | Internal product feedback, not public account reputation. |
+| Sign-In Identifier | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Contact value Auth accepts to start an authentication journey, such as email or phone. |
+| Phone Code | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Short-lived Auth challenge sent over SMS and consumed to start or continue a session. |
 | Social Login | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Auth-owned sign-in or registration journey through an external provider. |
 | Social Login Provider | [Auth](../bounded-contexts/auth/GLOSSARY.md) | External identity provider configured for Social Login, starting with Google and Facebook. |
 | Social Login Link | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Identity-owned User fact linking one external provider identity to one User. |

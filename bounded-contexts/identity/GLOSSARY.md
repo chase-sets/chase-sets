@@ -155,12 +155,13 @@ Examples:
 - Passkey
 - Google login
 - Magic link
-- SMS code
+- SMS code (`sms-code`)
 
 Notes:
 
 - A user may have multiple authentication methods.
 - Auth owns the sign-in and registration journey that uses these methods.
+- Identity owns the durable fact that the method is enabled for a User.
 
 ### Social Login Link
 
@@ -218,6 +219,7 @@ Notes:
 
 - A user may have multiple contact methods.
 - Contact methods may require verification.
+- Email addresses and phone numbers used for sign-in are normalized before lookup.
 
 ### Verification
 

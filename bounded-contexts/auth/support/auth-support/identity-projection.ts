@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS auth_identity_users (
   display_name text NOT NULL,
   given_name text NOT NULL,
   family_name text NOT NULL,
-  primary_email text NOT NULL,
+  primary_email text NULL,
   status text NOT NULL,
   contact_methods jsonb NOT NULL DEFAULT '[]'::jsonb,
   auth_methods jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -31,8 +31,19 @@ CREATE TABLE IF NOT EXISTS auth_identity_users (
 ALTER TABLE auth_identity_users
   ADD COLUMN IF NOT EXISTS social_login_links jsonb NOT NULL DEFAULT '[]'::jsonb;
 
+ALTER TABLE auth_identity_users
+  ALTER COLUMN primary_email DROP NOT NULL;
+
 CREATE TABLE IF NOT EXISTS auth_identity_user_emails (
   email text PRIMARY KEY,
+  user_id text NOT NULL,
+  contact_method_id text NOT NULL,
+  is_verified boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS auth_identity_user_phones (
+  phone text PRIMARY KEY,
   user_id text NOT NULL,
   contact_method_id text NOT NULL,
   is_verified boolean NOT NULL DEFAULT false,
@@ -85,7 +96,7 @@ export type AuthIdentityUserRow = Readonly<{
   display_name: string;
   given_name: string;
   family_name: string;
-  primary_email: string;
+  primary_email: string | null;
   status: string;
   contact_methods: readonly unknown[];
   auth_methods: readonly string[];
@@ -150,6 +161,27 @@ export function normalizeAuthEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+export function normalizeAuthPhoneNumber(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const withoutSeparators = trimmed.replace(/[()\-\s.]/g, "");
+  const digits = withoutSeparators.replace(/\D/g, "");
+  if (withoutSeparators.startsWith("+")) {
+    return `+${digits}`;
+  }
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+
+  return digits ? `+${digits}` : trimmed;
+}
+
 export function createAuthBootstrapContext(): EventStoreContext {
   return {
     tenantId: AUTH_BOOTSTRAP_TENANT_ID as never,
@@ -193,6 +225,50 @@ async function syncUserEmailLookups(
       ],
     );
   }
+}
+
+async function syncUserPhoneLookups(
+  db: PgQueryable,
+  userId: string,
+  contactMethods: readonly ContactMethodRow[],
+  updatedAt: string,
+) {
+  await db.query(`DELETE FROM auth_identity_user_phones WHERE user_id = $1`, [userId]);
+
+  for (const method of contactMethods.filter((entry) => entry.type === "phone")) {
+    await db.query(
+      `INSERT INTO auth_identity_user_phones (
+         phone,
+         user_id,
+         contact_method_id,
+         is_verified,
+         updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (phone) DO UPDATE
+       SET user_id = $2,
+           contact_method_id = $3,
+           is_verified = $4,
+           updated_at = $5`,
+      [
+        normalizeAuthPhoneNumber(method.value),
+        userId,
+        method.contactMethodId,
+        method.verifiedAt !== null,
+        updatedAt,
+      ],
+    );
+  }
+}
+
+async function syncContactMethodLookups(
+  db: PgQueryable,
+  userId: string,
+  contactMethods: readonly ContactMethodRow[],
+  updatedAt: string,
+) {
+  await syncUserEmailLookups(db, userId, contactMethods, updatedAt);
+  await syncUserPhoneLookups(db, userId, contactMethods, updatedAt);
 }
 
 async function upsertMembershipMirror(
@@ -239,21 +315,26 @@ export function buildAuthIdentityUserProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "identity.user.created": async (event) => {
-      const { userId, displayName, givenName, familyName, primaryEmail } = event.data as {
+      const { userId, displayName, givenName, familyName, primaryEmail, primaryContactMethod } = event.data as {
         userId: string;
         displayName: string;
         givenName: string;
         familyName: string;
-        primaryEmail: string;
+        primaryEmail: string | null;
+        primaryContactMethod?: ContactMethodRow;
       };
-      const contactMethods: ContactMethodRow[] = [
-        {
-          contactMethodId: `${userId}-primary-email`,
-          type: "email",
-          value: primaryEmail,
-          verifiedAt: null,
-        },
-      ];
+      const contactMethods: ContactMethodRow[] = primaryContactMethod
+        ? [primaryContactMethod]
+        : primaryEmail
+          ? [
+              {
+                contactMethodId: `${userId}-primary-email`,
+                type: "email",
+                value: primaryEmail,
+                verifiedAt: null,
+              },
+            ]
+          : [];
 
       await db.query(
         `INSERT INTO auth_identity_users (
@@ -290,7 +371,7 @@ export function buildAuthIdentityUserProjectionHandlers(
         ],
       );
 
-      await syncUserEmailLookups(db, userId, contactMethods, event.timing.recordedAt);
+      await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.profile-updated": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -333,7 +414,7 @@ export function buildAuthIdentityUserProjectionHandlers(
          WHERE user_id = $1`,
         [userId, JSON.stringify(contactMethods), event.timing.recordedAt],
       );
-      await syncUserEmailLookups(db, userId, contactMethods, event.timing.recordedAt);
+      await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.contact-method-verified": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -359,7 +440,7 @@ export function buildAuthIdentityUserProjectionHandlers(
          WHERE user_id = $1`,
         [userId, JSON.stringify(contactMethods), event.timing.recordedAt],
       );
-      await syncUserEmailLookups(db, userId, contactMethods, event.timing.recordedAt);
+      await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.auth-method-enabled": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -753,6 +834,20 @@ export async function getAuthIdentityUserByEmail(
      INNER JOIN auth_identity_users AS users ON users.user_id = emails.user_id
      WHERE emails.email = $1`,
     [normalizeAuthEmail(email)],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function getAuthIdentityUserByPhone(
+  db: PgQueryable,
+  phone: string,
+) {
+  const result = await db.query<AuthIdentityUserRow>(
+    `SELECT users.*
+     FROM auth_identity_user_phones AS phones
+     INNER JOIN auth_identity_users AS users ON users.user_id = phones.user_id
+     WHERE phones.phone = $1`,
+    [normalizeAuthPhoneNumber(phone)],
   );
   return result.rows[0] ?? null;
 }

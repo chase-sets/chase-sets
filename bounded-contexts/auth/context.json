@@ -102,7 +102,8 @@
       ],
       "ownedTables": [
         "auth_identity_users",
-        "auth_identity_user_emails"
+        "auth_identity_user_emails",
+        "auth_identity_user_phones"
       ],
       "requiredDuringBootstrap": true
     },
@@ -133,6 +134,11 @@
       "portName": "transactionalEmailOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable transactional email outbox consumed only by event projectors."
+    },
+    {
+      "portName": "notificationOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable notification outbox used for SMS sign-in codes and future Auth notification channels."
     }
   ],
   "apiDeployables": [

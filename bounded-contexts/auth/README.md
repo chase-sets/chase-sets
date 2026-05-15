@@ -14,6 +14,7 @@ It is the canonical home for:
 - session lifecycle and revocation
 - actor-resolution helpers used by hosts
 - the mounted Auth API at `/api/auth`
+- phone-code and email-link challenge journeys
 
 ## Owns
 
@@ -23,6 +24,7 @@ It is the canonical home for:
 - Session-cookie and return-path behavior
 - Session-token and account-selection-token persistence
 - Auth-specific credential and challenge persistence
+- Auth notification intents for security challenges
 - Host-facing auth route modules
 - Auth API routes and orchestration
 
@@ -63,3 +65,17 @@ That means:
 - **`routes/` is adapter-only.** `bounded-contexts/auth/routes/` should only host deployable adapter modules that bind route exports to slice-local features.
 - **`support/` is composition-only.** Keep API composition, request helpers, and shared journey UI under `bounded-contexts/auth/support/*-support/`; do not place feature domain/query/projection code there.
 - **Deployables remain thin roots.** Deployables should resolve Auth route and shell contributions through `@chase-sets/platform-runtime`, then delegate to Auth-owned route modules.
+
+## Flexible Sign-In
+
+Auth supports multiple authentication methods for marketplace registration and sign-in:
+
+- Passkey
+- Phone Code
+- Magic link
+- Password
+- Social Login
+
+Phone Code delivery goes through the provider-neutral Notifications contract and the Auth-owned notification outbox. Platform worker adapters handle SMS provider details, including local noop delivery and Twilio delivery when mobile messaging is configured.
+
+See [docs/flexible-sign-in.md](./docs/flexible-sign-in.md) for route and ownership details.

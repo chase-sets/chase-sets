@@ -3,7 +3,7 @@ export type User = Readonly<{
   display_name: string;
   given_name: string;
   family_name: string;
-  primary_email: string;
+  primary_email: string | null;
   status: string;
   auth_methods: readonly string[];
   updated_at: string;

@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { normalizeEmail } from "../../../support/runtime-support/common";
+import { normalizeEmail, normalizePhoneNumber } from "../../../support/runtime-support/common";
 import {
   buildFilteredQuery,
   executeListQuery,
@@ -11,7 +11,7 @@ export type UserRow = Readonly<{
   display_name: string;
   given_name: string;
   family_name: string;
-  primary_email: string;
+  primary_email: string | null;
   status: string;
   contact_methods: readonly unknown[];
   auth_methods: readonly string[];
@@ -49,6 +49,17 @@ export async function getUserByEmail(db: PgQueryable, email: string) {
      INNER JOIN identity_users AS users ON users.user_id = emails.user_id
      WHERE emails.email = $1`,
     [normalizeEmail(email)],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function getUserByPhone(db: PgQueryable, phone: string) {
+  const result = await db.query<UserRow>(
+    `SELECT users.*
+     FROM identity_user_phones AS phones
+     INNER JOIN identity_users AS users ON users.user_id = phones.user_id
+     WHERE phones.phone = $1`,
+    [normalizePhoneNumber(phone)],
   );
   return result.rows[0] ?? null;
 }

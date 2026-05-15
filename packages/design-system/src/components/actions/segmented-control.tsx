@@ -57,7 +57,7 @@ export function SegmentedControl({
         className={cx(
           "rounded-tokenLg border border-muted bg-background p-1",
           fullWidth
-            ? "grid w-full grid-flow-col auto-cols-fr"
+            ? "grid w-full grid-cols-2 sm:grid-flow-col sm:auto-cols-fr"
             : "inline-flex flex-wrap"
         )}
       >
@@ -72,7 +72,7 @@ export function SegmentedControl({
               aria-selected={active}
               tabIndex={active ? 0 : -1}
               className={cx(
-                "focus-ring relative inline-flex min-h-10 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
+                "focus-ring relative inline-flex min-h-10 min-w-0 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
                 fullWidth && "justify-center",
                 active
                   ? "text-accent"
@@ -83,7 +83,7 @@ export function SegmentedControl({
             >
               {active ? renderActivePill(groupId, "accent") : null}
               {item.icon ? <Icon name={item.icon} size="sm" /> : null}
-              <span className="relative z-10">{item.label}</span>
+              <span className="relative z-10 min-w-0">{item.label}</span>
             </button>
           );
         })}

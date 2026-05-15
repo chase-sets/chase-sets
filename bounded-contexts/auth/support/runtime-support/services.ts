@@ -3,6 +3,8 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import type { NotificationOutbox } from "@chase-sets/notifications";
+import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import type {
   PgQueryable,
@@ -24,6 +26,7 @@ import {
   getAuthIdentityInvitation,
   getAuthIdentityUser,
   getAuthIdentityUserByEmail,
+  getAuthIdentityUserByPhone,
   getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
   listActiveAuthMembershipsForUser,
@@ -43,6 +46,7 @@ type AuthIdentityReadServices = Readonly<{
   normalizeEmail: typeof normalizeAuthEmail;
   getUser: (userId: string) => ReturnType<typeof getAuthIdentityUser>;
   getUserByEmail: (email: string) => ReturnType<typeof getAuthIdentityUserByEmail>;
+  getUserByPhone: (phone: string) => ReturnType<typeof getAuthIdentityUserByPhone>;
   getUserBySocialLogin: (
     params: Parameters<typeof getAuthIdentityUserBySocialLogin>[1],
   ) => ReturnType<typeof getAuthIdentityUserBySocialLogin>;
@@ -65,12 +69,14 @@ export type AuthServices = Readonly<{
   auth: ReturnType<typeof createAuthSecretAdapters>;
   identity: AuthIdentityReadServices;
   sessions: ReturnType<typeof createSessionRuntime>;
+  notificationOutbox: NotificationOutbox;
   socialLoginProviders: readonly SocialLoginProvider[];
   projectors: readonly Projector[];
 }>;
 
 export type AuthHostPorts = Readonly<{
   transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
   socialLoginProviders?: readonly SocialLoginProvider[];
 }>;
 
@@ -84,6 +90,9 @@ export function createAuthServices(
   const transactionalEmailOutbox =
     ports.transactionalEmailOutbox ??
     createPostgresTransactionalEmailOutbox({ db });
+  const notificationOutbox =
+    ports.notificationOutbox ??
+    createPostgresNotificationOutbox({ db });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,
@@ -107,6 +116,7 @@ export function createAuthServices(
       normalizeEmail: normalizeAuthEmail,
       getUser: (userId) => getAuthIdentityUser(db, userId),
       getUserByEmail: (email) => getAuthIdentityUserByEmail(db, email),
+      getUserByPhone: (phone) => getAuthIdentityUserByPhone(db, phone),
       getUserBySocialLogin: (params) =>
         getAuthIdentityUserBySocialLogin(db, params),
       listActiveMembershipsForUser: (userId) =>
@@ -116,6 +126,7 @@ export function createAuthServices(
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
     },
     sessions,
+    notificationOutbox,
     socialLoginProviders: ports.socialLoginProviders ?? [],
     projectors: [...sessions.projectors],
   };

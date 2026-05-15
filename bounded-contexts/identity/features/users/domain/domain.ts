@@ -10,6 +10,7 @@ import {
   assertNever,
   normalizeEmail,
   normalizeLabel,
+  normalizePhoneNumber,
   toSortedUniqueList,
   type AuthMethodKey,
   type ContactMethod,
@@ -60,7 +61,13 @@ export type CreateUserCommand = Readonly<{
   displayName: string;
   givenName?: string;
   familyName?: string;
-  primaryEmail: string;
+  primaryEmail?: string | null;
+  primaryContactMethod?: Readonly<{
+    contactMethodId?: string;
+    type: ContactMethodType;
+    value: string;
+    verifiedAt?: string | null;
+  }>;
 }>;
 
 export type UpdateUserProfileCommand = Readonly<{
@@ -125,7 +132,8 @@ type UserProfile = Readonly<{
   displayName: string;
   givenName: string;
   familyName: string;
-  primaryEmail: string;
+  primaryEmail: string | null;
+  primaryContactMethod: ContactMethod;
 }>;
 
 export type UserCreatedEvent = DomainEvent<
@@ -210,6 +218,7 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
   switch (command.type) {
     case "CreateUser":
       assert(state.id === null, "User has already been created.");
+      const primaryContactMethod = normalizePrimaryContactMethod(command);
       return [
         {
           type: "identity.user.created",
@@ -218,7 +227,11 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
             displayName: normalizeLabel(command.displayName),
             givenName: normalizeLabel(command.givenName ?? ""),
             familyName: normalizeLabel(command.familyName ?? ""),
-            primaryEmail: normalizeEmail(command.primaryEmail),
+            primaryEmail:
+              primaryContactMethod.type === "email"
+                ? primaryContactMethod.value
+                : null,
+            primaryContactMethod,
           },
         },
       ];
@@ -349,6 +362,12 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (
 ) => {
   switch (event.type) {
     case "identity.user.created":
+      const primaryContactMethod = event.data.primaryContactMethod ?? {
+        contactMethodId: `${event.data.userId}-primary-email`,
+        type: "email" as const,
+        value: event.data.primaryEmail ?? "",
+        verifiedAt: null,
+      };
       return {
         id: event.data.userId,
         displayName: event.data.displayName,
@@ -356,14 +375,7 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (
         familyName: event.data.familyName,
         status: "active",
         primaryEmail: event.data.primaryEmail,
-        contactMethods: [
-          {
-            contactMethodId: `${event.data.userId}-primary-email`,
-            type: "email",
-            value: event.data.primaryEmail,
-            verifiedAt: null,
-          },
-        ],
+        contactMethods: primaryContactMethod.value ? [primaryContactMethod] : [],
         authMethods: [],
         passwordCredentialId: null,
         passkeyCredentialIds: [],
@@ -446,7 +458,35 @@ function normalizeContactValue(
   contactMethodType: ContactMethodType,
   value: string,
 ): string {
-  return contactMethodType === "email" ? normalizeEmail(value) : normalizeLabel(value);
+  if (contactMethodType === "email") {
+    return normalizeEmail(value);
+  }
+  if (contactMethodType === "phone") {
+    return normalizePhoneNumber(value);
+  }
+  return normalizeLabel(value);
+}
+
+function normalizePrimaryContactMethod(
+  command: CreateUserCommand,
+): ContactMethod {
+  const method = command.primaryContactMethod ?? {
+    contactMethodId: `${command.userId}-primary-email`,
+    type: "email" as const,
+    value: command.primaryEmail ?? "",
+    verifiedAt: null,
+  };
+  const value = normalizeContactValue(method.type, method.value);
+  assert(value.length > 0, "Primary contact method is required.");
+
+  return {
+    contactMethodId:
+      method.contactMethodId ??
+      `${command.userId}-primary-${method.type}`,
+    type: method.type,
+    value,
+    verifiedAt: method.verifiedAt ?? null,
+  };
 }
 
 function requireCreatedUser(state: UserState) {
