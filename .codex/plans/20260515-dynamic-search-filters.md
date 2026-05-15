@@ -69,6 +69,7 @@ Users need a best-in-class marketplace search experience that gets them to the r
 - [x] Add acceptance coverage for filtering by a filterable field value and by a dimension option, including facet counts. This DB-backed file is present but skips locally when `TEST_DATABASE_URL` is absent.
 - [x] Add focused unit/component tests for applied chips, mobile category preservation, and dynamic filter rendering.
 - [x] Run targeted tests, `pnpm run typecheck`, `pnpm run test:fast`, `pnpm run build`, and seeded desktop/mobile visual checks against the marketplace route.
+- [x] Bump the Discovery search projection subscription version so deployed environments replay existing Catalog events into the new facet metadata and value columns.
 
 ## Documentation To Promote
 
@@ -88,4 +89,4 @@ The implementation goal must:
 - [x] Run mobile visual verification of the marketplace search route after frontend changes. Browser verification at `443x958` confirmed the applied `Card Number: 4/102` chip, top-ranked dynamic facet strips, selected `4/102 (1)` state, the narrowed Charizard result card, and bottom navigation without layout overlap.
 - [x] Submit a draft PR and ensure the first CI run passes.
 - [x] Mark the PR ready after the mobile follow-up commit is pushed and CI passes again.
-- [ ] Merge the PR, verify staging deploy behavior, and keep the plan committed.
+- [ ] Merge the replay follow-up, verify staging deploy behavior includes dynamic facets, and keep the plan committed.
