@@ -12,7 +12,7 @@ export type InvitationStatus =
   | "expired";
 export type SessionStatus = "active" | "revoked" | "expired";
 export type ApiKeyStatus = "active" | "revoked";
-export type AuthMethodKey = "password" | "magic-link" | "passkey" | "social-login";
+export type AuthMethodKey = "password" | "magic-link" | "passkey" | "sms-code" | "social-login";
 export type SocialLoginProviderKey = "google" | "facebook";
 export type ContactMethodType = "email" | "phone";
 export type ContactMethod = Readonly<{
@@ -88,6 +88,27 @@ export function assertNever(value: never): never {
 
 export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+export function normalizePhoneNumber(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const withoutSeparators = trimmed.replace(/[()\-\s.]/g, "");
+  const digits = withoutSeparators.replace(/\D/g, "");
+  if (withoutSeparators.startsWith("+")) {
+    return `+${digits}`;
+  }
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+
+  return digits ? `+${digits}` : trimmed;
 }
 
 export function normalizeLabel(value: string): string {

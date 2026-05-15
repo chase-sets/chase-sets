@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS identity_users (
   display_name text NOT NULL,
   given_name text NOT NULL,
   family_name text NOT NULL,
-  primary_email text NOT NULL,
+  primary_email text NULL,
   status text NOT NULL,
   contact_methods jsonb NOT NULL DEFAULT '[]'::jsonb,
   auth_methods jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -17,8 +17,19 @@ CREATE TABLE IF NOT EXISTS identity_users (
 ALTER TABLE identity_users
   ADD COLUMN IF NOT EXISTS social_login_links jsonb NOT NULL DEFAULT '[]'::jsonb;
 
+ALTER TABLE identity_users
+  ALTER COLUMN primary_email DROP NOT NULL;
+
 CREATE TABLE IF NOT EXISTS identity_user_emails (
   email text PRIMARY KEY,
+  user_id text NOT NULL,
+  contact_method_id text NOT NULL,
+  is_verified boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS identity_user_phones (
+  phone text PRIMARY KEY,
   user_id text NOT NULL,
   contact_method_id text NOT NULL,
   is_verified boolean NOT NULL DEFAULT false,

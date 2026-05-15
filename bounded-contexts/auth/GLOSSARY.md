@@ -36,6 +36,31 @@ Auth resolves the actor for hosts. Identity remains upstream for the user, accou
 
 The safe in-app path that Auth sends the user back to after sign-in, registration, or account selection completes.
 
+## Sign-In Identifier
+
+A **Sign-In Identifier** is the contact value Auth accepts to start an authentication journey.
+
+Examples:
+
+- Email address
+- Phone number
+
+Notes:
+
+- Identity owns the durable Contact Method facts for a user.
+- Auth owns how a sign-in identifier is normalized, challenged, consumed, and converted into a session.
+- A normalized sign-in identifier must resolve to one user before it can continue an existing-user journey.
+
+## Phone Code
+
+A **Phone Code** is a short-lived Auth challenge sent to a phone number and consumed to start or continue a session.
+
+Notes:
+
+- Phone Code delivery uses the provider-neutral Notifications contract with the `sms` channel.
+- Auth persists and consumes the challenge; it does not call Twilio or any other SMS provider directly.
+- A phone-based registration creates Identity user, account, membership, verified phone Contact Method, and `sms-code` Authentication Method facts only after code verification succeeds.
+
 ## Checkout Registration Continuation
 
 A **Checkout Registration Continuation** is the Auth-owned registration journey that returns a signed-in account to an in-progress checkout source intent.

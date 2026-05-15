@@ -69,7 +69,8 @@ async function drainProjectors(services: IdentityServices) {
 async function createPersonalIdentityForAuth(
   services: IdentityServices,
   params: Readonly<{
-    email: string;
+    email?: string | null;
+    phone?: string | null;
     displayName: string;
     givenName?: string;
     familyName?: string;
@@ -80,31 +81,43 @@ async function createPersonalIdentityForAuth(
   const userId = createId("usr") as UserId;
   const accountId = createId("acc") as AccountId;
   const membershipId = createId("mbr") as MembershipId;
+  const email = params.email?.trim() ?? "";
+  const phone = params.phone?.trim() ?? "";
+  const displayName = params.displayName.trim() || email || phone;
+  const primaryContactMethod = phone
+    ? {
+        contactMethodId: createId("ctm"),
+        type: "phone" as const,
+        value: phone,
+        verifiedAt: new Date().toISOString(),
+      }
+    : undefined;
 
   await services.accounts.commandHandler({
     streamId: `identity.account-${accountId}`,
     command: {
       type: "CreateAccount",
       accountId,
-      name: params.displayName,
+      name: displayName,
       accountType: "personal",
-      displayName: params.displayName,
+      displayName,
     },
     context: params.context,
   });
 
   await services.users.commandHandler({
     streamId: `identity.user-${userId}`,
-    command: {
-      type: "CreateUser",
-      userId,
-      displayName: params.displayName,
-      givenName: params.givenName,
-      familyName: params.familyName,
-      primaryEmail: params.email,
-    },
-    context: params.context,
-  });
+      command: {
+        type: "CreateUser",
+        userId,
+        displayName,
+        givenName: params.givenName,
+        familyName: params.familyName,
+        primaryEmail: email || null,
+        ...(primaryContactMethod ? { primaryContactMethod } : {}),
+      },
+      context: params.context,
+    });
 
   await services.memberships.commandHandler({
     streamId: `identity.membership-${membershipId}`,
@@ -132,6 +145,14 @@ async function createPersonalIdentityForAuth(
         policyVersion: consent.policyVersion,
         recordedAt: new Date().toISOString(),
       },
+      context: params.context,
+    });
+  }
+
+  if (phone) {
+    await services.users.commandHandler({
+      streamId: `identity.user-${userId}`,
+      command: { type: "EnableAuthMethod", authMethod: "sms-code" },
       context: params.context,
     });
   }
@@ -262,6 +283,26 @@ async function registerPasskeyCredentialForAuth(
       type: "RegisterPasskeyCredential",
       credentialId: params.credentialId,
     },
+    context: params.context,
+  });
+  await drainProjectors(services);
+}
+
+async function enableSmsCodeForAuth(
+  services: IdentityServices,
+  params: Readonly<{
+    userId: string;
+    context: EventStoreContext;
+  }>,
+) {
+  const user = await services.users.getUser(params.userId);
+  if (user?.auth_methods.includes("sms-code")) {
+    return;
+  }
+
+  await services.users.commandHandler({
+    streamId: `identity.user-${params.userId}`,
+    command: { type: "EnableAuthMethod", authMethod: "sms-code" },
     context: params.context,
   });
   await drainProjectors(services);
@@ -440,7 +481,14 @@ export function buildIdentityApi(services: IdentityServices) {
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();
     const identity = await createPersonalIdentityForAuth(services, {
-      email: String(body.email ?? ""),
+      email:
+        typeof body.email === "string" && body.email.trim()
+          ? body.email
+          : null,
+      phone:
+        typeof body.phone === "string" && body.phone.trim()
+          ? body.phone
+          : null,
       displayName: String(body.displayName ?? ""),
       givenName:
         typeof body.givenName === "string" ? body.givenName : undefined,
@@ -451,6 +499,14 @@ export function buildIdentityApi(services: IdentityServices) {
     });
 
     return c.json(identity, 201);
+  });
+
+  app.post("/internal/auth/users/:id/sms-code", async (c) => {
+    await enableSmsCodeForAuth(services, {
+      userId: c.req.param("id"),
+      context: getBootstrapContext(c),
+    });
+    return c.json({ ok: true });
   });
 
   app.post("/internal/auth/users/:id/password-credential", async (c) => {

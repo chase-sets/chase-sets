@@ -52,7 +52,8 @@ export type IdentityAuthMutationClient = Readonly<{
     displayName: string;
   }>) => Promise<Readonly<{ userId: string }>>;
   createPersonalIdentity: (params: Readonly<{
-    email: string;
+    email?: string | null;
+    phone?: string | null;
     displayName: string;
     givenName?: string;
     familyName?: string;
@@ -65,6 +66,9 @@ export type IdentityAuthMutationClient = Readonly<{
   registerPasskeyCredential: (params: Readonly<{
     userId: string;
     credentialId: string;
+  }>) => Promise<void>;
+  enableSmsCode: (params: Readonly<{
+    userId: string;
   }>) => Promise<void>;
   linkSocialLogin: (params: Readonly<{
     userId: string;
@@ -119,6 +123,9 @@ export function createIdentityAuthRequestClient(
     },
     registerPasskeyCredential: async ({ userId, credentialId }) => {
       await postJson(`users/${userId}/passkey-credential`, { credentialId });
+    },
+    enableSmsCode: async ({ userId }) => {
+      await postJson(`users/${userId}/sms-code`, {});
     },
     linkSocialLogin: async ({ userId, providerName, providerSubject, email }) => {
       await postJson(`users/${userId}/social-login-link`, {

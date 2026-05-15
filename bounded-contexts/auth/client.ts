@@ -104,6 +104,22 @@ export function createAuthApiClient({
         headers,
       );
     },
+    async requestPhoneCode<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("phone-code/request"),
+        body,
+        headers,
+      );
+    },
+    async consumePhoneCode<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(
+        configuredFetch,
+        buildUrl("phone-code/consume"),
+        body,
+        headers,
+      );
+    },
     async startGuestCheckout<T>(body: Record<string, unknown>): Promise<T> {
       return postJson<T>(
         configuredFetch,

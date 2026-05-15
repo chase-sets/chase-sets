@@ -50,6 +50,12 @@ export type AuthActionNotice =
       expiresAt: string;
     }>
   | Readonly<{
+      status: "phone-code-sent";
+      phone: string;
+      expiresAt: string;
+      displayName?: string;
+    }>
+  | Readonly<{
       status: "passkey-recovery";
       message: string;
     }>;
@@ -57,6 +63,11 @@ type AuthActionResult = Response | AuthActionError | AuthActionNotice;
 
 type MagicLinkRequestResult = Readonly<{
   token: string;
+  expiresAt: string;
+}>;
+
+type PhoneCodeRequestResult = Readonly<{
+  phone: string;
   expiresAt: string;
 }>;
 
@@ -328,6 +339,17 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               expiresAt: result.expiresAt,
             };
           }
+          if (intent === "phone-code-request") {
+            const result = await api.requestPhoneCode<PhoneCodeRequestResult>({
+              phone: formData.get("phone"),
+            });
+
+            return {
+              status: "phone-code-sent",
+              phone: result.phone,
+              expiresAt: result.expiresAt,
+            };
+          }
 
           const result =
             intent === "magic-link-consume"
@@ -335,6 +357,12 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                   token: formData.get("token"),
                   accountId: formData.get("accountId"),
                 })
+              : intent === "phone-code-consume"
+                ? await api.consumePhoneCode<InteractiveAuthResult>({
+                    phone: formData.get("phone"),
+                    code: formData.get("code"),
+                    accountId: formData.get("accountId"),
+                  })
               : intent === "passkey-sign-in"
                 ? await api.signInWithPasskey<InteractiveAuthResult>({
                     challengeId: formData.get("challengeId"),
@@ -359,6 +387,22 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
           const formData = await request.formData();
           const api = createAuthRequestApiClientInternal(request);
           const intent = String(formData.get("intent") ?? "password");
+          if (intent === "phone-code-request") {
+            const result = await api.requestPhoneCode<PhoneCodeRequestResult>({
+              phone: formData.get("phone"),
+            });
+
+            return {
+              status: "phone-code-sent",
+              phone: result.phone,
+              expiresAt: result.expiresAt,
+              displayName:
+                typeof formData.get("displayName") === "string"
+                  ? String(formData.get("displayName"))
+                  : undefined,
+            };
+          }
+
           const result =
             intent === "passkey-register"
               ? (
@@ -372,6 +416,12 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                     publicKey: formData.get("publicKey"),
                   })
                 ).authResult
+              : intent === "phone-code-consume"
+                ? await api.consumePhoneCode<InteractiveAuthResult>({
+                    displayName: formData.get("displayName"),
+                    phone: formData.get("phone"),
+                    code: formData.get("code"),
+                  })
               : await api.register<InteractiveAuthResult>({
                   displayName: formData.get("displayName"),
                   email: formData.get("email"),

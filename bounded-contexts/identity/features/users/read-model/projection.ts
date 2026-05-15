@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { normalizeEmail } from "../../../support/runtime-support/common";
+import { normalizeEmail, normalizePhoneNumber } from "../../../support/runtime-support/common";
 import { extractIdFromStreamId } from "../../../support/read-model-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "identity.user-";
@@ -51,24 +51,88 @@ async function syncUserEmailLookups(
   }
 }
 
+async function syncUserPhoneLookups(
+  db: PgQueryable,
+  userId: string,
+  contactMethods: readonly {
+    contactMethodId: string;
+    type: string;
+    value: string;
+    verifiedAt: string | null;
+  }[],
+  updatedAt: string,
+) {
+  await db.query(`DELETE FROM identity_user_phones WHERE user_id = $1`, [userId]);
+
+  for (const method of contactMethods.filter((value) => value.type === "phone")) {
+    await db.query(
+      `INSERT INTO identity_user_phones (
+         phone,
+         user_id,
+         contact_method_id,
+         is_verified,
+         updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (phone) DO UPDATE
+       SET user_id = $2,
+           contact_method_id = $3,
+           is_verified = $4,
+           updated_at = $5`,
+      [
+        normalizePhoneNumber(method.value),
+        userId,
+        method.contactMethodId,
+        method.verifiedAt !== null,
+        updatedAt,
+      ],
+    );
+  }
+}
+
+async function syncContactMethodLookups(
+  db: PgQueryable,
+  userId: string,
+  contactMethods: readonly {
+    contactMethodId: string;
+    type: string;
+    value: string;
+    verifiedAt: string | null;
+  }[],
+  updatedAt: string,
+) {
+  await syncUserEmailLookups(db, userId, contactMethods, updatedAt);
+  await syncUserPhoneLookups(db, userId, contactMethods, updatedAt);
+}
+
 export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.user.created": async (event) => {
-      const { userId, displayName, givenName, familyName, primaryEmail } = event.data as {
+      const { userId, displayName, givenName, familyName, primaryEmail, primaryContactMethod } = event.data as {
         userId: string;
         displayName: string;
         givenName: string;
         familyName: string;
-        primaryEmail: string;
+        primaryEmail: string | null;
+        primaryContactMethod?: {
+          contactMethodId: string;
+          type: string;
+          value: string;
+          verifiedAt: string | null;
+        };
       };
-      const contactMethods = [
-        {
-          contactMethodId: `${userId}-primary-email`,
-          type: "email",
-          value: primaryEmail,
-          verifiedAt: null,
-        },
-      ];
+      const contactMethods = primaryContactMethod
+        ? [primaryContactMethod]
+        : primaryEmail
+          ? [
+              {
+                contactMethodId: `${userId}-primary-email`,
+                type: "email",
+                value: primaryEmail,
+                verifiedAt: null,
+              },
+            ]
+          : [];
 
       await db.query(
         `INSERT INTO identity_users (
@@ -104,7 +168,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         ],
       );
 
-      await syncUserEmailLookups(db, userId, contactMethods, event.timing.recordedAt);
+      await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.profile-updated": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
@@ -145,7 +209,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          WHERE user_id = $1`,
         [userId, JSON.stringify(contactMethods), event.timing.recordedAt],
       );
-      await syncUserEmailLookups(
+      await syncContactMethodLookups(
         db,
         userId,
         contactMethods as {
@@ -184,7 +248,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          WHERE user_id = $1`,
         [userId, JSON.stringify(contactMethods), event.timing.recordedAt],
       );
-      await syncUserEmailLookups(db, userId, contactMethods, event.timing.recordedAt);
+      await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.auth-method-enabled": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);

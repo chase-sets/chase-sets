@@ -52,8 +52,9 @@ describe("registration page", () => {
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ method: "passkey", stage: "shown", priority: 1 }),
-        expect.objectContaining({ method: "magic-link", stage: "shown", priority: 2 }),
-        expect.objectContaining({ method: "password", stage: "shown", priority: 3 }),
+        expect.objectContaining({ method: "phone-code", stage: "shown", priority: 2 }),
+        expect.objectContaining({ method: "magic-link", stage: "shown", priority: 3 }),
+        expect.objectContaining({ method: "password", stage: "shown", priority: 4 }),
       ]),
     );
   });
@@ -70,6 +71,20 @@ describe("registration page", () => {
     expect(screen.getByRole("button", { name: "Email me a magic link" })).toBeTruthy();
     expect(
       document.querySelector('input[name="intent"][value="magic-link-register"]'),
+    ).not.toBeNull();
+  });
+
+  it("offers phone code registration without requiring email", () => {
+    render(<RegisterPage />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /Phone Code/ }));
+
+    expect(screen.getByRole("tab", { name: /Phone Code/ }).getAttribute("aria-selected")).toBe("true");
+    expect(inputNamed("phone")).toBeTruthy();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.getByRole("button", { name: "Text me a code" })).toBeTruthy();
+    expect(
+      document.querySelector('input[name="intent"][value="phone-code-request"]'),
     ).not.toBeNull();
   });
 

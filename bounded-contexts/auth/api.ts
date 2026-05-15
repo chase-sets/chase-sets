@@ -5,6 +5,7 @@ import { registerInvitationRoutes } from "./support/api-support/invitation-route
 import { registerMagicLinkRoutes } from "./support/api-support/magic-link-routes";
 import { registerGuestCheckoutRoutes } from "./support/api-support/guest-checkout-routes";
 import { registerPasskeyRoutes } from "./support/api-support/passkey-routes";
+import { registerPhoneCodeRoutes } from "./support/api-support/phone-code-routes";
 import { registerPasswordRoutes } from "./support/api-support/password-routes";
 import { registerRegistrationRoutes } from "./support/api-support/register-routes";
 import { registerSessionApiRoutes } from "./support/api-support/session-routes";
@@ -19,6 +20,7 @@ export function buildAuthApi(services: AuthServices) {
   registerSocialLoginRoutes(app, services);
   registerPasswordRoutes(app, services);
   registerMagicLinkRoutes(app, services);
+  registerPhoneCodeRoutes(app, services);
   registerGuestCheckoutRoutes(app, services);
   registerAccountSelectionRoutes(app, services);
   registerPasskeyRoutes(app, services);

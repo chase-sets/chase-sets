@@ -108,6 +108,12 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime

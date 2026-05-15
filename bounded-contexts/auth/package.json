@@ -27,6 +27,8 @@
     "@chase-sets/http": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/notification-outbox": "workspace:*",
+    "@chase-sets/notifications": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/transactional-email-outbox": "workspace:*",

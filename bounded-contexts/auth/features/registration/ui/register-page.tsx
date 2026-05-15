@@ -26,7 +26,7 @@ import {
   PasskeyHiddenFields,
 } from "../../../support/ui-support/auth-hidden-fields";
 
-type RegistrationMethod = "passkey" | "magic-link" | "password";
+type RegistrationMethod = "passkey" | "phone-code" | "magic-link" | "password";
 type RegistrationAnalyticsStage =
   | "shown"
   | "selected"
@@ -44,6 +44,11 @@ const REGISTRATION_METHOD_OPTIONS: readonly {
     value: "passkey",
     labelKey: "auth.features.registration.ui.registerPage.passkey",
     icon: "shield",
+  },
+  {
+    value: "phone-code",
+    labelKey: "auth.features.registration.ui.registerPage.phone.code",
+    icon: "message",
   },
   {
     value: "magic-link",
@@ -65,6 +70,8 @@ const registrationMethodsShown = registrationMethods.join(",");
 type RegistrationDetails = Readonly<{
   displayName: string;
   email: string;
+  phone: string;
+  phoneCode: string;
   password: string;
 }>;
 
@@ -186,11 +193,19 @@ function IdentityFields({ details, onChange }: IdentityFieldsProps) {
 
 export function RegisterPage(props: RegistrationPageProps) {
   const [method, setMethod] = useState<RegistrationMethod>(
-    DEFAULT_REGISTRATION_METHOD,
+    props.notice?.status === "phone-code-sent"
+      ? "phone-code"
+      : DEFAULT_REGISTRATION_METHOD,
   );
   const [details, setDetails] = useState<RegistrationDetails>({
-    displayName: "",
+    displayName:
+      props.notice?.status === "phone-code-sent"
+        ? props.notice.displayName ?? ""
+        : "",
     email: "",
+    phone:
+      props.notice?.status === "phone-code-sent" ? props.notice.phone : "",
+    phoneCode: "",
     password: "",
   });
   const [passkeyPayload, setPasskeyPayload] =
@@ -310,6 +325,13 @@ export function RegisterPage(props: RegistrationPageProps) {
       {props.notice?.status === "passkey-recovery" ? (
         <Banner title={t("auth.features.registration.ui.registerPage.passkey.added")} description={props.notice.message} tone="success" />
       ) : null}
+      {props.notice?.status === "phone-code-sent" ? (
+        <Banner
+          title={t("auth.features.registration.ui.registerPage.phone.code.sent")}
+          description={t("auth.features.registration.ui.registerPage.phone.code.ready.check.your.phone")}
+          tone="success"
+        />
+      ) : null}
 
       <Card glow>
         <Stack gap={3}>
@@ -394,6 +416,76 @@ export function RegisterPage(props: RegistrationPageProps) {
           <Button type="submit" leadingIcon="message">
             {t("auth.features.registration.ui.registerPage.email.me.magic.link")}</Button>
         </RegistrationFormCard>
+      ) : null}
+
+      {method === "phone-code" ? (
+        <>
+          <RegistrationFormCard
+            action={props.action}
+            hiddenFields={props.hiddenFields}
+            intent="phone-code-request"
+            method="phone-code"
+            onSubmit={() => handleCompleted("phone-code")}
+          >
+            <Text size="sm" tone="secondary">
+              {t("auth.features.registration.ui.registerPage.phone.code.copy")}</Text>
+            <TextInput
+              label={t("auth.features.registration.ui.registerPage.display.name")}
+              name="displayName"
+              required
+              value={details.displayName}
+              onChange={(event) =>
+                updateDetails("displayName", event.currentTarget.value)
+              }
+            />
+            <TextInput
+              label={t("auth.features.registration.ui.registerPage.phone")}
+              name="phone"
+              type="tel"
+              required
+              value={details.phone}
+              onChange={(event) =>
+                updateDetails("phone", event.currentTarget.value)
+              }
+            />
+            <Button type="submit" leadingIcon="message">
+              {t("auth.features.registration.ui.registerPage.text.me.a.code")}</Button>
+          </RegistrationFormCard>
+
+          <RegistrationFormCard
+            action={props.action}
+            hiddenFields={props.hiddenFields}
+            intent="phone-code-consume"
+            method="phone-code"
+            onSubmit={() => handleCompleted("phone-code")}
+          >
+            <Text size="sm" tone="secondary">
+              {t("auth.features.registration.ui.registerPage.enter.phone.code.copy")}</Text>
+            <input type="hidden" name="displayName" value={details.displayName} readOnly />
+            <TextInput
+              label={t("auth.features.registration.ui.registerPage.phone")}
+              name="phone"
+              type="tel"
+              required
+              value={details.phone}
+              onChange={(event) =>
+                updateDetails("phone", event.currentTarget.value)
+              }
+            />
+            <TextInput
+              label={t("auth.features.registration.ui.registerPage.phone.code.2")}
+              name="code"
+              inputMode="numeric"
+              required
+              value={details.phoneCode}
+              onChange={(event) =>
+                updateDetails("phoneCode", event.currentTarget.value)
+              }
+            />
+            <Button type="submit" leadingIcon="message" tone="secondary">
+              {t("auth.features.registration.ui.registerPage.create.account.with.code")}</Button>
+          </RegistrationFormCard>
+        </>
       ) : null}
 
       {method === "password" ? (

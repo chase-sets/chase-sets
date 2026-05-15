@@ -57,6 +57,8 @@ export function createPermissionGuard(
   };
 }
 
-export function createOwnedUserDisplayName(email: string) {
-  return email.split("@")[0];
+export function createOwnedUserDisplayName(contactValue: string) {
+  return contactValue.includes("@")
+    ? contactValue.split("@")[0]
+    : contactValue;
 }

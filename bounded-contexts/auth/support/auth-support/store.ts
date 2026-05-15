@@ -206,6 +206,68 @@ export async function consumeMagicLinkToken(
   return result.rows[0] ?? null;
 }
 
+export async function insertPhoneCodeToken(
+  db: PgQueryable,
+  params: Readonly<{
+    tokenId: string;
+    userId: string | null;
+    phone: string;
+    codeHash: string;
+    deliveryCode: string;
+    expiresAt: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO identity_phone_code_tokens (
+       token_id,
+       user_id,
+       phone,
+       code_hash,
+       delivery_code,
+       expires_at,
+       created_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, now())`,
+    [
+      params.tokenId,
+      params.userId,
+      params.phone,
+      params.codeHash,
+      params.deliveryCode,
+      params.expiresAt,
+    ],
+  );
+}
+
+export async function consumePhoneCodeToken(
+  db: PgQueryable,
+  params: Readonly<{
+    phone: string;
+    codeHash: string;
+  }>,
+) {
+  const result = await db.query<{
+    token_id: string;
+    user_id: string | null;
+    phone: string;
+    code_hash: string;
+    expires_at: string;
+    consumed_at: string | null;
+  }>(
+    `UPDATE identity_phone_code_tokens
+     SET consumed_at = now(),
+         delivery_code = NULL
+     WHERE phone = $1
+       AND code_hash = $2
+       AND consumed_at IS NULL
+       AND expires_at > now()
+     RETURNING token_id, user_id, phone, code_hash, expires_at, consumed_at`,
+    [params.phone, params.codeHash],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 export async function insertChallenge(
   db: PgQueryable,
   params: Readonly<{

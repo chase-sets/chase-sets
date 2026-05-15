@@ -23,7 +23,7 @@ import {
   PasskeyHiddenFields,
 } from "../../../support/ui-support/auth-hidden-fields";
 
-type SignInMethod = "password" | "magic-link" | "passkey";
+type SignInMethod = "password" | "phone-code" | "magic-link" | "passkey";
 
 export function SignInPage(props: Readonly<{
   action?: string;
@@ -32,7 +32,9 @@ export function SignInPage(props: Readonly<{
   notice?: AuthActionNotice | null;
   returnTo?: string;
 }>) {
-  const [method, setMethod] = useState<SignInMethod>("password");
+  const [method, setMethod] = useState<SignInMethod>(
+    props.notice?.status === "phone-code-sent" ? "phone-code" : "password",
+  );
   const [passkeyPayload, setPasskeyPayload] =
     useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
@@ -64,6 +66,8 @@ export function SignInPage(props: Readonly<{
   const statusMessage =
     props.notice?.status === "magic-link-sent"
       ? t("auth.features.signIn.ui.signInPage.magic.link.ready.check.your.email")
+      : props.notice?.status === "phone-code-sent"
+        ? t("auth.features.signIn.ui.signInPage.phone.code.ready.check.your.phone")
       : null;
 
   return (
@@ -80,7 +84,11 @@ export function SignInPage(props: Readonly<{
       ) : null}
       {statusMessage ? (
         <Banner
-          title={t("auth.features.signIn.ui.signInPage.magic.link.sent")}
+          title={
+            props.notice?.status === "phone-code-sent"
+              ? t("auth.features.signIn.ui.signInPage.phone.code.sent")
+              : t("auth.features.signIn.ui.signInPage.magic.link.sent")
+          }
           description={statusMessage}
           tone="success"
           actions={
@@ -124,6 +132,7 @@ export function SignInPage(props: Readonly<{
         onValueChange={(value) => setMethod(value as SignInMethod)}
         items={[
           { value: "password", label: t("auth.features.signIn.ui.signInPage.password"), icon: "lock" },
+          { value: "phone-code", label: t("auth.features.signIn.ui.signInPage.phone.code"), icon: "message" },
           { value: "magic-link", label: t("auth.features.signIn.ui.signInPage.magic.link"), icon: "message" },
           { value: "passkey", label: t("auth.features.signIn.ui.signInPage.passkey"), icon: "shield" },
         ]}
@@ -141,6 +150,57 @@ export function SignInPage(props: Readonly<{
                 {t("auth.features.signIn.ui.signInPage.sign.in.2")}</Button>
             </Stack>
           </form>
+        </Card>
+      ) : null}
+
+      {method === "phone-code" ? (
+        <Card>
+          <Stack gap={4}>
+            <form action={props.action} method="post">
+              <Stack gap={3}>
+                <HiddenFields fields={props.hiddenFields} />
+                <input type="hidden" name="intent" value="phone-code-request" readOnly />
+                <TextInput
+                  label={t("auth.features.signIn.ui.signInPage.phone")}
+                  name="phone"
+                  type="tel"
+                  defaultValue={
+                    props.notice?.status === "phone-code-sent"
+                      ? props.notice.phone
+                      : undefined
+                  }
+                  required
+                />
+                <Button type="submit" leadingIcon="message">
+                  {t("auth.features.signIn.ui.signInPage.send.phone.code")}</Button>
+              </Stack>
+            </form>
+            <form action={props.action} method="post">
+              <Stack gap={3}>
+                <HiddenFields fields={props.hiddenFields} />
+                <input type="hidden" name="intent" value="phone-code-consume" readOnly />
+                <TextInput
+                  label={t("auth.features.signIn.ui.signInPage.phone")}
+                  name="phone"
+                  type="tel"
+                  defaultValue={
+                    props.notice?.status === "phone-code-sent"
+                      ? props.notice.phone
+                      : undefined
+                  }
+                  required
+                />
+                <TextInput
+                  label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
+                  name="code"
+                  inputMode="numeric"
+                  required
+                />
+                <Button type="submit" tone="secondary">
+                  {t("auth.features.signIn.ui.signInPage.continue.with.code")}</Button>
+              </Stack>
+            </form>
+          </Stack>
         </Card>
       ) : null}
 

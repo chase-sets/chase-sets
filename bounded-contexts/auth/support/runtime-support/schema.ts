@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { transactionalEmailOutboxSchemaSql } from "@chase-sets/transactional-email-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 
@@ -65,6 +66,21 @@ CREATE TABLE IF NOT EXISTS identity_magic_link_tokens (
 ALTER TABLE identity_magic_link_tokens
   ADD COLUMN IF NOT EXISTS delivery_token text NULL;
 
+CREATE TABLE IF NOT EXISTS identity_phone_code_tokens (
+  token_id text PRIMARY KEY,
+  user_id text NULL,
+  phone text NOT NULL,
+  code_hash text NOT NULL,
+  delivery_code text NULL,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS identity_phone_code_tokens_lookup_idx
+  ON identity_phone_code_tokens (phone, code_hash)
+  WHERE consumed_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS identity_auth_challenges (
   challenge_id text PRIMARY KEY,
   purpose text NOT NULL,
@@ -130,6 +146,7 @@ CREATE TABLE IF NOT EXISTS identity_guest_checkout_claim_tokens (
 export const authSchemaSql = [
   eventCorePostgresSchemaSql,
   transactionalEmailOutboxSchemaSql,
+  notificationOutboxSchemaSql,
   authIdentityProjectionSchemaSql,
   authSessionSchemaSql,
   authCredentialSchemaSql,
