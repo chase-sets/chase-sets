@@ -42,7 +42,8 @@ The long-lived staging environment uses the same full-platform shape as PR previ
 - `landing-staging.chasesets.com`: landing `public-web`.
 - `marketplace-staging.chasesets.com`: marketplace web.
 - `admin-staging.chasesets.com`: admin web.
-- `staging.chasesets.com`: temporary redirect to `landing-staging.chasesets.com`.
+
+`staging.chasesets.com` is reserved for the staging mail identity and Google Workspace records. Do not attach it as an App Platform web domain.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
@@ -161,8 +162,8 @@ The staging job:
 8. Runs Terraform apply for `environment=staging`.
 9. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 10. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-11. Waits for landing, admin, marketplace, and temporary redirect domains.
-12. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the temporary redirect with strict staging smoke requirements.
+11. Waits for landing, admin, and marketplace domains.
+12. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements.
 
 Production is not eligible to start until this staging job succeeds.
 

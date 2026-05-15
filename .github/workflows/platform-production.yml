@@ -296,8 +296,7 @@ jobs:
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          legacy_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$legacy_domain" ]; then
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
             echo "Required staging domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -307,7 +306,6 @@ jobs:
             "$landing_domain" \
             "$admin_domain" \
             "$marketplace_domain" \
-            "$legacy_domain" \
             --timeout-seconds=1800 \
             --poll-seconds=30
 
@@ -318,7 +316,6 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_MARKETPLACE: "true"
-          SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
           SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-smoke
           SMOKE_UTM_CAMPAIGN: staging-main
@@ -329,8 +326,7 @@ jobs:
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          legacy_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$legacy_domain" ]; then
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
             echo "Required staging smoke domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -345,7 +341,7 @@ jobs:
           fi
 
           cd ../../..
-          pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}" "https://${legacy_domain}"
+          pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}"
 
   deploy-production:
     name: Deploy Production
