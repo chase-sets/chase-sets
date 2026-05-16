@@ -149,7 +149,9 @@ function NavigationItemGroup({
       >
         {active && groupId ? renderActivePill(groupId) : null}
         <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
-        <Icon name="chevronDown" size="sm" tone={active ? "accent" : "secondary"} />
+        <span className="relative z-10 inline-flex items-center">
+          <Icon name="chevronDown" size="sm" tone={active ? "accent" : "secondary"} />
+        </span>
       </summary>
       <div className="modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay">
         {item.children?.map((child) =>
