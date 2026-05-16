@@ -52,6 +52,13 @@ type BaseInventoryItemRow = Readonly<{
   updated_at: string;
 }>;
 
+export type InventoryListingStockItemRow = Readonly<{
+  item_id: string;
+  total_quantity: number;
+  held_quantity: number;
+  available_quantity: number;
+}>;
+
 type CatalogItemSummaryRow = Readonly<{
   catalog_item_id: string;
   language_code: string;
@@ -250,4 +257,53 @@ export async function getInventoryItem(
     ...enriched,
     holds: holdsResult.rows,
   } satisfies InventoryItemDetailRow;
+}
+
+export async function getInventoryItemForListingStock(
+  db: PgQueryable,
+  params: Readonly<{
+    itemId: string;
+    accountId: string;
+    catalogItemId: string;
+    productId: string;
+    selectedOptions: readonly InventorySelectedOptionEntry[];
+    gradedCard: GradedCardDetails | null;
+    storageLocationId: string;
+  }>,
+): Promise<InventoryListingStockItemRow | null> {
+  const result = await db.query<InventoryListingStockItemRow>(
+    `SELECT
+       item.item_id,
+       item.total_quantity,
+       COALESCE(active_holds.held_quantity, 0)::integer AS held_quantity,
+       item.total_quantity - COALESCE(active_holds.held_quantity, 0)::integer AS available_quantity
+     FROM inventory_items AS item
+     LEFT JOIN (
+       SELECT item_id, SUM(quantity)::integer AS held_quantity
+       FROM inventory_holds
+       WHERE status = 'active'
+       GROUP BY item_id
+     ) AS active_holds
+       ON active_holds.item_id = item.item_id
+     WHERE item.account_id = $1
+       AND item.item_id = $2
+       AND item.catalog_catalog_item_id = $3
+       AND item.product_id = $4
+       AND item.selected_options = $5::jsonb
+       AND item.graded_card IS NOT DISTINCT FROM $6::jsonb
+       AND item.storage_location_id = $7
+     ORDER BY item.created_at ASC, item.item_id ASC
+     LIMIT 1`,
+    [
+      params.accountId,
+      params.itemId,
+      params.catalogItemId,
+      params.productId,
+      JSON.stringify(params.selectedOptions),
+      params.gradedCard ? JSON.stringify(params.gradedCard) : null,
+      params.storageLocationId,
+    ],
+  );
+
+  return result.rows[0] ?? null;
 }

@@ -51,6 +51,7 @@ import {
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingTermsPreview,
 } from "@chase-sets/marketplace/server";
+import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import {
   appendAnonymousCartCookie,
   createCheckoutRequestApiClient,
@@ -60,12 +61,14 @@ import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 
 const MARKETPLACE_DESCRIPTION =
   t("discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with");
+const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 
 const EMPTY_ITEM_DETAIL_RESULT = {
   item: null,
   accountOfferMatches: [],
   sellerInventoryItems: [],
   sellerAccountId: null,
+  hasListingStockLocation: false,
   viewerAccountId: null,
   initialMarketIntent: "buy" as const,
   initialSelectedOptions: [],
@@ -309,6 +312,29 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
   } catch {
     return [];
   }
+}
+
+function shipFromAddressFromForm(formData: FormData) {
+  const address = {
+    name: String(formData.get("shipFromName") ?? "").trim(),
+    line1: String(formData.get("shipFromLine1") ?? "").trim(),
+    city: String(formData.get("shipFromCity") ?? "").trim(),
+    state: String(formData.get("shipFromState") ?? "").trim(),
+    postalCode: String(formData.get("shipFromPostalCode") ?? "").trim(),
+    country: String(formData.get("shipFromCountry") ?? "US").trim() || "US",
+  };
+
+  if (
+    !address.name &&
+    !address.line1 &&
+    !address.city &&
+    !address.state &&
+    !address.postalCode
+  ) {
+    return null;
+  }
+
+  return address;
 }
 
 function ProductAlertCreationSection({
@@ -1184,11 +1210,13 @@ function MarketplaceListingSubmissionSection({
   showSummary = panelVariant === "card",
   actions,
   productId,
+  selectedOptions,
   productSummary,
   productSelectionDetails = [],
   bestListing,
   ownListing,
   inventoryItems,
+  hasListingStockLocation,
   errorMessage,
 }: {
   formId?: string;
@@ -1196,6 +1224,7 @@ function MarketplaceListingSubmissionSection({
   showSummary?: boolean;
   actions?: ReactNode;
   productId: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
   bestListing: {
@@ -1208,6 +1237,7 @@ function MarketplaceListingSubmissionSection({
   } | null;
   ownListing: DiscoveryMarketListing | null;
   inventoryItems: readonly DiscoverySellerInventoryItem[];
+  hasListingStockLocation: boolean;
   errorMessage?: string | null;
 }) {
   const matchingInventory = productId
@@ -1222,7 +1252,7 @@ function MarketplaceListingSubmissionSection({
       type="submit"
       name="intent"
       value="list-at-price"
-      disabled={!productId || (!listing && matchingInventory.length === 0)}
+      disabled={!productId}
       block
     >
       {listing ? t("discovery.routes.itemDetail.update.listing") : t("discovery.routes.itemDetail.list.at.price")}
@@ -1233,6 +1263,7 @@ function MarketplaceListingSubmissionSection({
     <form id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="productId" value={productId ?? ""} />
+        <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <input type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
         {showSummary ? (
           <Stack gap={1}>
@@ -1274,22 +1305,28 @@ function MarketplaceListingSubmissionSection({
             value={listing.inventory_item_id}
           />
         ) : (
-          <NativeSelect
-            label={t("discovery.routes.itemDetail.inventory")}
-            name="inventoryItemId"
-            defaultValue={selectedInventory?.item_id ?? ""}
-            items={[
-              { value: "", label: t("discovery.routes.itemDetail.choose.inventory") },
-              ...matchingInventory.map((inventoryItem) => ({
-                value: inventoryItem.item_id,
-                label: t("discovery.routes.itemDetail.inventory.option.label", {
-                  productSummary: inventoryItem.product_summary ?? t("discovery.routes.itemDetail.selected.product"),
-                  availableQuantity: inventoryItem.available_quantity,
-                }),
-              })),
-            ]}
-            required
-          />
+          <Stack gap={2}>
+            <Text size="sm" tone="secondary">
+              {t("discovery.routes.itemDetail.listing.stock.created.automatically")}
+            </Text>
+            {matchingInventory.length > 0 ? (
+              <NativeSelect
+                label={t("discovery.routes.itemDetail.advanced.inventory")}
+                name="inventoryItemId"
+                defaultValue=""
+                items={[
+                  { value: "", label: t("discovery.routes.itemDetail.automatic.listing.stock") },
+                  ...matchingInventory.map((inventoryItem) => ({
+                    value: inventoryItem.item_id,
+                    label: t("discovery.routes.itemDetail.inventory.option.label", {
+                      productSummary: inventoryItem.product_summary ?? t("discovery.routes.itemDetail.selected.product"),
+                      availableQuantity: inventoryItem.available_quantity,
+                    }),
+                  })),
+                ]}
+              />
+            ) : null}
+          </Stack>
         )}
         <CurrencyInput
           label={t("discovery.routes.itemDetail.listing.price")}
@@ -1305,6 +1342,21 @@ function MarketplaceListingSubmissionSection({
           defaultValue={String(listing?.quantity_cap ?? defaultQuantity)}
           required
         />
+        {!listing && !hasListingStockLocation ? (
+          <Stack gap={2}>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.ship.from")}</Text>
+            <TextInput label={t("discovery.routes.itemDetail.ship.from.name")} name="shipFromName" />
+            <TextInput label={t("discovery.routes.itemDetail.ship.from.line1")} name="shipFromLine1" />
+            <Inline>
+              <TextInput label={t("discovery.routes.itemDetail.ship.from.city")} name="shipFromCity" />
+              <TextInput label={t("discovery.routes.itemDetail.ship.from.state")} name="shipFromState" />
+            </Inline>
+            <Inline>
+              <TextInput label={t("discovery.routes.itemDetail.ship.from.postal.code")} name="shipFromPostalCode" />
+              <TextInput label={t("discovery.routes.itemDetail.ship.from.country")} name="shipFromCountry" defaultValue="US" />
+            </Inline>
+          </Stack>
+        ) : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}
         {actions !== undefined ? actions : defaultActions}
       </Stack>
@@ -1345,6 +1397,7 @@ export function ItemCommercePanel({
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createDiscoveryRequestApiClient(request);
   const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const inventoryApi = createInventoryRequestApiClient(request);
   const id = params.id;
   const url = new URL(request.url);
   const initialMarketIntent: "buy" | "sell" =
@@ -1358,6 +1411,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       accountOfferMatches: [],
       sellerInventoryItems: [],
       sellerAccountId: null,
+      hasListingStockLocation: false,
       viewerAccountId: null,
       initialMarketIntent,
       initialSelectedOptions,
@@ -1389,6 +1443,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const canSubmitOffers = Boolean(actor);
     let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
+    let hasListingStockLocation = false;
 
     if (canReviewAccountOfferMatches) {
       try {
@@ -1412,11 +1467,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     if (canSellOnItem) {
       try {
-        const items = await marketplaceApi.listSellerListingInventory(
-          `limit=100&offset=0&catalogItemId=${encodeURIComponent(item.catalog_item_id)}`,
-        );
+        const [items, storageLocations] = await Promise.all([
+          marketplaceApi.listSellerListingInventory(
+            `limit=100&offset=0&catalogItemId=${encodeURIComponent(item.catalog_item_id)}`,
+          ),
+          inventoryApi.listStorageLocations("limit=100&offset=0"),
+        ]);
         sellerInventoryItems = (items.items as MarketplaceListingInventoryItemOption[])
           .map(toSellerInventoryItem);
+        hasListingStockLocation = storageLocations.items.some(
+          (location) => location.name === LISTING_STOCK_LOCATION_NAME,
+        );
       } catch {
         sellerInventoryItems = [];
       }
@@ -1427,6 +1488,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       accountOfferMatches,
       sellerInventoryItems,
       sellerAccountId: canSellOnItem ? actor?.accountId ?? null : null,
+      hasListingStockLocation,
       viewerAccountId: actor?.accountId ?? null,
       initialMarketIntent,
       initialSelectedOptions,
@@ -1445,6 +1507,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         accountOfferMatches: [],
         sellerInventoryItems: [],
         sellerAccountId: null,
+        hasListingStockLocation: false,
         viewerAccountId: null,
         initialMarketIntent,
         initialSelectedOptions,
@@ -1464,6 +1527,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       accountOfferMatches: [],
       sellerInventoryItems: [],
       sellerAccountId: null,
+      hasListingStockLocation: false,
       viewerAccountId: null,
       initialMarketIntent,
       initialSelectedOptions,
@@ -1484,6 +1548,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const intent = String(formData.get("intent") ?? "");
   const discoveryApi = createDiscoveryRequestApiClient(request);
   const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const inventoryApi = createInventoryRequestApiClient(request);
   const checkoutApi = createCheckoutRequestApiClient(request);
 
   try {
@@ -1661,11 +1726,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return redirect(`/items/${item.slug || params.id}`);
       }
 
-      const result = await marketplaceApi.createListing({
-        inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
-        priceAmount,
-        quantityCap,
-      }) as { id?: string; feeQuoteFingerprint?: string };
+      const inventoryItemId = String(formData.get("inventoryItemId") ?? "").trim();
+      const listingBody = inventoryItemId
+        ? {
+            inventoryItemId,
+            priceAmount,
+            quantityCap,
+          }
+        : {
+            inventoryItemId: "",
+            priceAmount,
+            quantityCap,
+            inventorySnapshot: (
+              await inventoryApi.ensureListingStock({
+                catalogItemId: item.catalog_item_id,
+                selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+                quantity: quantityCap,
+                shipFromAddress: shipFromAddressFromForm(formData),
+              })
+            ).snapshot,
+          };
+      const result = await marketplaceApi.createListing(listingBody) as { id?: string; feeQuoteFingerprint?: string };
 
       if (result.id) {
         await marketplaceApi.publishListing(result.id, {
@@ -1854,11 +1935,13 @@ function DiscoveryItemDetailRealtimeView({
                   showSummary={showSummary}
                   actions={actions}
                   productId={context.selectedProductId}
+                  selectedOptions={context.selectedProductOptions}
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   bestListing={context.bestListing}
                   ownListing={ownListing}
                   inventoryItems={data.sellerInventoryItems}
+                  hasListingStockLocation={data.hasListingStockLocation}
                   errorMessage={actionErrorMessage}
                 />
               );

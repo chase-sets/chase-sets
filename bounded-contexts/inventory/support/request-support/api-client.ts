@@ -15,8 +15,10 @@ export type {
   InventoryImportBatchRow,
   ImportCsvRow,
   InventoryHold,
+  InventoryEnsuredListingStock,
   InventoryItemDetail,
   InventoryItemListItem,
+  InventoryListingStockSnapshot,
   InventoryStorageLocation,
 } from "../../client";
 import { createInventoryApiClient } from "../../client";

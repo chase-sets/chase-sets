@@ -86,6 +86,59 @@ function parsePurchaseLimits(body: Record<string, unknown>) {
   };
 }
 
+function parseSelectedOptions(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((entry) =>
+          entry && typeof entry === "object"
+            ? {
+                dimensionId: String((entry as Record<string, unknown>).dimensionId ?? ""),
+                optionId: String((entry as Record<string, unknown>).optionId ?? ""),
+              }
+            : null,
+        )
+        .filter((entry): entry is { dimensionId: string; optionId: string } =>
+          Boolean(entry?.dimensionId && entry.optionId),
+        )
+    : [];
+}
+
+function parseInventorySnapshot(body: Record<string, unknown>) {
+  const snapshot = body.inventorySnapshot;
+  if (!snapshot || typeof snapshot !== "object") {
+    return null;
+  }
+
+  const source = snapshot as Record<string, unknown>;
+  const shipFromAddress = source.shipFromAddress && typeof source.shipFromAddress === "object"
+    ? source.shipFromAddress as never
+    : null;
+
+  if (!shipFromAddress) {
+    return null;
+  }
+
+  return {
+    inventoryItemId: String(source.inventoryItemId ?? ""),
+    catalogItemId: String(source.catalogItemId ?? ""),
+    productId: String(source.productId ?? ""),
+    selectedOptions: parseSelectedOptions(source.selectedOptions),
+    gradedCard:
+      source.gradedCard && typeof source.gradedCard === "object"
+        ? source.gradedCard as never
+        : null,
+    storageLocationId: String(source.storageLocationId ?? ""),
+    storageLocationName: String(source.storageLocationName ?? ""),
+    shipFromCode: String(source.shipFromCode ?? ""),
+    shipFromAddress,
+    totalQuantity: Number(source.totalQuantity ?? 0),
+    acquisitionCostAmount:
+      source.acquisitionCostAmount == null
+        ? null
+        : String(source.acquisitionCostAmount),
+  };
+}
+
 function parseSellerListingAvailabilityReason(value: unknown) {
   const normalized = typeof value === "string" ? value.trim() : "";
 
@@ -315,16 +368,28 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     const body = await c.req.json();
 
     try {
-      const result = await services.createListing(
-        {
-          accountId: access.actor.accountId as never,
-          inventoryItemId: String(body.inventoryItemId ?? ""),
-          priceAmount: String(body.priceAmount ?? ""),
-          quantityCap: Number(body.quantityCap ?? 0),
-          purchaseLimits: parsePurchaseLimits(body),
-        },
-        context,
-      );
+      const inventorySnapshot = parseInventorySnapshot(body);
+      const result = inventorySnapshot
+        ? await services.createListingFromInventorySnapshot(
+            {
+              accountId: access.actor.accountId,
+              ...inventorySnapshot,
+              priceAmount: String(body.priceAmount ?? ""),
+              quantityCap: Number(body.quantityCap ?? 0),
+              purchaseLimits: parsePurchaseLimits(body),
+            },
+            context,
+          )
+        : await services.createListing(
+            {
+              accountId: access.actor.accountId as never,
+              inventoryItemId: String(body.inventoryItemId ?? ""),
+              priceAmount: String(body.priceAmount ?? ""),
+              quantityCap: Number(body.quantityCap ?? 0),
+              purchaseLimits: parsePurchaseLimits(body),
+            },
+            context,
+          );
 
       return c.json(
         {

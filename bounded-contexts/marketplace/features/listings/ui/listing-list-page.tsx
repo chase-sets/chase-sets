@@ -1,5 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { useEffect, useState } from "react";
 import {
+  Accordion,
   Badge,
   Banner,
   Button,
@@ -29,6 +31,26 @@ import type {
   MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
 } from "./contracts";
+
+const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
+
+type ListingCatalogItemSnapshot = Readonly<{
+  title: string;
+  product_schema: ProductSchema | null;
+}>;
+
+type ProductSchema = Readonly<{
+  canonicalDimensionOrder: readonly Readonly<{ dimensionId: string }>[];
+  dimensions: readonly Readonly<{
+    dimensionId: string;
+    dimensionName: string;
+    allowedOptions: readonly Readonly<{
+      optionId: string;
+      code: string;
+      label: string;
+    }>[];
+  }>[];
+}>;
 
 function formatMoney(amount: string | null) {
   if (!amount) {
@@ -179,6 +201,34 @@ function selectedInventorySummary(
   return inventoryItems.find((inventoryItem) => inventoryItem.item_id === inventoryItemId) ?? null;
 }
 
+function getOrderedDimensions(schema: ProductSchema) {
+  return schema.canonicalDimensionOrder
+    .map((entry) =>
+      schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId),
+    )
+    .filter((dimension): dimension is ProductSchema["dimensions"][number] => Boolean(dimension));
+}
+
+function optionLabel(option: ProductSchema["dimensions"][number]["allowedOptions"][number]) {
+  return option.label ?? option.code ?? option.optionId;
+}
+
+function normalizeSelections(schema: ProductSchema, current: Record<string, string>) {
+  const next: Record<string, string> = {};
+
+  for (const dimension of getOrderedDimensions(schema)) {
+    const selected = current[dimension.dimensionId];
+    const fallback = dimension.allowedOptions[0]?.optionId ?? "";
+    if (selected && dimension.allowedOptions.some((option) => option.optionId === selected)) {
+      next[dimension.dimensionId] = selected;
+    } else if (fallback) {
+      next[dimension.dimensionId] = fallback;
+    }
+  }
+
+  return next;
+}
+
 function ProductSummaryChips({ summary }: { summary: string }) {
   return (
     <ProductSelectionSummary
@@ -197,6 +247,8 @@ export function MarketplaceListingListPage({
   createForm,
   createPreview,
   errorMessage,
+  hasListingStockLocation,
+  catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
   feeLockReport?: { items: readonly MarketplaceListingFeeLockReportEntry[] };
@@ -204,6 +256,8 @@ export function MarketplaceListingListPage({
   inventoryItems: readonly MarketplaceListingInventoryItemOption[];
   createForm?: {
     inventoryItemId?: string | null;
+    catalogItemId?: string | null;
+    selectedOptions?: readonly { dimensionId: string; optionId: string }[] | null;
     priceAmount?: string | null;
     quantityCap?: string | null;
     maxUnitsPerOrder?: string | null;
@@ -212,12 +266,19 @@ export function MarketplaceListingListPage({
   };
   createPreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
+  hasListingStockLocation: boolean;
+  catalogItemApiBaseUrl?: string;
 }) {
   const selectedInventory = selectedInventorySummary(
     inventoryItems,
     createForm?.inventoryItemId,
   );
   const hasInventory = inventoryItems.length > 0;
+  const [catalogItemId, setCatalogItemId] = useState(createForm?.catalogItemId ?? "");
+  const [catalogItem, setCatalogItem] = useState<ListingCatalogItemSnapshot | null>(null);
+  const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
+  const [catalogLookupPending, setCatalogLookupPending] = useState(false);
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const activeListings = data.items.filter((item) => item.status === "active").length;
   const draftListings = data.items.filter((item) => item.status === "draft").length;
   const pausedListings = data.items.filter((item) => item.status === "paused").length;
@@ -225,6 +286,72 @@ export function MarketplaceListingListPage({
     count: pausedListings,
     label: pausedListings === 1 ? "listing" : "listings",
   });
+  const serializedSelectedOptions =
+    catalogItem?.product_schema
+      ? JSON.stringify(
+          getOrderedDimensions(catalogItem.product_schema)
+            .map((dimension) => {
+              const optionId = selectedOptions[dimension.dimensionId];
+              return optionId ? { dimensionId: dimension.dimensionId, optionId } : null;
+            })
+            .filter((entry): entry is { dimensionId: string; optionId: string } => Boolean(entry)),
+        )
+      : JSON.stringify(createForm?.selectedOptions ?? []);
+
+  useEffect(() => {
+    const trimmedCatalogItemId = catalogItemId.trim();
+    if (!trimmedCatalogItemId) {
+      setCatalogItem(null);
+      setCatalogLookupError(null);
+      setCatalogLookupPending(false);
+      setSelectedOptions({});
+      return;
+    }
+
+    const controller = new AbortController();
+    setCatalogLookupPending(true);
+    void fetch(`${catalogItemApiBaseUrl}/${encodeURIComponent(trimmedCatalogItemId)}`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(body?.error ?? t("marketplace.features.listings.ui.listingListPage.catalog.item.lookup.failed"));
+        }
+
+        return response.json() as Promise<ListingCatalogItemSnapshot>;
+      })
+      .then((item) => {
+        setCatalogItem(item);
+        setCatalogLookupError(null);
+        setSelectedOptions(
+          item.product_schema
+            ? normalizeSelections(
+                item.product_schema,
+                Object.fromEntries(
+                  (createForm?.selectedOptions ?? []).map((entry) => [entry.dimensionId, entry.optionId]),
+                ),
+              )
+            : {},
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setCatalogItem(null);
+        setSelectedOptions({});
+        setCatalogLookupError(error instanceof Error ? error.message : t("marketplace.features.listings.ui.listingListPage.catalog.item.lookup.failed"));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setCatalogLookupPending(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [catalogItemApiBaseUrl, catalogItemId, createForm?.selectedOptions]);
 
   return (
     <Page>
@@ -233,8 +360,8 @@ export function MarketplaceListingListPage({
         title={t("marketplace.features.listings.ui.listingListPage.listings")}
         description={t("marketplace.features.listings.ui.listingListPage.create.publish.and.manage.seller.listings")}
         actions={
-          <LinkButton href="/account/inventory" tone="secondary">
-            {t("marketplace.features.listings.ui.listingListPage.view.inventory")}</LinkButton>
+          <LinkButton href="/account/inventory/imports" tone="secondary">
+            {t("marketplace.features.listings.ui.listingListPage.advanced.import")}</LinkButton>
         }
       />
 
@@ -321,7 +448,7 @@ export function MarketplaceListingListPage({
             detail: t("marketplace.features.listings.ui.listingListPage.not.visible.yet"),
           },
           {
-            label: t("marketplace.features.listings.ui.listingListPage.inventory"),
+            label: t("marketplace.features.listings.ui.listingListPage.advanced.stock"),
             value: inventoryItems.length,
             detail: pausedListingDetail,
           },
@@ -332,25 +459,14 @@ export function MarketplaceListingListPage({
         <Card>
           <form method="post">
             <Stack gap={3}>
-              {!hasInventory ? (
-                <Banner
-                  title={t("marketplace.features.listings.ui.listingListPage.no.sellable.inventory.is.available")}
-                  description={t("marketplace.features.listings.ui.listingListPage.add.stock.with.available.quantity.before")}
-                  actions={
-                    <LinkButton href="/account/inventory" tone="secondary" size="sm">
-                      {t("marketplace.features.listings.ui.listingListPage.add.inventory")}</LinkButton>
-                  }
-                />
-              ) : (
-                <Banner
-                  title={t("marketplace.features.listings.ui.listingListPage.preview.fees.before.publishing")}
-                  description={t("marketplace.features.listings.ui.listingListPage.choose.inventory.enter.a.price.and.preview")}
-                  tone="info"
-                />
-              )}
+              <Banner
+                title={t("marketplace.features.listings.ui.listingListPage.list.without.managing.inventory")}
+                description={t("marketplace.features.listings.ui.listingListPage.choose.a.product.price.and.quantity")}
+                tone="info"
+              />
               {selectedInventory ? (
                 <Banner
-                  title={t("marketplace.features.listings.ui.listingListPage.selected.inventory")}
+                  title={t("marketplace.features.listings.ui.listingListPage.advanced.inventory.selected")}
                   description={
                     <>
                       {inventoryLabel(selectedInventory)}
@@ -359,18 +475,45 @@ export function MarketplaceListingListPage({
                   }
                 />
               ) : null}
-              <NativeSelect
-                  label={t("marketplace.features.listings.ui.listingListPage.inventory.item")}
-                name="inventoryItemId"
-                required
-                disabled={!hasInventory}
-                defaultValue={createForm?.inventoryItemId ?? ""}
-                placeholder={t("marketplace.features.listings.ui.listingListPage.select.inventory")}
-                items={inventoryItems.map((inventoryItem) => ({
-                  value: inventoryItem.item_id,
-                  label: inventoryLabel(inventoryItem),
-                }))}
+              <TextInput
+                label={t("marketplace.features.listings.ui.listingListPage.catalog.item.id")}
+                name="catalogItemId"
+                placeholder={t("marketplace.features.listings.ui.listingListPage.search.or.paste.catalog.item")}
+                value={catalogItemId}
+                onChange={(event) => setCatalogItemId(event.target.value)}
               />
+              <input type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
+              {catalogLookupPending ? (
+                <Text size="sm" tone="secondary">{t("marketplace.features.listings.ui.listingListPage.loading.catalog.item")}</Text>
+              ) : null}
+              {catalogItem?.product_schema ? (
+                <Stack gap={2}>
+                  <Text weight="semibold">{catalogItem.title}</Text>
+                  {getOrderedDimensions(catalogItem.product_schema).map((dimension) => (
+                    <NativeSelect
+                      key={dimension.dimensionId}
+                      label={dimension.dimensionName}
+                      name={`selectedOptions:${dimension.dimensionId}`}
+                      value={selectedOptions[dimension.dimensionId] ?? ""}
+                      onChange={(event) =>
+                        setSelectedOptions((current) =>
+                          normalizeSelections(catalogItem.product_schema!, {
+                            ...current,
+                            [dimension.dimensionId]: event.target.value,
+                          }),
+                        )
+                      }
+                      items={dimension.allowedOptions.map((option) => ({
+                        value: option.optionId,
+                        label: optionLabel(option),
+                      }))}
+                    />
+                  ))}
+                </Stack>
+              ) : catalogItem ? (
+                <Text size="sm" tone="secondary">{catalogItem.title}</Text>
+              ) : null}
+              {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
               <TextInput
                 label={t("marketplace.features.listings.ui.listingListPage.price")}
                 name="priceAmount"
@@ -378,7 +521,6 @@ export function MarketplaceListingListPage({
                 inputMode="decimal"
                 defaultValue={createForm?.priceAmount ?? ""}
                 required
-                disabled={!hasInventory}
               />
               <NumberInput
                 label={t("marketplace.features.listings.ui.listingListPage.quantity.cap")}
@@ -386,48 +528,89 @@ export function MarketplaceListingListPage({
                 min="1"
                 defaultValue={createForm?.quantityCap ?? "1"}
                 required
-                disabled={!hasInventory}
               />
               <Text size="sm" tone="secondary">
                 {t("marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy")}
               </Text>
-              <ProgressiveDisclosure
-                title={t("marketplace.features.listings.ui.listingListPage.purchase.limits.copy")}
-                summary={purchaseLimitSummary(createForm ?? {})}
-                tone="info"
-              >
+              {!hasListingStockLocation ? (
                 <Stack gap={3}>
+                  <Text weight="semibold">{t("marketplace.features.listings.ui.listingListPage.ship.from")}</Text>
+                  <TextInput label={t("marketplace.features.listings.ui.listingListPage.ship.from.name")} name="shipFromName" />
+                  <TextInput label={t("marketplace.features.listings.ui.listingListPage.ship.from.line1")} name="shipFromLine1" />
                   <Inline>
-                    <NumberInput
-                      label={t("marketplace.features.listings.ui.listingListPage.limit.per.order")}
-                      name="maxUnitsPerOrder"
-                      min="1"
-                      defaultValue={createForm?.maxUnitsPerOrder ?? ""}
-                      disabled={!hasInventory}
-                    />
-                    <NumberInput
-                      label={t("marketplace.features.listings.ui.listingListPage.limit.per.day")}
-                      name="maxUnitsPerDay"
-                      min="1"
-                      defaultValue={createForm?.maxUnitsPerDay ?? ""}
-                      disabled={!hasInventory}
-                    />
-                    <NumberInput
-                      label={t("marketplace.features.listings.ui.listingListPage.limit.per.customer")}
-                      name="maxUnitsPerCustomerAccount"
-                      min="1"
-                      defaultValue={createForm?.maxUnitsPerCustomerAccount ?? ""}
-                      disabled={!hasInventory}
-                    />
+                    <TextInput label={t("marketplace.features.listings.ui.listingListPage.ship.from.city")} name="shipFromCity" />
+                    <TextInput label={t("marketplace.features.listings.ui.listingListPage.ship.from.state")} name="shipFromState" />
+                  </Inline>
+                  <Inline>
+                    <TextInput label={t("marketplace.features.listings.ui.listingListPage.ship.from.postal.code")} name="shipFromPostalCode" />
+                    <TextInput label={t("marketplace.features.listings.ui.listingListPage.ship.from.country")} name="shipFromCountry" defaultValue="US" />
                   </Inline>
                 </Stack>
-              </ProgressiveDisclosure>
+              ) : null}
+              <Accordion
+                items={[
+                  {
+                    value: "advanced",
+                    trigger: t("marketplace.features.listings.ui.listingListPage.advanced.inventory.and.limits"),
+                    content: (
+                      <Stack gap={3}>
+                        <Inline>
+                          <LinkButton href="/account/inventory" tone="secondary" size="sm">
+                            {t("marketplace.features.listings.ui.listingListPage.inventory")}</LinkButton>
+                          <LinkButton href="/account/inventory/imports" tone="secondary" size="sm">
+                            {t("marketplace.features.listings.ui.listingListPage.import")}</LinkButton>
+                          <LinkButton href="/account/inventory/locations" tone="secondary" size="sm">
+                            {t("marketplace.features.listings.ui.listingListPage.locations")}</LinkButton>
+                        </Inline>
+                        {hasInventory ? (
+                          <NativeSelect
+                            label={t("marketplace.features.listings.ui.listingListPage.use.existing.inventory")}
+                            name="inventoryItemId"
+                            defaultValue={createForm?.inventoryItemId ?? ""}
+                            placeholder={t("marketplace.features.listings.ui.listingListPage.automatic.listing.stock")}
+                            items={inventoryItems.map((inventoryItem) => ({
+                              value: inventoryItem.item_id,
+                              label: inventoryLabel(inventoryItem),
+                            }))}
+                          />
+                        ) : (
+                          <Text size="sm" tone="secondary">
+                            {t("marketplace.features.listings.ui.listingListPage.no.advanced.inventory.available")}
+                          </Text>
+                        )}
+                        <Inline>
+                          <NumberInput
+                            label={t("marketplace.features.listings.ui.listingListPage.limit.per.order")}
+                            name="maxUnitsPerOrder"
+                            min="1"
+                            defaultValue={createForm?.maxUnitsPerOrder ?? ""}
+                          />
+                          <NumberInput
+                            label={t("marketplace.features.listings.ui.listingListPage.limit.per.day")}
+                            name="maxUnitsPerDay"
+                            min="1"
+                            defaultValue={createForm?.maxUnitsPerDay ?? ""}
+                          />
+                          <NumberInput
+                            label={t("marketplace.features.listings.ui.listingListPage.limit.per.customer")}
+                            name="maxUnitsPerCustomerAccount"
+                            min="1"
+                            defaultValue={createForm?.maxUnitsPerCustomerAccount ?? ""}
+                          />
+                        </Inline>
+                        <Text size="sm" tone="secondary">
+                          {t("marketplace.features.listings.ui.listingListPage.purchase.limits.copy")}
+                        </Text>
+                      </Stack>
+                    ),
+                  },
+                ]}
+              />
               <Inline>
                 <Button
                   type="submit"
                   name="intent"
                   value="create-and-publish-listing"
-                  disabled={!hasInventory}
                 >
                   {t("marketplace.features.listings.ui.listingListPage.create.and.publish")}</Button>
                 <Button
@@ -435,7 +618,6 @@ export function MarketplaceListingListPage({
                   name="intent"
                   value="preview-listing"
                   tone="secondary"
-                  disabled={!hasInventory}
                 >
                   {t("marketplace.features.listings.ui.listingListPage.preview.fees")}</Button>
                 <Button
@@ -443,7 +625,6 @@ export function MarketplaceListingListPage({
                   name="intent"
                   value="create-listing"
                   tone="ghost"
-                  disabled={!hasInventory}
                 >
                   {t("marketplace.features.listings.ui.listingListPage.save.as.draft")}</Button>
               </Inline>

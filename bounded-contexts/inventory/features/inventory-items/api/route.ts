@@ -4,6 +4,50 @@ import type { InventoryApiEnv } from "../../../api";
 import type { InventoryHoldServices } from "../../holds/api/runtime";
 import type { InventoryItemServices } from "./runtime";
 
+function parseSelectedOptions(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((entry) =>
+          entry && typeof entry === "object"
+            ? {
+                dimensionId: String((entry as Record<string, unknown>).dimensionId ?? ""),
+                optionId: String((entry as Record<string, unknown>).optionId ?? ""),
+              }
+            : null,
+        )
+        .filter((entry): entry is { dimensionId: string; optionId: string } =>
+          Boolean(entry?.dimensionId && entry.optionId),
+        )
+    : [];
+}
+
+function parseShipFromAddress(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const hasRequiredFields = ["name", "line1", "city", "state", "postalCode", "country"]
+    .every((key) => String(source[key] ?? "").trim().length > 0);
+
+  if (!hasRequiredFields) {
+    return null;
+  }
+
+  return {
+    name: String(source.name ?? ""),
+    company: source.company == null ? null : String(source.company),
+    line1: String(source.line1 ?? ""),
+    line2: source.line2 == null ? null : String(source.line2),
+    city: String(source.city ?? ""),
+    state: String(source.state ?? ""),
+    postalCode: String(source.postalCode ?? ""),
+    country: String(source.country ?? "US"),
+    phone: source.phone == null ? null : String(source.phone),
+    email: source.email == null ? null : String(source.email),
+  };
+}
+
 export function inventoryItemRoutes(
   items: InventoryItemServices,
   holds: InventoryHoldServices,
@@ -36,6 +80,39 @@ export function inventoryItemRoutes(
     }
 
     return c.json(item);
+  });
+
+  app.post("/listing-stock/ensure", async (c) => {
+    const actor = c.get("actor");
+    const body = await c.req.json();
+
+    try {
+      const result = await items.ensureListingStock(
+        {
+          accountId: actor.accountId as never,
+          catalogItemId: String(body.catalogItemId ?? ""),
+          selectedOptions: parseSelectedOptions(body.selectedOptions),
+          gradedCard:
+            typeof body.gradedCard === "object" && body.gradedCard !== null
+              ? body.gradedCard as never
+              : null,
+          quantity: Number(body.quantity ?? body.quantityCap ?? 0),
+          shipFromCode:
+            typeof body.shipFromCode === "string" ? body.shipFromCode : null,
+          shipFromAddress: parseShipFromAddress(body.shipFromAddress),
+        },
+        c.get("context"),
+      );
+
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: error instanceof Error ? error.message : t("inventory.features.inventoryItems.api.route.request.failed"),
+        },
+      }, 400);
+    }
   });
 
   app.post("/", async (c) => {
