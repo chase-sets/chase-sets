@@ -33,6 +33,14 @@ Opening filters presents a bottom sheet with vertically grouped choices for Cate
 
 Facet counts are result-aware. Counts should be computed from the active Discovery Query with the candidate facet group's own selection excluded, while all other active filters remain applied. This lets users see useful next refinements without hiding alternatives inside the current group.
 
+## Result Set Loading
+
+Buyer-facing search uses cursor-loaded Result Sets instead of page-number pagination. The first batch is loaded by the route from the URL-backed Discovery Query. Additional batches use the returned `nextCursor`, append Search Results in the active Sort Order, and deduplicate by `catalog_item_id`.
+
+The batch size stays finite for latency and marketplace economics, but the browsing experience should not stop at the first 24 Search Results. Product search auto-loads the next cursor batch as the user approaches the end of the list and keeps an accessible load-more or retry action available for assistive technology, network failures, and browsers that cannot run the automatic observer.
+
+Changing search text, Category, Language, Sort Order, or dynamic Filters starts a new Result Set and clears previously appended cursor batches. Cursor loading should not reintroduce offset-based count work; exact totals are requested only when a consumer truly needs total-match metadata.
+
 ## URL Contract
 
 Dynamic filter URLs use stable Catalog identifiers:

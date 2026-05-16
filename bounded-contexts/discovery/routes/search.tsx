@@ -7,7 +7,7 @@ import {
   useNavigation,
   useSearchParams,
 } from "react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
@@ -45,6 +45,7 @@ const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
   count: 0,
   nextCursor: null,
 };
+const EMPTY_EXTRA_PAGES: readonly DiscoverySearchResponse[] = [];
 
 type DynamicSearchFilterSelection = Readonly<{
   kind: "field" | "dimension";
@@ -57,14 +58,14 @@ function buildSearchQuery({
   category,
   language,
   sort,
-  page,
+  cursor,
   dynamicFilters,
 }: {
   search: string;
   category: string;
   language: string;
   sort: string;
-  page: number;
+  cursor?: string | null;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
 }) {
   const params = new URLSearchParams();
@@ -79,7 +80,9 @@ function buildSearchQuery({
   }
   params.set("sort", sort);
   params.set("limit", String(PAGE_SIZE));
-  params.set("offset", String((page - 1) * PAGE_SIZE));
+  if (cursor) {
+    params.set("cursor", cursor);
+  }
   appendDynamicSearchFilters(params, dynamicFilters);
   return params.toString();
 }
@@ -95,11 +98,15 @@ function buildCategoryPath(categorySlug: string, current: URLSearchParams) {
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
+  if (url.searchParams.has("page")) {
+    url.searchParams.delete("page");
+    throw redirect(`${url.pathname}${url.search ? url.search : ""}`, { status: 301 });
+  }
+
   const search = url.searchParams.get("q") ?? url.searchParams.get("search") ?? "";
   const categoryParam = params.categorySlug ?? url.searchParams.get("category") ?? "";
   const language = url.searchParams.get("language") ?? "";
   const sort = url.searchParams.get("sort") ?? "relevance";
-  const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
   const api = createDiscoveryRequestApiClient(request);
 
@@ -124,7 +131,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const data = await api.searchItems(
-    buildSearchQuery({ search, category, language, sort, page, dynamicFilters }),
+    buildSearchQuery({ search, category, language, sort, dynamicFilters }),
   ).catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
   const canonicalPath = params.categorySlug && resolvedCategory
     ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -135,7 +142,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     category,
     language,
     sort,
-    page,
     dynamicFilters,
     data,
     categories: categories.items,
@@ -182,14 +188,45 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     value: data.search,
   }));
   const dynamicFilters = data.dynamicFilters ?? [];
-  const realtimeData = useRealtimePatchedSnapshot<DiscoverySearchResponse | null>({
-    initialSnapshot: data.data,
-    snapshotKey: JSON.stringify([data.search, data.category, data.language, data.sort, data.page, dynamicFilters, data.data]),
+  const resultSetKey = JSON.stringify([data.search, data.category, data.language, data.sort, dynamicFilters]);
+  const resultSetKeyRef = useRef(resultSetKey);
+  const [extraPageState, setExtraPageState] = useState<{
+    key: string;
+    pages: DiscoverySearchResponse[];
+  }>({ key: resultSetKey, pages: [] });
+  const [loadMoreState, setLoadMoreState] = useState<{
+    loading: boolean;
+    error: string | null;
+  }>({ loading: false, error: null });
+  const loadMoreInFlightRef = useRef(false);
+  let draftSearch = draftSearchState.value;
+  const activeExtraPages = extraPageState.key === resultSetKey
+    ? extraPageState.pages
+    : EMPTY_EXTRA_PAGES;
+  const accumulatedData = useMemo(
+    () => mergeDiscoverySearchResponses(data.data, activeExtraPages),
+    [activeExtraPages, data.data],
+  );
+  const accumulatedSnapshotKey = JSON.stringify([
+    resultSetKey,
+    data.data?.nextCursor,
+    activeExtraPages.length,
+    activeExtraPages.at(-1)?.nextCursor,
+  ]);
+  const visibleData = useRealtimePatchedSnapshot<DiscoverySearchResponse | null>({
+    initialSnapshot: accumulatedData,
+    snapshotKey: accumulatedSnapshotKey,
     topics: discoveryRealtimeRouteTopics.search().topics,
     applyPatch: applyDiscoverySearchPatch,
     onSyncRequired: reloadForRealtimeSync,
   });
-  let draftSearch = draftSearchState.value;
+
+  useEffect(() => {
+    resultSetKeyRef.current = resultSetKey;
+    loadMoreInFlightRef.current = false;
+    setExtraPageState({ key: resultSetKey, pages: [] });
+    setLoadMoreState({ loading: false, error: null });
+  }, [resultSetKey]);
 
   if (
     draftSearchState.committedSearch !== data.search &&
@@ -218,7 +255,6 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     category?: string;
     language?: string;
     sort?: string;
-    page?: number;
     dynamicFilter?: DynamicSearchFilterSelection;
     dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
   }, replace = false) => {
@@ -269,14 +305,6 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         next.delete("page");
       }
 
-      if (nextValues.page !== undefined) {
-        if (nextValues.page > 1) {
-          next.set("page", String(nextValues.page));
-        } else {
-          next.delete("page");
-        }
-      }
-
       if (nextValues.dynamicFilter !== undefined) {
         toggleDynamicSearchFilter(next, nextValues.dynamicFilter);
         next.delete("page");
@@ -306,7 +334,6 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     category?: string;
     language?: string;
     sort?: string;
-    page?: number;
     dynamicFilter?: DynamicSearchFilterSelection;
     dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
   }) {
@@ -316,6 +343,61 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     updateSearchParams({ search, ...nextValues });
   }
 
+  const handleLoadMore = useCallback(async () => {
+    if (!visibleData?.nextCursor || loadMoreInFlightRef.current) {
+      return;
+    }
+
+    const requestKey = resultSetKeyRef.current;
+    const query = buildSearchQuery({
+      search: data.search,
+      category: data.category,
+      language: data.language,
+      sort: data.sort,
+      dynamicFilters,
+      cursor: visibleData.nextCursor,
+    });
+
+    loadMoreInFlightRef.current = true;
+    setLoadMoreState({ loading: true, error: null });
+    try {
+      const response = await fetch(`/api/marketplace/items?${query}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(`Search request failed with ${response.status}.`);
+      }
+
+      const nextPage = await response.json() as DiscoverySearchResponse;
+      if (resultSetKeyRef.current !== requestKey) {
+        return;
+      }
+
+      setExtraPageState((current) => current.key === requestKey
+        ? { key: current.key, pages: [...current.pages, nextPage] }
+        : current);
+      setLoadMoreState({ loading: false, error: null });
+    } catch {
+      if (resultSetKeyRef.current === requestKey) {
+        setLoadMoreState({
+          loading: false,
+          error: t("discovery.features.search.ui.searchPage.load.more.error.description"),
+        });
+      }
+    } finally {
+      if (resultSetKeyRef.current === requestKey) {
+        loadMoreInFlightRef.current = false;
+      }
+    }
+  }, [
+    data.category,
+    data.language,
+    data.search,
+    data.sort,
+    dynamicFilters,
+    visibleData?.nextCursor,
+  ]);
+
   return (
     <SearchPage
       search={draftSearch}
@@ -323,11 +405,12 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       category={data.category}
       language={data.language}
       sort={data.sort}
-      page={data.page}
       dynamicFilters={dynamicFilters}
-      data={realtimeData}
+      data={visibleData}
       categories={[...data.categories]}
       loading={navigation.state !== "idle"}
+      loadingMore={loadMoreState.loading}
+      loadMoreError={loadMoreState.error}
       restoreSearchFocus={restoreSearchFocusRef.current}
       onSearchChange={handleSearchChange}
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
@@ -335,9 +418,36 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
       onDynamicFilterChange={(value) => handleImmediateSearchParamChange({ dynamicFilter: value })}
       onDynamicFilterClear={(value) => handleImmediateSearchParamChange({ dynamicFilterClear: value })}
-      onPageChange={(value) => handleImmediateSearchParamChange({ page: value })}
+      onLoadMore={handleLoadMore}
     />
   );
+}
+
+function mergeDiscoverySearchResponses(
+  firstPage: DiscoverySearchResponse | null,
+  extraPages: readonly DiscoverySearchResponse[],
+): DiscoverySearchResponse | null {
+  if (!firstPage) {
+    return null;
+  }
+
+  const items: DiscoverySearchResponse["items"] = [];
+  const seen = new Set<string>();
+  for (const page of [firstPage, ...extraPages]) {
+    for (const item of page.items) {
+      if (!seen.has(item.catalog_item_id)) {
+        seen.add(item.catalog_item_id);
+        items.push(item);
+      }
+    }
+  }
+
+  return {
+    ...firstPage,
+    items,
+    count: items.length,
+    nextCursor: extraPages.at(-1)?.nextCursor ?? firstPage.nextCursor,
+  };
 }
 
 function reloadForRealtimeSync() {

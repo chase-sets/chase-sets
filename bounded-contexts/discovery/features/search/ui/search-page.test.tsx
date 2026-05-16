@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchPage } from "./search-page";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const categories: DiscoveryCategoryItem[] = [
   createCategory({ slug: "booster-packs", name: "Booster Packs", item_count: 1 }),
@@ -97,7 +100,6 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     category: "",
     language: "",
     sort: "relevance",
-    page: 1,
     dynamicFilters: [],
     data: searchResponse,
     categories,
@@ -107,7 +109,7 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     onSortChange: vi.fn(),
     onDynamicFilterChange: vi.fn(),
     onDynamicFilterClear: vi.fn(),
-    onPageChange: vi.fn(),
+    onLoadMore: vi.fn(),
     ...overrides,
   };
 
@@ -233,5 +235,67 @@ describe("SearchPage", () => {
 
     expect(screen.getByRole("link", { name: "View details" }).getAttribute("href"))
       .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo");
+  });
+
+  it("renders an accessible fallback action for cursor-loaded results", () => {
+    const props = renderSearchPage({
+      data: { ...searchResponse, nextCursor: "cursor_2" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("automatically requests the next cursor batch near the end of the result set", async () => {
+    let observerCallback: IntersectionObserverCallback | null = null;
+    class TestIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "";
+      readonly thresholds: readonly number[] = [];
+      disconnect = vi.fn();
+      observe = vi.fn();
+      takeRecords = vi.fn(() => []);
+      unobserve = vi.fn();
+
+      constructor(callback: IntersectionObserverCallback) {
+        observerCallback = callback;
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+
+    const props = renderSearchPage({
+      data: { ...searchResponse, nextCursor: "cursor_2" },
+    });
+
+    await waitFor(() => expect(observerCallback).toBeTruthy());
+    act(() => {
+      observerCallback?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders loading state for cursor-loaded results", () => {
+    renderSearchPage({
+      data: { ...searchResponse, nextCursor: "cursor_2" },
+      loadingMore: true,
+    });
+
+    expect(screen.getByText("Loading more results...")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Load more results" })).toHaveProperty("disabled", true);
+  });
+
+  it("renders retry state for cursor-loaded result failures", () => {
+    const props = renderSearchPage({
+      data: { ...searchResponse, nextCursor: "cursor_2" },
+      loadMoreError: "More results could not load. Try again to continue browsing.",
+    });
+
+    expect(screen.getByText("Could not load more results")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading results" }));
+
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1);
   });
 });

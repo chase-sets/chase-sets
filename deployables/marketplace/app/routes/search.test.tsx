@@ -1,17 +1,21 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
+import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 
 const {
   mockUseLoaderData,
   mockUseNavigate,
   mockUseNavigation,
   mockUseSearchParams,
+  mockSubscribeRealtimePatches,
 } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseNavigate: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
+  mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
 }));
 
 vi.mock("react-router", async () => {
@@ -28,10 +32,12 @@ vi.mock("react-router", async () => {
 
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   createRealtimeRouteSubscriptionPreset: vi.fn((id, topics) => ({ id, topics })),
-  subscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
+  subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
 import SearchRoute from "@chase-sets/discovery/routes/search";
+
+type SubscribeRealtimePatchesOptions = Parameters<typeof subscribeRealtimePatches>[0];
 
 function searchData(search = "", language = "") {
   return {
@@ -90,6 +96,19 @@ function searchDataWithResults(search = "", language = "") {
   };
 }
 
+function searchDataWithCursor(search = "") {
+  const data = searchDataWithResults(search);
+
+  return {
+    ...data,
+    data: {
+      ...data.data,
+      total: null,
+      nextCursor: "cursor_2",
+    },
+  };
+}
+
 function searchDataWithMarketOnlyResult(search = "") {
   const data = searchDataWithResults(search);
 
@@ -112,6 +131,7 @@ function searchDataWithMarketOnlyResult(search = "") {
 describe("marketplace search route", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -286,5 +306,97 @@ describe("marketplace search route", () => {
       "/items/pikachu",
     );
     expect(screen.queryByText("Watch market")).toBeNull();
+  });
+
+  it("loads more product results by cursor without changing the search URL", async () => {
+    const setSearchParams = vi.fn();
+    const secondPageItem = {
+      ...searchDataWithResults("raichu").data.items[0],
+      catalog_item_id: "cat_raichu",
+      slug: "raichu",
+      title: "Raichu",
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+      items: [secondPageItem],
+      facets: [],
+      total: null,
+      count: 1,
+      nextCursor: null,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    mockUseLoaderData.mockReturnValue(searchDataWithCursor("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), setSearchParams]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+    await waitFor(() => expect(screen.getByText("Raichu")).toBeTruthy());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestedUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
+    expect(requestedUrl).toContain("/api/marketplace/items?");
+    expect(requestedUrl).toContain("search=pikachu");
+    expect(requestedUrl).toContain("limit=24");
+    expect(requestedUrl).toContain("cursor=cursor_2");
+    expect(requestedUrl).not.toContain("offset=");
+    expect(setSearchParams).not.toHaveBeenCalled();
+  });
+
+  it("applies realtime market patches to cursor-loaded product results", async () => {
+    const secondPageItem = {
+      ...searchDataWithResults("raichu").data.items[0],
+      catalog_item_id: "cat_raichu",
+      slug: "raichu",
+      title: "Raichu",
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+      items: [secondPageItem],
+      facets: [],
+      total: null,
+      count: 1,
+      nextCursor: null,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    mockUseLoaderData.mockReturnValue(searchDataWithCursor("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+    await waitFor(() => expect(screen.getByText("Raichu")).toBeTruthy());
+
+    const subscriptionOptions = (mockSubscribeRealtimePatches.mock.calls.at(-1) as
+      | [SubscribeRealtimePatchesOptions]
+      | undefined)?.[0];
+    const patch = {
+      kind: "projection.patch",
+      context: "discovery",
+      projection: "discovery-market-projection",
+      topics: ["public:market"],
+      changes: [{
+        op: "summary",
+        entity: "discovery.marketSummary",
+        id: "cat_raichu",
+        value: {
+          lowest_price_amount: "7.00",
+          active_listing_count: 4,
+          total_visible_quantity: 4,
+        },
+      }],
+    } satisfies RealtimeProjectionPatch;
+
+    act(() => subscriptionOptions?.onPatch(patch));
+
+    await waitFor(() => expect(screen.getByText("From $7.00")).toBeTruthy());
   });
 });
