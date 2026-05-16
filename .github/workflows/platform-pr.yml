@@ -206,6 +206,26 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
 
+      - name: Terraform init catalog assets without remote backend
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform init -backend=false
+
+      - name: Terraform format catalog assets
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate catalog assets
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform validate
+
+      - name: Terraform plan preview catalog assets
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/catalog-assets/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
       - name: Terraform init state bootstrap
         working-directory: infrastructure/digitalocean/state-bootstrap
         run: terraform init
@@ -268,6 +288,22 @@ jobs:
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
 
+      - name: Terraform init catalog assets without remote backend
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform init -backend=false
+
+      - name: Terraform validate catalog assets
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform validate
+
+      - name: Terraform plan production catalog assets
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/catalog-assets/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
   terraform-staging-plan:
     name: Terraform Staging Plan
     runs-on: ubuntu-latest
@@ -317,6 +353,22 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           cp -R infrastructure/digitalocean/platform/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
+      - name: Terraform init catalog assets without remote backend
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform init -backend=false
+
+      - name: Terraform validate catalog assets
+        working-directory: infrastructure/digitalocean/catalog-assets
+        run: terraform validate
+
+      - name: Terraform plan staging catalog assets
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/catalog-assets/. "$tmp/"
           sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
           terraform -chdir="$tmp" init -backend=false
           terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan

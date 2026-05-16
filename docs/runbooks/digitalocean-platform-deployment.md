@@ -11,7 +11,12 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
   - PR previews: `platform/previews/pr-<number>.tfstate`.
   - Staging: `landing/staging.tfstate`.
   - Production: `landing/production.tfstate`.
+- Catalog asset state keys:
+  - Preview assets: `catalog-assets/preview.tfstate`.
+  - Staging assets: `catalog-assets/staging.tfstate`.
+  - Production assets: `catalog-assets/production.tfstate`.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before Terraform runs.
+- Catalog asset storage: preview, staging, and production each have a dedicated DigitalOcean Spaces bucket with a CDN-backed custom domain. PR previews share `assets.preview.chasesets.com` instead of creating per-PR buckets or CDNs.
 - Deploy orchestration: GitHub Actions is the canonical deploy owner. Label-gated PR previews and staging build one platform container image in GitHub Actions with bounded Docker Buildx cache, push it to DigitalOcean Container Registry, record the digest, and point App Platform components at that immutable image tag. Production verifies and promotes the staging-built commit image instead of rebuilding a second artifact.
 - Preview and staging environments run the full platform shape. Production currently remains on the landing/admin-support component set until marketplace production promotion is planned.
 - Database connections: non-production API, worker, and bootstrap components cap each per-context Postgres client pool at one connection and route runtime traffic through one managed PgBouncer transaction pool per context database.
@@ -89,6 +94,14 @@ SES values configured for platform environments:
 
 The `platform-worker` component consumes these values in preview and staging. Production stores and validates the production SES values now, but production currently runs the landing/admin-support component set until marketplace production promotion adds the full `platform-worker`.
 
+Catalog asset storage also depends on `SPACES_ACCESS_ID` and `SPACES_SECRET_KEY` in all three environments. The Spaces key must be able to read/write the Terraform state bucket and the environment asset buckets:
+
+| Environment | Bucket | CDN domain |
+| --- | --- | --- |
+| `preview` | `chase-sets-preview-catalog-assets` | `assets.preview.chasesets.com` |
+| `staging` | `chase-sets-staging-catalog-assets` | `assets.staging.chasesets.com` |
+| `production` | `chase-sets-production-catalog-assets` | `assets.chasesets.com` |
+
 Preview and staging Terraform validation requires test-mode provider values:
 
 - `STRIPE_SECRET_KEY` starts with `sk_test`.
@@ -124,6 +137,30 @@ terraform apply
 ```
 
 Then run `terraform init` in `infrastructure/digitalocean/platform` using the appropriate backend key. The CI workflows use the same backend settings.
+
+## One-Time Catalog Asset Bootstrap
+
+Create or update the stable Catalog asset buckets, CDN endpoints, managed certificates, and CDN custom domains before deploying platform environments that write Catalog provider imagery:
+
+```bash
+cd infrastructure/digitalocean/catalog-assets
+
+terraform init \
+  -backend-config=bucket=chase-sets-terraform-state \
+  -backend-config=key=catalog-assets/<environment>.tfstate \
+  -backend-config=region=us-east-1 \
+  -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+  -backend-config=skip_credentials_validation=true \
+  -backend-config=skip_metadata_api_check=true \
+  -backend-config=skip_region_validation=true \
+  -backend-config=skip_requesting_account_id=true \
+  -backend-config=use_path_style=true \
+  -backend-config=use_lockfile=true
+
+terraform apply -var=environment=<environment>
+```
+
+Run once for `preview`, `staging`, and `production`. `doctl spaces keys create` can create or rotate the Spaces key used by Terraform and App Platform, and `gh secret set --env <environment>` should then update `SPACES_ACCESS_ID` and `SPACES_SECRET_KEY` for each GitHub environment.
 
 Run `pnpm install --frozen-lockfile` before Terraform apply. The platform Terraform root creates per-context database users and runs the repo-local DigitalOcean grant script so those users receive database and public-schema privileges before App Platform deploys. In preview and staging, Terraform also creates one managed Postgres transaction pool per context database and points runtime `DATABASE_URL_*` variables at the pool URIs.
 
@@ -213,6 +250,8 @@ The platform smoke script checks:
 - waitlist signup accepts a tagged synthetic lead
 - admin password sign-in works when admin credentials are supplied
 - waitlist admin endpoint can find the synthetic lead when the smoke wrote one
+
+Catalog asset CDN smoke should verify that each environment's `CATALOG_ASSET_PUBLIC_BASE_URL` resolves over HTTPS after the `catalog-assets` Terraform root applies. A full asset write smoke is covered by importing a provider Source Observation that has an image and confirming the stored URL starts with the environment CDN base URL.
 
 Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_REQUIRE_LEGACY_REDIRECT=true` and `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
 
