@@ -41,7 +41,7 @@ export function createInventoryServices(
 
   const catalogItems = createInventoryCatalogItemRuntime(deps);
   const storageLocations = createStorageLocationRuntime(deps);
-  const items = createInventoryItemRuntime(deps, catalogItems);
+  const items = createInventoryItemRuntime(deps, catalogItems, storageLocations);
   const importBatches = createInventoryImportBatchRuntime({
     db,
     items,

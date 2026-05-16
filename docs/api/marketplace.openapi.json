@@ -46,6 +46,7 @@
     "/api/marketplace/account/checkout-sessions/{sessionId}/shipping-option": { "post": { "tags": ["Cart and Checkout"], "summary": "Select checkout shipping option.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/checkout-sessions/{sessionId}/confirm": { "post": { "tags": ["Cart and Checkout"], "summary": "Confirm checkout and create orders/payment intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
 
+    "/api/inventory/items/listing-stock/ensure": { "post": { "tags": ["Inventory"], "summary": "Create or reuse automatic Inventory stock backing a standard listing.", "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
     "/api/marketplace/account/listing-inventory": { "get": { "tags": ["Listings and Offers"], "summary": "List seller inventory available for listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/listing-availability": { "get": { "tags": ["Listings and Offers"], "summary": "Get the seller account listing availability overlay.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/listing-availability/disable": { "post": { "tags": ["Listings and Offers"], "summary": "Turn off the seller account's listings for new buyer commitments.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },

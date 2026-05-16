@@ -34,6 +34,7 @@
   "allowedContextDependencies": [
     "@chase-sets/catalog",
     "@chase-sets/checkout",
+    "@chase-sets/inventory",
     "@chase-sets/marketplace",
     "@chase-sets/notifications"
   ],

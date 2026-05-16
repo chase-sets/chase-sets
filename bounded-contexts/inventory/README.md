@@ -32,6 +32,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 ## Ubiquitous Language
 
 Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+Automatic listing stock policy is documented in [Automatic Listing Stock](./docs/automatic-listing-stock.md).
 
 ## Core Aggregates and Process Managers
 
