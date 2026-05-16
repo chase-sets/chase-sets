@@ -37,6 +37,8 @@ locals {
   database_pool_max                   = "1"
   database_pool_idle_timeout_ms       = "5000"
   database_pool_connection_timeout_ms = "10000"
+  catalog_asset_s3_endpoint           = "https://${var.region}.digitaloceanspaces.com"
+  catalog_asset_public_base_url       = trimspace(var.catalog_asset_public_base_url) != "" ? var.catalog_asset_public_base_url : "https://${var.catalog_asset_s3_bucket}.${var.region}.digitaloceanspaces.com"
 
   landing_context_names = [
     "auth",

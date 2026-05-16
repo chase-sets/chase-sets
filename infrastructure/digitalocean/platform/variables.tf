@@ -86,6 +86,31 @@ variable "platform_image_tag" {
   description = "Container image tag to deploy for App Platform components."
 }
 
+variable "catalog_asset_s3_bucket" {
+  type        = string
+  default     = "chase-sets-catalog-assets"
+  description = "DigitalOcean Spaces bucket used for Catalog-owned provider imagery in production-like S3 storage."
+
+  validation {
+    condition     = trimspace(var.catalog_asset_s3_bucket) != ""
+    error_message = "catalog_asset_s3_bucket must not be empty."
+  }
+}
+
+variable "catalog_asset_public_base_url" {
+  type        = string
+  default     = ""
+  description = "Public base URL for Catalog-owned assets. Defaults to the DigitalOcean Spaces bucket URL."
+
+  validation {
+    condition = (
+      trimspace(var.catalog_asset_public_base_url) == "" ||
+      can(regex("^https://", var.catalog_asset_public_base_url))
+    )
+    error_message = "catalog_asset_public_base_url must be empty or an https URL."
+  }
+}
+
 variable "platform_internal_auth_secret" {
   type      = string
   sensitive = true
