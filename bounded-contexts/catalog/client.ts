@@ -7,6 +7,9 @@ export type { CatalogApiClientOptions } from "./support/shell-support/api/client
 export type {
   Blueprint,
   BlueprintDetail,
+  BulkPublishCandidate,
+  BulkPublishPreview,
+  BulkPublishResult,
   CatalogItemDetail,
   CatalogItemListItem,
   CategoryDetail,

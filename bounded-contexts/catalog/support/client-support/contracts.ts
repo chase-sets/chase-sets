@@ -1,5 +1,8 @@
 export type { Blueprint, BlueprintDetail } from "../../features/blueprints/ui/contracts";
 export type {
+  BulkPublishCandidate,
+  BulkPublishPreview,
+  BulkPublishResult,
   CatalogItemDetail,
   CatalogItemListItem,
 } from "../../features/catalog-items/ui/contracts";

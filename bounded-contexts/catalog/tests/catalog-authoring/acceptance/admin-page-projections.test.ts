@@ -229,6 +229,12 @@ describeWithDatabase("Admin page projections", () => {
       tags: ["featured", "vintage"],
     });
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "LinkExternalProductReference",
+      providerKey: "tcgplayer",
+      externalKey: "base-set-charizard",
+      selectedOptions: [],
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
       requiredFieldIds: [fieldId],
@@ -305,8 +311,17 @@ describeWithDatabase("Admin page projections", () => {
       title_i18n: { defaultLocale: "en", values: { en: "Charizard" } },
       subtitle_i18n: { defaultLocale: "en", values: { en: "Base Set" } },
       blueprint: { blueprintId, name: "Raw Pokemon Card" },
+      source_providers: ["tcgplayer"],
     });
     expect(itemList.json._resolvedNames).toBeUndefined();
+
+    const itemSourceList = await getJson(`/api/catalog/items?status=active&source=tcgplayer&limit=5&offset=0`);
+    expect(itemSourceList.response.status).toBe(200);
+    expect(itemSourceList.json.total).toBe(1);
+    expect(itemSourceList.json.items[0]).toMatchObject({
+      catalog_item_id: itemId,
+      source_providers: ["tcgplayer"],
+    });
 
     const japaneseItemList = await getJson("/api/catalog/items?language=ja&limit=5&offset=0");
     expect(japaneseItemList.response.status).toBe(200);
@@ -544,6 +559,116 @@ describeWithDatabase("Admin page projections", () => {
     expect(blueprintConditionRule.appliesWhen[0].options[0]).toMatchObject({
       optionId: formRawOptionId,
       code: "raw",
+    });
+  });
+
+  it("bulk publishes valid source-filtered draft Catalog Items and reports invalid drafts", async () => {
+    const fieldId = "fld_card_name";
+    const blueprintId = "bpr_imported_card";
+    const validItemId = "cat_import_valid";
+    const invalidItemId = "cat_import_invalid";
+
+    await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, {
+      type: "CreateField",
+      fieldId,
+      key: "card-name",
+      name: l10n("Card Name"),
+      description: l10n("Printed card name"),
+      valueType: "localized_text",
+      behavior: { filterable: true, searchable: true, sortable: true },
+    });
+    await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, { type: "ActivateField" });
+
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId,
+      key: "imported-card",
+      name: l10n("Imported Card"),
+      description: l10n("Imported card template"),
+    });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "SetBlueprintFields",
+      fieldRules: [{ fieldId, required: true }],
+    });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+
+    for (const itemId of [validItemId, invalidItemId]) {
+      await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+        type: "CreateCatalogItem",
+        itemId,
+        title: l10n(itemId === validItemId ? "Valid Import" : "Invalid Import"),
+        subtitle: null,
+        description: l10n("Imported draft"),
+      });
+      await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+        type: "AssignBlueprintToCatalogItem",
+        blueprintId,
+      });
+      await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+        type: "LinkExternalProductReference",
+        providerKey: "tcgplayer",
+        externalKey: itemId,
+        selectedOptions: [],
+      });
+    }
+
+    await sendCommand(services.items.commandHandler, `catalog.item-${validItemId}`, {
+      type: "SetCatalogItemFieldValue",
+      fieldId,
+      value: l10n("Valid Import"),
+    });
+
+    await drainProjectors();
+
+    const previewResponse = await app.fetch(new Request("http://catalog.test/api/catalog/items/bulk-publish/preview", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        selection: {
+          mode: "filter",
+          query: { status: "active", source: "tcgplayer" },
+        },
+      }),
+    }));
+    const preview = await previewResponse.json();
+
+    expect(previewResponse.status).toBe(200);
+    expect(preview).toMatchObject({
+      mode: "filter",
+      total: 2,
+      ready_count: 1,
+      blocked_count: 1,
+    });
+    expect(preview.item_ids).toEqual(expect.arrayContaining([validItemId, invalidItemId]));
+    expect(preview.candidates.find((candidate: { catalog_item_id: string }) => candidate.catalog_item_id === invalidItemId)).toMatchObject({
+      outcome: "blocked",
+      reason: `Missing required field values: ${fieldId}.`,
+    });
+
+    const confirmResponse = await app.fetch(new Request("http://catalog.test/api/catalog/items/bulk-publish/confirm", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ itemIds: preview.item_ids }),
+    }));
+    const result = await confirmResponse.json();
+
+    expect(confirmResponse.status).toBe(200);
+    expect(result).toMatchObject({
+      total: 2,
+      published_count: 1,
+      failed_count: 0,
+      skipped_count: 1,
+    });
+
+    await drainProjectors();
+
+    const activeImports = await getJson("/api/catalog/items?status=active&source=tcgplayer&limit=5&offset=0");
+    expect(activeImports.response.status).toBe(200);
+    expect(activeImports.json.total).toBe(1);
+    expect(activeImports.json.items[0]).toMatchObject({
+      catalog_item_id: validItemId,
+      status: "active",
+      source_providers: ["tcgplayer"],
     });
   });
 });

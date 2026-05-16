@@ -9,6 +9,7 @@ export type CatalogListQuery = Readonly<{
   search: string;
   status: string;
   language: string;
+  source: string;
   page: number;
   pageSize: number;
 }>;
@@ -18,7 +19,7 @@ export type CatalogListRouteData<T> = Readonly<{
   query: CatalogListQuery;
 }>;
 
-type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "page">>;
+type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "page">>;
 
 export function readCatalogListQuery(request: Request): CatalogListQuery {
   const url = new URL(request.url);
@@ -28,6 +29,7 @@ export function readCatalogListQuery(request: Request): CatalogListQuery {
     search: url.searchParams.get("search")?.trim() ?? "",
     status: url.searchParams.get("status")?.trim() ?? "",
     language: url.searchParams.get("language")?.trim() ?? "",
+    source: url.searchParams.get("source")?.trim() ?? "",
     page: Number.isFinite(pageFromUrl) ? Math.max(0, pageFromUrl - 1) : 0,
     pageSize: CATALOG_LIST_PAGE_SIZE,
   };
@@ -43,6 +45,9 @@ export function buildCatalogListApiQuery(query: CatalogListQuery): string {
   }
   if (query.language) {
     params.set("language", query.language);
+  }
+  if (query.source) {
+    params.set("source", query.source);
   }
   params.set("limit", String(query.pageSize));
   params.set("offset", String(query.page * query.pageSize));
@@ -81,6 +86,16 @@ export function applyCatalogListQueryToSearchParams(
       next.set("language", language);
     } else {
       next.delete("language");
+    }
+    next.delete("page");
+  }
+
+  if (update.source !== undefined) {
+    const source = update.source.trim();
+    if (source) {
+      next.set("source", source);
+    } else {
+      next.delete("source");
     }
     next.delete("page");
   }
@@ -171,12 +186,14 @@ export function useCatalogListQueryControls(
     search: draftSearch,
     status: query.status,
     language: query.language,
+    source: query.source,
     page: query.page,
     pageSize: query.pageSize,
     loading: navigation.state !== "idle",
     setSearch,
     setStatus: (status: string) => commitWithCurrentSearch({ status }),
     setLanguage: (language: string) => commitWithCurrentSearch({ language }),
+    setSource: (source: string) => commitWithCurrentSearch({ source }),
     setPage: (page: number) => commitWithCurrentSearch({ page }),
   };
 }

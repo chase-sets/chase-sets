@@ -10,6 +10,9 @@ export {
 export type {
   Blueprint,
   BlueprintDetail,
+  BulkPublishCandidate,
+  BulkPublishPreview,
+  BulkPublishResult,
   CatalogApiClientOptions,
   CatalogItemDetail,
   CatalogItemListItem,
