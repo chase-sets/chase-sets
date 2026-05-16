@@ -519,8 +519,10 @@ describe("design-system", () => {
               items={[
                 { id: "near-mint", label: "Near Mint", count: 7 },
                 { id: "excellent", label: "Excellent", count: 3 },
+                { id: "lightly-played", label: "Lightly Played", count: 2 },
               ]}
-              selectedIds={["near-mint"]}
+              selectedIds={["near-mint", "excellent"]}
+              selectionMode="multiple"
               onSelect={onSelect}
             />
           </MarketplaceMobileFilterDrawer>
@@ -536,9 +538,11 @@ describe("design-system", () => {
     expect(screen.getByRole("dialog", { name: "Filters" })).toBeTruthy();
     expect(screen.getByText("2 active")).toBeTruthy();
     expect(screen.getAllByText("12 results in Pokemon TCG").length).toBeGreaterThan(1);
+    expect(screen.getByRole("button", { name: "Near Mint (7)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Excellent (3)" }).getAttribute("aria-pressed")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: "Excellent (3)" }));
-    expect(onSelect).toHaveBeenCalledWith("excellent");
+    await user.click(screen.getByRole("button", { name: "Lightly Played (2)" }));
+    expect(onSelect).toHaveBeenCalledWith("lightly-played");
   });
 
   it("renders sticky checkout CTAs without hiding context", () => {

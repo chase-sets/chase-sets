@@ -173,7 +173,10 @@ describe("SearchPage", () => {
 
   it("renders dynamic facets and reversible dynamic filter chips", () => {
     const props = renderSearchPage({
-      dynamicFilters: [{ kind: "dimension", id: "dim_condition", value: "opt_near_mint" }],
+      dynamicFilters: [
+        { kind: "dimension", id: "dim_condition", value: "opt_near_mint" },
+        { kind: "dimension", id: "dim_condition", value: "opt_lightly_played" },
+      ],
       data: {
         items: [searchResult],
         facets: [{
@@ -182,7 +185,8 @@ describe("SearchPage", () => {
           label: "Condition",
           values: [
             { id: "opt_near_mint", label: "Near Mint", count: 3, selected: true },
-            { id: "opt_excellent", label: "Excellent", count: 2, selected: false },
+            { id: "opt_lightly_played", label: "Lightly Played", count: 2, selected: true },
+            { id: "opt_excellent", label: "Excellent", count: 1, selected: false },
           ],
         }],
         total: 1,
@@ -191,7 +195,7 @@ describe("SearchPage", () => {
       },
     });
 
-    expect(screen.getByText("1 active")).toBeTruthy();
+    expect(screen.getByText("2 active")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Condition: Near Mint" }));
 
@@ -201,13 +205,24 @@ describe("SearchPage", () => {
       value: "opt_near_mint",
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Remove Condition: Lightly Played" }));
+
+    expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
+      kind: "dimension",
+      id: "dim_condition",
+      value: "opt_lightly_played",
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
     const drawer = screen.getByRole("dialog", { name: "Filters" });
     expect(within(drawer).getByText("Condition")).toBeTruthy();
     expect(within(drawer).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
     expect(within(drawer).getByRole("button", { name: "Any Condition" })).toBeTruthy();
-    fireEvent.click(within(drawer).getByRole("button", { name: "Excellent (2)" }));
+    expect(within(drawer).getByRole("button", { name: "Near Mint (3)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(drawer).getByRole("button", { name: "Lightly Played (2)" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Excellent (1)" }));
 
     expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
       kind: "dimension",

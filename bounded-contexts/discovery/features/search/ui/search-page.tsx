@@ -339,6 +339,7 @@ export function SearchPage({
                     count: value.count,
                   }))}
                   selectedIds={selectedValues}
+                  selectionMode="multiple"
                   onSelect={(value) => {
                     if (value) {
                       onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
@@ -576,6 +577,7 @@ export function SearchPage({
                             count: value.count,
                           }))}
                           selectedIds={selectedValues}
+                          selectionMode="multiple"
                           onSelect={(value) => {
                             if (value) {
                               onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });

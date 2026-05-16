@@ -65,6 +65,7 @@ Each marketplace route should keep the most decision-critical information visibl
 - Listing cards must stay information-rich on mobile and support compact comparison.
 - Tables must collapse into scan-friendly cards in mobile contexts.
 - Filters should be drawer-friendly, reversible, and summarized as chips.
+- Facet controls that allow more than one value, such as dynamic condition filters, should use the marketplace facet `multiple` selection mode and keep each selected value reversible as an applied chip.
 - Sticky CTAs are mobile-first; desktop should prefer sticky sidebars or inline CTAs that do not cover content.
 - Touch targets must remain at least 44px where interaction is expected.
 
