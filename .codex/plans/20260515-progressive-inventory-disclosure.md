@@ -155,9 +155,9 @@ Answer: yes. Keep manual Inventory Item binding only inside advanced disclosure.
 - [x] Keep Marketplace supply projection and add a narrow read-after-write snapshot handoff before projections catch up.
 - [x] Remove Inventory and Import from primary marketplace top/bottom navigation while keeping their routes available from advanced/contextual links.
 - [x] Add focused tests for the new standard flow, advanced inventory flow, projection behavior, and failure paths.
-- [ ] Verify marketplace desktop and mobile screens visually after implementation.
+- [x] Verify marketplace desktop and mobile screens visually after implementation.
   - [x] Desktop in-app browser verification: signed in as the seeded demo seller, confirmed standard listing form disclosure, expanded advanced controls, and published a listing without selecting Inventory.
-  - [ ] Mobile visual verification remains pending because the current in-app browser session does not expose viewport emulation.
+  - [x] Mobile Chrome headless verification at 390px viewport: confirmed standard listing disclosure and expanded advanced controls. Screenshot artifacts: `.codex/inventory-disclosure-mobile-standard.png` and `.codex/inventory-disclosure-mobile-advanced.png`.
 - [ ] Submit a PR, get CI passing, merge the PR, and confirm staging deployment behavior.
 
 ## Implementation Evidence
@@ -171,6 +171,7 @@ Answer: yes. Keep manual Inventory Item binding only inside advanced disclosure.
 - Inventory and Import are removed from primary marketplace navigation while routes remain available from advanced seller links.
 - Durable docs were added at `bounded-contexts/marketplace/docs/standard-listing-inventory-disclosure.md` and `bounded-contexts/inventory/docs/automatic-listing-stock.md`.
 - Browser verification published a standard listing from `/account/listings` without selecting an Inventory Item and confirmed the resulting listing used automatic `Listing stock`.
+- Mobile visual verification used a 390px Chrome headless viewport and confirmed the product-first standard form plus advanced disclosure without text overlap.
 
 ## Documentation To Promote
 
