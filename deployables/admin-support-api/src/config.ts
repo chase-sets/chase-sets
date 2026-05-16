@@ -24,8 +24,26 @@ export type AdminSupportApiConfig = Readonly<{
   port: number;
   internalAuthSecret: string;
   adminRegistrationEnabled: boolean;
+  catalogAssetStorage: AdminSupportCatalogAssetStorageConfig;
   platformAdmin: AdminSupportPlatformAdminConfig | null;
 }>;
+
+export type AdminSupportCatalogAssetStorageConfig =
+  | Readonly<{
+      kind: "filesystem";
+      rootDir: string;
+      publicBaseUrl: string;
+    }>
+  | Readonly<{
+      kind: "s3";
+      bucket: string;
+      region: string;
+      publicBaseUrl: string;
+      endpoint?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      forcePathStyle?: boolean;
+    }>;
 
 export type AdminSupportPlatformAdminConfig = Readonly<{
   email: string;
@@ -62,6 +80,15 @@ function getBooleanEnv(name: string, defaultValue: boolean) {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function isProductionDeployment() {
+  const deploymentEnvironment = getOptionalEnv("DEPLOYMENT_ENVIRONMENT");
+  if (deploymentEnvironment) {
+    return deploymentEnvironment === "production";
+  }
+
+  return process.env.NODE_ENV === "production";
+}
+
 export function getContextDatabaseEnvName(contextName: AdminSupportApiContextName) {
   return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
 }
@@ -85,6 +112,62 @@ function loadPlatformAdminConfig(): AdminSupportPlatformAdminConfig | null {
     password,
     displayName: getOptionalEnv("PLATFORM_ADMIN_DISPLAY_NAME") ?? "Platform Admin",
     accountName: getOptionalEnv("PLATFORM_ADMIN_ACCOUNT_NAME") ?? "Chase Sets Platform",
+  };
+}
+
+function loadCatalogAssetStorageConfig(
+  port: number,
+  productionLike: boolean,
+): AdminSupportCatalogAssetStorageConfig {
+  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ??
+    (productionLike ? "s3" : "filesystem");
+
+  if (kind === "filesystem") {
+    if (productionLike) {
+      throw new Error(
+        "CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.",
+      );
+    }
+
+    return {
+      kind: "filesystem",
+      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ??
+        "artifacts/catalog-assets",
+      publicBaseUrl: getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ??
+        `http://localhost:${port}/catalog-assets`,
+    };
+  }
+
+  if (kind !== "s3") {
+    throw new Error("CATALOG_ASSET_STORAGE_KIND must be filesystem or s3.");
+  }
+
+  const bucket = getOptionalEnv("CATALOG_ASSET_S3_BUCKET");
+  const region = getOptionalEnv("CATALOG_ASSET_S3_REGION");
+  const publicBaseUrl = getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL");
+  const accessKeyId = getOptionalEnv("CATALOG_ASSET_S3_ACCESS_KEY_ID");
+  const secretAccessKey = getOptionalEnv("CATALOG_ASSET_S3_SECRET_ACCESS_KEY");
+
+  if (!bucket || !region || !publicBaseUrl) {
+    throw new Error(
+      "CATALOG_ASSET_S3_BUCKET, CATALOG_ASSET_S3_REGION, and CATALOG_ASSET_PUBLIC_BASE_URL are required when CATALOG_ASSET_STORAGE_KIND=s3.",
+    );
+  }
+  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
+    throw new Error(
+      "CATALOG_ASSET_S3_ACCESS_KEY_ID and CATALOG_ASSET_S3_SECRET_ACCESS_KEY must be configured together.",
+    );
+  }
+
+  return {
+    kind: "s3",
+    bucket,
+    region,
+    publicBaseUrl,
+    endpoint: getOptionalEnv("CATALOG_ASSET_S3_ENDPOINT") ?? undefined,
+    accessKeyId: accessKeyId ?? undefined,
+    secretAccessKey: secretAccessKey ?? undefined,
+    forcePathStyle: getBooleanEnv("CATALOG_ASSET_S3_FORCE_PATH_STYLE", false),
   };
 }
 
@@ -113,6 +196,8 @@ export function loadConfig(): AdminSupportApiConfig {
     );
   }
 
+  const port = Number(process.env.PORT ?? 6192);
+
   return {
     sharedDatabaseUrl,
     controlDatabaseUrl,
@@ -122,11 +207,15 @@ export function loadConfig(): AdminSupportApiConfig {
       idleTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 30_000),
       connectionTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS", 5_000),
     },
-    port: Number(process.env.PORT ?? 6192),
+    port,
     internalAuthSecret: resolvePlatformInternalAuthSecret({
       requireExplicitInProduction: true,
     }),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
+    catalogAssetStorage: loadCatalogAssetStorageConfig(
+      port,
+      isProductionDeployment(),
+    ),
     platformAdmin: loadPlatformAdminConfig(),
   };
 }

@@ -59,10 +59,10 @@ export function SourceObservationDetailPage({
     >
       {data && (
         <Stack gap={4}>
-          {data.normalized.imageUrls[1] && (
+          {data.normalized.imageUrls[0] && (
             <img
               alt={t("catalog.features.sourceObservations.ui.detail.card.image")}
-              src={data.normalized.imageUrls[1]}
+              src={data.normalized.imageUrls[0]}
               style={{ width: 180, maxWidth: "100%", borderRadius: 8 }}
             />
           )}

@@ -39,7 +39,13 @@
   ],
   "allowedContextDependencies": [],
   "seedRequirements": [],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "catalogAssetStorage",
+      "providedBy": "admin-support-api, platform-api",
+      "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
+    }
+  ],
   "apiDeployables": [
     "admin-support-api",
     "platform-api"

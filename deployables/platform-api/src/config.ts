@@ -55,6 +55,23 @@ export type PlatformApiSocialLoginConfig = Readonly<{
   facebook?: PlatformApiSocialLoginProviderConfig;
 }>;
 
+export type PlatformApiCatalogAssetStorageConfig =
+  | Readonly<{
+      kind: "filesystem";
+      rootDir: string;
+      publicBaseUrl: string;
+    }>
+  | Readonly<{
+      kind: "s3";
+      bucket: string;
+      region: string;
+      publicBaseUrl: string;
+      endpoint?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      forcePathStyle?: boolean;
+    }>;
+
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
 export type PlatformApiBaseConfig = Readonly<{
@@ -127,6 +144,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readon
   mobileMessaging: PlatformApiMobileMessagingConfig;
   postage: PlatformApiPostageConfig;
   socialLogin: PlatformApiSocialLoginConfig;
+  catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
   stripeGoLive: StripeGoLiveCheckReport;
 }>;
 
@@ -230,6 +248,62 @@ function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
     password,
     displayName: getOptionalEnv("PLATFORM_ADMIN_DISPLAY_NAME") ?? "Platform Admin",
     accountName: getOptionalEnv("PLATFORM_ADMIN_ACCOUNT_NAME") ?? "Chase Sets Platform",
+  };
+}
+
+function loadCatalogAssetStorageConfig(
+  port: number,
+  productionLike: boolean,
+): PlatformApiCatalogAssetStorageConfig {
+  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ??
+    (productionLike ? "s3" : "filesystem");
+
+  if (kind === "filesystem") {
+    if (productionLike) {
+      throw new Error(
+        "CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.",
+      );
+    }
+
+    return {
+      kind: "filesystem",
+      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ??
+        "artifacts/catalog-assets",
+      publicBaseUrl: getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ??
+        `http://localhost:${port}/catalog-assets`,
+    };
+  }
+
+  if (kind !== "s3") {
+    throw new Error("CATALOG_ASSET_STORAGE_KIND must be filesystem or s3.");
+  }
+
+  const bucket = getOptionalEnv("CATALOG_ASSET_S3_BUCKET");
+  const region = getOptionalEnv("CATALOG_ASSET_S3_REGION");
+  const publicBaseUrl = getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL");
+  const accessKeyId = getOptionalEnv("CATALOG_ASSET_S3_ACCESS_KEY_ID");
+  const secretAccessKey = getOptionalEnv("CATALOG_ASSET_S3_SECRET_ACCESS_KEY");
+
+  if (!bucket || !region || !publicBaseUrl) {
+    throw new Error(
+      "CATALOG_ASSET_S3_BUCKET, CATALOG_ASSET_S3_REGION, and CATALOG_ASSET_PUBLIC_BASE_URL are required when CATALOG_ASSET_STORAGE_KIND=s3.",
+    );
+  }
+  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
+    throw new Error(
+      "CATALOG_ASSET_S3_ACCESS_KEY_ID and CATALOG_ASSET_S3_SECRET_ACCESS_KEY must be configured together.",
+    );
+  }
+
+  return {
+    kind: "s3",
+    bucket,
+    region,
+    publicBaseUrl,
+    endpoint: getOptionalEnv("CATALOG_ASSET_S3_ENDPOINT") ?? undefined,
+    accessKeyId: accessKeyId ?? undefined,
+    secretAccessKey: secretAccessKey ?? undefined,
+    forcePathStyle: getBooleanEnv("CATALOG_ASSET_S3_FORCE_PATH_STYLE", false),
   };
 }
 
@@ -411,6 +485,10 @@ export function loadConfig(): PlatformApiConfig {
       "TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.",
     );
   }
+  const catalogAssetStorage = loadCatalogAssetStorageConfig(
+    baseConfig.port,
+    productionLike,
+  );
 
   const socialLogin: PlatformApiSocialLoginConfig = {
     ...(googleSocialLoginClientId && googleSocialLoginClientSecret
@@ -475,6 +553,7 @@ export function loadConfig(): PlatformApiConfig {
         fakeFallbackAllowed: !productionLike,
         liveSecretKeyLikely: stripeSecretKey.startsWith("sk_live"),
       },
+      catalogAssetStorage,
       socialLogin,
       paymentProcessor: {
         kind: "stripe",
@@ -509,6 +588,7 @@ export function loadConfig(): PlatformApiConfig {
       fakeFallbackAllowed: !productionLike,
       liveSecretKeyLikely: Boolean(stripeSecretKey?.startsWith("sk_live")),
     },
+    catalogAssetStorage,
     socialLogin,
     paymentProcessor: {
       kind: "fake",
