@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AppliedFilterChips,
   Button,
+  CommerceDrawer,
   SearchInput,
   Select,
   LoadingSpinner,
@@ -31,6 +32,7 @@ import type {
   DiscoverySearchItem,
   DiscoverySearchResponse,
 } from "../../../support/client-support/contracts";
+import type { DiscoveryBulkCartPreview } from "../read-model/queries";
 import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
 import {
   buildDiscoveryProductAssetSrcSet,
@@ -174,6 +176,7 @@ export interface SearchPageProps {
   search: string;
   committedSearch?: string;
   category: string;
+  tag?: string;
   language: string;
   sort: string;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
@@ -183,15 +186,35 @@ export interface SearchPageProps {
   loadingMore?: boolean;
   loadMoreError?: string | null;
   error?: string | null;
+  bulkAdd?: BulkAddSearchState;
   restoreSearchFocus?: boolean;
   onSearchChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
+  onTagClear?: () => void;
   onLanguageChange: (value: string) => void;
   onSortChange: (value: string) => void;
   onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void;
   onDynamicFilterClear: (value: Omit<DynamicSearchFilterSelection, "value">) => void;
   onLoadMore?: () => void;
 }
+
+export type BulkAddSearchActionData =
+  | Readonly<{ status: "bulk-preview"; preview: DiscoveryBulkCartPreview }>
+  | Readonly<{
+      status: "bulk-added";
+      preview: DiscoveryBulkCartPreview;
+      addedLineCount: number;
+      mergedLineCount: number;
+      failedLineCount: number;
+      requestedLineCount: number;
+    }>;
+
+export type BulkAddSearchState = Readonly<{
+  status: "idle" | "submitting";
+  data?: BulkAddSearchActionData;
+  onPreview: () => void;
+  onCommit: () => void;
+}>;
 
 function selectedFacetValues(facet: DiscoveryFacetGroup) {
   return facet.values.filter((value) => value.selected);
@@ -213,10 +236,23 @@ function facetDisclosureSummary(facet: DiscoveryFacetGroup) {
   });
 }
 
+function notifyCartCountChanged(quantity: number) {
+  if (typeof window === "undefined" || quantity <= 0) {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent("chase-sets:cart-count-changed", {
+      detail: { countDelta: quantity },
+    }),
+  );
+}
+
 export function SearchPage({
   search,
   committedSearch = search,
   category,
+  tag = "",
   language,
   sort,
   dynamicFilters,
@@ -226,9 +262,11 @@ export function SearchPage({
   loadingMore = false,
   loadMoreError = null,
   error = null,
+  bulkAdd,
   restoreSearchFocus = false,
   onSearchChange,
   onCategoryChange,
+  onTagClear,
   onLanguageChange,
   onSortChange,
   onDynamicFilterChange,
@@ -237,6 +275,7 @@ export function SearchPage({
 }: SearchPageProps) {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const [bulkDrawerOpen, setBulkDrawerOpen] = useState(false);
   const exactTotal = data?.total ?? data?.items.length ?? 0;
   const featuredCategories = categories.slice(0, 5);
   const liveListingItems =
@@ -256,7 +295,7 @@ export function SearchPage({
     category: activeCategoryLabel,
   });
   const hasFocusedResults =
-    committedSearch.trim().length > 0 || Boolean(category) || Boolean(language) || activeDynamicFilterCount > 0 || sort !== "relevance";
+    committedSearch.trim().length > 0 || Boolean(category) || Boolean(tag) || Boolean(language) || activeDynamicFilterCount > 0 || sort !== "relevance";
   const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
   const dynamicAppliedFilters = buildDynamicAppliedFilters(
     data?.facets ?? [],
@@ -289,6 +328,15 @@ export function SearchPage({
             language: activeLanguageLabel,
           }),
           onRemove: () => onLanguageChange(""),
+        }]
+      : []),
+    ...(tag
+      ? [{
+          id: "tag",
+          label: t("discovery.features.search.ui.searchPage.tag.filter.label", {
+            tag,
+          }),
+          onRemove: () => onTagClear?.(),
         }]
       : []),
     ...(sort !== "relevance"
@@ -355,6 +403,26 @@ export function SearchPage({
       ) : null}
     </Stack>
   );
+  const bulkActionData = bulkAdd?.data;
+  const bulkPreview = bulkActionData?.preview;
+  const bulkBusy = bulkAdd?.status === "submitting";
+  const bulkCanPreview = Boolean(bulkAdd && hasFocusedResults && data && data.items.length > 0);
+  const bulkCanCommit = Boolean(
+    bulkAdd &&
+      bulkPreview &&
+      !bulkPreview.overLimit &&
+      bulkPreview.eligibleCount > 0 &&
+      bulkActionData?.status !== "bulk-added",
+  );
+
+  useEffect(() => {
+    if (bulkActionData) {
+      setBulkDrawerOpen(true);
+    }
+    if (bulkActionData?.status === "bulk-added") {
+      notifyCartCountChanged(bulkActionData.addedLineCount + bulkActionData.mergedLineCount);
+    }
+  }, [bulkActionData]);
 
   useEffect(() => {
     if (!canLoadMore || loadingMore || loadMoreError || !onLoadMore) {
@@ -461,9 +529,22 @@ export function SearchPage({
               />
             }
             actions={
-              <LinkButton href="/search" tone="secondary">
-                {t("discovery.features.search.ui.searchPage.clear.all.filters")}
-              </LinkButton>
+              <Inline gap={2}>
+                {bulkAdd ? (
+                  <Button
+                    type="button"
+                    tone="secondary"
+                    disabled={!bulkCanPreview || bulkBusy}
+                    loading={bulkBusy}
+                    onClick={bulkAdd.onPreview}
+                  >
+                    {t("discovery.features.search.ui.searchPage.add.matching.to.cart")}
+                  </Button>
+                ) : null}
+                <LinkButton href="/search" tone="secondary">
+                  {t("discovery.features.search.ui.searchPage.clear.all.filters")}
+                </LinkButton>
+              </Inline>
             }
             appliedFilters={
               <AppliedFilterChips
@@ -734,6 +815,92 @@ export function SearchPage({
           </>
         ) : null}
       </Stack>
+      {bulkAdd && bulkPreview ? (
+        <CommerceDrawer
+          open={bulkDrawerOpen}
+          onOpenChange={setBulkDrawerOpen}
+          placement="bottomSheet"
+          title={
+            bulkActionData?.status === "bulk-added"
+              ? t("discovery.features.search.ui.searchPage.bulk.added.title")
+              : t("discovery.features.search.ui.searchPage.bulk.preview.title")
+          }
+          description={t("discovery.features.search.ui.searchPage.bulk.preview.description", {
+            eligible: bulkPreview.eligibleCount,
+            skipped: bulkPreview.skippedCount,
+          })}
+          footer={
+            <Inline gap={2} align="end">
+              <Button
+                type="button"
+                tone="ghost"
+                onClick={() => setBulkDrawerOpen(false)}
+              >
+                {t("discovery.features.search.ui.searchPage.close")}
+              </Button>
+              {bulkActionData?.status === "bulk-added" ? (
+                <LinkButton href="/account/cart">
+                  {t("discovery.features.search.ui.searchPage.review.cart")}
+                </LinkButton>
+              ) : (
+                <Button
+                  type="button"
+                  disabled={!bulkCanCommit || bulkBusy}
+                  loading={bulkBusy}
+                  onClick={bulkAdd.onCommit}
+                >
+                  {t("discovery.features.search.ui.searchPage.add.eligible.products")}
+                </Button>
+              )}
+            </Inline>
+          }
+        >
+          <Stack gap={4}>
+            {bulkPreview.overLimit ? (
+              <Banner
+                tone="warning"
+                title={t("discovery.features.search.ui.searchPage.bulk.over.limit.title")}
+                description={t("discovery.features.search.ui.searchPage.bulk.over.limit.description", {
+                  limit: bulkPreview.limit,
+                })}
+              />
+            ) : null}
+            {bulkActionData?.status === "bulk-added" ? (
+              <Banner
+                tone={bulkActionData.failedLineCount > 0 ? "warning" : "success"}
+                title={t("discovery.features.search.ui.searchPage.bulk.added.summary", {
+                  added: bulkActionData.addedLineCount,
+                  merged: bulkActionData.mergedLineCount,
+                })}
+                description={t("discovery.features.search.ui.searchPage.bulk.added.description", {
+                  failed: bulkActionData.failedLineCount,
+                })}
+              />
+            ) : null}
+            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+              <div>
+                <div className="font-semibold text-foreground">{bulkPreview.totalMatches ?? bulkPreview.eligibleCount + bulkPreview.skippedCount}</div>
+                <div>{t("discovery.features.search.ui.searchPage.bulk.matches")}</div>
+              </div>
+              <div>
+                <div className="font-semibold text-foreground">{bulkPreview.eligibleCount}</div>
+                <div>{t("discovery.features.search.ui.searchPage.bulk.ready")}</div>
+              </div>
+              <div>
+                <div className="font-semibold text-foreground">{bulkPreview.skippedCount}</div>
+                <div>{t("discovery.features.search.ui.searchPage.bulk.need.options")}</div>
+              </div>
+            </div>
+            {bulkPreview.skippedItems.length > 0 ? (
+              <Banner
+                tone="info"
+                title={t("discovery.features.search.ui.searchPage.bulk.skipped.title")}
+                description={bulkPreview.skippedItems.slice(0, 3).map((item) => item.message).join(" ")}
+              />
+            ) : null}
+          </Stack>
+        </CommerceDrawer>
+      ) : null}
     </SearchResultsLayout>
   );
 }

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
+  type ActionFunctionArgs,
   redirect,
   useLoaderData,
   useNavigate,
@@ -10,11 +11,18 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
+import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
 import type {
   CategoryListResponse,
+  DiscoveryBulkCartPreview,
   DiscoverySearchResponse,
 } from "../support/request-support/api-client";
+import {
+  appendAnonymousCartCookie,
+  createCheckoutRequestApiClient,
+  ensureAnonymousCartId,
+} from "@chase-sets/checkout/server";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
@@ -26,9 +34,9 @@ const MARKETPLACE_DESCRIPTION =
 const EMPTY_SEARCH_RESULT = {
   search: "",
   category: "",
+  tag: "",
   language: "",
   sort: "relevance",
-  page: 1,
   dynamicFilters: [],
   data: null,
   categories: [],
@@ -56,6 +64,7 @@ type DynamicSearchFilterSelection = Readonly<{
 function buildSearchQuery({
   search,
   category,
+  tag,
   language,
   sort,
   cursor,
@@ -63,6 +72,7 @@ function buildSearchQuery({
 }: {
   search: string;
   category: string;
+  tag: string;
   language: string;
   sort: string;
   cursor?: string | null;
@@ -74,6 +84,9 @@ function buildSearchQuery({
   }
   if (category) {
     params.set("category", category);
+  }
+  if (tag) {
+    params.set("tag", tag);
   }
   if (language) {
     params.set("language", language);
@@ -105,6 +118,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   const search = url.searchParams.get("q") ?? url.searchParams.get("search") ?? "";
   const categoryParam = params.categorySlug ?? url.searchParams.get("category") ?? "";
+  const tag = url.searchParams.get("tag") ?? "";
   const language = url.searchParams.get("language") ?? "";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
@@ -131,7 +145,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const data = await api.searchItems(
-    buildSearchQuery({ search, category, language, sort, dynamicFilters }),
+    buildSearchQuery({ search, category, tag, language, sort, dynamicFilters }),
   ).catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
   const canonicalPath = params.categorySlug && resolvedCategory
     ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -140,6 +154,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     search,
     category,
+    tag,
     language,
     sort,
     dynamicFilters,
@@ -147,6 +162,84 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     categories: categories.items,
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
   };
+};
+
+type BulkAddActionData =
+  | Readonly<{ status: "bulk-preview"; preview: DiscoveryBulkCartPreview }>
+  | Readonly<{
+      status: "bulk-added";
+      preview: DiscoveryBulkCartPreview;
+      addedLineCount: number;
+      mergedLineCount: number;
+      failedLineCount: number;
+      requestedLineCount: number;
+    }>;
+
+export async function action({ request, params }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+  if (intent !== "preview-bulk-add" && intent !== "commit-bulk-add") {
+    return Response.json({ error: t("discovery.routes.search.unsupported.search.action") }, { status: 400 });
+  }
+
+  const discoveryApi = createDiscoveryRequestApiClient(request);
+  const checkoutApi = createCheckoutRequestApiClient(request);
+  const url = new URL(request.url);
+  const search = url.searchParams.get("q") ?? url.searchParams.get("search") ?? "";
+  const category = params.categorySlug ?? url.searchParams.get("category") ?? "";
+  const tag = url.searchParams.get("tag") ?? "";
+  const language = url.searchParams.get("language") ?? "";
+  const sort = url.searchParams.get("sort") ?? "relevance";
+  const dynamicFilters = readDynamicSearchFilters(url.searchParams);
+  const preview = await discoveryApi.previewBulkAddSearchResults(
+    buildSearchQuery({ search, category, tag, language, sort, dynamicFilters }),
+  );
+
+  if (intent === "preview-bulk-add" || preview.overLimit || preview.lines.length === 0) {
+    return Response.json({ status: "bulk-preview", preview } satisfies BulkAddActionData);
+  }
+
+  const actor = await resolveActorFromAuthApi({ request });
+  const lines = preview.lines.map((line) => ({
+    catalogItemId: line.catalog_item_id,
+    productId: line.product_id,
+    itemTitle: line.title,
+    itemSubtitle: line.subtitle,
+    itemImageUrl: line.image_url,
+    itemImageLoadingUrl: line.image_loading_url,
+    itemImageLoadingAlt: line.image_loading_alt,
+    itemImageLoadingSrcSet: line.image_loading_srcset,
+    selectedOptions: line.selected_options,
+    productSummary: line.product_summary,
+    quantity: line.quantity,
+    fulfillmentMode: "optimize" as const,
+    lockedListingId: null,
+  }));
+
+  if (!actor) {
+    const anonymousCartId = ensureAnonymousCartId(request);
+    const result = await checkoutApi.addGuestCartLines(anonymousCartId, { lines });
+    const response = Response.json({
+      status: "bulk-added",
+      preview,
+      addedLineCount: result.addedLineCount,
+      mergedLineCount: result.mergedLineCount,
+      failedLineCount: result.failedLineCount,
+      requestedLineCount: result.requestedLineCount,
+    } satisfies BulkAddActionData);
+    appendAnonymousCartCookie(response.headers, anonymousCartId);
+    return response;
+  }
+
+  const result = await checkoutApi.addCartLines({ lines });
+  return Response.json({
+    status: "bulk-added",
+    preview,
+    addedLineCount: result.addedLineCount,
+    mergedLineCount: result.mergedLineCount,
+    failedLineCount: result.failedLineCount,
+    requestedLineCount: result.requestedLineCount,
+  } satisfies BulkAddActionData);
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
@@ -188,7 +281,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     value: data.search,
   }));
   const dynamicFilters = data.dynamicFilters ?? [];
-  const resultSetKey = JSON.stringify([data.search, data.category, data.language, data.sort, dynamicFilters]);
+  const resultSetKey = JSON.stringify([data.search, data.category, data.tag, data.language, data.sort, dynamicFilters]);
   const resultSetKeyRef = useRef(resultSetKey);
   const [extraPageState, setExtraPageState] = useState<{
     key: string;
@@ -198,6 +291,10 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     loading: boolean;
     error: string | null;
   }>({ loading: false, error: null });
+  const [bulkAddState, setBulkAddState] = useState<{
+    status: "idle" | "submitting";
+    data?: BulkAddActionData;
+  }>({ status: "idle" });
   const loadMoreInFlightRef = useRef(false);
   let draftSearch = draftSearchState.value;
   const activeExtraPages = extraPageState.key === resultSetKey
@@ -226,6 +323,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     loadMoreInFlightRef.current = false;
     setExtraPageState({ key: resultSetKey, pages: [] });
     setLoadMoreState({ loading: false, error: null });
+    setBulkAddState({ status: "idle" });
   }, [resultSetKey]);
 
   if (
@@ -253,6 +351,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   const updateSearchParams = useCallback((nextValues: {
     search?: string;
     category?: string;
+    tag?: string | null;
     language?: string;
     sort?: string;
     dynamicFilter?: DynamicSearchFilterSelection;
@@ -296,6 +395,15 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         next.delete("page");
       }
 
+      if (nextValues.tag !== undefined) {
+        if (nextValues.tag) {
+          next.set("tag", nextValues.tag);
+        } else {
+          next.delete("tag");
+        }
+        next.delete("page");
+      }
+
       if (nextValues.language !== undefined) {
         if (nextValues.language) {
           next.set("language", nextValues.language);
@@ -332,6 +440,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
 
   function handleImmediateSearchParamChange(nextValues: {
     category?: string;
+    tag?: string | null;
     language?: string;
     sort?: string;
     dynamicFilter?: DynamicSearchFilterSelection;
@@ -352,6 +461,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     const query = buildSearchQuery({
       search: data.search,
       category: data.category,
+      tag: data.tag,
       language: data.language,
       sort: data.sort,
       dynamicFilters,
@@ -393,16 +503,48 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     data.category,
     data.language,
     data.search,
+    data.tag,
     data.sort,
     dynamicFilters,
     visibleData?.nextCursor,
   ]);
+
+  const submitBulkAddIntent = useCallback(async (intent: "preview-bulk-add" | "commit-bulk-add") => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("intent", intent);
+    setBulkAddState((current) => ({ ...current, status: "submitting" }));
+
+    try {
+      const response = await fetch(window.location.href, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Bulk cart request failed with ${response.status}.`);
+      }
+
+      setBulkAddState({
+        status: "idle",
+        data: await response.json() as BulkAddActionData,
+      });
+    } catch (error) {
+      console.error("Bulk add search results failed.", error);
+      setBulkAddState((current) => ({ ...current, status: "idle" }));
+    }
+  }, []);
 
   return (
     <SearchPage
       search={draftSearch}
       committedSearch={data.search}
       category={data.category}
+      tag={data.tag}
       language={data.language}
       sort={data.sort}
       dynamicFilters={dynamicFilters}
@@ -411,9 +553,16 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       loading={navigation.state !== "idle"}
       loadingMore={loadMoreState.loading}
       loadMoreError={loadMoreState.error}
+      bulkAdd={{
+        status: bulkAddState.status,
+        data: bulkAddState.data,
+        onPreview: () => void submitBulkAddIntent("preview-bulk-add"),
+        onCommit: () => void submitBulkAddIntent("commit-bulk-add"),
+      }}
       restoreSearchFocus={restoreSearchFocusRef.current}
       onSearchChange={handleSearchChange}
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
+      onTagClear={() => handleImmediateSearchParamChange({ tag: null })}
       onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
       onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
       onDynamicFilterChange={(value) => handleImmediateSearchParamChange({ dynamicFilter: value })}

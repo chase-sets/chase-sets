@@ -370,7 +370,7 @@ describe("design-system", () => {
     expect(markup).toContain("Search: pikachu");
     expect(markup).toContain("Clear filters");
     expect(markup).toContain("min-h-11");
-    expect(markup).toContain("hidden lg:flex");
+    expect(markup).toContain("hidden lg:block");
     expect(markup).toContain("Save this search");
   });
 

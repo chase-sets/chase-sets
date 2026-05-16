@@ -4,35 +4,17 @@ import type { DiscoveryItemSearchServices } from "./runtime";
 export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices) {
   const app = new Hono();
 
-  app.get("/", async (c) => {
-    const url = new URL(c.req.url);
-    const search = c.req.query("search");
-    const category = c.req.query("category");
-    const tag = c.req.query("tag");
-    const blueprintId = c.req.query("blueprintId");
-    const language = c.req.query("language");
-    const sort = c.req.query("sort");
-    const status = c.req.query("status");
-    const limit = c.req.query("limit");
-    const offset = c.req.query("offset");
-    const cursor = c.req.query("cursor");
-    const includeTotal = c.req.query("includeTotal");
+  app.get("/bulk-cart-preview", async (c) => {
+    const params = searchParamsFromRequest(c.req.url, c.req.query.bind(c.req));
+    const result = await services.previewBulkAdd(params);
 
-    const result = await services.searchItems({
-      search: search || undefined,
-      category: category || undefined,
-      tag: tag || undefined,
-      blueprintId: blueprintId || undefined,
-      language: language || undefined,
-      sort: sort || undefined,
-      status: status || undefined,
-      limit: limit ? Number.parseInt(limit, 10) : undefined,
-      offset: offset ? Number.parseInt(offset, 10) : undefined,
-      cursor: cursor || undefined,
-      includeTotal: includeTotal === "true",
-      fieldFilters: readFieldFilters(url.searchParams),
-      dimensionFilters: readDimensionFilters(url.searchParams),
-    });
+    return c.json(result);
+  });
+
+  app.get("/", async (c) => {
+    const params = searchParamsFromRequest(c.req.url, c.req.query.bind(c.req));
+
+    const result = await services.searchItems(params);
 
     return c.json({
       items: result.items,
@@ -44,6 +26,40 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
   });
 
   return app;
+}
+
+function searchParamsFromRequest(
+  requestUrl: string,
+  query: (name: string) => string | undefined,
+) {
+  const url = new URL(requestUrl);
+  const search = query("search");
+  const category = query("category");
+  const tag = query("tag");
+  const blueprintId = query("blueprintId");
+  const language = query("language");
+  const sort = query("sort");
+  const status = query("status");
+  const limit = query("limit");
+  const offset = query("offset");
+  const cursor = query("cursor");
+  const includeTotal = query("includeTotal");
+
+  return {
+    search: search || undefined,
+    category: category || undefined,
+    tag: tag || undefined,
+    blueprintId: blueprintId || undefined,
+    language: language || undefined,
+    sort: sort || undefined,
+    status: status || undefined,
+    limit: limit ? Number.parseInt(limit, 10) : undefined,
+    offset: offset ? Number.parseInt(offset, 10) : undefined,
+    cursor: cursor || undefined,
+    includeTotal: includeTotal === "true",
+    fieldFilters: readFieldFilters(url.searchParams),
+    dimensionFilters: readDimensionFilters(url.searchParams),
+  };
 }
 
 function readFieldFilters(searchParams: URLSearchParams) {

@@ -62,8 +62,18 @@ Field filters are intentionally not carried into Product selection because Field
 
 If Search carries exactly one selected Option for a Dimension, Item Detail validates and applies that selection against the projected Product Schema. If Search carries multiple selected Options for the same Dimension, Item Detail leaves that Dimension unset rather than guessing. Invalid or inapplicable Dimension selections are ignored during Product Schema normalization.
 
+## Bulk Cart Handoff
+
+Discovery owns the buyer-facing bulk action from a Result Set because the scope is a Discovery Query. Checkout owns the Cart mutation. The handoff must use resolved Products, not unresolved Catalog Items.
+
+Bulk add previews the active Discovery Query before committing. The preview resolves eligible Products from selected Dimension filters, shows how many Products are ready, shows skipped items that still need Product Options, and blocks commit when the query is too broad. The first implementation allows up to 250 matching resolved Products in one action so full set-sized adds stay practical without letting very broad tags become long-running cart writes.
+
+Field filters and tags can define Result Set scope, but they do not define Product identity. They may decide which Catalog Items are included in the preview; Dimension filters decide which Product Options can be carried into Cart lines.
+
 ## Boundary Rules
 
 - Discovery decides filter presentation, ranking, query normalization, and counts.
+- Discovery decides bulk Result Set scope and preview eligibility.
 - Catalog decides Field behavior, Dimension/Option identity, Blueprint applicability, and Product identity.
+- Checkout decides Cart line validation, duplicate line merging, guest cart handling, and Cart write results.
 - Deployables only compose Discovery routes and must not own filter behavior.

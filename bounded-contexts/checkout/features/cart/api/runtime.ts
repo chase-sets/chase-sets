@@ -70,7 +70,40 @@ export type CheckoutCartServices = Readonly<{
       sellerPreferenceId?: string | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ lineId: CartLineId; version: number }>;
+  ) => Promise<{ lineId: CartLineId; version: number; status: "added" | "merged" }>;
+  addLines: (
+    params: Readonly<{
+      accountId: AccountId;
+      lines: readonly {
+        catalogItemId: string;
+        productId: string;
+        itemTitle: string;
+        itemSubtitle: string | null;
+        itemImageUrl: string | null;
+        itemImageLoadingUrl?: string | null;
+        itemImageLoadingAlt?: string | null;
+        itemImageLoadingSrcSet?: string | null;
+        selectedOptions: readonly { dimensionId: string; optionId: string }[];
+        productSummary: string | null;
+        quantity: number;
+        fulfillmentMode?: "optimize" | "locked-listing";
+        lockedListingId?: string | null;
+        sellerPreferenceId?: string | null;
+      }[];
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{
+    requestedLineCount: number;
+    addedLineCount: number;
+    mergedLineCount: number;
+    failedLineCount: number;
+    lines: Array<{
+      index: number;
+      lineId: CartLineId | null;
+      status: "added" | "merged" | "failed";
+      message: string | null;
+    }>;
+  }>;
   setLineQuantity: (
     params: Readonly<{
       accountId: AccountId;
@@ -148,96 +181,150 @@ export function createCheckoutCartRuntime(
     return result.rows[0] ?? null;
   }
 
-  return {
-    commandHandler,
-    addLine: async (params, context) => {
-      const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
-      if (!catalogItem) {
-        throw new CheckoutDomainError("Catalog item not found.");
-      }
+  const addLine: CheckoutCartServices["addLine"] = async (params, context) => {
+    const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
+    if (!catalogItem) {
+      throw new CheckoutDomainError("Catalog item not found.");
+    }
 
-      if (catalogItem.status !== "active") {
-        throw new CheckoutDomainError(
-          "Cart lines may only reference active catalog items.",
-        );
-      }
+    if (catalogItem.status !== "active") {
+      throw new CheckoutDomainError(
+        "Cart lines may only reference active catalog items.",
+      );
+    }
 
-      const catalogVersion = createCheckoutProductDescriptor({
-        catalogItemId: params.catalogItemId,
-        productSchema:
-          typeof catalogItem.product_schema === "object" &&
-          catalogItem.product_schema !== null
-            ? (catalogItem.product_schema as CheckoutVersionSchema)
-            : null,
-        selection: params.selectedOptions,
-      });
+    const catalogVersion = createCheckoutProductDescriptor({
+      catalogItemId: params.catalogItemId,
+      productSchema:
+        typeof catalogItem.product_schema === "object" &&
+        catalogItem.product_schema !== null
+          ? (catalogItem.product_schema as CheckoutVersionSchema)
+          : null,
+      selection: params.selectedOptions,
+    });
 
-      if (params.productId.trim() !== catalogVersion.productId) {
-        throw new CheckoutDomainError(
-          "Cart line product id does not match the selected options.",
-        );
-      }
+    if (params.productId.trim() !== catalogVersion.productId) {
+      throw new CheckoutDomainError(
+        "Cart line product id does not match the selected options.",
+      );
+    }
 
-      const fulfillmentMode =
-        params.fulfillmentMode === "locked-listing" || params.lockedListingId?.trim()
-          ? "locked-listing"
-          : "optimize";
-      const lockedListingId = params.lockedListingId?.trim() || null;
-      const sellerPreferenceId = params.sellerPreferenceId?.trim() || null;
+    const fulfillmentMode =
+      params.fulfillmentMode === "locked-listing" || params.lockedListingId?.trim()
+        ? "locked-listing"
+        : "optimize";
+    const lockedListingId = params.lockedListingId?.trim() || null;
+    const sellerPreferenceId = params.sellerPreferenceId?.trim() || null;
 
-      const existingLine = (await listCartLines(deps.db, params.accountId))
-        .find((line) =>
-          line.catalog_catalog_item_id === params.catalogItemId &&
-          line.product_id === catalogVersion.productId &&
-          line.fulfillment_mode === fulfillmentMode &&
-          (line.locked_listing_id ?? null) === lockedListingId &&
-          (line.seller_preference_id ?? null) === sellerPreferenceId,
-        );
+    const existingLine = (await listCartLines(deps.db, params.accountId))
+      .find((line) =>
+        line.catalog_catalog_item_id === params.catalogItemId &&
+        line.product_id === catalogVersion.productId &&
+        line.fulfillment_mode === fulfillmentMode &&
+        (line.locked_listing_id ?? null) === lockedListingId &&
+        (line.seller_preference_id ?? null) === sellerPreferenceId,
+      );
 
-      if (existingLine) {
-        const result = await commandHandler({
-          streamId: `checkout.cart-${params.accountId}`,
-          command: {
-            type: "SetCartLineQuantity",
-            lineId: existingLine.line_id as CartLineId,
-            quantity: existingLine.quantity + params.quantity,
-          },
-          context,
-        });
-        await drainOwnedProjector(cartProjector);
-
-        return { lineId: existingLine.line_id as CartLineId, version: result.version };
-      }
-
-      const lineId = createId("cli") as CartLineId;
+    if (existingLine) {
       const result = await commandHandler({
         streamId: `checkout.cart-${params.accountId}`,
         command: {
-          type: "AddCartLine",
-          buyerAccountId: params.accountId,
-          lineId,
-          catalogItemId: params.catalogItemId,
-          productId: catalogVersion.productId,
-          itemLanguageCode: catalogItem.language_code,
-          itemTitle: params.itemTitle,
-          itemSubtitle: params.itemSubtitle,
-          itemImageUrl: params.itemImageUrl,
-          itemImageLoadingUrl: params.itemImageLoadingUrl,
-          itemImageLoadingAlt: params.itemImageLoadingAlt,
-          itemImageLoadingSrcSet: params.itemImageLoadingSrcSet,
-          selectedOptions: catalogVersion.selection,
-          productSummary: params.productSummary,
-          quantity: params.quantity,
-          fulfillmentMode,
-          lockedListingId,
-          sellerPreferenceId,
-          availabilityState: "available",
+          type: "SetCartLineQuantity",
+          lineId: existingLine.line_id as CartLineId,
+          quantity: existingLine.quantity + params.quantity,
         },
         context,
       });
       await drainOwnedProjector(cartProjector);
 
-      return { lineId, version: result.version };
+      return { lineId: existingLine.line_id as CartLineId, version: result.version, status: "merged" };
+    }
+
+    const lineId = createId("cli") as CartLineId;
+    const result = await commandHandler({
+      streamId: `checkout.cart-${params.accountId}`,
+      command: {
+        type: "AddCartLine",
+        buyerAccountId: params.accountId,
+        lineId,
+        catalogItemId: params.catalogItemId,
+        productId: catalogVersion.productId,
+        itemLanguageCode: catalogItem.language_code,
+        itemTitle: params.itemTitle,
+        itemSubtitle: params.itemSubtitle,
+        itemImageUrl: params.itemImageUrl,
+        itemImageLoadingUrl: params.itemImageLoadingUrl,
+        itemImageLoadingAlt: params.itemImageLoadingAlt,
+        itemImageLoadingSrcSet: params.itemImageLoadingSrcSet,
+        selectedOptions: catalogVersion.selection,
+        productSummary: params.productSummary,
+        quantity: params.quantity,
+        fulfillmentMode,
+        lockedListingId,
+        sellerPreferenceId,
+        availabilityState: "available",
+      },
+      context,
+    });
+    await drainOwnedProjector(cartProjector);
+
+    return { lineId, version: result.version, status: "added" };
+  };
+
+  return {
+    commandHandler,
+    addLine,
+    addLines: async (params, context) => {
+      if (params.lines.length > 250) {
+        throw new CheckoutDomainError("Bulk cart adds are limited to 250 products.");
+      }
+
+      const lines: Array<{
+        index: number;
+        lineId: CartLineId | null;
+        status: "added" | "merged" | "failed";
+        message: string | null;
+      }> = [];
+      let addedLineCount = 0;
+      let mergedLineCount = 0;
+
+      for (const [index, line] of params.lines.entries()) {
+        try {
+          const result = await addLine(
+            {
+              accountId: params.accountId,
+              ...line,
+            },
+            context,
+          );
+          if (result.status === "merged") {
+            mergedLineCount++;
+          } else {
+            addedLineCount++;
+          }
+          lines.push({
+            index,
+            lineId: result.lineId,
+            status: result.status,
+            message: null,
+          });
+        } catch (error) {
+          lines.push({
+            index,
+            lineId: null,
+            status: "failed",
+            message: error instanceof Error ? error.message : "Cart line could not be added.",
+          });
+        }
+      }
+
+      return {
+        requestedLineCount: params.lines.length,
+        addedLineCount,
+        mergedLineCount,
+        failedLineCount: lines.filter((line) => line.status === "failed").length,
+        lines,
+      };
     },
     setLineQuantity: async (params, context) => {
       const result = await commandHandler({

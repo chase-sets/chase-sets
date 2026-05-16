@@ -1031,7 +1031,7 @@ export function SearchControlBar({
 }: SearchControlBarProps) {
   const hasControls = Boolean(sort || filters || actions);
   const filterControlsClass =
-    filterControlsVisibility === "desktop" ? "hidden lg:flex" : "flex";
+    filterControlsVisibility === "desktop" ? "hidden lg:block" : "block";
 
   return (
     <section className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-3 shadow-[var(--shadow-sm)]">
@@ -1041,8 +1041,8 @@ export function SearchControlBar({
           <div className="flex min-w-0 flex-wrap items-end gap-3 lg:justify-end">
             {sort ? <div className="min-w-44">{sort}</div> : null}
             {filters || actions ? (
-              <div className={cn(filterControlsClass, "min-w-0 flex-wrap items-end gap-3")}>
-                {filters ? <div className="min-w-44">{filters}</div> : null}
+              <div className="flex min-w-0 flex-wrap items-end gap-3">
+                {filters ? <div className={cn(filterControlsClass, "min-w-44")}>{filters}</div> : null}
                 {actions ? (
                   <div className="flex min-h-11 items-end [&>a]:min-h-11 [&>button]:min-h-11">
                     {actions}

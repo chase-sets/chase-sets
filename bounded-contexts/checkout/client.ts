@@ -30,6 +30,24 @@ export type AddCheckoutCartLineRequest = Readonly<{
   sellerPreferenceId?: string | null;
 }>;
 
+export type AddCheckoutCartLinesRequest = Readonly<{
+  lines: readonly AddCheckoutCartLineRequest[];
+}>;
+
+export type AddCheckoutCartLinesResponse = Readonly<{
+  status: "completed";
+  requestedLineCount: number;
+  addedLineCount: number;
+  mergedLineCount: number;
+  failedLineCount: number;
+  lines: readonly {
+    index: number;
+    lineId: string | null;
+    status: "added" | "merged" | "failed";
+    message: string | null;
+  }[];
+}>;
+
 export type UpdateCheckoutCartLineQuantityRequest = Readonly<{
   quantity: number;
 }>;
@@ -209,12 +227,32 @@ export function createCheckoutApiClient({
         await client.account.cart.$post({ json: body, header: headers }),
       );
     },
+    async addCartLines(
+      body: AddCheckoutCartLinesRequest,
+    ): Promise<AddCheckoutCartLinesResponse> {
+      return parseJsonResponse(
+        await client.account.cart.bulk.$post({ json: body, header: headers }),
+      );
+    },
     async addGuestCartLine(
       anonymousCartId: string,
       body: AddCheckoutCartLineRequest,
     ) {
       return parseJsonResponse(
         await client.guest.cart.$post({
+          json: body,
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
+        }),
+      );
+    },
+    async addGuestCartLines(
+      anonymousCartId: string,
+      body: AddCheckoutCartLinesRequest,
+    ): Promise<AddCheckoutCartLinesResponse> {
+      return parseJsonResponse(
+        await client.guest.cart.bulk.$post({
           json: body,
           header: mergeHeaders(headers, {
             "x-checkout-anonymous-cart-id": anonymousCartId,

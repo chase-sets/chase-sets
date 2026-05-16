@@ -16,6 +16,7 @@ export type {
   DiscoveryPublicSeller,
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
+  DiscoveryBulkCartPreview,
   ProductAlertListResponse,
   ProductAlertPageRow,
 } from "../../client";
