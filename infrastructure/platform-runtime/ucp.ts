@@ -82,12 +82,41 @@ function requestOrigin(request: Request) {
   const url = new URL(request.url);
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = forwardedHost || request.headers.get("host") || url.host;
 
-  if (forwardedProto && forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`;
+  const protocol =
+    forwardedProto ||
+    (url.protocol === "http:" && isPublicHostname(host) ? "https" : url.protocol.slice(0, -1));
+
+  return `${protocol}://${host}`;
+}
+
+function isPublicHostname(host: string) {
+  const hostname = host.replace(/:\d+$/, "").toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname === "0.0.0.0" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname === "::1" ||
+    hostname.endsWith(".local")
+  ) {
+    return false;
   }
 
-  return url.origin;
+  if (/^10\./.test(hostname) || /^192\.168\./.test(hostname)) {
+    return false;
+  }
+
+  const private172Match = /^172\.(\d+)\./.exec(hostname);
+  if (private172Match) {
+    const secondOctet = Number.parseInt(private172Match[1], 10);
+    if (secondOctet >= 16 && secondOctet <= 31) {
+      return false;
+    }
+  }
+
+  return hostname.includes(".");
 }
 
 function jsonRpcResult(id: JsonRpcRequest["id"], result: unknown) {
