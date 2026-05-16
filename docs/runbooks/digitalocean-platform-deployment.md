@@ -39,12 +39,12 @@ Preview environments are disposable and intentionally `noindex,nofollow` for lan
 
 The long-lived staging environment uses the same full-platform shape as PR previews, but keeps stable hostnames and state across merges:
 
-- `landing-staging.chasesets.com`: canonical staging landing `public-web`.
+- `www.staging.chasesets.com`: canonical staging landing `public-web`.
 - `marketplace.staging.chasesets.com`: marketplace web.
 - `admin.staging.chasesets.com`: admin web.
-- Legacy marketplace and admin dash-based staging hosts temporarily redirect to their nested replacements.
+- Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-Do not use `staging.chasesets.com` as the App Platform web domain while staging mail identity and Workspace DNS records share that host. DigitalOcean App Platform can leave that domain in `CONFIGURING`, which blocks the staging gate before production deploys.
+The staging environment root, `staging.chasesets.com`, is reserved for environment-level DNS records such as Workspace mail, SPF, and SES identity records. Keep App Platform web domains on child hosts such as `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com` so mail records cannot block web certificate activation.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
@@ -209,7 +209,7 @@ The platform smoke script checks:
 - admin home page loads
 - admin API readiness passes through the deployed API component
 - marketplace home and search pages load when a marketplace URL is supplied
-- legacy marketplace and admin dash-based staging URLs return temporary HTTPS `302` redirects to their nested equivalents when supplied
+- legacy dash-based staging URLs return temporary HTTPS `302` redirects to their nested equivalents when supplied, including `landing-staging.chasesets.com` to `www.staging.chasesets.com`
 - waitlist signup accepts a tagged synthetic lead
 - admin password sign-in works when admin credentials are supplied
 - waitlist admin endpoint can find the synthetic lead when the smoke wrote one
