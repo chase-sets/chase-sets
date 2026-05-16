@@ -26,7 +26,12 @@ export interface CatalogItemDetail {
   description: string;
   blueprint: BlueprintRef | null;
   status: string;
-  field_values: Array<{ fieldId: string; fieldName: string; value: unknown }>;
+  field_values: Array<{
+    fieldId: string;
+    fieldName: string;
+    value: unknown;
+    reference?: CatalogReferenceRecordRef | null;
+  }>;
   categories: CategoryRef[];
   external_product_references: Array<{
     providerKey: string;
@@ -37,6 +42,26 @@ export interface CatalogItemDetail {
   tags: string[];
   image_urls: string[];
   updated_at: string;
+}
+
+export interface CatalogReferenceRecordRef {
+  referenceId: string;
+  typeKey: string;
+  key: string;
+  name: string;
+  attributes: unknown;
+  relationships: Array<{
+    relationshipType: string;
+    referenceId: string;
+    reference?: {
+      referenceId: string;
+      typeKey: string;
+      key: string;
+      name: string;
+      status: string;
+    };
+  }>;
+  status: string;
 }
 
 export interface BulkPublishCandidate {

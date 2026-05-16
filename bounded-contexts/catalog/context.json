@@ -7,7 +7,9 @@
     "blueprint",
     "field",
     "component",
-    "dimension"
+    "dimension",
+    "reference-type",
+    "reference-record"
   ],
   "streamPrefix": "catalog.",
   "apiBasePath": "/api/catalog",
@@ -18,6 +20,7 @@
     "components",
     "dimensions",
     "fields",
+    "reference-data",
     "source-observations"
   ],
   "allowedSupportDirectories": [
@@ -303,6 +306,14 @@
         "Internal catalog module composition"
       ]
     },
+    "reference-data": {
+      "classification": "slice",
+      "purpose": "Own reference types and reference records that attach rich reusable facts to catalog item field values.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal catalog module composition"
+      ]
+    },
     "authoring-support": {
       "classification": "support",
       "purpose": "Provide reusable authoring-support assets shared by catalog-owned features and composition seams.",
@@ -314,6 +325,7 @@
         "components",
         "dimensions",
         "fields",
+        "reference-data",
         "source-observations"
       ],
       "justification": "authoring-support centralizes context-local composition that should not duplicate across features.",
@@ -331,6 +343,7 @@
         "components",
         "dimensions",
         "fields",
+        "reference-data",
         "source-observations"
       ],
       "justification": "client-support centralizes context-local composition that should not duplicate across features.",
@@ -348,6 +361,7 @@
         "components",
         "dimensions",
         "fields",
+        "reference-data",
         "source-observations"
       ],
       "justification": "projection-support centralizes context-local composition that should not duplicate across features.",
@@ -378,6 +392,7 @@
         "components",
         "dimensions",
         "fields",
+        "reference-data",
         "source-observations"
       ],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",

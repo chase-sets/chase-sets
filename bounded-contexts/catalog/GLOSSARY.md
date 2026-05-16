@@ -15,6 +15,8 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Component`
 - `Category`
 - `Source Observation`
+- `Reference Type`
+- `Reference Record`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -36,8 +38,16 @@ The current implementation also uses four supporting authoring concepts:
 - `Component` — a reusable bundle of Field and Dimension rules used to compose Blueprints
 - `Category` — a consumer-facing grouping for browsing and merchandising that does not affect Product identity
 - `Source Observation` — a provider-sourced candidate record reviewed before it becomes Catalog truth
+- `Reference Type` — a reusable kind of rich descriptive value, such as Set, Series, or Product Line
+- `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Set
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
+
+## Rich Reference Model
+
+Use a `Reference Record` when a field value needs its own durable identity, attributes, or relationships. For example, a Set is not just text on every card. It can be a Reference Record with card count, release date, abbreviation, source ID, and a relationship to a Series Reference Record.
+
+Reference Records enrich Catalog Item information. They do not create Product variation and do not affect Product identity unless a Blueprint separately models variation through Dimensions and Options.
 
 ## Product Resolution Model
 
@@ -55,6 +65,9 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Component` contributes reusable Field and Dimension rules to Blueprints.
 - A `Category` organizes Catalog Items without changing Product identity.
 - A `Source Observation` may be promoted into a Catalog Item after review.
+- A `Reference Type` groups Reference Records by natural kind.
+- A `Reference Record` may be selected as a Field value on many Catalog Items.
+- A `Reference Record` may relate to other Reference Records.
 
 ## Identity and IDs
 
@@ -64,6 +77,8 @@ Use these identifiers in APIs and schemas:
 - `product_id`
 - `dimension_id`
 - `option_id`
+- `reference_type_id`
+- `reference_record_id`
 
 Notes:
 
@@ -76,6 +91,8 @@ Notes:
 - A Product is defined by a valid set of selected Options.
 - Options must belong to their respective Dimension.
 - A Catalog Item cannot be sold without a Product.
+- A reference-shaped Field value must point at one Catalog-owned Reference Record.
+- A Reference Record enriches item information but does not change `product_id`.
 
 ## API Guidance
 
@@ -88,6 +105,8 @@ Preferred field names:
 - `selected_options`
 - `product_schema`
 - `product_summary`
+- `reference_type_id`
+- `reference_record_id`
 
 Avoid:
 
@@ -123,6 +142,8 @@ Use formal terms:
 - Field
 - Component
 - Category
+- Reference Type
+- Reference Record
 
 ### Internal Tools
 
@@ -141,7 +162,7 @@ Catalog defines:
 - the canonical structure of Catalog Items
 - the resolved set of valid Products
 - the relationship between Dimensions, Options, and Products
-- the authoring relationship between Blueprints, Fields, Components, Categories, and Catalog Items
+- the authoring relationship between Blueprints, Fields, Components, Categories, Reference Records, and Catalog Items
 - the review and promotion policy for provider Source Observations
 
 Catalog does not define:
@@ -152,4 +173,4 @@ Catalog does not define:
 
 ## One-Line Summary
 
-A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, and Categories support authoring and organizing that truth.
+A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, and Reference Records support authoring, enriching, and organizing that truth.

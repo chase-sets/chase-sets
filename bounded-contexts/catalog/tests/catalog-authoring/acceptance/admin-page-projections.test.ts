@@ -438,6 +438,158 @@ describeWithDatabase("Admin page projections", () => {
     expect(updatedItemDetail.json.categories[0].name).toBe("Generation I Singles");
   });
 
+  it("expands rich reference records from catalog item field values", async () => {
+    const setTypeId = "rft_set";
+    const seriesTypeId = "rft_series";
+    const setFieldId = "fld_set";
+    const seriesReferenceId = "ref_mega_evolution";
+    const setReferenceId = "ref_ascended_heroes";
+    const itemId = "cat_azumarill_ex";
+
+    await sendCommand(services.referenceData.referenceTypeCommandHandler, `catalog.reference-type-${setTypeId}`, {
+      type: "CreateReferenceType",
+      referenceTypeId: setTypeId,
+      key: "set",
+      name: l10n("Set"),
+      description: l10n("Card set"),
+      attributeKeys: ["card-count", "release-date", "abbreviation", "source-id"],
+    });
+    await sendCommand(services.referenceData.referenceTypeCommandHandler, `catalog.reference-type-${seriesTypeId}`, {
+      type: "CreateReferenceType",
+      referenceTypeId: seriesTypeId,
+      key: "series",
+      name: l10n("Series"),
+      description: l10n("Product series"),
+      attributeKeys: [],
+    });
+    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${seriesReferenceId}`, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: seriesReferenceId,
+      typeKey: "series",
+      key: "mega-evolution",
+      name: l10n("Mega Evolution"),
+      description: l10n("Mega Evolution series"),
+      attributes: {},
+      relationships: [],
+    });
+    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${setReferenceId}`, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: setReferenceId,
+      typeKey: "set",
+      key: "ascended-heroes",
+      name: l10n("Ascended Heroes"),
+      description: l10n("Ascended Heroes set"),
+      attributes: {
+        "card-count": 217,
+        "release-date": "2026-01-30",
+        abbreviation: "ASC",
+        "source-id": "me02.5",
+      },
+      relationships: [
+        {
+          relationshipType: "part-of-series",
+          referenceId: seriesReferenceId,
+        },
+      ],
+    });
+
+    await sendCommand(services.fields.commandHandler, `catalog.field-${setFieldId}`, {
+      type: "CreateField",
+      fieldId: setFieldId,
+      key: "set",
+      name: l10n("Set"),
+      description: l10n("Card set"),
+      valueType: "reference",
+      behavior: { filterable: true, searchable: true, sortable: false },
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "CreateCatalogItem",
+      itemId,
+      title: l10n("Azumarill ex"),
+      subtitle: l10n("084"),
+      description: l10n("Azumarill ex from Ascended Heroes"),
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "SetCatalogItemFieldValue",
+      fieldId: setFieldId,
+      value: { referenceId: setReferenceId },
+    });
+
+    await drainProjectors();
+
+    const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
+    expect(itemDetail.response.status).toBe(200);
+    expect(itemDetail.json.field_values[0]).toMatchObject({
+      fieldId: setFieldId,
+      fieldName: "Set",
+      value: { referenceId: setReferenceId },
+      reference: {
+        referenceId: setReferenceId,
+        typeKey: "set",
+        key: "ascended-heroes",
+        name: "Ascended Heroes",
+        attributes: {
+          "card-count": 217,
+          "release-date": "2026-01-30",
+          abbreviation: "ASC",
+          "source-id": "me02.5",
+        },
+        relationships: [
+          {
+            relationshipType: "part-of-series",
+            referenceId: seriesReferenceId,
+            reference: {
+              referenceId: seriesReferenceId,
+              typeKey: "series",
+              key: "mega-evolution",
+              name: "Mega Evolution",
+            },
+          },
+        ],
+      },
+    });
+
+    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${setReferenceId}`, {
+      type: "ReviseReferenceRecord",
+      typeKey: "set",
+      key: "ascended-heroes",
+      name: l10n("Ascended Heroes"),
+      description: l10n("Ascended Heroes set"),
+      attributes: {
+        "card-count": 218,
+        "release-date": "2026-01-30",
+        abbreviation: "ASC",
+        "source-id": "me02.5",
+      },
+      relationships: [
+        {
+          relationshipType: "part-of-series",
+          referenceId: seriesReferenceId,
+        },
+      ],
+    });
+
+    await drainProjectors();
+
+    const updatedItemDetail = await getJson(`/api/catalog/items/${itemId}`);
+    expect(updatedItemDetail.json.field_values[0].reference.attributes["card-count"]).toBe(218);
+
+    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${seriesReferenceId}`, {
+      type: "ReviseReferenceRecord",
+      typeKey: "series",
+      key: "mega-evolution",
+      name: l10n("Mega Evolution Era"),
+      description: l10n("Mega Evolution series"),
+      attributes: {},
+      relationships: [],
+    });
+
+    await drainProjectors();
+
+    const updatedSeriesRelationship = await getJson(`/api/catalog/items/${itemId}`);
+    expect(updatedSeriesRelationship.json.field_values[0].reference.relationships[0].reference.name).toBe("Mega Evolution Era");
+  });
+
   it("includes conditional applicability in component and blueprint DTOs", async () => {
     const formDimensionId = "dim_form";
     const formRawOptionId = "chc_form_raw";

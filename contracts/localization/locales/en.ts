@@ -51,6 +51,8 @@ export const englishTranslations = {
   "auth.features.sessions.ui.sessionDetailPage.expires.at": "Expires At",
   "auth.features.sessions.ui.sessionDetailPage.user.id": "User ID",
   "auth.features.sessions.ui.sessionListPage.account": "Account",
+  "catalog.features.referenceData.api.route.reference.record.not.found": "Reference record not found.",
+  "catalog.features.referenceData.api.route.reference.type.not.found": "Reference type not found.",
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
   "catalog.features.sourceObservations.ui.detail.artist": "Artist",
   "catalog.features.sourceObservations.ui.detail.card.image": "Card image",
