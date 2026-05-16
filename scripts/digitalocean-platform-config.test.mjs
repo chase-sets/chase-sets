@@ -20,14 +20,14 @@ function occurrenceCount(source, needle) {
 }
 
 describe("DigitalOcean platform configuration", () => {
-  it("keeps staging landing on the active dash-based App Platform host", () => {
+  it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
     expect(platformLocals).toContain(
-      'local.is_staging ? "landing-${var.environment}.${var.root_domain}"',
+      'local.is_staging ? "www.${var.environment}.${var.root_domain}"',
     );
     expect(platformLocals).not.toContain(
       'local.is_staging ? "${var.environment}.${var.root_domain}"',
     );
-    expect(platformLocals).not.toContain(
+    expect(platformLocals).toContain(
       '"landing-${var.environment}.${var.root_domain}"     = local.landing_domain',
     );
   });

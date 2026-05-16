@@ -69,7 +69,7 @@ describe("public web deployable", () => {
   it("can noindex staging through environment configuration", async () => {
     vi.stubEnv("CHASE_SETS_PUBLIC_INDEXING", "false");
     const robots = robotsLoader({
-      request: new Request("https://staging.chasesets.com/robots.txt"),
+      request: new Request("https://www.staging.chasesets.com/robots.txt"),
       params: {},
       context: undefined,
     } as never);
