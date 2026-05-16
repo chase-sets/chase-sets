@@ -198,6 +198,20 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
+    "catalog.catalog-item.product-asset-sets-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { productAssetSets } = event.data as { productAssetSets: unknown };
+
+      await db.query(
+        `UPDATE catalog_items SET product_asset_sets = $2, updated_at = $3 WHERE catalog_item_id = $1`,
+        [
+          itemId,
+          JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
+          event.timing.recordedAt,
+        ],
+      );
+    },
+
     "catalog.catalog-item.external-product-reference-linked": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { providerKey, externalKey, selectedOptions } = event.data as {
@@ -265,4 +279,3 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
 function coerceLocalizedTextMap(value: LocalizedTextMap | string): LocalizedTextMap {
   return typeof value === "string" ? localizedTextMapFromEnglish(value) : value;
 }
-

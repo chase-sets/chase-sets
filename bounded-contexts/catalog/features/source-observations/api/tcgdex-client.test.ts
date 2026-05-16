@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { fetchTcgdexSetObservations } from "./tcgdex-client";
 
+const testImageProcessor = {
+  async metadata() {
+    return { width: 734, height: 1024 };
+  },
+  async resizeToWebp(input: { body: Uint8Array; width: number; quality: number }) {
+    return {
+      body: new Uint8Array([input.width % 251, input.quality, input.body.byteLength]),
+      width: input.width,
+      height: Math.round(input.width * 1.4),
+    };
+  },
+};
+
 describe("TCGdex client", () => {
-  it("mirrors only the high quality set card asset into owned storage", async () => {
+  it("normalizes the high quality set card asset into owned WebP variants", async () => {
     const storedAssets: Array<{
       key: string;
       body: Uint8Array;
@@ -70,6 +83,7 @@ describe("TCGdex client", () => {
           };
         },
       },
+      imageProcessor: testImageProcessor,
     });
 
     expect(observations).toHaveLength(1);
@@ -90,18 +104,32 @@ describe("TCGdex client", () => {
         illustrator: "tetsuya koizumi",
         releaseYear: 2020,
         imageUrls: [
-          "https://assets.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+          "https://assets.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-039058c6f2c0.webp",
         ],
+        productAssetSet: {
+          kind: "product-image",
+          sourceHash: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+        },
       },
     });
-    expect(storedAssets).toEqual([
-      {
-        key: "catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
-        body: new Uint8Array([1, 2, 3]),
-        contentType: "image/webp",
-        cacheControl: "public, max-age=31536000, immutable",
-      },
+    expect(storedAssets.map((asset) => asset.key)).toEqual([
+      "catalog/source-observations/tcgdex/en/swsh3-136/source-039058c6f2c0.webp",
+      "catalog/source-observations/tcgdex/en/swsh3-136/thumbnail-96w-1x-039058c6f2c0.webp",
+      "catalog/source-observations/tcgdex/en/swsh3-136/thumbnail-192w-2x-039058c6f2c0.webp",
+      "catalog/source-observations/tcgdex/en/swsh3-136/search-card-160w-1x-039058c6f2c0.webp",
+      "catalog/source-observations/tcgdex/en/swsh3-136/search-card-320w-2x-039058c6f2c0.webp",
+      "catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-039058c6f2c0.webp",
+      "catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-960w-2x-039058c6f2c0.webp",
     ]);
+    expect(storedAssets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contentType: "image/webp",
+          cacheControl: "public, max-age=31536000, immutable",
+        }),
+      ]),
+    );
+    expect(observations[0]?.normalized.productAssetSet?.variants).toHaveLength(6);
     expect(observations[0]?.sourceRecordHash).toHaveLength(64);
     expect(observations[0]?.sourcePayload).not.toHaveProperty("pricing");
   });
@@ -154,6 +182,7 @@ describe("TCGdex client", () => {
           };
         },
       },
+      imageProcessor: testImageProcessor,
     });
     const secondImport = await fetchTcgdexSetObservations({
       languageCode: "en",
@@ -167,14 +196,15 @@ describe("TCGdex client", () => {
           };
         },
       },
+      imageProcessor: testImageProcessor,
     });
 
     expect(firstImport[0]?.sourceRecordHash).toBe(secondImport[0]?.sourceRecordHash);
     expect(firstImport[0]?.normalized.imageUrls).toEqual([
-      "https://assets-a.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+      "https://assets-a.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-4bf5122f3445.webp",
     ]);
     expect(secondImport[0]?.normalized.imageUrls).toEqual([
-      "https://assets-b.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+      "https://assets-b.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-4bf5122f3445.webp",
     ]);
   });
 
@@ -218,6 +248,7 @@ describe("TCGdex client", () => {
         normalized: {
           imageBaseUrl: null,
           imageUrls: [],
+          productAssetSet: null,
         },
       },
     ]);

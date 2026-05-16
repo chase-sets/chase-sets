@@ -4,6 +4,10 @@ import { cx } from "../../utils/cx";
 
 export interface GalleryImage {
   src: string;
+  srcSet?: string;
+  sizes?: string;
+  thumbnailSrc?: string;
+  thumbnailSrcSet?: string;
   alt: string;
 }
 
@@ -123,6 +127,8 @@ export function ImageGallery({
         {active ? (
           <img
             src={active.src}
+            srcSet={active.srcSet}
+            sizes={active.sizes}
             alt={active.alt}
             onError={() => markImageFailed(active.src)}
             className="h-full w-full object-contain"
@@ -148,9 +154,11 @@ export function ImageGallery({
               >
                 {thumbnail ? (
                   <img
-                    src={thumbnail.src}
+                    src={thumbnail.thumbnailSrc ?? thumbnail.src}
+                    srcSet={thumbnail.thumbnailSrcSet}
+                    sizes="64px"
                     alt={thumbnail.alt}
-                    onError={() => markImageFailed(thumbnail.src)}
+                    onError={() => markImageFailed(thumbnail.thumbnailSrc ?? thumbnail.src)}
                     className="h-full w-full object-cover"
                   />
                 ) : null}

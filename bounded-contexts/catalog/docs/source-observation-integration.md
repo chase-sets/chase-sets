@@ -15,9 +15,16 @@ The first implementation imports one configured Pokemon set in one language from
 - `https://api.tcgdex.net/v2/{language}/sets/{setId}`
 - `https://api.tcgdex.net/v2/{language}/cards/{cardId}`
 
-TCGdex card image asset bases are source provenance only. During import, Catalog downloads the high quality `high.webp` card image, stores it in Chase Sets-owned asset storage, and records the Chase Sets-owned public URL in the Source Observation normalized image URLs. The low quality TCGdex variant is intentionally not imported in this pass.
+TCGdex card image asset bases are source provenance only. During import, Catalog downloads the high quality `high.webp` card image as the Source Asset, generates a Product Asset Set of Chase Sets-owned WebP variants, and records both the structured Product Asset Set and compatibility normalized image URLs. The low quality TCGdex variant is intentionally not imported in this pass.
 
-If TCGdex declares an image but the high quality asset cannot be downloaded or stored, that card observation fails and can be retried. Missing provider image data is still a valid observation and records no image URLs.
+If TCGdex declares an image but the high quality asset cannot be downloaded, processed, or stored, that card observation fails and can be retried. Missing provider image data is still a valid observation and records no Product Asset Set or image URLs.
+
+Generated variants are fixed by role rather than by embedded DPI/PPI metadata:
+
+- `thumbnail`: 96w and 192w WebP for compact art surfaces.
+- `search-card`: 160w and 320w WebP for search/catalog cards.
+- `catalog-detail`: 480w and 960w WebP for item detail and admin review.
+- `source`: original high-quality WebP for provenance and regeneration.
 
 ## Ownership
 
@@ -26,7 +33,7 @@ Catalog owns:
 - Source Observations
 - provider keys and external keys
 - normalized candidate Catalog facts
-- mirrored high quality provider asset URLs
+- normalized Product Asset Sets derived from high quality provider assets
 - source record hashes
 - review status
 - promotion into Catalog Item commands
@@ -37,7 +44,7 @@ Stored TCGdex source payloads are sanitized before persistence; provider pricing
 
 ## Promotion
 
-Promotion creates a draft Catalog Item for the observed Pokemon card print, assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category, records TCGdex source mapping, and attaches Chase Sets-owned mirrored image URLs.
+Promotion creates a draft Catalog Item for the observed Pokemon card print, assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category, records TCGdex source mapping, attaches the Product Asset Set, and keeps Chase Sets-owned image URLs as a migration compatibility projection.
 
 Promoted Catalog Items remain drafts so operators can verify blueprint fields, product resolution, and downstream display before publishing.
 
@@ -50,6 +57,6 @@ Operators may bulk promote explicitly selected Source Observations from the admi
 - Promoted or rejected observations cannot be refreshed in place; a future implementation should create a changed-observation review if provider data changes after terminal review.
 - Provider IDs are scoped by provider, language, and external key.
 - Missing images are valid observations and should not block review.
-- Declared image assets must mirror successfully before an observation is recorded; do not fall back to TCGdex display URLs.
-- Re-importing an unchanged image writes to the same deterministic object key.
+- Declared image assets must normalize successfully before an observation is recorded; do not fall back to TCGdex display URLs.
+- Re-importing an unchanged image writes to the same deterministic source-hash object keys.
 - TCGdex pricing data must stay out of Catalog payload storage and promotion.

@@ -166,6 +166,7 @@ function createItem(
     categories: [],
     tags: [],
     image_urls: [],
+    product_asset_sets: [],
     product_schema: null,
     market_summary: null,
     market_listings: [baseListing],

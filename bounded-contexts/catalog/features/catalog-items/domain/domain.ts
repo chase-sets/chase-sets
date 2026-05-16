@@ -17,6 +17,7 @@ import {
   type EmptyEventData,
   type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
+import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type { BlueprintId, CategoryId, FieldId, CatalogItemId } from "../../../ids";
 
 export type ItemFieldValue = Readonly<{
@@ -47,6 +48,7 @@ export type CatalogItemState = Readonly<{
   categoryIds: readonly CategoryId[];
   tags: readonly string[];
   imageUrls: readonly string[];
+  productAssetSets: readonly ProductAssetSet[];
   externalProductReferences: readonly CatalogExternalProductReference[];
 }>;
 
@@ -62,6 +64,7 @@ export const initialCatalogItemState: CatalogItemState = {
   categoryIds: [],
   tags: [],
   imageUrls: [],
+  productAssetSets: [],
   externalProductReferences: [],
 };
 
@@ -125,6 +128,11 @@ export type SetCatalogItemImageUrlsCommand = Readonly<{
   imageUrls: readonly string[];
 }>;
 
+export type SetCatalogItemProductAssetSetsCommand = Readonly<{
+  type: "SetCatalogItemProductAssetSets";
+  productAssetSets: readonly ProductAssetSet[];
+}>;
+
 export type LinkExternalProductReferenceCommand = Readonly<{
   type: "LinkExternalProductReference";
   providerKey: string;
@@ -157,6 +165,7 @@ export type CatalogItemCommand =
   | ReviseCatalogItemMetadataCommand
   | SetCatalogItemTagsCommand
   | SetCatalogItemImageUrlsCommand
+  | SetCatalogItemProductAssetSetsCommand
   | LinkExternalProductReferenceCommand
   | UnlinkExternalProductReferenceCommand
   | RetireCatalogItemCommand
@@ -236,6 +245,13 @@ export type ItemImageUrlsSetEvent = DomainEvent<
   }>
 >;
 
+export type ItemProductAssetSetsSetEvent = DomainEvent<
+  "catalog.catalog-item.product-asset-sets-set",
+  Readonly<{
+    productAssetSets: ProductAssetSet[];
+  }>
+>;
+
 export type ItemExternalProductReferenceLinkedEvent = DomainEvent<
   "catalog.catalog-item.external-product-reference-linked",
   CatalogExternalProductReference
@@ -270,6 +286,7 @@ export type CatalogItemEvent =
   | ItemMetadataRevisedEvent
   | ItemTagsSetEvent
   | ItemImageUrlsSetEvent
+  | ItemProductAssetSetsSetEvent
   | ItemExternalProductReferenceLinkedEvent
   | ItemExternalProductReferenceUnlinkedEvent
   | ItemRetiredEvent
@@ -460,6 +477,18 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
+    case "SetCatalogItemProductAssetSets":
+      requireCreatedItem(state);
+      assert(state.status !== "archived", "Archived items cannot be modified.");
+
+      return [
+        {
+          type: "catalog.catalog-item.product-asset-sets-set",
+          data: {
+            productAssetSets: [...command.productAssetSets],
+          },
+        },
+      ];
     case "LinkExternalProductReference": {
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
@@ -598,6 +627,11 @@ export const evolveCatalogItem: AggregateEvolver<
       return {
         ...state,
         imageUrls: event.data.imageUrls,
+      };
+    case "catalog.catalog-item.product-asset-sets-set":
+      return {
+        ...state,
+        productAssetSets: event.data.productAssetSets,
       };
     case "catalog.catalog-item.external-product-reference-linked":
       return {

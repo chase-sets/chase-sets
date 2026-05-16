@@ -1,6 +1,19 @@
 # Catalog Asset Storage
 
-Catalog uses owned asset storage for provider-fed product imagery. TCGdex imports mirror only the high quality `high.webp` card image into Chase Sets storage before recording a Source Observation. Promoted Catalog Items receive Chase Sets-owned image URLs, not TCGdex asset URLs.
+Catalog uses owned asset storage for provider-fed product imagery. TCGdex imports download the high quality `high.webp` card image as the source asset, generate normalized WebP variants, and record a Product Asset Set before recording a Source Observation. Promoted Catalog Items receive Chase Sets-owned Product Asset Sets plus compatibility image URLs, not TCGdex asset URLs.
+
+## Variant Policy
+
+Catalog stores browser delivery variants by pixel dimensions and device-pixel-ratio targets. Embedded DPI/PPI metadata is not used for web delivery decisions.
+
+| Role | Widths | Use |
+| --- | ---: | --- |
+| `thumbnail` | 96w, 192w | compact card thumbnails, cart line item art, admin rows |
+| `search-card` | 160w, 320w | search and catalog cards |
+| `catalog-detail` | 480w, 960w | item detail and admin review previews |
+| `source` | natural | provenance and future regeneration |
+
+All generated files are stored as `image/webp`, preserve aspect ratio, and should be served with long-lived immutable cache headers.
 
 ## Local Development
 
@@ -30,8 +43,25 @@ CATALOG_ASSET_S3_SECRET_ACCESS_KEY=...
 
 Production rejects filesystem-backed Catalog asset storage. Keep bucket permissions, CDN policy, and lifecycle rules outside Catalog; Catalog owns only the provider import decision and the public URL it stores.
 
+## Object Keys
+
+TCGdex normalized assets use deterministic keys under:
+
+```text
+catalog/source-observations/tcgdex/{languageCode}/{externalKey}/{role}-{width}w-{density}x-{sourceHash12}.webp
+```
+
+The source asset uses:
+
+```text
+catalog/source-observations/tcgdex/{languageCode}/{externalKey}/source-{sourceHash12}.webp
+```
+
+The source hash keeps replay/idempotency stable while allowing a future provider image change to produce new object keys for review.
+
 ## Failure Policy
 
 - If TCGdex does not provide an image, the observation records no image URLs.
-- If TCGdex provides an image but download or storage fails, the observation fails and should be retried.
-- Re-imports use deterministic object keys under `catalog/source-observations/tcgdex/{languageCode}/{externalKey}/high.webp`.
+- If TCGdex provides an image but download, processing, or storage fails, the observation fails and should be retried.
+- Re-imports of the same source image use the same deterministic object keys.
+- Discovery and downstream contexts should continue using the previously projected Product Asset Set until a new Catalog asset event projects successfully.

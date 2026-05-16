@@ -25,6 +25,7 @@ const normalized: SourceObservationNormalized = {
   imageUrls: [
     "https://assets.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
   ],
+  productAssetSet: null,
   variants: { normal: true, reverse: true },
 };
 

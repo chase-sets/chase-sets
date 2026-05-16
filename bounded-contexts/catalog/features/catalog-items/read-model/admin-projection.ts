@@ -28,6 +28,7 @@ type BaseCatalogItemRow = Readonly<{
   category_ids: unknown;
   tags: unknown;
   image_urls: unknown;
+  product_asset_sets: unknown;
   updated_at: string;
 }>;
 
@@ -167,8 +168,9 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       external_product_references,
       tags,
       image_urls,
+      product_asset_sets,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
       title_i18n = EXCLUDED.title_i18n,
@@ -185,6 +187,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       external_product_references = EXCLUDED.external_product_references,
       tags = EXCLUDED.tags,
       image_urls = EXCLUDED.image_urls,
+      product_asset_sets = EXCLUDED.product_asset_sets,
       updated_at = EXCLUDED.updated_at`,
     [
       item.catalog_item_id,
@@ -208,6 +211,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       JSON.stringify(externalReferences),
       JSON.stringify(asStringArray(item.tags)),
       JSON.stringify(asStringArray(item.image_urls)),
+      JSON.stringify(asArray(item.product_asset_sets)),
       item.updated_at,
     ],
   );
@@ -296,6 +300,9 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.image-urls-set": async (event) => {
+      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+    },
+    "catalog.catalog-item.product-asset-sets-set": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.external-product-reference-linked": async (event) => {

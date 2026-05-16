@@ -41,11 +41,13 @@ import {
 import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import type {
+  DiscoveryItemDetail,
   DiscoveryMarketListing,
   DiscoverySellerInventoryItem,
   DiscoveryAccountOfferMatch,
 } from "../support/client-support/contracts";
 import { discoveryAssetUrls } from "../support/client-support/assets";
+import { selectDiscoveryProductAssetUrl } from "../support/client-support/product-assets";
 import {
   createMarketplaceRequestApiClient,
   type MarketplaceListingInventoryItemOption,
@@ -216,6 +218,20 @@ function createSellerRegistrationQuote(
       "public_seller_quote",
     ].join("|"),
   };
+}
+
+function selectItemImageUrl(
+  item: Partial<Pick<DiscoveryItemDetail, "image_urls" | "product_asset_sets">>,
+  role: "thumbnail" | "catalog-detail" = "catalog-detail",
+): string | null {
+  const productAssetSets = Array.isArray(item.product_asset_sets)
+    ? item.product_asset_sets
+    : [];
+  const imageUrls = Array.isArray(item.image_urls) ? item.image_urls : [];
+
+  return selectDiscoveryProductAssetUrl(productAssetSets, role) ??
+    imageUrls[0] ??
+    null;
 }
 
 function formatTermsSource(terms: MarketplaceListingTermsPreview) {
@@ -1597,7 +1613,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
-        itemImageUrl: Array.isArray(item.image_urls) ? item.image_urls[0] ?? null : null,
+        itemImageUrl: selectItemImageUrl(item, "thumbnail"),
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity: Number(formData.get("quantity") ?? 0),
@@ -1778,7 +1794,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
       ? data.item.description
       : MARKETPLACE_DESCRIPTION,
     imageUrl: data?.item
-      ? data.item.image_urls[0] ?? discoveryAssetUrls.defaultProductImage
+      ? selectItemImageUrl(data.item, "catalog-detail") ?? discoveryAssetUrls.defaultProductImage
       : undefined,
     type: data?.item ? "product" : "website",
   }),

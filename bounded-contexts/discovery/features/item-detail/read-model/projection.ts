@@ -36,6 +36,7 @@ type ItemDetailCatalogItemRow = Readonly<{
   category_ids: unknown;
   tags: unknown;
   image_urls: unknown;
+  product_asset_sets: unknown;
   updated_at: string;
 }>;
 
@@ -218,6 +219,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
   const categoryIds = uniqueStrings(rawCategoryIds);
   const tags = asStringArray(item.tags);
   const imageUrls = asStringArray(item.image_urls);
+  const productAssetSets = asArray(item.product_asset_sets);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
 
   if (categoryIds.length !== rawCategoryIds.length) {
@@ -271,9 +273,10 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       categories,
       tags,
       image_urls,
+      product_asset_sets,
       product_schema,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -290,6 +293,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       categories = EXCLUDED.categories,
       tags = EXCLUDED.tags,
       image_urls = EXCLUDED.image_urls,
+      product_asset_sets = EXCLUDED.product_asset_sets,
       product_schema = EXCLUDED.product_schema,
       updated_at = EXCLUDED.updated_at`,
     [
@@ -326,6 +330,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       ),
       JSON.stringify(tags),
       JSON.stringify(imageUrls),
+      JSON.stringify(productAssetSets),
       productSchema === null ? null : JSON.stringify(productSchema),
       item.updated_at,
     ],
@@ -591,6 +596,24 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
              updated_at = $3
          WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
+      );
+
+      await refreshDiscoveryItemDetailPage(db, itemId);
+    },
+    "catalog.catalog-item.product-asset-sets-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+      const { productAssetSets } = event.data as { productAssetSets: unknown };
+
+      await db.query(
+        `UPDATE discovery_item_detail_catalog_items
+         SET product_asset_sets = $2,
+             updated_at = $3
+         WHERE catalog_item_id = $1`,
+        [
+          itemId,
+          JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
+          event.timing.recordedAt,
+        ],
       );
 
       await refreshDiscoveryItemDetailPage(db, itemId);

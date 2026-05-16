@@ -120,6 +120,7 @@ function sourceObservation(input: {
       category: "Pokemon",
       imageBaseUrl: null,
       imageUrls: [],
+      productAssetSet: null,
       variants: {},
     },
     status: input.status,

@@ -1,3 +1,28 @@
+export type DiscoveryProductAssetRole =
+  | "source"
+  | "thumbnail"
+  | "search-card"
+  | "catalog-detail";
+
+export interface DiscoveryProductAssetVariant {
+  role: DiscoveryProductAssetRole;
+  width: number;
+  height: number;
+  density: 1 | 2 | null;
+  mediaType: "image/webp";
+  storageKey: string;
+  publicUrl: string;
+  byteSize: number;
+  generatedAt: string;
+}
+
+export interface DiscoveryProductAssetSet {
+  kind: "product-image";
+  sourceHash: string;
+  source: DiscoveryProductAssetVariant;
+  variants: DiscoveryProductAssetVariant[];
+}
+
 export interface DiscoverySearchItem {
   catalog_item_id: string;
   slug: string;
@@ -15,6 +40,7 @@ export interface DiscoverySearchItem {
   category_slugs: string[];
   tags: string[];
   image_urls: string[];
+  product_asset_sets: DiscoveryProductAssetSet[];
   market_summary: DiscoveryMarketSummary | null;
   updated_at: string;
 }
@@ -96,6 +122,7 @@ export interface DiscoveryItemDetail {
   categories: CategoryRef[];
   tags: string[];
   image_urls: string[];
+  product_asset_sets: DiscoveryProductAssetSet[];
   product_schema: ProductSchema | null;
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
