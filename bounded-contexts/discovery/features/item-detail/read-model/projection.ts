@@ -2,6 +2,12 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
+  findCatalogItemIdsByReferenceRecord,
+  findReferenceRecordIdsByRelatedReferenceGraph,
+  loadReferenceRecordMap,
+  referenceIdFromValue,
+} from "../../../support/item-support/reference-records";
+import {
   createMarketplaceSlug,
   rememberSlugRedirect,
 } from "../../../support/runtime-support/slugs";
@@ -11,6 +17,9 @@ const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const FIELD_STREAM_PREFIX = "catalog.field-";
 const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
+const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
+const ITEM_DETAIL_REFERENCE_RECORDS_TABLE = "discovery_item_detail_catalog_reference_records";
+const ITEM_DETAIL_CATALOG_ITEMS_TABLE = "discovery_item_detail_catalog_items";
 
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 type DimensionRule = Readonly<{
@@ -221,6 +230,9 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
   const imageUrls = asStringArray(item.image_urls);
   const productAssetSets = asArray(item.product_asset_sets);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
+  const referenceIds = fieldValues
+    .map((entry) => referenceIdFromValue(entry.value))
+    .filter((referenceId): referenceId is string => referenceId !== null);
 
   if (categoryIds.length !== rawCategoryIds.length) {
     await db.query(
@@ -231,7 +243,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
     );
   }
 
-  const [fieldNames, categoryRefs, blueprintNames] = await Promise.all([
+  const [fieldNames, categoryRefs, blueprintNames, references] = await Promise.all([
     loadNameMap(
       db,
       "discovery_item_detail_catalog_fields",
@@ -249,6 +261,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
           [item.blueprint_id],
         )
       : Promise.resolve(new Map<string, string>()),
+    loadReferenceRecordMap(db, ITEM_DETAIL_REFERENCE_RECORDS_TABLE, referenceIds),
   ]);
 
   const productSchema = item.blueprint_id
@@ -319,6 +332,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
           fieldId: entry.fieldId,
           fieldName: fieldNames.get(entry.fieldId) ?? entry.fieldId,
           value: entry.value,
+          reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
         })),
       ),
       JSON.stringify(
@@ -361,6 +375,26 @@ async function refreshAllItems(db: PgQueryable): Promise<void> {
   );
 
   await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.catalog_item_id)));
+}
+
+async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId: string): Promise<void> {
+  const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(
+    db,
+    ITEM_DETAIL_REFERENCE_RECORDS_TABLE,
+    referenceRecordId,
+  );
+  const itemIds = [
+    ...(await findCatalogItemIdsByReferenceRecord(db, ITEM_DETAIL_CATALOG_ITEMS_TABLE, referenceRecordId)),
+    ...(
+      await Promise.all(
+        relatedRecordIds.map((recordId) =>
+          findCatalogItemIdsByReferenceRecord(db, ITEM_DETAIL_CATALOG_ITEMS_TABLE, recordId),
+        ),
+      )
+    ).flat(),
+  ];
+
+  await Promise.all([...new Set(itemIds)].map((itemId) => refreshDiscoveryItemDetailPage(db, itemId)));
 }
 
 export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -805,6 +839,133 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       );
 
       await refreshAllItems(db);
+    },
+
+    "catalog.reference-record.created": async (event) => {
+      const {
+        referenceRecordId,
+        typeKey,
+        key,
+        name,
+        attributes,
+        relationships,
+      } = event.data as {
+        referenceRecordId: string;
+        typeKey: string;
+        key: string;
+        name: unknown;
+        attributes?: unknown;
+        relationships?: unknown;
+      };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE} (
+          reference_record_id,
+          type_key,
+          key,
+          name,
+          attributes,
+          relationships,
+          status,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
+        ON CONFLICT (reference_record_id) DO UPDATE SET
+          type_key = EXCLUDED.type_key,
+          key = EXCLUDED.key,
+          name = EXCLUDED.name,
+          attributes = EXCLUDED.attributes,
+          relationships = EXCLUDED.relationships,
+          updated_at = EXCLUDED.updated_at`,
+        [
+          referenceRecordId,
+          typeKey,
+          key,
+          resolvedName,
+          JSON.stringify(attributes ?? {}),
+          JSON.stringify(Array.isArray(relationships) ? relationships : []),
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.revised": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+      const { typeKey, key, name, attributes, relationships } = event.data as {
+        typeKey: string;
+        key: string;
+        name: unknown;
+        attributes?: unknown;
+        relationships?: unknown;
+      };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE} (
+          reference_record_id,
+          type_key,
+          key,
+          name,
+          attributes,
+          relationships,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (reference_record_id) DO UPDATE SET
+          type_key = EXCLUDED.type_key,
+          key = EXCLUDED.key,
+          name = EXCLUDED.name,
+          attributes = EXCLUDED.attributes,
+          relationships = EXCLUDED.relationships,
+          updated_at = EXCLUDED.updated_at`,
+        [
+          referenceRecordId,
+          typeKey,
+          key,
+          resolvedName,
+          JSON.stringify(attributes ?? {}),
+          JSON.stringify(Array.isArray(relationships) ? relationships : []),
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.published": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE}
+         SET status = 'active', updated_at = $2
+         WHERE reference_record_id = $1`,
+        [referenceRecordId, event.timing.recordedAt],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.deprecated": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE}
+         SET status = 'deprecated', updated_at = $2
+         WHERE reference_record_id = $1`,
+        [referenceRecordId, event.timing.recordedAt],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.archived": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE}
+         SET status = 'archived', updated_at = $2
+         WHERE reference_record_id = $1`,
+        [referenceRecordId, event.timing.recordedAt],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
 
     "catalog.dimension.created": async (event) => {

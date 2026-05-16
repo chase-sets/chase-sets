@@ -4,6 +4,15 @@ import { localizedTextMapValues } from "@chase-sets/localization";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
+  collectReferenceRecords,
+  findCatalogItemIdsByReferenceRecord,
+  findReferenceRecordIdsByRelatedReferenceGraph,
+  flattenReferenceRecordText,
+  loadReferenceRecordMap,
+  referenceIdFromValue,
+  type ReferenceRecordRef,
+} from "../../../support/item-support/reference-records";
+import {
   createMarketplaceSlug,
   rememberSlugRedirect,
 } from "../../../support/runtime-support/slugs";
@@ -13,6 +22,9 @@ const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const FIELD_STREAM_PREFIX = "catalog.field-";
 const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
+const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
+const SEARCH_REFERENCE_RECORDS_TABLE = "discovery_search_catalog_reference_records";
+const SEARCH_CATALOG_ITEMS_TABLE = "discovery_search_catalog_items";
 
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 type SearchFieldDefinition = Readonly<{
@@ -191,14 +203,26 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
   const imageUrls = asStringArray(item.image_urls);
   const productAssetSets = asArray(item.product_asset_sets);
   const fieldValues = asArray<FieldValue>(item.field_values);
+  const referenceIds = fieldValues
+    .map((fieldValue) => referenceIdFromValue(fieldValue.value))
+    .filter((referenceId): referenceId is string => referenceId !== null);
   const filterableFields = await loadFilterableFieldDefinitions(
     db,
     uniqueStrings(fieldValues.map((fieldValue) => fieldValue.fieldId)),
   );
+  const references = await loadReferenceRecordMap(db, SEARCH_REFERENCE_RECORDS_TABLE, referenceIds);
   const fieldFilterValues = fieldValues.flatMap((fieldValue) => {
     const definition = filterableFields.get(fieldValue.fieldId);
     if (!definition) {
       return [];
+    }
+
+    if (definition.value_type === "reference") {
+      return buildReferenceFieldFilterValues(
+        fieldValue,
+        definition,
+        references.get(referenceIdFromValue(fieldValue.value) ?? ""),
+      );
     }
 
     const normalized = normalizeFilterValue(fieldValue.value);
@@ -243,7 +267,12 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
   const categorySlugList = categoryIds.map((id) => categoryRefs.get(id)?.slug ?? id);
 
   const fieldValuesText = fieldValues
-    .flatMap((fieldValue) => searchableValueText(fieldValue.value))
+    .flatMap((fieldValue) =>
+      searchableValueText(
+        fieldValue.value,
+        references.get(referenceIdFromValue(fieldValue.value) ?? ""),
+      )
+    )
     .join(" ");
   const localizedText = localizedMapValues(item.title_i18n)
     .concat(localizedMapValues(item.subtitle_i18n))
@@ -340,7 +369,11 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
   );
 }
 
-function searchableValueText(value: unknown): string[] {
+function searchableValueText(value: unknown, reference?: ReferenceRecordRef): string[] {
+  if (reference) {
+    return flattenReferenceRecordText(reference);
+  }
+
   if (typeof value === "string") {
     return [value];
   }
@@ -364,6 +397,54 @@ function formatFilterValueLabel(value: unknown): string {
 
 function normalizeFilterValue(value: unknown): string {
   return formatFilterValueLabel(value).trim().toLocaleLowerCase("en-US");
+}
+
+function buildReferenceFieldFilterValues(
+  fieldValue: FieldValue,
+  definition: SearchFieldDefinition,
+  reference: ReferenceRecordRef | undefined,
+) {
+  if (!reference) {
+    return [];
+  }
+
+  return collectReferenceRecords(reference).map((record, index) => ({
+    fieldId: index === 0 ? fieldValue.fieldId : `${fieldValue.fieldId}:${record.typeKey}`,
+    label: index === 0
+      ? definition.name
+      : `${definition.name} ${titleizeKey(record.typeKey)}`,
+    value: record.referenceId.toLocaleLowerCase("en-US"),
+    valueLabel: record.name,
+    valueType: definition.value_type,
+  }));
+}
+
+function titleizeKey(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toLocaleUpperCase("en-US")}${part.slice(1)}`)
+    .join(" ");
+}
+
+async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId: string): Promise<void> {
+  const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(
+    db,
+    SEARCH_REFERENCE_RECORDS_TABLE,
+    referenceRecordId,
+  );
+  const itemIds = [
+    ...(await findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, referenceRecordId)),
+    ...(
+      await Promise.all(
+        relatedRecordIds.map((recordId) =>
+          findCatalogItemIdsByReferenceRecord(db, SEARCH_CATALOG_ITEMS_TABLE, recordId),
+        ),
+      )
+    ).flat(),
+  ];
+
+  await Promise.all([...new Set(itemIds)].map((itemId) => refreshDiscoverySearchItem(db, itemId)));
 }
 
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
@@ -854,6 +935,133 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       );
 
       await refreshItemsByField(db, fieldId);
+    },
+
+    "catalog.reference-record.created": async (event) => {
+      const {
+        referenceRecordId,
+        typeKey,
+        key,
+        name,
+        attributes,
+        relationships,
+      } = event.data as {
+        referenceRecordId: string;
+        typeKey: string;
+        key: string;
+        name: unknown;
+        attributes?: unknown;
+        relationships?: unknown;
+      };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO ${SEARCH_REFERENCE_RECORDS_TABLE} (
+           reference_record_id,
+           type_key,
+           key,
+           name,
+           attributes,
+           relationships,
+           status,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
+         ON CONFLICT (reference_record_id) DO UPDATE SET
+           type_key = EXCLUDED.type_key,
+           key = EXCLUDED.key,
+           name = EXCLUDED.name,
+           attributes = EXCLUDED.attributes,
+           relationships = EXCLUDED.relationships,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          referenceRecordId,
+          typeKey,
+          key,
+          resolvedName,
+          JSON.stringify(attributes ?? {}),
+          JSON.stringify(Array.isArray(relationships) ? relationships : []),
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.revised": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+      const { typeKey, key, name, attributes, relationships } = event.data as {
+        typeKey: string;
+        key: string;
+        name: unknown;
+        attributes?: unknown;
+        relationships?: unknown;
+      };
+      const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
+
+      await db.query(
+        `INSERT INTO ${SEARCH_REFERENCE_RECORDS_TABLE} (
+           reference_record_id,
+           type_key,
+           key,
+           name,
+           attributes,
+           relationships,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (reference_record_id) DO UPDATE SET
+           type_key = EXCLUDED.type_key,
+           key = EXCLUDED.key,
+           name = EXCLUDED.name,
+           attributes = EXCLUDED.attributes,
+           relationships = EXCLUDED.relationships,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          referenceRecordId,
+          typeKey,
+          key,
+          resolvedName,
+          JSON.stringify(attributes ?? {}),
+          JSON.stringify(Array.isArray(relationships) ? relationships : []),
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.published": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE ${SEARCH_REFERENCE_RECORDS_TABLE}
+         SET status = 'active', updated_at = $2
+         WHERE reference_record_id = $1`,
+        [referenceRecordId, event.timing.recordedAt],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.deprecated": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE ${SEARCH_REFERENCE_RECORDS_TABLE}
+         SET status = 'deprecated', updated_at = $2
+         WHERE reference_record_id = $1`,
+        [referenceRecordId, event.timing.recordedAt],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
+    },
+    "catalog.reference-record.archived": async (event) => {
+      const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE ${SEARCH_REFERENCE_RECORDS_TABLE}
+         SET status = 'archived', updated_at = $2
+         WHERE reference_record_id = $1`,
+        [referenceRecordId, event.timing.recordedAt],
+      );
+
+      await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
 
     "catalog.dimension.created": async (event) => {

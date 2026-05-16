@@ -85,7 +85,7 @@ Reference Types do not create Products and do not replace Dimensions. They defin
 
 Owns one reusable rich value under a Reference Type, such as `Ascended Heroes` under `Set` or `Mega Evolution` under `Series`.
 
-Reference Records can carry attributes and relationships to other Reference Records. A Catalog Item that points at a Reference Record receives that rich information in item detail read models without duplicating those facts onto every item.
+Reference Records can carry attributes and relationships to other Reference Records. These relationships may form a bounded hierarchy such as `Expansion -> Series -> TCG/Product Line -> Manufacturer`. A Catalog Item that points at a Reference Record receives that rich information in item detail read models without duplicating those facts onto every item.
 
 ### Catalog Item
 
@@ -167,3 +167,4 @@ Those events should carry the Catalog Item snapshot plus the `product_schema` do
 4. Published identity-bearing structure is append-only.
 5. Downstream contexts must reference `catalog_item_id` plus `product_id`, never labels.
 6. Reference Records enrich descriptive item information but do not change `product_id`.
+7. Reusable descriptive hierarchy belongs on Reference Records, not repeated Catalog Item fields. Catalog Items should keep only item-specific facts such as printed name, card number, HP, attacks, and direct reference selections.

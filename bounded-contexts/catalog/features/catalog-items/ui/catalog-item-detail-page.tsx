@@ -2,6 +2,7 @@ import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
   Button,
+  Combobox,
   DataTable,
   Dialog,
   Inline,
@@ -11,6 +12,7 @@ import {
   Stack,
   Text,
   TextInput,
+  Textarea,
   type DataColumn,
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
@@ -33,6 +35,9 @@ import {
   linkExternalProductReference,
   unlinkExternalProductReference,
 } from "./use-catalog-items";
+import { useFieldList } from "../../fields/ui/use-fields";
+import type { ReferenceRecord } from "../../reference-data/ui/contracts";
+import { useReferenceRecordList } from "../../reference-data/ui/use-reference-data";
 
 function getTransitions(status: string): Transition[] {
   switch (status) {
@@ -73,11 +78,7 @@ interface FieldValue {
     relationships: Array<{
       relationshipType: string;
       referenceId: string;
-      reference?: {
-        name: string;
-        typeKey: string;
-        status: string;
-      };
+      reference?: NonNullable<FieldValue["reference"]>;
     }>;
     status: string;
   } | null;
@@ -133,6 +134,14 @@ function formatFieldValueRow(row: FieldValue): string {
     : `${row.reference.name} (${row.reference.typeKey})`;
 }
 
+function formatReferenceRecordLabel(record: ReferenceRecord): string {
+  return t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.record.option", {
+    name: record.name,
+    typeKey: record.type_key,
+    key: record.key,
+  });
+}
+
 function parseFieldValueInput(value: string): unknown {
   const trimmed = value.trim();
 
@@ -163,6 +172,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   const [showSetField, setShowSetField] = useState(false);
   const [fieldId, setFieldId] = useState("");
   const [fieldValue, setFieldValue] = useState("");
+  const [referenceRecordId, setReferenceRecordId] = useState("");
 
   // Category assignment
   const [showAssignCategory, setShowAssignCategory] = useState(false);
@@ -193,6 +203,23 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   const [externalProviderKey, setExternalProviderKey] = useState("tcgplayer");
   const [externalKey, setExternalKey] = useState("");
   const [externalSelectedOptions, setExternalSelectedOptions] = useState("");
+  const { data: fieldsData } = useFieldList("limit=500&status=active");
+  const { data: referenceRecordsData } = useReferenceRecordList("limit=500&status=active");
+  const fields = fieldsData?.items ?? [];
+  const referenceRecords = referenceRecordsData?.items ?? [];
+  const selectedField = fields.find((field) => field.field_id === fieldId) ?? null;
+  const selectedFieldIsReference = selectedField?.value_type === "reference";
+  const fieldOptions = fields.map((field) => ({
+    value: field.field_id,
+    label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.option", {
+      name: field.name,
+      key: field.key,
+    }),
+  }));
+  const referenceRecordOptions = referenceRecords.map((record) => ({
+    value: record.reference_record_id,
+    label: formatReferenceRecordLabel(record),
+  }));
 
   async function handleLifecycleAction(action: string) {
     if (action === "publish") {
@@ -227,12 +254,23 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   }
 
   async function handleSetFieldValue() {
-    await apiSetFieldValue(id, fieldId, parseFieldValueInput(fieldValue));
+    const value = selectedFieldIsReference && referenceRecordId
+      ? { referenceId: referenceRecordId }
+      : parseFieldValueInput(fieldValue);
+
+    await apiSetFieldValue(id, fieldId, value);
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.value.set"), "success");
     setShowSetField(false);
     setFieldId("");
     setFieldValue("");
+    setReferenceRecordId("");
     refresh();
+  }
+
+  function handleFieldSelection(nextFieldId: string) {
+    setFieldId(nextFieldId);
+    setFieldValue("");
+    setReferenceRecordId("");
   }
 
   async function handleClearFieldValue(fId: string) {
@@ -583,8 +621,40 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         footer={<Button onClick={handleSetFieldValue}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.id")} value={fieldId} onChange={(e) => setFieldId(e.target.value)} />
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.value.2")} value={fieldValue} onChange={(e) => setFieldValue(e.target.value)} />
+          {fieldOptions.length > 0 ? (
+            <Combobox
+              label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.field")}
+              items={fieldOptions}
+              value={fieldId}
+              onValueChange={handleFieldSelection}
+              placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.choose.field")}
+              noMatchesLabel={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.fields.match")}
+            />
+          ) : (
+            <TextInput
+              label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.id")}
+              value={fieldId}
+              onChange={(event) => handleFieldSelection(event.target.value)}
+            />
+          )}
+          {selectedFieldIsReference ? (
+            <Combobox
+              label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.record")}
+              items={referenceRecordOptions}
+              value={referenceRecordId}
+              onValueChange={setReferenceRecordId}
+              placeholder={t("catalog.features.catalogItems.ui.catalogItemDetailPage.choose.reference.record")}
+              noMatchesLabel={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.reference.records.match")}
+            />
+          ) : (
+            <Textarea
+              label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.value.2")}
+              description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.value.description")}
+              value={fieldValue}
+              onChange={(event) => setFieldValue(event.target.value)}
+              rows={4}
+            />
+          )}
         </Stack>
       </Dialog>
 

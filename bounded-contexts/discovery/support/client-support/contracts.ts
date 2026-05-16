@@ -97,6 +97,21 @@ export interface FieldValue {
   fieldId: string;
   fieldName: string;
   value: unknown;
+  reference?: DiscoveryReferenceRecordRef | null;
+}
+
+export interface DiscoveryReferenceRecordRef {
+  referenceId: string;
+  typeKey: string;
+  key: string;
+  name: string;
+  attributes: unknown;
+  relationships: Array<{
+    relationshipType: string;
+    referenceId: string;
+    reference?: DiscoveryReferenceRecordRef;
+  }>;
+  status: string;
 }
 
 export interface CategoryRef {

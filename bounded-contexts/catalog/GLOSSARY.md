@@ -51,6 +51,8 @@ These are Catalog concepts, not compatibility aliases. They support authoring ca
 
 Use a `Reference Record` when a field value needs its own durable identity, attributes, or relationships. For example, a Set is not just text on every card. It can be a Reference Record with card count, release date, abbreviation, source ID, and a relationship to a Series Reference Record.
 
+Reference Record relationships may form a hierarchy. For example, an Expansion can point to a Series, the Series can point to a TCG/Product Line, and the TCG/Product Line can point to a Manufacturer. Catalog Items should select the most specific applicable Reference Record and inherit broader reusable facts through that hierarchy.
+
 Reference Records enrich Catalog Item information. They do not create Product variation and do not affect Product identity unless a Blueprint separately models variation through Dimensions and Options.
 
 ## Product Resolution Model

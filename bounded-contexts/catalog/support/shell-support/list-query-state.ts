@@ -11,6 +11,7 @@ export type CatalogListQuery = Readonly<{
   language: string;
   source: string;
   setId: string;
+  typeKey: string;
   page: number;
   pageSize: number;
 }>;
@@ -20,7 +21,7 @@ export type CatalogListRouteData<T> = Readonly<{
   query: CatalogListQuery;
 }>;
 
-type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "setId" | "page">>;
+type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "setId" | "typeKey" | "page">>;
 
 export function readCatalogListQuery(request: Request): CatalogListQuery {
   const url = new URL(request.url);
@@ -32,6 +33,7 @@ export function readCatalogListQuery(request: Request): CatalogListQuery {
     language: url.searchParams.get("language")?.trim() ?? "",
     source: url.searchParams.get("source")?.trim() ?? "",
     setId: url.searchParams.get("setId")?.trim() ?? "",
+    typeKey: url.searchParams.get("typeKey")?.trim() ?? "",
     page: Number.isFinite(pageFromUrl) ? Math.max(0, pageFromUrl - 1) : 0,
     pageSize: CATALOG_LIST_PAGE_SIZE,
   };
@@ -53,6 +55,9 @@ export function buildCatalogListApiQuery(query: CatalogListQuery): string {
   }
   if (query.setId) {
     params.set("setId", query.setId);
+  }
+  if (query.typeKey) {
+    params.set("typeKey", query.typeKey);
   }
   params.set("limit", String(query.pageSize));
   params.set("offset", String(query.page * query.pageSize));
@@ -111,6 +116,16 @@ export function applyCatalogListQueryToSearchParams(
       next.set("setId", setId);
     } else {
       next.delete("setId");
+    }
+    next.delete("page");
+  }
+
+  if (update.typeKey !== undefined) {
+    const typeKey = update.typeKey.trim();
+    if (typeKey) {
+      next.set("typeKey", typeKey);
+    } else {
+      next.delete("typeKey");
     }
     next.delete("page");
   }
@@ -203,6 +218,7 @@ export function useCatalogListQueryControls(
     language: query.language,
     source: query.source,
     setId: query.setId,
+    typeKey: query.typeKey,
     page: query.page,
     pageSize: query.pageSize,
     loading: navigation.state !== "idle",
@@ -211,6 +227,7 @@ export function useCatalogListQueryControls(
     setLanguage: (language: string) => commitWithCurrentSearch({ language }),
     setSource: (source: string) => commitWithCurrentSearch({ source }),
     setSetId: (setId: string) => commitWithCurrentSearch({ setId }),
+    setTypeKey: (typeKey: string) => commitWithCurrentSearch({ typeKey }),
     setFilters: (filters: Omit<CatalogListQueryUpdate, "page">) =>
       commitWithCurrentSearch(filters),
     setPage: (page: number) => commitWithCurrentSearch({ page }),

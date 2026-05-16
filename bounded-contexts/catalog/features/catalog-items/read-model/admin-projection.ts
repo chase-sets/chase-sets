@@ -13,6 +13,7 @@ const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const FIELD_STREAM_PREFIX = "catalog.field-";
 const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
+const MAX_REFERENCE_EXPANSION_DEPTH = 4;
 
 type BaseCatalogItemRow = Readonly<{
   catalog_item_id: string;
@@ -62,13 +63,7 @@ type ReferenceRecordRef = Readonly<{
   name: string;
   attributes: unknown;
   relationships: readonly (ReferenceRelationship & {
-    reference?: Readonly<{
-      referenceId: string;
-      typeKey: string;
-      key: string;
-      name: string;
-      status: string;
-    }>;
+    reference?: ReferenceRecordRef;
   })[];
   status: string;
 }>;
@@ -302,6 +297,34 @@ async function findReferenceRecordIdsByRelatedReference(
   return result.rows.map((row) => row.reference_record_id);
 }
 
+async function findReferenceRecordIdsByRelatedReferenceGraph(
+  db: PgQueryable,
+  referenceRecordId: string,
+): Promise<string[]> {
+  const visited = new Set<string>();
+  let frontier = [referenceRecordId];
+
+  for (let depth = 0; depth < MAX_REFERENCE_EXPANSION_DEPTH && frontier.length > 0; depth++) {
+    const next = [
+      ...new Set(
+        (
+          await Promise.all(
+            frontier.map((recordId) => findReferenceRecordIdsByRelatedReference(db, recordId)),
+          )
+        ).flat(),
+      ),
+    ].filter((recordId) => !visited.has(recordId));
+
+    for (const recordId of next) {
+      visited.add(recordId);
+    }
+
+    frontier = next;
+  }
+
+  return [...visited];
+}
+
 async function findCatalogItemIdsByBlueprint(db: PgQueryable, blueprintId: string): Promise<string[]> {
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT catalog_item_id FROM catalog_items WHERE blueprint_id = $1`,
@@ -338,7 +361,7 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
   }
 
   async function refreshReferenceDependents(referenceRecordId: string) {
-    const relatedRecordIds = await findReferenceRecordIdsByRelatedReference(db, referenceRecordId);
+    const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(db, referenceRecordId);
     const itemIds = [
       ...(await findCatalogItemIdsByReferenceRecord(db, referenceRecordId)),
       ...(
@@ -490,49 +513,77 @@ async function loadReferenceRecordMap(
     return new Map();
   }
 
-  const primaryRows = await loadReferenceRecordRows(db, uniqueIds);
-  const relatedIds = [
-    ...new Set(
-      primaryRows.flatMap((row) =>
-        asArray<ReferenceRelationship>(row.relationships)
-          .map((relationship) => relationship.referenceId)
-          .filter((referenceId): referenceId is string => typeof referenceId === "string"),
-      ),
-    ),
-  ];
-  const relatedRows = await loadReferenceRecordRows(db, relatedIds);
-  const relatedById = new Map(relatedRows.map((row) => [row.reference_record_id, row]));
+  const rowsById = await loadReferenceRecordRowsByGraph(db, uniqueIds);
+  const buildReference = (
+    row: ReferenceRecordRow,
+    depth: number,
+    path: ReadonlySet<string>,
+  ): ReferenceRecordRef => {
+    const nextPath = new Set(path);
+    nextPath.add(row.reference_record_id);
+
+    return {
+      referenceId: row.reference_record_id,
+      typeKey: row.type_key,
+      key: row.key,
+      name: row.name,
+      attributes: row.attributes,
+      relationships: asArray<ReferenceRelationship>(row.relationships).map((relationship) => {
+        const related = rowsById.get(relationship.referenceId);
+        const canExpand = related && depth < MAX_REFERENCE_EXPANSION_DEPTH && !nextPath.has(relationship.referenceId);
+
+        return {
+          relationshipType: relationship.relationshipType,
+          referenceId: relationship.referenceId,
+          reference: canExpand
+            ? buildReference(related, depth + 1, nextPath)
+            : undefined,
+        };
+      }),
+      status: row.status,
+    };
+  };
 
   return new Map(
-    primaryRows.map((row) => [
-      row.reference_record_id,
-      {
-        referenceId: row.reference_record_id,
-        typeKey: row.type_key,
-        key: row.key,
-        name: row.name,
-        attributes: row.attributes,
-        relationships: asArray<ReferenceRelationship>(row.relationships).map((relationship) => {
-          const related = relatedById.get(relationship.referenceId);
+    uniqueIds.flatMap((referenceId) => {
+      const row = rowsById.get(referenceId);
 
-          return {
-            relationshipType: relationship.relationshipType,
-            referenceId: relationship.referenceId,
-            reference: related
-              ? {
-                  referenceId: related.reference_record_id,
-                  typeKey: related.type_key,
-                  key: related.key,
-                  name: related.name,
-                  status: related.status,
-                }
-              : undefined,
-          };
-        }),
-        status: row.status,
-      },
-    ]),
+      return row
+        ? [[row.reference_record_id, buildReference(row, 0, new Set())] as const]
+        : [];
+    }),
   );
+}
+
+async function loadReferenceRecordRowsByGraph(
+  db: PgQueryable,
+  ids: readonly string[],
+): Promise<Map<string, ReferenceRecordRow>> {
+  const rowsById = new Map<string, ReferenceRecordRow>();
+  let frontier = [...new Set(ids)];
+
+  for (let depth = 0; depth <= MAX_REFERENCE_EXPANSION_DEPTH && frontier.length > 0; depth++) {
+    const rows = await loadReferenceRecordRows(
+      db,
+      frontier.filter((referenceId) => !rowsById.has(referenceId)),
+    );
+
+    for (const row of rows) {
+      rowsById.set(row.reference_record_id, row);
+    }
+
+    frontier = [
+      ...new Set(
+        rows.flatMap((row) =>
+          asArray<ReferenceRelationship>(row.relationships)
+            .map((relationship) => relationship.referenceId)
+            .filter((referenceId): referenceId is string => typeof referenceId === "string"),
+        ),
+      ),
+    ].filter((referenceId) => !rowsById.has(referenceId));
+  }
+
+  return rowsById;
 }
 
 async function loadReferenceRecordRows(

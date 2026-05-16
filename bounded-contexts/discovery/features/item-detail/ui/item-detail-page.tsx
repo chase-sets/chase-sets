@@ -34,6 +34,7 @@ import {
 } from "@chase-sets/design-system";
 import type {
   DiscoveryItemDetail,
+  FieldValue,
   DiscoveryMarketListing,
   DiscoveryOffer,
   DiscoveryAccountOfferMatch,
@@ -107,6 +108,34 @@ function formatFieldValue(value: unknown): string {
   }
 
   return JSON.stringify(value);
+}
+
+function formatFieldValueRow(fieldValue: FieldValue): string {
+  if (!fieldValue.reference) {
+    return formatFieldValue(fieldValue.value);
+  }
+
+  const attributes = formatReferenceAttributes(fieldValue.reference.attributes);
+  const relationships = fieldValue.reference.relationships
+    .map((relationship) => {
+      const target = relationship.reference?.name ?? relationship.referenceId;
+
+      return `${relationship.relationshipType}: ${target}`;
+    })
+    .join(", ");
+  const details = [attributes, relationships].filter(Boolean).join("; ");
+
+  return details ? `${fieldValue.reference.name} - ${details}` : fieldValue.reference.name;
+}
+
+function formatReferenceAttributes(attributes: unknown): string {
+  if (typeof attributes !== "object" || attributes === null || Array.isArray(attributes)) {
+    return "";
+  }
+
+  return Object.entries(attributes)
+    .map(([key, value]) => `${key}: ${formatFieldValue(value)}`)
+    .join(", ");
 }
 
 function buildItemDetailImages(data: DiscoveryItemDetail) {
@@ -856,7 +885,7 @@ function LoadedItemDetailPage({
   const detailItems = [
     ...data.field_values.map((fieldValue) => ({
       key: fieldValue.fieldName,
-      value: formatFieldValue(fieldValue.value),
+      value: formatFieldValueRow(fieldValue),
     })),
     ...metadataItems,
   ];
