@@ -76,7 +76,7 @@ describe("marketplace root layout", () => {
     vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "false");
     mockUseLoaderData.mockReturnValue({
       actor: null,
-      origin: "https://marketplace-staging.chasesets.com",
+      origin: "https://marketplace.staging.chasesets.com",
       shouldIndex: false,
     });
 

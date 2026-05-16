@@ -8,6 +8,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, export, deployable-composition, and typed-ID rules.
+- [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification drawer, settings, Product Alert placement, and Notifications bounded-context ownership.
 - [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
 - [Email Delivery Completion Task List](./architecture/email-delivery-task-list.md): implementation checklist covering follow-up findings.

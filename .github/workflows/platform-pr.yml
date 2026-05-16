@@ -170,8 +170,8 @@ jobs:
       TF_VAR_stripe_secret_key: sk_test_pr_validation
       TF_VAR_stripe_publishable_key: pk_test_pr_validation
       TF_VAR_stripe_webhook_secret: whsec_pr_validation
-      TF_VAR_stripe_connect_return_url: https://marketplace-pr-0.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace-pr-0.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_connect_return_url: https://marketplace.pr-0.preview.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace.pr-0.preview.chasesets.com/account/payouts/setup
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_easypost_mode: test
       TF_VAR_google_social_login_client_id: google-pr-validation-client
@@ -289,8 +289,8 @@ jobs:
       TF_VAR_stripe_secret_key: sk_test_pr_validation
       TF_VAR_stripe_publishable_key: pk_test_pr_validation
       TF_VAR_stripe_webhook_secret: whsec_pr_validation
-      TF_VAR_stripe_connect_return_url: https://marketplace-staging.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace-staging.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_connect_return_url: https://marketplace.staging.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace.staging.chasesets.com/account/payouts/setup
       TF_VAR_easypost_api_key: EZTK_pr_validation
       TF_VAR_easypost_mode: test
       TF_VAR_google_social_login_client_id: google-pr-validation-client
@@ -348,8 +348,8 @@ jobs:
       TF_VAR_preview_identifier: pr-${{ github.event.pull_request.number }}
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
-      TF_VAR_stripe_connect_return_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace-pr-${{ github.event.pull_request.number }}.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_connect_return_url: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts/setup
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:

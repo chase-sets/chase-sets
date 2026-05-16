@@ -157,10 +157,10 @@ variable "stripe_connect_return_url" {
   validation {
     condition = (
       var.environment == "production" ||
-      var.stripe_connect_return_url == format(
-        "https://marketplace-%s.%s/account/payouts",
-        var.environment == "preview" ? var.preview_identifier : var.environment,
-        var.root_domain,
+      var.stripe_connect_return_url == (
+        var.environment == "preview" ?
+        format("https://marketplace.%s.preview.%s/account/payouts", var.preview_identifier, var.root_domain) :
+        format("https://marketplace.%s.%s/account/payouts", var.environment, var.root_domain)
       )
     )
     error_message = "stripe_connect_return_url must match the non-production marketplace domain."
@@ -174,10 +174,10 @@ variable "stripe_connect_refresh_url" {
   validation {
     condition = (
       var.environment == "production" ||
-      var.stripe_connect_refresh_url == format(
-        "https://marketplace-%s.%s/account/payouts/setup",
-        var.environment == "preview" ? var.preview_identifier : var.environment,
-        var.root_domain,
+      var.stripe_connect_refresh_url == (
+        var.environment == "preview" ?
+        format("https://marketplace.%s.preview.%s/account/payouts/setup", var.preview_identifier, var.root_domain) :
+        format("https://marketplace.%s.%s/account/payouts/setup", var.environment, var.root_domain)
       )
     )
     error_message = "stripe_connect_refresh_url must match the non-production marketplace domain."

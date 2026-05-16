@@ -42,6 +42,7 @@ describe("marketplace auth host", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/orders");
     expect(response.headers.get("Set-Cookie")).toContain("chase_sets_session=session_token");
+    expect(response.headers.get("Set-Cookie")).not.toContain("Domain=");
     expect(response.headers.get("Set-Cookie")).toContain("Secure");
   });
 

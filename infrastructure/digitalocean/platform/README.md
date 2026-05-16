@@ -8,7 +8,7 @@ This root owns:
 - Preview and staging full-system `platform-api`, `platform-worker`, and platform bootstrap job.
 - Production landing/admin-support components until production marketplace promotion is ready.
 - DigitalOcean managed PostgreSQL with per-context databases plus a control database. Preview and staging also create managed PgBouncer transaction pools for those databases so the full-system app can fit on the smallest database tier.
-- DigitalOcean DNS domain attachment for preview, staging, and production hostnames.
+- DigitalOcean DNS domain attachment for nested non-production hosts plus temporary redirects from legacy dash-based staging hosts to their nested replacements.
 
 Initialize this root only after the state bucket has been created by [state-bootstrap](../state-bootstrap/README.md). Use `platform/previews/pr-<number>.tfstate` for PR previews, `landing/staging.tfstate` for staging, and `landing/production.tfstate` for production.
 

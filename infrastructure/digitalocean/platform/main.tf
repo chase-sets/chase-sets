@@ -86,7 +86,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "domain" {
-      for_each = local.legacy_public_redirect_domains
+      for_each = keys(local.legacy_domain_redirects)
       content {
         name = domain.value
         type = "ALIAS"
@@ -1001,18 +1001,18 @@ resource "digitalocean_app" "platform" {
 
     ingress {
       dynamic "rule" {
-        for_each = local.legacy_public_redirect_domains
+        for_each = local.legacy_domain_redirects
         content {
           match {
             authority {
-              exact = rule.value
+              exact = rule.key
             }
             path {
               prefix = "/"
             }
           }
           redirect {
-            authority     = local.landing_domain
+            authority     = rule.value
             scheme        = "https"
             redirect_code = 302
           }
