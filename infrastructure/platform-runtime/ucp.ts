@@ -1,4 +1,11 @@
-import { createHash, createPublicKey, verify as verifySignatureBytes } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  createSign,
+  verify as verifySignatureBytes,
+  type KeyObject,
+} from "node:crypto";
 import { Hono, type Context } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -7,6 +14,7 @@ import {
   createUcpEnvelope,
   UCP_MCP_TOOLS,
   unsupportedUcpOperation,
+  type UcpBusinessProfile,
   type UcpEnvelope,
 } from "@chase-sets/ucp";
 import type { ResolvedActor } from "./auth";
@@ -72,6 +80,19 @@ export type UcpProfileCacheOptions = Readonly<{
   now?: () => Date;
 }>;
 
+export type UcpBusinessSigningAlgorithm = "ES256" | "ES384" | "ES512";
+
+export type UcpBusinessSigningKey = Readonly<{
+  kid: string;
+  alg: UcpBusinessSigningAlgorithm;
+  privateJwk: JsonWebKey;
+}>;
+
+export type UcpBusinessSigningKeySet = Readonly<{
+  current: UcpBusinessSigningKey;
+  previousPublicJwks?: readonly JsonWebKey[];
+}>;
+
 export type UcpRuntimeObserver = Readonly<{
   signedWriteRejected?: (event: UcpRuntimeSecurityEvent) => void;
   signatureVerificationFailed?: (event: UcpRuntimeSecurityEvent) => void;
@@ -106,6 +127,7 @@ export type CreateUcpRoutesOptions = Readonly<{
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   idempotencyStore?: UcpIdempotencyStore;
   signatureVerification?: UcpSignatureVerificationOptions;
+  businessSigningKeys?: UcpBusinessSigningKeySet;
   observer?: UcpRuntimeObserver;
 }>;
 
@@ -119,6 +141,16 @@ const SIGNED_WRITE_HEADERS = [
 ] as const;
 
 const DEFAULT_PROFILE_CACHE_TTL_MS = 15 * 60 * 1000;
+const ECDSA_SIGNATURE_LENGTHS = {
+  ES256: 64,
+  ES384: 96,
+  ES512: 132,
+} satisfies Record<UcpBusinessSigningAlgorithm, number>;
+const ECDSA_HASH_ALGORITHMS = {
+  ES256: "sha256",
+  ES384: "sha384",
+  ES512: "sha512",
+} satisfies Record<UcpBusinessSigningAlgorithm, string>;
 
 export const platformUcpRuntimeSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_ucp_idempotency_records (
@@ -338,6 +370,164 @@ function signatureBase(request: Request, components: readonly string[], params: 
 
 function publicKeyAlgorithm(jwk: JsonWebKey) {
   return jwk.alg === "EdDSA" || jwk.crv === "Ed25519" ? null : "sha256";
+}
+
+function base64Url(bytes: Buffer | string) {
+  return Buffer.from(bytes)
+    .toString("base64")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+function canonicalizeJson(value: unknown): string {
+  if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalizeJson).join(",")}]`;
+  }
+  if (typeof value === "object" && value !== null) {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeJson((value as Record<string, unknown>)[key])}`)
+      .join(",")}}`;
+  }
+  throw new Error("UCP AP2 merchant authorization payload must be JSON serializable.");
+}
+
+function checkoutPayloadForMerchantAuthorization(
+  checkout: Readonly<Record<string, unknown>>,
+) {
+  const { ap2: _ap2, ...payload } = checkout;
+  return payload;
+}
+
+function publicJwkForPrivateKey(key: UcpBusinessSigningKey): JsonWebKey {
+  const publicJwk = createPublicKey(createPrivateKey({ key: key.privateJwk, format: "jwk" }))
+    .export({ format: "jwk" });
+  return {
+    ...publicJwk,
+    kid: key.kid,
+    alg: key.alg,
+    use: "sig",
+  } as JsonWebKey;
+}
+
+export function publicUcpBusinessSigningKeys(
+  keys: UcpBusinessSigningKeySet | undefined,
+): readonly JsonWebKey[] {
+  if (!keys) {
+    return [];
+  }
+  return [
+    publicJwkForPrivateKey(keys.current),
+    ...(keys.previousPublicJwks ?? []),
+  ];
+}
+
+function readDerLength(bytes: Buffer, offset: number) {
+  const first = bytes[offset];
+  if (first === undefined) {
+    throw new Error("Invalid DER signature.");
+  }
+  if (first < 0x80) {
+    return { length: first, offset: offset + 1 };
+  }
+  const byteCount = first & 0x7f;
+  let length = 0;
+  for (let index = 0; index < byteCount; index += 1) {
+    const next = bytes[offset + 1 + index];
+    if (next === undefined) {
+      throw new Error("Invalid DER signature.");
+    }
+    length = (length << 8) + next;
+  }
+  return { length, offset: offset + 1 + byteCount };
+}
+
+function readDerInteger(bytes: Buffer, offset: number) {
+  if (bytes[offset] !== 0x02) {
+    throw new Error("Invalid DER ECDSA signature.");
+  }
+  const length = readDerLength(bytes, offset + 1);
+  const value = bytes.subarray(length.offset, length.offset + length.length);
+  return { value, offset: length.offset + length.length };
+}
+
+function derEcdsaToJose(signature: Buffer, alg: UcpBusinessSigningAlgorithm) {
+  if (signature[0] !== 0x30) {
+    throw new Error("Invalid DER ECDSA signature.");
+  }
+  const sequence = readDerLength(signature, 1);
+  const r = readDerInteger(signature, sequence.offset);
+  const s = readDerInteger(signature, r.offset);
+  const partLength = ECDSA_SIGNATURE_LENGTHS[alg] / 2;
+  return Buffer.concat([
+    leftPadUnsignedInteger(r.value, partLength),
+    leftPadUnsignedInteger(s.value, partLength),
+  ]);
+}
+
+function leftPadUnsignedInteger(bytes: Buffer, length: number) {
+  const normalized = bytes[0] === 0 ? bytes.subarray(1) : bytes;
+  if (normalized.length > length) {
+    return normalized.subarray(normalized.length - length);
+  }
+  if (normalized.length === length) {
+    return normalized;
+  }
+  return Buffer.concat([Buffer.alloc(length - normalized.length), normalized]);
+}
+
+export function signUcpAp2MerchantAuthorization(
+  checkout: Readonly<Record<string, unknown>>,
+  keys: UcpBusinessSigningKeySet,
+) {
+  const header = {
+    alg: keys.current.alg,
+    kid: keys.current.kid,
+  };
+  const encodedHeader = base64Url(JSON.stringify(header));
+  const canonicalPayload = canonicalizeJson(checkoutPayloadForMerchantAuthorization(checkout));
+  const signingInput = `${encodedHeader}.${base64Url(canonicalPayload)}`;
+  const privateKey: KeyObject = createPrivateKey({
+    key: keys.current.privateJwk,
+    format: "jwk",
+  });
+  const derSignature = createSign(ECDSA_HASH_ALGORITHMS[keys.current.alg])
+    .update(signingInput)
+    .end()
+    .sign(privateKey);
+  return `${encodedHeader}..${base64Url(derEcdsaToJose(derSignature, keys.current.alg))}`;
+}
+
+export function addUcpAp2MerchantAuthorization(
+  checkout: Readonly<Record<string, unknown>>,
+  keys: UcpBusinessSigningKeySet | undefined,
+) {
+  if (!keys) {
+    return checkout;
+  }
+  const unsigned = checkoutPayloadForMerchantAuthorization(checkout);
+  const authorization = signUcpAp2MerchantAuthorization(unsigned, keys);
+  return {
+    ...unsigned,
+    ap2: {
+      ...readObject(checkout.ap2),
+      merchant_authorization: authorization,
+    },
+  };
+}
+
+function buildBusinessProfile(
+  origin: string,
+  keys: UcpBusinessSigningKeySet | undefined,
+): UcpBusinessProfile {
+  return buildUcpBusinessProfile(origin, {
+    signingKeys: publicUcpBusinessSigningKeys(keys),
+  });
 }
 
 async function verifyHttpMessageSignature(
@@ -785,10 +975,10 @@ async function invokeMcpTool(
   return response;
 }
 
-export function createUcpProfileRoutes() {
+export function createUcpProfileRoutes(options: Pick<CreateUcpRoutesOptions, "businessSigningKeys"> = {}) {
   const app = new Hono();
 
-  app.get("/ucp", (c) => c.json(buildUcpBusinessProfile(requestOrigin(c.req.raw))));
+  app.get("/ucp", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
 
   return app;
 }
@@ -797,7 +987,7 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
   const app = new Hono<UcpRuntimeEnv>();
   const idempotencyStore = options.idempotencyStore ?? createMemoryUcpIdempotencyStore();
 
-  app.get("/", (c) => c.json(buildUcpBusinessProfile(requestOrigin(c.req.raw))));
+  app.get("/", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
 
   app.post("/catalog/search", async (c) =>
     c.json(await invokeRestHandler(options.restHandlers, "search_catalog", handlerInput(c, {}))),

@@ -6,6 +6,7 @@ import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
   resolvePlatformInternalAuthSecret,
 } from "@chase-sets/platform-runtime/http";
+import type { UcpBusinessSigningKeySet } from "@chase-sets/platform-runtime/ucp";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 export type PlatformApiPaymentProcessorConfig =
@@ -146,6 +147,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readon
   socialLogin: PlatformApiSocialLoginConfig;
   catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
   stripeGoLive: StripeGoLiveCheckReport;
+  ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
 }>;
 
 export type PlatformApiMobileMessagingConfig =
@@ -171,6 +173,8 @@ export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
   "charge.dispute.created",
   "charge.dispute.updated",
   "charge.dispute.closed",
+  "shared_payment.granted_token.used",
+  "shared_payment.granted_token.deactivated",
   "v2.core.account[requirements].updated",
   "v2.core.account.updated",
   "payout.paid",
@@ -218,6 +222,18 @@ function getOptionalCsvEnv(name: string): readonly string[] {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+function getOptionalJsonEnv<T>(name: string): T | null {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    throw new Error(`${name} must contain valid JSON.`);
+  }
 }
 
 function isProductionDeployment() {
@@ -304,6 +320,40 @@ function loadCatalogAssetStorageConfig(
     accessKeyId: accessKeyId ?? undefined,
     secretAccessKey: secretAccessKey ?? undefined,
     forcePathStyle: getBooleanEnv("CATALOG_ASSET_S3_FORCE_PATH_STYLE", false),
+  };
+}
+
+function loadUcpBusinessSigningKeys(
+  productionLike: boolean,
+): UcpBusinessSigningKeySet | undefined {
+  const privateJwk = getOptionalJsonEnv<JsonWebKey>("UCP_BUSINESS_SIGNING_PRIVATE_JWK");
+  const kid = getOptionalEnv("UCP_BUSINESS_SIGNING_KEY_ID");
+  const alg = getOptionalEnv("UCP_BUSINESS_SIGNING_ALG") ?? "ES256";
+  const previousPublicJwks =
+    getOptionalJsonEnv<readonly JsonWebKey[]>("UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS") ?? [];
+
+  if (!privateJwk && !kid) {
+    return undefined;
+  }
+  if (!privateJwk || !kid) {
+    throw new Error(
+      "UCP_BUSINESS_SIGNING_PRIVATE_JWK and UCP_BUSINESS_SIGNING_KEY_ID must be configured together.",
+    );
+  }
+  if (alg !== "ES256" && alg !== "ES384" && alg !== "ES512") {
+    throw new Error("UCP_BUSINESS_SIGNING_ALG must be ES256, ES384, or ES512.");
+  }
+  if (productionLike && privateJwk.kty !== "EC") {
+    throw new Error("UCP business response signing requires an EC private JWK in production.");
+  }
+
+  return {
+    current: {
+      kid,
+      alg,
+      privateJwk,
+    },
+    previousPublicJwks,
   };
 }
 
@@ -427,6 +477,7 @@ export function loadConfig(): PlatformApiConfig {
     true,
   );
   const productionLike = isProductionDeployment();
+  const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
 
   if (
     productionLike &&
@@ -555,6 +606,7 @@ export function loadConfig(): PlatformApiConfig {
       },
       catalogAssetStorage,
       socialLogin,
+      ucpBusinessSigningKeys,
       paymentProcessor: {
         kind: "stripe",
         secretKey: stripeSecretKey,
@@ -590,6 +642,7 @@ export function loadConfig(): PlatformApiConfig {
     },
     catalogAssetStorage,
     socialLogin,
+    ucpBusinessSigningKeys,
     paymentProcessor: {
       kind: "fake",
     },

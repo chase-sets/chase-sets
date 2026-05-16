@@ -25,6 +25,7 @@ import {
 } from "../../../support/runtime-support/common";
 import { checkoutUnavailableReasonLabel } from "./reason-codes";
 import type {
+  AgenticProcessorPaymentInput,
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
 } from "@chase-sets/payment-processing";
@@ -359,6 +360,7 @@ export type PaymentServices = Readonly<{
         ipAddress?: string | null;
         userAgent?: string | null;
       }> | null;
+      agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
     }>,
     context: EventStoreContext,
   ) => Promise<PaymentDetailRow & Readonly<{
@@ -379,6 +381,7 @@ export type PaymentServices = Readonly<{
         ipAddress?: string | null;
         userAgent?: string | null;
       }> | null;
+      agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
     }>,
     context: EventStoreContext,
   ) => Promise<PaymentDetailRow & Readonly<{
@@ -726,6 +729,13 @@ export function createPaymentRuntime(
         paymentId,
       );
       const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
+      const createAgenticPaymentSession =
+        deps.processorGateway.createAgenticPaymentSession?.bind(deps.processorGateway);
+      if (params.agenticPayment && !createAgenticPaymentSession) {
+        throw new PaymentsDomainError(
+          "Agentic payment handoff is not supported by the configured payment processor.",
+        );
+      }
       const processorPayment = compareMoney(processorAmount, "0.00") === 0
         ? {
             processorName: publicConfig.processorName,
@@ -735,6 +745,25 @@ export function createPaymentRuntime(
             processorRedirectUrl: null,
             processorStatus: "balance-credit-captured",
           }
+        : params.agenticPayment
+          ? await createAgenticPaymentSession!({
+              paymentId,
+              buyerAccountId: accountId,
+              orderIds,
+              amount: processorAmount,
+              currencyCode,
+              paymentMethodCategory,
+              description:
+                orderIds.length === 1
+                  ? `Chase Sets order ${orderIds[0]}`
+                  : `Chase Sets checkout for ${orderIds.length} orders`,
+              returnUrl: returnUrlBase
+                ? `${returnUrlBase}${returnUrlPath}`
+                : null,
+              idempotencyKey: providerIdempotencyKey,
+              clientRiskContext: params.clientRiskContext ?? null,
+              agenticPayment: params.agenticPayment,
+            })
         : await deps.processorGateway.createPaymentSession({
             paymentId,
             buyerAccountId: accountId,
@@ -866,6 +895,7 @@ export function createPaymentRuntime(
           paymentMethodCategory: normalizePaymentMethodCategory(
             params.paymentMethodCategory,
           ),
+          agenticPayment: params.agenticPayment ?? null,
           sourceContext: "checkout-recovery",
           sourceReferenceId: checkoutRecoveryReference({
             accountId: params.accountId,

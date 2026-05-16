@@ -49,6 +49,11 @@ import {
   recordRealtimeSyncRequired,
   recordRealtimeWakeNotificationReceived,
   recordRealtimeWakeWaitEnded,
+  recordUcpIdempotencyConflict,
+  recordUcpIdempotencyReplayed,
+  recordUcpOperationCompleted,
+  recordUcpSignatureVerificationFailed,
+  recordUcpSignedWriteRejected,
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
@@ -285,18 +290,21 @@ const realtimeWakeSignal = config.realtime.wakeSignalEnabled
   : undefined;
 const ucpObserver = {
   signedWriteRejected: (event) => {
+    recordUcpSignedWriteRejected(event);
     logger.warn("UCP signed write rejected.", {
       type: "ucp.signed_write.rejected",
       ...event,
     });
   },
   signatureVerificationFailed: (event) => {
+    recordUcpSignatureVerificationFailed(event);
     logger.warn("UCP signature verification failed.", {
       type: "ucp.signature_verification.failed",
       ...event,
     });
   },
   idempotencyReplayed: (event) => {
+    recordUcpIdempotencyReplayed(event);
     logger.info("UCP idempotent response replayed.", {
       type: "ucp.idempotency.replayed",
       transport: event.transport,
@@ -305,6 +313,7 @@ const ucpObserver = {
     });
   },
   idempotencyConflict: (event) => {
+    recordUcpIdempotencyConflict(event);
     logger.warn("UCP idempotency conflict.", {
       type: "ucp.idempotency.conflict",
       transport: event.transport,
@@ -313,6 +322,7 @@ const ucpObserver = {
     });
   },
   operationCompleted: (event) => {
+    recordUcpOperationCompleted(event);
     logger.info("UCP operation completed.", {
       type: "ucp.operation.completed",
       ...event,
@@ -358,6 +368,7 @@ const app = buildPlatformApiApp(runtime, {
       }
     : undefined,
   ucp: {
+    businessSigningKeys: config.ucpBusinessSigningKeys,
     idempotencyStore: createPostgresUcpIdempotencyStore(pools.control, {
       retentionMs: 7 * 24 * 60 * 60 * 1000,
     }),

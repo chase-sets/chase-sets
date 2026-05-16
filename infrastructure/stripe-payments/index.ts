@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   CreatedProcessorPayment,
   CreatedProcessorRefund,
+  AgenticProcessorPaymentInput,
   CreateProcessorPaymentInput,
   CreateProcessorRefundInput,
   PaymentProcessorGateway,
@@ -32,6 +33,12 @@ type StripeCheckoutSessionResponse = Readonly<{
   status?: string | null;
   payment_status?: string | null;
   payment_intent?: string | Readonly<{ id?: string | null }> | null;
+}>;
+
+type StripePaymentIntentResponse = Readonly<{
+  id: string;
+  client_secret?: string | null;
+  status?: string | null;
 }>;
 
 type StripeRefundResponse = Readonly<{
@@ -101,6 +108,23 @@ function toFormBody(entries: Record<string, string>) {
   }
 
   return params;
+}
+
+function paymentMetadataEntries(
+  input: Pick<CreateProcessorPaymentInput, "paymentId" | "buyerAccountId" | "orderIds" | "paymentMethodCategory">,
+  extra: Readonly<Record<string, string | null | undefined>> = {},
+) {
+  return {
+    "metadata[payment_id]": input.paymentId,
+    "metadata[buyer_account_id]": input.buyerAccountId,
+    "metadata[order_ids]": input.orderIds.join(","),
+    "metadata[payment_method_category]": input.paymentMethodCategory,
+    ...Object.fromEntries(
+      Object.entries(extra).flatMap(([key, value]) =>
+        value?.trim() ? [[`metadata[${key}]`, value.trim()]] : [],
+      ),
+    ),
+  };
 }
 
 function paymentIntentReferenceFromSession(session: StripeCheckoutSessionResponse) {
@@ -338,6 +362,15 @@ export function createStripePaymentProcessorGateway(
         : "processor-managed-form",
     dynamicPaymentMethods: true,
     sensitivePaymentDetailsHandledByProcessor: true,
+    agenticPaymentHandlers: [
+      {
+        id: "stripe-shared-payment-token",
+        provider: "stripe",
+        type: "shared_payment_token",
+        requiresAp2Mandate: true,
+        confirmationExperience: "server-confirmed-payment-intent",
+      },
+    ],
   };
 
   async function stripeRequest<T>(
@@ -406,12 +439,9 @@ export function createStripePaymentProcessorGateway(
             "payment_intent_data[metadata][payment_method_category]":
               input.paymentMethodCategory,
             description: input.description,
-            "metadata[payment_id]": input.paymentId,
+            ...paymentMetadataEntries(input),
             "metadata[funds_strategy]": "platform-held",
             "metadata[transfer_group]": `payment:${input.paymentId}`,
-            "metadata[buyer_account_id]": input.buyerAccountId,
-            "metadata[order_ids]": input.orderIds.join(","),
-            "metadata[payment_method_category]": input.paymentMethodCategory,
             "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress
               ? "true"
               : "false",
@@ -438,6 +468,52 @@ export function createStripePaymentProcessorGateway(
         processorRedirectUrl: body.url?.trim() ?? null,
         processorStatus:
           body.payment_status?.trim() ?? body.status?.trim() ?? "open",
+      };
+    },
+    async createAgenticPaymentSession(
+      input: AgenticProcessorPaymentInput,
+    ): Promise<CreatedProcessorPayment> {
+      const amount = moneyToMinorUnits(
+        normalizeMoneyAmount(input.amount, "Payment amount"),
+      );
+      const body = await stripeRequest<StripePaymentIntentResponse>(
+        "/v1/payment_intents",
+        {
+          method: "POST",
+          body: toFormBody({
+            amount: String(amount),
+            currency: input.currencyCode,
+            shared_payment_granted_token:
+              input.agenticPayment.sharedPaymentGrantedToken,
+            confirm: "true",
+            description: input.description,
+            transfer_group: `payment:${input.paymentId}`,
+            ...paymentMetadataEntries(input, {
+              funds_strategy: "platform-held",
+              transfer_group: `payment:${input.paymentId}`,
+              ucp_payment_handler: "stripe-shared-payment-token",
+              ap2_checkout_mandate_id: input.agenticPayment.ap2CheckoutMandateId,
+              ap2_payment_mandate_id: input.agenticPayment.ap2PaymentMandateId,
+            }),
+          }),
+        },
+        {
+          idempotencyKey:
+            input.idempotencyKey ?? `payments:payment:${input.paymentId}:agentic:create`,
+        },
+      );
+
+      if (!body.id?.trim()) {
+        throw new Error("Stripe did not return a payment intent id.");
+      }
+
+      return {
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference: body.id,
+        processorClientSecret: body.client_secret?.trim() ?? null,
+        processorRedirectUrl: null,
+        processorStatus: body.status?.trim() ?? "requires_confirmation",
       };
     },
     async createRefund(

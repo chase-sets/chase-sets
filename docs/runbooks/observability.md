@@ -45,7 +45,7 @@ The application must continue serving traffic if telemetry export is unavailable
 ## Signals
 
 - Traces: Hono requests, Node HTTP/fetch/pg auto-instrumentation, event-store operations, projection/subscription runs, and worker loops.
-- Metrics: request count/duration, event-store operation count/duration, projection/subscription run count/duration, and worker run count/duration.
+- Metrics: request count/duration, event-store operation count/duration, projection/subscription run count/duration, worker run count/duration, and UCP operation/security/idempotency counts.
 - Logs: JSON stdout with `traceId` and `spanId` when an active span exists. Local dev also mirrors logs to JSONL when `LOG_FILE_PATH` is set so the Collector can tail them into Loki.
 
 Do not log request bodies, cookies, authorization headers, provider secrets, emails, addresses, card data, or raw customer payloads.
@@ -57,7 +57,9 @@ Grafana provisions the `Platform API Overview` dashboard and starter alerts from
 Starter alerts intentionally stay low-noise:
 
 - elevated API 5xx rate;
-- projection or subscription failures.
+- projection or subscription failures;
+- UCP signature verification failures;
+- UCP idempotency conflicts.
 
 Add SLO burn-rate alerts only after production traffic establishes realistic latency and availability baselines.
 

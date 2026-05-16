@@ -1,6 +1,7 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
+import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 
@@ -56,6 +57,7 @@ export async function createCheckoutPaymentThroughPayments(
   paymentMethodCategory: string = "card",
   marketplaceCheckoutFeeQuoteFingerprint?: string | null,
   returnUrlPath?: string | null,
+  agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null,
 ) {
   const paymentsApi = createPaymentsRequestApiClient(request);
   const confirmedFingerprint =
@@ -75,6 +77,7 @@ export async function createCheckoutPaymentThroughPayments(
     paymentMethodCategory,
     marketplaceCheckoutFeeQuoteFingerprint: confirmedFingerprint,
     returnUrlPath,
+    agenticPayment,
   });
 
   return payment.payment_id;

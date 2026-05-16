@@ -41,16 +41,24 @@ The runtime exposes guardrails and handler seams. Concrete Discovery, Checkout, 
 
 ## Trusted Checkout
 
-Agents may prepare purchase intent, but v1 checkout completion hands off to trusted UI unless AP2 Mandate support is explicitly implemented. Payments now declares the trusted payment handler surface and recognizes AP2/payment-handler inputs, but headless completion stays disabled until Payments owns a production mandate verification model. This preserves buyer review, fee/tax/shipping snapshots, payment-handler trust, and account authorization boundaries.
+Agents may prepare purchase intent. Checkout completion hands off to trusted UI unless AP2 Mandate verification and a provider-backed agentic payment handler are both configured. When those gates pass, Checkout reuses the same confirmation path as trusted UI: it records shipping details, creates Ordering-owned purchases, asks Payments to create the payment, then records the payment on the Checkout Session.
+
+Payments owns the AP2 completion decision. It accepts UCP `ap2.checkout_mandate`, extracts Stripe shared payment tokens from UCP payment data, delegates mandate verification to a production verifier, and only then permits a headless agentic payment handoff. Without a verifier or supported token, the result remains a Trusted Checkout Handoff.
+
+Stripe shared payment tokens are handled through the payment processor boundary. The Stripe adapter creates and confirms a PaymentIntent with `shared_payment_granted_token`, records normal Chase Sets payment metadata, and keeps idempotency tied to the internal payment id.
 
 ## Replay And Audit
 
 Writes must be replay-safe by `(platform profile, actor/account scope, operation, target id, Idempotency-Key)`. The runtime exposes a replay store boundary, an in-memory default for isolated tests, and a Postgres-backed control-plane store for production composition. Production composition sets a seven-day replay-retention window, ignores expired records for new requests, and exposes pruning through the store boundary. Audit records should include the UCP operation, capability, agent profile, actor/account when present, signature result, idempotency result, and owning-context command result.
 
-HTTP Message Signature verification belongs in infrastructure. The runtime can verify request signatures when configured with a UCP profile/key resolver; production composition wires a Postgres-backed profile/key cache with TTL refresh and cached failure diagnostics. The runtime emits observer events for signed-write rejection, signature verification failure, idempotency replay/conflict, and operation completion so hosts can log and meter UCP traffic without moving protocol decisions into deployables.
+HTTP Message Signature verification belongs in infrastructure. The runtime can verify request signatures when configured with a UCP profile/key resolver; production composition wires a Postgres-backed profile/key cache with TTL refresh and cached failure diagnostics. The runtime emits observer events for signed-write rejection, signature verification failure, idempotency replay/conflict, and operation completion so hosts can log and meter UCP traffic without moving protocol decisions into deployables. Observability records bounded-cardinality metrics for those observer events and Grafana provisions UCP operation/security panels and starter alerts.
+
+Business checkout-term signing also belongs in infrastructure. When `UCP_BUSINESS_SIGNING_PRIVATE_JWK` and `UCP_BUSINESS_SIGNING_KEY_ID` are configured, the public key is published in `/.well-known/ucp` and Checkout UCP responses include `ap2.merchant_authorization`, a detached JWS over the JCS-canonicalized checkout response excluding the `ap2` field.
 
 ## Production Boundaries
 
 UCP OAuth identity linking requires PKCE S256, rotates refresh tokens, supports token introspection, and lets the linked account revoke platform consent. Public non-local HTTP redirect/profile URLs are rejected.
 
-Payments recognizes structured AP2 mandate attempts but still requires Trusted Checkout Handoff because mandate verification, response signing of checkout terms, and payment-handler processor submission are not yet production-owned. Business response signing remains a future runtime/key-management decision.
+Payments recognizes AP2 mandate attempts and can complete headless agentic checkout when a production AP2 verifier and Stripe SPT-capable processor are configured. The default runtime remains closed: missing mandate verification, missing merchant signing keys, missing Stripe SPT access, or unsupported payment data all return a trusted UI continuation instead of moving money.
+
+Remaining external gates are Stripe private-preview account enablement for shared payment tokens, AP2 SD-JWT+KB verifier/certification against real agents, and production key-rotation operations for the business signing key material.

@@ -49,11 +49,45 @@
     {
       "type": "logs",
       "title": "Correlated logs",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
           "expr": "{service_name=\"platform-api\"} | json"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "UCP operation rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (transport, operation, status) (rate(chase_sets_ucp_operations_total[5m]))",
+          "legendFormat": "{{transport}} {{operation}} {{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "UCP security and idempotency events",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (transport, operation, reason) (rate(chase_sets_ucp_signed_write_rejected_total[5m]))",
+          "legendFormat": "signed rejected {{transport}} {{operation}} {{reason}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (transport, operation, reason) (rate(chase_sets_ucp_signature_verification_failed_total[5m]))",
+          "legendFormat": "signature failed {{transport}} {{operation}} {{reason}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (transport, operation, result) (rate(chase_sets_ucp_idempotency_total[5m]))",
+          "legendFormat": "idempotency {{transport}} {{operation}} {{result}}"
         }
       ]
     }

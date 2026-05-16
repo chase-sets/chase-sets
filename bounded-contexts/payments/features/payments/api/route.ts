@@ -78,6 +78,31 @@ function resolvePublicOrigin(requestUrl: string, headers: Headers) {
   return `${protocol}://${host}`;
 }
 
+function readAgenticPayment(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const token = typeof source.sharedPaymentGrantedToken === "string"
+    ? source.sharedPaymentGrantedToken.trim()
+    : "";
+  if (source.kind !== "stripe-shared-payment-token" || !token) {
+    return null;
+  }
+  return {
+    kind: "stripe-shared-payment-token" as const,
+    sharedPaymentGrantedToken: token,
+    ap2CheckoutMandateId:
+      typeof source.ap2CheckoutMandateId === "string"
+        ? source.ap2CheckoutMandateId
+        : null,
+    ap2PaymentMandateId:
+      typeof source.ap2PaymentMandateId === "string"
+        ? source.ap2PaymentMandateId
+        : null,
+  };
+}
+
 export function createAccountPaymentRoutes(services: PaymentServices) {
   const app = new Hono<PaymentsApiEnv>();
 
@@ -136,6 +161,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
               null,
             userAgent: c.req.header("user-agent") ?? null,
           },
+          ...(readAgenticPayment(body.agenticPayment)
+            ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
+            : {}),
           ...(sourceContext && sourceReferenceId
             ? { sourceContext, sourceReferenceId }
             : {}),
@@ -238,6 +266,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
               null,
             userAgent: c.req.header("user-agent") ?? null,
           },
+          ...(readAgenticPayment(body.agenticPayment)
+            ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
+            : {}),
         },
         context,
       );
