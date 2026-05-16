@@ -29,6 +29,66 @@ import {
 } from "../../../support/ui-support/auth-hidden-fields";
 
 type SignInMethodItem = SegmentedControlItem & Readonly<{ value: SignInMethod }>;
+type SignInIdentifierKind = "email" | "phone";
+
+const SIGN_IN_METHOD_ITEMS = [
+  { value: "password", labelKey: "auth.features.signIn.ui.signInPage.password", icon: "lock" },
+  { value: "phone-code", labelKey: "auth.features.signIn.ui.signInPage.phone.code", icon: "message" },
+  { value: "magic-link", labelKey: "auth.features.signIn.ui.signInPage.magic.link", icon: "message" },
+  { value: "passkey", labelKey: "auth.features.signIn.ui.signInPage.passkey", icon: "shield" },
+] as const satisfies readonly (Readonly<{
+  value: SignInMethod;
+  labelKey: string;
+  icon: SignInMethodItem["icon"];
+}>)[];
+
+const EMAIL_METHOD_PRIORITY = [
+  "passkey",
+  "magic-link",
+  "password",
+] as const satisfies readonly SignInMethod[];
+
+const PHONE_METHOD_PRIORITY = [
+  "phone-code",
+] as const satisfies readonly SignInMethod[];
+
+function detectIdentifierKind(identifier: string): SignInIdentifierKind {
+  return identifier.includes("@") ? "email" : "phone";
+}
+
+function methodItemsForIdentifier(
+  kind: SignInIdentifierKind,
+  signInMethods: readonly SignInMethod[],
+): SignInMethodItem[] {
+  const priority =
+    kind === "email" ? EMAIL_METHOD_PRIORITY : PHONE_METHOD_PRIORITY;
+  return priority
+    .filter((method) => signInMethods.includes(method))
+    .map((method) => {
+      const item = SIGN_IN_METHOD_ITEMS.find((candidate) => candidate.value === method);
+      if (!item) {
+        throw new Error(`Unsupported sign-in method: ${method}`);
+      }
+
+      return {
+        value: item.value,
+        label: t(item.labelKey),
+        icon: item.icon,
+      };
+    });
+}
+
+function identifierFromNotice(notice: AuthActionNotice | null | undefined) {
+  if (notice?.status === "phone-code-sent") {
+    return notice.phone;
+  }
+
+  if (notice?.status === "magic-link-sent") {
+    return notice.email ?? "";
+  }
+
+  return "";
+}
 
 export function SignInPage(props: Readonly<{
   action?: string;
@@ -40,24 +100,56 @@ export function SignInPage(props: Readonly<{
   allowManualMagicLinkTokenEntry?: boolean;
 }>) {
   const signInMethods = props.signInMethods ?? DEFAULT_SIGN_IN_METHODS;
-  const methodItems = ([
-    { value: "password", label: t("auth.features.signIn.ui.signInPage.password"), icon: "lock" },
-    { value: "phone-code", label: t("auth.features.signIn.ui.signInPage.phone.code"), icon: "message" },
-    { value: "magic-link", label: t("auth.features.signIn.ui.signInPage.magic.link"), icon: "message" },
-    { value: "passkey", label: t("auth.features.signIn.ui.signInPage.passkey"), icon: "shield" },
-  ] satisfies SignInMethodItem[]).filter((item) =>
-    signInMethods.includes(item.value),
-  );
+  const initialIdentifier = identifierFromNotice(props.notice);
+  const initialIdentifierKind = initialIdentifier
+    ? detectIdentifierKind(initialIdentifier)
+    : null;
+  const initialMethodItems = initialIdentifierKind
+    ? methodItemsForIdentifier(initialIdentifierKind, signInMethods)
+    : [];
   const initialMethod =
     props.notice?.status === "phone-code-sent" && signInMethods.includes("phone-code")
       ? "phone-code"
-      : (methodItems[0]?.value ?? "password");
+      : props.notice?.status === "magic-link-sent" && signInMethods.includes("magic-link")
+        ? "magic-link"
+      : (initialMethodItems[0]?.value ?? "password");
+  const [identifier, setIdentifier] = useState(initialIdentifier);
+  const [identifierKind, setIdentifierKind] =
+    useState<SignInIdentifierKind | null>(initialIdentifierKind);
   const [method, setMethod] = useState<SignInMethod>(initialMethod);
   const [passkeyPayload, setPasskeyPayload] =
     useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
+  const challengeMethods = identifierKind
+    ? methodItemsForIdentifier(identifierKind, signInMethods)
+    : [];
+  const hasIdentifier = identifier.trim().length > 0 && identifierKind !== null;
+
+  function handleIdentifierSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const nextIdentifier = String(formData.get("signInIdentifier") ?? "").trim();
+    if (!nextIdentifier) {
+      return;
+    }
+
+    const nextKind = detectIdentifierKind(nextIdentifier);
+    const nextMethods = methodItemsForIdentifier(nextKind, signInMethods);
+    setIdentifier(nextIdentifier);
+    setIdentifierKind(nextKind);
+    setMethod(nextMethods[0]?.value ?? "password");
+    setPasskeyPayload(null);
+    setPasskeyError(null);
+  }
+
+  function handleChangeIdentifier() {
+    setIdentifier("");
+    setIdentifierKind(null);
+    setPasskeyPayload(null);
+    setPasskeyError(null);
+  }
 
   async function handlePasskeySubmit(event: FormEvent<HTMLFormElement>) {
     if (passkeyPayload) {
@@ -94,7 +186,7 @@ export function SignInPage(props: Readonly<{
         <Text size="lg" weight="semibold">
           {t("auth.features.signIn.ui.signInPage.sign.in")}</Text>
         <Text tone="secondary">
-          {t("auth.features.signIn.ui.signInPage.use.a.password.magic.link.or")}</Text>
+          {t("auth.features.signIn.ui.signInPage.use.social.email.or.phone")}</Text>
       </Stack>
 
       {props.errorMessage ? (
@@ -112,43 +204,82 @@ export function SignInPage(props: Readonly<{
         />
       ) : null}
 
-      <Card>
-        <Stack gap={3}>
-          <Text size="sm" tone="secondary">
-            {t("auth.features.signIn.ui.signInPage.continue.with.social.login")}</Text>
-          <Inline>
-            <LinkButton
-              href={`/api/auth/social/google/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
-              leadingIcon="badgeCheck"
-              block
-            >
-              {t("auth.features.signIn.ui.signInPage.continue.with.google")}</LinkButton>
-            <LinkButton
-              href={`/api/auth/social/facebook/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
-              leadingIcon="users"
-              block
-            >
-              {t("auth.features.signIn.ui.signInPage.continue.with.facebook")}</LinkButton>
-          </Inline>
-        </Stack>
-      </Card>
+      {!hasIdentifier ? (
+        <>
+          <Card>
+            <Stack gap={3}>
+              <Text size="sm" tone="secondary">
+                {t("auth.features.signIn.ui.signInPage.continue.with.social.login")}</Text>
+              <Inline>
+                <LinkButton
+                  href={`/api/auth/social/google/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+                  leadingIcon="badgeCheck"
+                  block
+                >
+                  {t("auth.features.signIn.ui.signInPage.continue.with.google")}</LinkButton>
+                <LinkButton
+                  href={`/api/auth/social/facebook/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
+                  leadingIcon="users"
+                  block
+                >
+                  {t("auth.features.signIn.ui.signInPage.continue.with.facebook")}</LinkButton>
+              </Inline>
+            </Stack>
+          </Card>
 
-      {methodItems.length > 1 ? (
-        <SegmentedControl
-          fullWidth
-          value={method}
-          onValueChange={(value) => setMethod(value as SignInMethod)}
-          items={methodItems}
+          <Card>
+            <form onSubmit={handleIdentifierSubmit}>
+              <Stack gap={3}>
+                <TextInput
+                  label={t("auth.features.signIn.ui.signInPage.email.or.phone")}
+                  name="signInIdentifier"
+                  autoComplete="username"
+                  required
+                />
+                <Button type="submit">
+                  {t("auth.features.signIn.ui.signInPage.continue")}</Button>
+              </Stack>
+            </form>
+          </Card>
+        </>
+      ) : null}
+
+      {hasIdentifier ? (
+        <Stack gap={3}>
+          <Inline>
+            <Text size="sm" tone="secondary">
+              {t("auth.features.signIn.ui.signInPage.signing.in.with", {
+                identifier,
+              })}</Text>
+            <Button type="button" tone="secondary" size="sm" onClick={handleChangeIdentifier}>
+              {t("auth.features.signIn.ui.signInPage.change")}</Button>
+          </Inline>
+          {challengeMethods.length > 1 ? (
+            <SegmentedControl
+              fullWidth
+              value={method}
+              onValueChange={(value) => setMethod(value as SignInMethod)}
+              items={challengeMethods}
+            />
+          ) : null}
+        </Stack>
+      ) : null}
+
+      {hasIdentifier && challengeMethods.length === 0 ? (
+        <Banner
+          title={t("auth.features.signIn.ui.signInPage.no.compatible.methods")}
+          description={t("auth.features.signIn.ui.signInPage.try.a.different.identifier")}
+          tone="warning"
         />
       ) : null}
 
-      {method === "password" && signInMethods.includes("password") ? (
+      {hasIdentifier && identifierKind === "email" && method === "password" && signInMethods.includes("password") ? (
         <Card>
           <form action={props.action} method="post">
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="password" readOnly />
-              <TextInput label={t("auth.features.signIn.ui.signInPage.email")} name="email" type="email" required />
+              <input type="hidden" name="email" value={identifier} readOnly />
               <PasswordInput label={t("auth.features.signIn.ui.signInPage.password.2")} name="password" required />
               <Button type="submit" leadingIcon="lock">
                 {t("auth.features.signIn.ui.signInPage.sign.in.2")}</Button>
@@ -157,24 +288,14 @@ export function SignInPage(props: Readonly<{
         </Card>
       ) : null}
 
-      {method === "phone-code" && signInMethods.includes("phone-code") ? (
+      {hasIdentifier && identifierKind === "phone" && method === "phone-code" && signInMethods.includes("phone-code") ? (
         <Card>
           <Stack gap={4}>
             <form action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="phone-code-request" readOnly />
-                <TextInput
-                  label={t("auth.features.signIn.ui.signInPage.phone")}
-                  name="phone"
-                  type="tel"
-                  defaultValue={
-                    props.notice?.status === "phone-code-sent"
-                      ? props.notice.phone
-                      : undefined
-                  }
-                  required
-                />
+                <input type="hidden" name="phone" value={identifier} readOnly />
                 <Button type="submit" leadingIcon="message">
                   {t("auth.features.signIn.ui.signInPage.send.phone.code")}</Button>
               </Stack>
@@ -183,17 +304,7 @@ export function SignInPage(props: Readonly<{
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="phone-code-consume" readOnly />
-                <TextInput
-                  label={t("auth.features.signIn.ui.signInPage.phone")}
-                  name="phone"
-                  type="tel"
-                  defaultValue={
-                    props.notice?.status === "phone-code-sent"
-                      ? props.notice.phone
-                      : undefined
-                  }
-                  required
-                />
+                <input type="hidden" name="phone" value={identifier} readOnly />
                 <TextInput
                   label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
                   name="code"
@@ -208,14 +319,14 @@ export function SignInPage(props: Readonly<{
         </Card>
       ) : null}
 
-      {method === "magic-link" && signInMethods.includes("magic-link") ? (
+      {hasIdentifier && identifierKind === "email" && method === "magic-link" && signInMethods.includes("magic-link") ? (
         <Card>
           <Stack gap={4}>
             <form action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="magic-link-request" readOnly />
-                <TextInput label={t("auth.features.signIn.ui.signInPage.email.2")} name="email" type="email" required />
+                <input type="hidden" name="email" value={identifier} readOnly />
                 <Button type="submit" leadingIcon="message">
                   {t("auth.features.signIn.ui.signInPage.send.magic.link")}</Button>
               </Stack>
@@ -235,7 +346,7 @@ export function SignInPage(props: Readonly<{
         </Card>
       ) : null}
 
-      {method === "passkey" && signInMethods.includes("passkey") ? (
+      {hasIdentifier && identifierKind === "email" && method === "passkey" && signInMethods.includes("passkey") ? (
         <Card>
           <form
             ref={passkeyFormRef}
@@ -247,7 +358,7 @@ export function SignInPage(props: Readonly<{
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="passkey-sign-in" readOnly />
               <PasskeyHiddenFields payload={passkeyPayload} />
-              <TextInput label={t("auth.features.signIn.ui.signInPage.email.3")} name="email" type="email" required />
+              <input type="hidden" name="email" value={identifier} readOnly />
               {passkeyError ? (
                 <Banner title={t("auth.features.signIn.ui.signInPage.passkey.unavailable")} description={passkeyError} tone="warning" role="alert" />
               ) : null}
