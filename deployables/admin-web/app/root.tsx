@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   isRouteErrorResponse,
@@ -13,6 +13,7 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
+import { registerAdminServiceWorker } from "./pwa/register-service-worker";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   return {
@@ -46,13 +47,19 @@ export function Layout({ children }: { children: ReactNode }) {
     search: location.search,
   });
 
+  useEffect(() => {
+    registerAdminServiceWorker();
+  }, []);
+
   return (
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#1f6f68" />
         <Meta />
         <link rel="canonical" href={canonicalUrl} />
+        <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="alternate icon" href="/favicon.ico" sizes="any" />
         <Links />
@@ -83,7 +90,9 @@ export function ErrorBoundary() {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#1f6f68" />
         <title>{t("adminWeb.app.root.admin.error")}</title>
+        <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="alternate icon" href="/favicon.ico" sizes="any" />
         <Links />
