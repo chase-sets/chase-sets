@@ -36,6 +36,20 @@ export type CatalogExternalProductReference = Readonly<{
   selectedOptions: readonly CatalogSelectedOptionReference[];
 }>;
 
+export type CatalogItemImageFallbackUsage = "permanent" | "loading-only";
+
+export type CatalogItemImageVariantDensity = Readonly<{
+  oneX?: string;
+  twoX?: string;
+}>;
+
+export type CatalogItemImageFallback = Readonly<{
+  url: string;
+  alt: string;
+  usage: CatalogItemImageFallbackUsage;
+  variants: Readonly<Record<string, CatalogItemImageVariantDensity>>;
+}>;
+
 export type CatalogItemState = Readonly<{
   id: CatalogItemId | null;
   languageCode: string;
@@ -49,6 +63,7 @@ export type CatalogItemState = Readonly<{
   tags: readonly string[];
   imageUrls: readonly string[];
   productAssetSets: readonly ProductAssetSet[];
+  imageFallback: CatalogItemImageFallback | null;
   externalProductReferences: readonly CatalogExternalProductReference[];
 }>;
 
@@ -65,6 +80,7 @@ export const initialCatalogItemState: CatalogItemState = {
   tags: [],
   imageUrls: [],
   productAssetSets: [],
+  imageFallback: null,
   externalProductReferences: [],
 };
 
@@ -133,6 +149,15 @@ export type SetCatalogItemProductAssetSetsCommand = Readonly<{
   productAssetSets: readonly ProductAssetSet[];
 }>;
 
+export type SetCatalogItemImageFallbackCommand = Readonly<{
+  type: "SetCatalogItemImageFallback";
+  imageFallback: CatalogItemImageFallback;
+}>;
+
+export type ClearCatalogItemImageFallbackCommand = Readonly<{
+  type: "ClearCatalogItemImageFallback";
+}>;
+
 export type LinkExternalProductReferenceCommand = Readonly<{
   type: "LinkExternalProductReference";
   providerKey: string;
@@ -166,6 +191,8 @@ export type CatalogItemCommand =
   | SetCatalogItemTagsCommand
   | SetCatalogItemImageUrlsCommand
   | SetCatalogItemProductAssetSetsCommand
+  | SetCatalogItemImageFallbackCommand
+  | ClearCatalogItemImageFallbackCommand
   | LinkExternalProductReferenceCommand
   | UnlinkExternalProductReferenceCommand
   | RetireCatalogItemCommand
@@ -252,6 +279,18 @@ export type ItemProductAssetSetsSetEvent = DomainEvent<
   }>
 >;
 
+export type ItemImageFallbackSetEvent = DomainEvent<
+  "catalog.catalog-item.image-fallback-set",
+  Readonly<{
+    imageFallback: CatalogItemImageFallback;
+  }>
+>;
+
+export type ItemImageFallbackClearedEvent = DomainEvent<
+  "catalog.catalog-item.image-fallback-cleared",
+  EmptyEventData
+>;
+
 export type ItemExternalProductReferenceLinkedEvent = DomainEvent<
   "catalog.catalog-item.external-product-reference-linked",
   CatalogExternalProductReference
@@ -287,6 +326,8 @@ export type CatalogItemEvent =
   | ItemTagsSetEvent
   | ItemImageUrlsSetEvent
   | ItemProductAssetSetsSetEvent
+  | ItemImageFallbackSetEvent
+  | ItemImageFallbackClearedEvent
   | ItemExternalProductReferenceLinkedEvent
   | ItemExternalProductReferenceUnlinkedEvent
   | ItemRetiredEvent
@@ -489,6 +530,29 @@ export const decideCatalogItem: AggregateDecider<
           },
         },
       ];
+    case "SetCatalogItemImageFallback":
+      requireCreatedItem(state);
+      assert(state.status !== "archived", "Archived items cannot be modified.");
+
+      return [
+        {
+          type: "catalog.catalog-item.image-fallback-set",
+          data: {
+            imageFallback: normalizeImageFallback(command.imageFallback),
+          },
+        },
+      ];
+    case "ClearCatalogItemImageFallback":
+      requireCreatedItem(state);
+      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assert(state.imageFallback !== null, "Catalog item does not have an image fallback.");
+
+      return [
+        {
+          type: "catalog.catalog-item.image-fallback-cleared",
+          data: EMPTY_EVENT_DATA,
+        },
+      ];
     case "LinkExternalProductReference": {
       requireCreatedItem(state);
       assert(state.status !== "archived", "Archived items cannot be modified.");
@@ -633,6 +697,16 @@ export const evolveCatalogItem: AggregateEvolver<
         ...state,
         productAssetSets: event.data.productAssetSets,
       };
+    case "catalog.catalog-item.image-fallback-set":
+      return {
+        ...state,
+        imageFallback: event.data.imageFallback,
+      };
+    case "catalog.catalog-item.image-fallback-cleared":
+      return {
+        ...state,
+        imageFallback: null,
+      };
     case "catalog.catalog-item.external-product-reference-linked":
       return {
         ...state,
@@ -724,6 +798,49 @@ function normalizeTags(tags: readonly string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0))].sort(
     (left, right) => left.localeCompare(right),
   );
+}
+
+function normalizeImageFallback(
+  imageFallback: CatalogItemImageFallback,
+): CatalogItemImageFallback {
+  const url = imageFallback.url.trim();
+  const alt = imageFallback.alt.trim();
+
+  assert(url.length > 0, "Catalog item image fallback requires a URL.");
+  assert(alt.length > 0, "Catalog item image fallback requires alt text.");
+  assert(
+    imageFallback.usage === "permanent" || imageFallback.usage === "loading-only",
+    "Catalog item image fallback usage must be permanent or loading-only.",
+  );
+
+  return {
+    url,
+    alt,
+    usage: imageFallback.usage,
+    variants: normalizeImageFallbackVariants(imageFallback.variants),
+  };
+}
+
+function normalizeImageFallbackVariants(
+  variants: CatalogItemImageFallback["variants"] | undefined,
+): CatalogItemImageFallback["variants"] {
+  const entries = Object.entries(variants ?? {})
+    .map(([size, density]) => {
+      const oneX = density.oneX?.trim();
+      const twoX = density.twoX?.trim();
+
+      return [
+        size.trim(),
+        {
+          ...(oneX ? { oneX } : {}),
+          ...(twoX ? { twoX } : {}),
+        },
+      ] as const;
+    })
+    .filter(([size, density]) => size.length > 0 && (density.oneX || density.twoX))
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  return Object.fromEntries(entries);
 }
 
 function normalizeExternalKey(value: string): string {

@@ -17,6 +17,7 @@ export interface ImageGalleryProps
   aspectRatio?: string;
   emptyState?: ReactNode;
   fallbackImage?: GalleryImage;
+  fallbackImageMode?: "permanent" | "loading-only";
   maxHeightClassName?: string;
 }
 
@@ -42,23 +43,27 @@ export function ImageGallery({
   aspectRatio = "3/4",
   emptyState,
   fallbackImage,
+  fallbackImageMode = "permanent",
   maxHeightClassName,
   ...rest
 }: ImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [loadedImageSources, setLoadedImageSources] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [failedImageSources, setFailedImageSources] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
 
   function resolveImage(image: GalleryImage | undefined): GalleryImage | undefined {
     if (!image) {
-      return fallbackImage && !failedImageSources.has(fallbackImage.src)
+      return fallbackImageMode === "permanent" && fallbackImage && !failedImageSources.has(fallbackImage.src)
         ? fallbackImage
         : undefined;
     }
 
     if (failedImageSources.has(image.src)) {
-      return fallbackImage && !failedImageSources.has(fallbackImage.src)
+      return fallbackImageMode === "permanent" && fallbackImage && !failedImageSources.has(fallbackImage.src)
         ? fallbackImage
         : undefined;
     }
@@ -78,9 +83,32 @@ export function ImageGallery({
     });
   }
 
+  function markImageLoaded(src: string) {
+    setLoadedImageSources((current) => {
+      if (current.has(src)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.add(src);
+      return next;
+    });
+  }
+
   const hasProvidedImages = images.length > 0;
-  const safeActiveIndex = activeIndex < images.length ? activeIndex : 0;
-  const active = resolveImage(hasProvidedImages ? images[safeActiveIndex] : undefined);
+  const galleryImages = fallbackImageMode === "permanent" && fallbackImage
+    ? [...images, fallbackImage]
+    : images;
+  const safeGalleryIndex = activeIndex < galleryImages.length ? activeIndex : 0;
+  const active = resolveImage(hasProvidedImages ? galleryImages[safeGalleryIndex] : undefined);
+  const showLoadingFallback = Boolean(
+    active &&
+    fallbackImage &&
+    active.src !== fallbackImage.src &&
+    !loadedImageSources.has(active.src) &&
+    !failedImageSources.has(active.src),
+  );
+  const loadingFallback = showLoadingFallback ? fallbackImage : undefined;
   const galleryStyle = {
     aspectRatio,
     "--gallery-aspect-ratio": String(parseAspectRatio(aspectRatio)),
@@ -94,7 +122,7 @@ export function ImageGallery({
       )
     : "";
   const frameClassName = cx(
-    "modern-surface overflow-hidden rounded-tokenLg border border-muted",
+    "modern-surface relative overflow-hidden rounded-tokenLg border border-muted",
     constrainedFrameClasses,
   );
 
@@ -125,19 +153,32 @@ export function ImageGallery({
         style={galleryStyle}
       >
         {active ? (
-          <img
-            src={active.src}
-            srcSet={active.srcSet}
-            sizes={active.sizes}
-            alt={active.alt}
-            onError={() => markImageFailed(active.src)}
-            className="h-full w-full object-contain"
-          />
+          <>
+            {loadingFallback ? (
+              <img
+                src={loadingFallback.src}
+                alt={loadingFallback.alt}
+                srcSet={loadingFallback.srcSet}
+                sizes={loadingFallback.sizes}
+                className="absolute inset-0 h-full w-full object-contain"
+                aria-hidden="true"
+              />
+            ) : null}
+            <img
+              src={active.src}
+              alt={active.alt}
+              srcSet={active.srcSet}
+              sizes={active.sizes}
+              onLoad={() => markImageLoaded(active.src)}
+              onError={() => markImageFailed(active.src)}
+              className="relative h-full w-full object-contain"
+            />
+          </>
         ) : emptyState ?? null}
       </div>
-      {images.length > 1 ? (
+      {galleryImages.length > 1 ? (
         <div className="flex gap-2 overflow-x-auto">
-          {images.map((image, index) => {
+          {galleryImages.map((image, index) => {
             const thumbnail = resolveImage(image);
 
             return (
@@ -145,9 +186,10 @@ export function ImageGallery({
                 key={index}
                 type="button"
                 onClick={() => setActiveIndex(index)}
+                aria-label={image.alt}
                 className={cx(
                   "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
-                  index === safeActiveIndex
+                  index === safeGalleryIndex
                     ? "border-accent shadow-tokenSm"
                     : "border-muted hover:border-accent"
                 )}
@@ -155,9 +197,10 @@ export function ImageGallery({
                 {thumbnail ? (
                   <img
                     src={thumbnail.thumbnailSrc ?? thumbnail.src}
-                    srcSet={thumbnail.thumbnailSrcSet}
+                    alt=""
+                    aria-hidden="true"
+                    srcSet={thumbnail.thumbnailSrcSet ?? thumbnail.srcSet}
                     sizes="64px"
-                    alt={thumbnail.alt}
                     onError={() => markImageFailed(thumbnail.thumbnailSrc ?? thumbnail.src)}
                     className="h-full w-full object-cover"
                   />

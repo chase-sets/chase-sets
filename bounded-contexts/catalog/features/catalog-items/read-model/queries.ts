@@ -34,6 +34,7 @@ export type CatalogItemDetailRow = Readonly<{
   tags: unknown;
   image_urls: unknown;
   product_asset_sets: unknown;
+  image_fallback: unknown;
   updated_at: string;
 }>;
 

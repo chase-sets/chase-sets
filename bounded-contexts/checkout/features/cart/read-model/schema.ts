@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
   item_title text NOT NULL,
   item_subtitle text NULL,
   item_image_url text NULL,
+  item_image_loading_url text NULL,
+  item_image_loading_alt text NULL,
+  item_image_loading_srcset text NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
@@ -21,7 +24,10 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
 );
 
 ALTER TABLE checkout_cart_line_pages
-  ADD COLUMN IF NOT EXISTS item_image_url text NULL;
+  ADD COLUMN IF NOT EXISTS item_image_url text NULL,
+  ADD COLUMN IF NOT EXISTS item_image_loading_url text NULL,
+  ADD COLUMN IF NOT EXISTS item_image_loading_alt text NULL,
+  ADD COLUMN IF NOT EXISTS item_image_loading_srcset text NULL;
 
 ALTER TABLE checkout_cart_line_pages
   ADD COLUMN IF NOT EXISTS fulfillment_mode text NOT NULL DEFAULT 'optimize',

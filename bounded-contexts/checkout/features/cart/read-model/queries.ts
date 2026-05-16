@@ -10,6 +10,9 @@ export type CheckoutCartLineRow = Readonly<{
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;
+  item_image_loading_url: string | null;
+  item_image_loading_alt: string | null;
+  item_image_loading_srcset: string | null;
   selected_options: readonly VersionSelectedOptionEntry[];
   product_summary: string | null;
   quantity: number;
@@ -39,6 +42,9 @@ type CartLinePageRow = Readonly<{
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;
+  item_image_loading_url: string | null;
+  item_image_loading_alt: string | null;
+  item_image_loading_srcset: string | null;
   selected_options: unknown;
   product_summary: string | null;
   quantity: number;
@@ -116,6 +122,9 @@ export async function listCartLines(
        line.item_title,
        line.item_subtitle,
        line.item_image_url,
+       line.item_image_loading_url,
+       line.item_image_loading_alt,
+       line.item_image_loading_srcset,
        line.selected_options,
        line.product_summary,
        line.quantity,

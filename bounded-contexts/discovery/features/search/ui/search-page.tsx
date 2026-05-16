@@ -32,7 +32,7 @@ import type {
   DiscoverySearchItem,
   DiscoverySearchResponse,
 } from "../../../support/client-support/contracts";
-import { discoveryAssetUrls } from "../../../support/client-support/assets";
+import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
 import {
   buildDiscoveryProductAssetSrcSet,
   selectDiscoveryProductAssetUrl,
@@ -614,6 +614,7 @@ export function SearchPage({
                 const imageSrc =
                   selectDiscoveryProductAssetUrl(item.product_asset_sets, "search-card") ??
                   item.image_urls[0] ??
+                  (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined) ??
                   discoveryAssetUrls.defaultProductImage;
                 const imageSrcSet = buildDiscoveryProductAssetSrcSet(
                   item.product_asset_sets,
@@ -629,6 +630,11 @@ export function SearchPage({
                     imageSrcSet={imageSrcSet}
                     imageSizes="(min-width: 1536px) 160px, (min-width: 640px) 160px, 100vw"
                     imageAlt={item.title}
+                    imageFallbackSrc={item.image_fallback?.url ?? discoveryAssetUrls.defaultProductImage}
+                    imageFallbackAlt={item.image_fallback?.alt ?? t("discovery.features.search.ui.searchPage.default.product.image")}
+                    imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
+                    imageFallbackSizes="(min-width: 1280px) 18rem, (min-width: 640px) 15rem, 100vw"
+                    imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
                     price={formatPrice(item)}
                     priceDetail={formatListingMeta(item)}
                     sellerName={formatSellerSignal(item)}

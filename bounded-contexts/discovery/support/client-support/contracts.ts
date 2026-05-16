@@ -41,8 +41,19 @@ export interface DiscoverySearchItem {
   tags: string[];
   image_urls: string[];
   product_asset_sets: DiscoveryProductAssetSet[];
+  image_fallback: DiscoveryImageFallback | null;
   market_summary: DiscoveryMarketSummary | null;
   updated_at: string;
+}
+
+export interface DiscoveryImageFallback {
+  url: string;
+  alt: string;
+  usage: "permanent" | "loading-only";
+  variants: Record<string, {
+    oneX?: string;
+    twoX?: string;
+  }>;
 }
 
 export interface DiscoverySearchResponse {
@@ -138,6 +149,7 @@ export interface DiscoveryItemDetail {
   tags: string[];
   image_urls: string[];
   product_asset_sets: DiscoveryProductAssetSet[];
+  image_fallback: DiscoveryImageFallback | null;
   product_schema: ProductSchema | null;
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];

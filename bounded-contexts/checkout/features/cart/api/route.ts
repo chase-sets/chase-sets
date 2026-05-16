@@ -40,6 +40,10 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("checkout.features.cart.api.route.request.failed");
 }
 
+function optionalBodyString(value: unknown): string | null {
+  return value === null || value === undefined ? null : String(value);
+}
+
 function createGuestCheckoutContext() {
   return {
     tenantId: "tnt_identity",
@@ -137,6 +141,9 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
               body.itemImageUrl === null || body.itemImageUrl === undefined
                 ? null
                 : String(body.itemImageUrl),
+            itemImageLoadingUrl: optionalBodyString(body.itemImageLoadingUrl),
+            itemImageLoadingAlt: optionalBodyString(body.itemImageLoadingAlt),
+            itemImageLoadingSrcSet: optionalBodyString(body.itemImageLoadingSrcSet),
             selectedOptions: parseVersionSelection(body.selectedOptions),
           productSummary:
             body.productSummary === null || body.productSummary === undefined
@@ -296,6 +303,9 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
               body.itemImageUrl === null || body.itemImageUrl === undefined
                 ? null
                 : String(body.itemImageUrl),
+            itemImageLoadingUrl: optionalBodyString(body.itemImageLoadingUrl),
+            itemImageLoadingAlt: optionalBodyString(body.itemImageLoadingAlt),
+            itemImageLoadingSrcSet: optionalBodyString(body.itemImageLoadingSrcSet),
             selectedOptions: parseVersionSelection(body.selectedOptions),
           productSummary:
             body.productSummary === null || body.productSummary === undefined

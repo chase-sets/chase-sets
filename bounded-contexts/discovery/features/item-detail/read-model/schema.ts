@@ -15,6 +15,7 @@ export const discoveryItemDetailSchemaSql = `CREATE TABLE IF NOT EXISTS discover
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
+  image_fallback jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -26,7 +27,8 @@ ALTER TABLE discovery_item_detail_catalog_items
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
-  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_slug_idx ON discovery_item_detail_catalog_items (slug) WHERE slug <> '';
 CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_items_language_idx ON discovery_item_detail_catalog_items (language_code);
@@ -122,6 +124,7 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_pages (
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
+  image_fallback jsonb NULL,
   product_schema jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -134,6 +137,7 @@ ALTER TABLE discovery_item_detail_pages
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
-  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_pages_slug_idx ON discovery_item_detail_pages (slug) WHERE slug <> '';`;

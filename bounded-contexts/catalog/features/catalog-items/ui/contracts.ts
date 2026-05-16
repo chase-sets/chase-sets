@@ -16,6 +16,16 @@ export interface CatalogItemListItem {
   updated_at: string;
 }
 
+export interface CatalogItemImageFallback {
+  url: string;
+  alt: string;
+  usage: "permanent" | "loading-only";
+  variants: Record<string, {
+    oneX?: string;
+    twoX?: string;
+  }>;
+}
+
 export interface CatalogItemDetail {
   catalog_item_id: string;
   language_code: string;
@@ -43,6 +53,7 @@ export interface CatalogItemDetail {
   tags: string[];
   image_urls: string[];
   product_asset_sets: ProductAssetSet[];
+  image_fallback: CatalogItemImageFallback | null;
   updated_at: string;
 }
 

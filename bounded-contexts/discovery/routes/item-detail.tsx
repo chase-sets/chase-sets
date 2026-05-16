@@ -46,7 +46,7 @@ import type {
   DiscoverySellerInventoryItem,
   DiscoveryAccountOfferMatch,
 } from "../support/client-support/contracts";
-import { discoveryAssetUrls } from "../support/client-support/assets";
+import { discoveryAssetUrls, imageVariantSrcSet } from "../support/client-support/assets";
 import { selectDiscoveryProductAssetUrl } from "../support/client-support/product-assets";
 import {
   createMarketplaceRequestApiClient,
@@ -221,7 +221,7 @@ function createSellerRegistrationQuote(
 }
 
 function selectItemImageUrl(
-  item: Partial<Pick<DiscoveryItemDetail, "image_urls" | "product_asset_sets">>,
+  item: Partial<Pick<DiscoveryItemDetail, "image_urls" | "product_asset_sets" | "image_fallback">>,
   role: "thumbnail" | "catalog-detail" = "catalog-detail",
 ): string | null {
   const productAssetSets = Array.isArray(item.product_asset_sets)
@@ -231,6 +231,7 @@ function selectItemImageUrl(
 
   return selectDiscoveryProductAssetUrl(productAssetSets, role) ??
     imageUrls[0] ??
+    (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : null) ??
     null;
 }
 
@@ -1614,6 +1615,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
         itemImageUrl: selectItemImageUrl(item, "thumbnail"),
+        itemImageLoadingUrl: item.image_fallback?.url ?? null,
+        itemImageLoadingAlt: item.image_fallback?.alt ?? null,
+        itemImageLoadingSrcSet: imageVariantSrcSet(item.image_fallback, "thumbnail") ?? null,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity: Number(formData.get("quantity") ?? 0),

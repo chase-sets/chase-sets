@@ -39,7 +39,7 @@ import type {
   DiscoveryOffer,
   DiscoveryAccountOfferMatch,
 } from "../../../support/client-support/contracts";
-import { discoveryAssetUrls } from "../../../support/client-support/assets";
+import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
 import {
   buildDiscoveryProductAssetSrcSet,
   selectDiscoveryProductAssetUrl,
@@ -686,6 +686,12 @@ function LoadedItemDetailPage({
   ]);
 
   const images = buildItemDetailImages(data);
+  const imageFallback = data.image_fallback ?? {
+    url: discoveryAssetUrls.defaultProductImage,
+    alt: t("discovery.features.itemDetail.ui.itemDetailPage.default.product.image"),
+    usage: "permanent" as const,
+    variants: {},
+  };
   const explicitSelectedOptions = data.product_schema
     ? summarizeSelections(data.product_schema, selections)
     : [];
@@ -1207,9 +1213,12 @@ function LoadedItemDetailPage({
                   aspectRatio="5/7"
                   maxHeightClassName="mx-auto max-w-[min(100%,22rem)] md:max-w-[min(100%,24rem)] [--gallery-max-height:32rem]"
                   fallbackImage={{
-                    src: discoveryAssetUrls.defaultProductImage,
-                    alt: t("discovery.features.itemDetail.ui.itemDetailPage.pokemon.card.back"),
+                    src: imageFallback.url,
+                    alt: imageFallback.alt,
+                    srcSet: imageVariantSrcSet(imageFallback, "detail"),
+                    sizes: "(min-width: 768px) 24rem, 100vw",
                   }}
+                  fallbackImageMode={imageFallback.usage}
                   emptyState={
                     <Stack gap={3} align="center">
                       <Surface tone="muted" padding={4}>

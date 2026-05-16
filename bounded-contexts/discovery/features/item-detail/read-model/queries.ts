@@ -19,6 +19,7 @@ export type DiscoveryItemDetailRow = Readonly<{
   tags: unknown;
   image_urls: unknown;
   product_asset_sets: unknown;
+  image_fallback: unknown;
   product_schema: unknown;
   market_summary: Readonly<{
     lowest_price_amount: string | null;

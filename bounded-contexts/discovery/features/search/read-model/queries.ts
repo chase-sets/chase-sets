@@ -57,6 +57,7 @@ export type DiscoverySearchItemRow = Readonly<{
   tags: unknown;
   image_urls: unknown;
   product_asset_sets: unknown;
+  image_fallback: unknown;
   market_summary: Readonly<{
     lowest_price_amount: string | null;
     active_listing_count: number;
@@ -343,7 +344,7 @@ export async function searchDiscoveryItems(
   const countPromise = params.includeTotal || useLegacyOffset
     ? db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM discovery_search_items ${where}`, values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch) : 0)))
     : Promise.resolve({ rows: [] });
-  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, updated_at${selectRank}
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at${selectRank}
     FROM discovery_search_items ${whereWithCursor}
     ORDER BY ${orderBy}
     ${listLimitSql}`;

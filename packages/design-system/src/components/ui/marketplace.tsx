@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -169,6 +169,12 @@ export function ProductSelectionSummary({
 export interface MarketplaceCartLineItemProps {
   imageSrc: string;
   imageAlt: string;
+  imageSrcSet?: string;
+  imageSizes?: string;
+  loadingImageSrc?: string;
+  loadingImageAlt?: string;
+  loadingImageSrcSet?: string;
+  loadingImageSizes?: string;
   title: ReactNode;
   subtitle?: ReactNode;
   productLabel: ReactNode;
@@ -180,6 +186,12 @@ export interface MarketplaceCartLineItemProps {
 export function MarketplaceCartLineItem({
   imageSrc,
   imageAlt,
+  imageSrcSet,
+  imageSizes,
+  loadingImageSrc,
+  loadingImageAlt,
+  loadingImageSrcSet,
+  loadingImageSizes,
   title,
   subtitle,
   productLabel,
@@ -187,18 +199,33 @@ export function MarketplaceCartLineItem({
   quantityControl,
   actions,
 }: MarketplaceCartLineItemProps) {
+  const [loaded, setLoaded] = useState(false);
+
   return (
     <div
       className="surface-border min-w-0 max-w-full rounded-tokenLg bg-elevated p-4 shadow-tokenSm sm:p-5"
       data-marketplace-cart-line
     >
       <div className="grid min-w-0 grid-cols-[4.75rem_minmax(0,1fr)] gap-3 sm:grid-cols-[5.5rem_minmax(0,1fr)] md:grid-cols-[5.5rem_minmax(0,1fr)_minmax(13rem,16rem)] md:gap-4">
-        <div className="min-w-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] shadow-tokenSm">
+        <div className="relative min-w-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] shadow-tokenSm">
+          {loadingImageSrc && !loaded ? (
+            <img
+              src={loadingImageSrc}
+              alt={loadingImageAlt ?? imageAlt}
+              srcSet={loadingImageSrcSet}
+              sizes={loadingImageSizes}
+              className="absolute inset-0 aspect-[2.5/3.5] h-full w-full object-contain p-1.5"
+              aria-hidden="true"
+            />
+          ) : null}
           <img
             src={imageSrc}
             alt={imageAlt}
+            srcSet={imageSrcSet}
+            sizes={imageSizes}
             className="aspect-[2.5/3.5] h-full w-full object-contain p-1.5"
             loading="lazy"
+            onLoad={() => setLoaded(true)}
           />
         </div>
         <div className="min-w-0 space-y-3">
@@ -380,6 +407,11 @@ export interface ListingCardProps {
   imageSrcSet?: string;
   imageSizes?: string;
   imageAlt?: string;
+  imageFallbackSrc?: string;
+  imageFallbackAlt?: string;
+  imageFallbackSrcSet?: string;
+  imageFallbackSizes?: string;
+  imageFallbackMode?: "permanent" | "loading-only";
   showMediaPlaceholder?: boolean;
   price: ReactNode;
   priceDetail?: ReactNode;
@@ -420,6 +452,11 @@ export function ListingCard({
   imageSrcSet,
   imageSizes,
   imageAlt,
+  imageFallbackSrc,
+  imageFallbackAlt,
+  imageFallbackSrcSet,
+  imageFallbackSizes,
+  imageFallbackMode = "permanent",
   showMediaPlaceholder = true,
   price,
   priceDetail,
@@ -451,6 +488,8 @@ export function ListingCard({
   density = "compact",
   className
 }: ListingCardProps) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const hasMediaFrame = Boolean(imageSrc || showMediaPlaceholder);
   const isLinked = Boolean(href);
   const resolvedSellerTrust = sellerTrust ?? (
@@ -459,6 +498,22 @@ export function ListingCard({
       : <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
   );
   const resolvedProtection = protection ? <BuyerProtectionBadge label={protection} /> : null;
+  const canUseFallbackAsImage = Boolean(imageFallbackSrc) && imageFallbackMode === "permanent";
+  const resolvedImageSrc = imageSrc && !imageFailed
+    ? imageSrc
+    : canUseFallbackAsImage
+      ? imageFallbackSrc
+      : undefined;
+  const resolvedImageAlt = resolvedImageSrc === imageFallbackSrc
+    ? imageFallbackAlt ?? imageAlt ?? title
+    : imageAlt ?? title;
+  const resolvedImageSrcSet = resolvedImageSrc === imageFallbackSrc
+    ? imageFallbackSrcSet
+    : imageSrcSet;
+  const resolvedImageSizes = resolvedImageSrc === imageFallbackSrc
+    ? imageFallbackSizes
+    : imageSizes;
+  const showLoadingFallback = Boolean(imageSrc && imageFallbackSrc && !imageLoaded && !imageFailed);
 
   return (
     <article
@@ -487,13 +542,25 @@ export function ListingCard({
             isLinked && "z-20 pointer-events-none"
           )}
         >
-          {imageSrc ? (
+          {showLoadingFallback ? (
             <img
-              src={imageSrc}
-              srcSet={imageSrcSet}
-              sizes={imageSizes}
-              alt={imageAlt ?? title}
-              className="h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
+              src={imageFallbackSrc}
+              alt={imageFallbackAlt ?? imageAlt ?? title}
+              srcSet={imageFallbackSrcSet}
+              sizes={imageFallbackSizes}
+              className="absolute inset-0 h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
+              aria-hidden="true"
+            />
+          ) : null}
+          {resolvedImageSrc ? (
+            <img
+              src={resolvedImageSrc}
+              alt={resolvedImageAlt}
+              srcSet={resolvedImageSrcSet}
+              sizes={resolvedImageSizes}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageFailed(true)}
+              className="relative h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
             />
           ) : (
             <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">

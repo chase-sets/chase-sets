@@ -58,6 +58,7 @@ type SearchCatalogItemRow = Readonly<{
   tags: unknown;
   image_urls: unknown;
   product_asset_sets: unknown;
+  image_fallback: unknown;
   updated_at: string;
 }>;
 
@@ -314,10 +315,11 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       dimension_filter_values,
       image_urls,
       product_asset_sets,
+      image_fallback,
       search_text,
       search_text_simple,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, to_tsvector('english', $21), to_tsvector('simple', $22), $23)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, to_tsvector('english', $22), to_tsvector('simple', $23), $24)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -338,6 +340,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       dimension_filter_values = EXCLUDED.dimension_filter_values,
       image_urls = EXCLUDED.image_urls,
       product_asset_sets = EXCLUDED.product_asset_sets,
+      image_fallback = EXCLUDED.image_fallback,
       search_text = EXCLUDED.search_text,
       search_text_simple = EXCLUDED.search_text_simple,
       updated_at = EXCLUDED.updated_at`,
@@ -362,6 +365,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       JSON.stringify(dimensionFilterValues),
       JSON.stringify(imageUrls),
       JSON.stringify(productAssetSets),
+      item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
       searchText,
       normalizeSimpleSearchText(searchText),
       item.updated_at,
@@ -756,6 +760,33 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
 
       await refreshDiscoverySearchItem(db, itemId);
     },
+    "catalog.catalog-item.image-fallback-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+      const { imageFallback } = event.data as { imageFallback: unknown };
+
+      await db.query(
+        `UPDATE discovery_search_catalog_items
+         SET image_fallback = $2,
+             updated_at = $3
+         WHERE catalog_item_id = $1`,
+        [itemId, JSON.stringify(imageFallback), event.timing.recordedAt],
+      );
+
+      await refreshDiscoverySearchItem(db, itemId);
+    },
+    "catalog.catalog-item.image-fallback-cleared": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE discovery_search_catalog_items
+         SET image_fallback = NULL,
+             updated_at = $2
+         WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
+
+      await refreshDiscoverySearchItem(db, itemId);
+    },
     "catalog.catalog-item.retired": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
@@ -778,7 +809,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         [itemId, event.timing.recordedAt],
       );
 
-      await refreshDiscoverySearchItem(db, itemId);
+      await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
     },
 
     "catalog.blueprint.created": async (event) => {

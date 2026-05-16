@@ -4,6 +4,7 @@ import type { BulkPublishSelection, CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
+import type { CatalogItemImageFallback } from "../domain/domain";
 
 
 export function catalogItemRoutes(services: CatalogItemServices) {
@@ -200,6 +201,38 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     return c.json({ id: itemId, version: result.version, status: result.state.status });
   });
 
+  app.put("/:id/image-fallback", async (c) => {
+    const itemId = c.req.param("id");
+    const body = await c.req.json();
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "SetCatalogItemImageFallback",
+        imageFallback: toImageFallback(body.imageFallback ?? body),
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
+  app.delete("/:id/image-fallback", async (c) => {
+    const itemId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: {
+        type: "ClearCatalogItemImageFallback",
+      },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
   app.put("/:id/external-product-references/:providerKey/:externalKey", async (c) => {
     const itemId = c.req.param("id");
     const body = await c.req.json().catch(() => ({}));
@@ -346,4 +379,38 @@ function toLocalizedTextMap(value: unknown): LocalizedTextMap {
   };
 }
 
+function toImageFallback(value: unknown): CatalogItemImageFallback {
+  const fallback = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+
+  return {
+    url: String(fallback.url ?? ""),
+    alt: String(fallback.alt ?? ""),
+    usage: fallback.usage === "loading-only" ? "loading-only" : "permanent",
+    variants: toImageFallbackVariants(fallback.variants),
+  };
+}
+
+function toImageFallbackVariants(value: unknown): CatalogItemImageFallback["variants"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([size, density]) => {
+      const entry = density && typeof density === "object" && !Array.isArray(density)
+        ? density as Record<string, unknown>
+        : {};
+
+      return [
+        size,
+        {
+          oneX: typeof entry.oneX === "string" ? entry.oneX : undefined,
+          twoX: typeof entry.twoX === "string" ? entry.twoX : undefined,
+        },
+      ];
+    }),
+  );
+}
 

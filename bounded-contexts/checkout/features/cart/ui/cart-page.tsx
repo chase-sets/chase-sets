@@ -193,6 +193,10 @@ export function CheckoutCartPage({
                   imageAlt={t("checkout.features.cart.ui.cartPage.product.image.alt", {
                     title: line.item_title,
                   })}
+                  loadingImageSrc={line.item_image_loading_url ?? undefined}
+                  loadingImageAlt={line.item_image_loading_alt ?? undefined}
+                  loadingImageSrcSet={line.item_image_loading_srcset ?? undefined}
+                  loadingImageSizes="5.5rem"
                   title={line.item_title}
                   subtitle={line.item_subtitle}
                   productLabel={t("checkout.features.cart.ui.cartPage.product")}

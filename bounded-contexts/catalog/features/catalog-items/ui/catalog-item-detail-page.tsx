@@ -32,12 +32,15 @@ import {
   archiveCatalogItem,
   setTags,
   setImageUrls,
+  setImageFallback,
+  clearImageFallback,
   linkExternalProductReference,
   unlinkExternalProductReference,
 } from "./use-catalog-items";
 import { useFieldList } from "../../fields/ui/use-fields";
 import type { ReferenceRecord } from "../../reference-data/ui/contracts";
 import { useReferenceRecordList } from "../../reference-data/ui/use-reference-data";
+import type { CatalogItemImageFallback } from "./contracts";
 
 function getTransitions(status: string): Transition[] {
   switch (status) {
@@ -198,6 +201,13 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   const [showSetImageUrls, setShowSetImageUrls] = useState(false);
   const [imageUrlsInput, setImageUrlsInput] = useState("");
 
+  // Image fallback
+  const [showSetImageFallback, setShowSetImageFallback] = useState(false);
+  const [imageFallbackUrl, setImageFallbackUrl] = useState("");
+  const [imageFallbackAlt, setImageFallbackAlt] = useState("");
+  const [imageFallbackUsage, setImageFallbackUsage] = useState<"permanent" | "loading-only">("permanent");
+  const [imageFallbackVariants, setImageFallbackVariants] = useState("{}");
+
   // External product references
   const [showLinkExternalReference, setShowLinkExternalReference] = useState(false);
   const [externalProviderKey, setExternalProviderKey] = useState("tcgplayer");
@@ -342,6 +352,34 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
     if (data) {
       setImageUrlsInput((data.image_urls ?? []).join("\n"));
       setShowSetImageUrls(true);
+    }
+  }
+
+  async function handleSetImageFallback() {
+    await setImageFallback(id, {
+      url: imageFallbackUrl,
+      alt: imageFallbackAlt,
+      usage: imageFallbackUsage,
+      variants: parseImageFallbackVariants(imageFallbackVariants),
+    });
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.updated"), "success");
+    setShowSetImageFallback(false);
+    refresh();
+  }
+
+  async function handleClearImageFallback() {
+    await clearImageFallback(id);
+    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.cleared"), "success");
+    refresh();
+  }
+
+  function startSetImageFallback() {
+    if (data) {
+      setImageFallbackUrl(data.image_fallback?.url ?? "");
+      setImageFallbackAlt(data.image_fallback?.alt ?? data.title);
+      setImageFallbackUsage(data.image_fallback?.usage ?? "permanent");
+      setImageFallbackVariants(JSON.stringify(data.image_fallback?.variants ?? {}, null, 2));
+      setShowSetImageFallback(true);
     }
   }
 
@@ -541,6 +579,41 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               </ProgressiveDisclosure>
             </PageSection>
 
+            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback")}>
+              <ProgressiveDisclosure
+                title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback")}
+                summary={data.image_fallback
+                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.summary", {
+                      usage: data.image_fallback.usage,
+                    })
+                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback")}
+                tone="info"
+              >
+              <Stack gap={3}>
+                {data.status !== "archived" && (
+                  <Inline>
+                    <Button size="sm" onClick={startSetImageFallback}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.fallback")}</Button>
+                    {data.image_fallback ? (
+                      <Button size="sm" tone="danger" onClick={handleClearImageFallback}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear.image.fallback")}</Button>
+                    ) : null}
+                  </Inline>
+                )}
+                {data.image_fallback ? (
+                  <KeyValueList
+                    items={[
+                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.url"), value: data.image_fallback.url },
+                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.alt.text"), value: data.image_fallback.alt },
+                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.usage"), value: data.image_fallback.usage },
+                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.variants"), value: JSON.stringify(data.image_fallback.variants) },
+                    ]}
+                  />
+                ) : (
+                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback")}</Text>
+                )}
+              </Stack>
+              </ProgressiveDisclosure>
+            </PageSection>
+
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}>
               <ProgressiveDisclosure
                 title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}
@@ -726,6 +799,37 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       </Dialog>
 
       <Dialog
+        open={showSetImageFallback}
+        onOpenChange={setShowSetImageFallback}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.fallback.2")}
+        description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.description")}
+        footer={<Button onClick={handleSetImageFallback}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.4")}</Button>}
+      >
+        <Stack gap={3}>
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.url")}
+            value={imageFallbackUrl}
+            onChange={(event) => setImageFallbackUrl(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.alt.text")}
+            value={imageFallbackAlt}
+            onChange={(event) => setImageFallbackAlt(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.usage")}
+            value={imageFallbackUsage}
+            onChange={(event) => setImageFallbackUsage(event.target.value === "loading-only" ? "loading-only" : "permanent")}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.variants.json")}
+            value={imageFallbackVariants}
+            onChange={(event) => setImageFallbackVariants(event.target.value)}
+          />
+        </Stack>
+      </Dialog>
+
+      <Dialog
         open={showLinkExternalReference}
         onOpenChange={setShowLinkExternalReference}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference.2")}
@@ -753,4 +857,17 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       </Dialog>
     </>
   );
+}
+
+function parseImageFallbackVariants(value: string): CatalogItemImageFallback["variants"] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return parsed as CatalogItemImageFallback["variants"];
+  } catch {
+    return {};
+  }
 }

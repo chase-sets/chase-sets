@@ -59,6 +59,9 @@ export type CheckoutCartServices = Readonly<{
       itemTitle: string;
       itemSubtitle: string | null;
       itemImageUrl: string | null;
+      itemImageLoadingUrl?: string | null;
+      itemImageLoadingAlt?: string | null;
+      itemImageLoadingSrcSet?: string | null;
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       quantity: number;
@@ -219,6 +222,9 @@ export function createCheckoutCartRuntime(
           itemTitle: params.itemTitle,
           itemSubtitle: params.itemSubtitle,
           itemImageUrl: params.itemImageUrl,
+          itemImageLoadingUrl: params.itemImageLoadingUrl,
+          itemImageLoadingAlt: params.itemImageLoadingAlt,
+          itemImageLoadingSrcSet: params.itemImageLoadingSrcSet,
           selectedOptions: catalogVersion.selection,
           productSummary: params.productSummary,
           quantity: params.quantity,
@@ -315,6 +321,9 @@ export function createCheckoutCartRuntime(
               itemTitle: line.item_title,
               itemSubtitle: line.item_subtitle,
               itemImageUrl: line.item_image_url,
+              itemImageLoadingUrl: line.item_image_loading_url,
+              itemImageLoadingAlt: line.item_image_loading_alt,
+              itemImageLoadingSrcSet: line.item_image_loading_srcset,
               selectedOptions: line.selected_options,
               productSummary: line.product_summary,
               quantity: line.quantity,
