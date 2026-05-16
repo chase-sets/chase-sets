@@ -23,6 +23,12 @@ export interface SubmittedOfferListItem extends MarketplaceOffer {}
 export interface SubmittedOfferDetail extends MarketplaceOffer {}
 
 export interface OfferMatchListItem extends MarketplaceOffer {
+  listing_id: string;
+  listing_price_amount: string;
+  listing_quantity_cap: number;
+  listing_visible_quantity: number;
+  offer_price_gap_amount: string;
+  offer_to_listing_price_bps: number;
   buyer_display_name: string | null;
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable";

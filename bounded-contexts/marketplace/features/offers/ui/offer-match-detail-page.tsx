@@ -40,6 +40,28 @@ function formatAllowancePercentage(bps: number) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
 
+function formatPriceGap(amount: string) {
+  const value = Number(amount);
+
+  if (Number.isNaN(value)) {
+    return t("marketplace.features.offers.ui.offerMatchDetailPage.ask.gap.unknown");
+  }
+
+  if (value > 0) {
+    return t("marketplace.features.offers.ui.offerMatchDetailPage.below.ask", {
+      amount: formatMoney(value.toFixed(2)),
+    });
+  }
+
+  if (value < 0) {
+    return t("marketplace.features.offers.ui.offerMatchDetailPage.over.ask", {
+      amount: formatMoney(Math.abs(value).toFixed(2)),
+    });
+  }
+
+  return t("marketplace.features.offers.ui.offerMatchDetailPage.meets.ask");
+}
+
 function termsSourceLabel(terms: MarketplaceListingTermsPreview) {
   return terms.agreement_id
     ? "Seller terms"
@@ -131,6 +153,12 @@ export function MarketplaceOfferMatchDetailPage({
                   </Badge>
                 </Inline>
                 <Text size="lg" weight="semibold">{formatMoney(offer.price_amount)}</Text>
+                <Text tone="secondary">
+                  {t("marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask", {
+                    percentage: formatAllowancePercentage(offer.offer_to_listing_price_bps),
+                    gap: formatPriceGap(offer.offer_price_gap_amount),
+                  })}
+                </Text>
                 <Text weight="semibold">{offer.item_title}</Text>
                 {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
                 {offer.product_summary ? (
@@ -144,6 +172,18 @@ export function MarketplaceOfferMatchDetailPage({
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.buyer"),
                     value: offer.buyer_display_name ?? offer.buyer_account_id,
+                  },
+                  {
+                    key: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
+                    value: formatMoney(offer.listing_price_amount),
+                  },
+                  {
+                    key: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.vs.ask"),
+                    value: formatAllowancePercentage(offer.offer_to_listing_price_bps),
+                  },
+                  {
+                    key: t("marketplace.features.offers.ui.offerMatchDetailPage.ask.gap"),
+                    value: formatPriceGap(offer.offer_price_gap_amount),
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.quantity.requested"),
@@ -165,6 +205,10 @@ export function MarketplaceOfferMatchDetailPage({
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price"),
                   value: formatMoney(offer.price_amount),
+                },
+                {
+                  label: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
+                  value: formatMoney(offer.listing_price_amount),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee"),
