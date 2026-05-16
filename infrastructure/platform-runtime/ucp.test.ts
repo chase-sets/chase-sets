@@ -2,6 +2,8 @@ import { createHash, createSign, generateKeyPairSync, type KeyObject } from "nod
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/ucp";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ResolvedActor } from "./auth";
 import {
   createPostgresUcpIdempotencyStore,
   addUcpAp2MerchantAuthorization,
@@ -420,23 +422,35 @@ describe("UCP MCP routes", () => {
     expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(
       UCP_MCP_TOOLS.map((tool) => tool.name),
     );
+    expect(body.result.tools[0]).toMatchObject({
+      inputSchema: { type: "object" },
+      outputSchema: { type: "object" },
+      securitySchemes: [{ type: "noauth" }],
+      annotations: {
+        readOnlyHint: true,
+      },
+      _meta: {
+        securitySchemes: [{ type: "noauth" }],
+      },
+    });
   });
 
   it("requires idempotency for complete_checkout tool calls", async () => {
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "1",
+      method: "tools/call",
+      params: {
+        name: "complete_checkout",
+        arguments: { id: "chk_1" },
+      },
+    });
 
     const response = await app.request("/ucp/mcp", {
       method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "1",
-        method: "tools/call",
-        params: {
-          name: "complete_checkout",
-          arguments: { id: "chk_1" },
-        },
-      }),
-      headers: { "Content-Type": "application/json" },
+      body,
+      headers: signedHeaders(body),
     });
 
     expect(response.status).toBe(400);
@@ -478,7 +492,114 @@ describe("UCP MCP routes", () => {
     }));
     await expect(response.json()).resolves.toMatchObject({
       result: {
-        content: [{ json: { observed: { query: "charizard" } } }],
+        structuredContent: { observed: { query: "charizard" } },
+        content: [{ type: "text" }],
+      },
+    });
+  });
+
+  it("returns an OAuth challenge in tool results when account-scoped handlers require authentication", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({
+      mcpToolHandlers: {
+        get_checkout: async () => ({
+          ucp: { version: UCP_VERSION, status: "error" as const },
+          messages: [
+            {
+              severity: "error" as const,
+              code: "authentication_required",
+              message: "UCP checkout requires a linked buyer account.",
+            },
+          ],
+        }),
+      },
+    }));
+
+    const response = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: {
+          name: "get_checkout",
+          arguments: { id: "chk_1" },
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          ucp: { status: "error" },
+          messages: [{ code: "authentication_required" }],
+        },
+        _meta: {
+          "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="checkout:read"',
+        },
+      },
+    });
+  });
+
+  it("returns trusted checkout handoff for OAuth actors without UCP signed-write headers", async () => {
+    const app = new Hono<{
+      Variables: {
+        actor: ResolvedActor | null;
+        context: EventStoreContext | null;
+      };
+    }>();
+    app.use("/ucp/mcp", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: "tenant_1",
+        userId: "usr_1",
+        accountId: "acct_1",
+        membershipId: "mem_1",
+        roleKey: "buyer",
+        permissions: ["orders.manage"],
+      });
+      c.set("context", {
+        tenantId: "tenant_1" as never,
+        audit: {
+          performedByUserId: "usr_1" as never,
+          forAccountId: "acct_1" as never,
+        },
+        trace: {},
+      });
+      await next();
+    });
+    app.route("/ucp/mcp", createUcpMcpRoutes({
+      mcpToolHandlers: {
+        complete_checkout: vi.fn(),
+      },
+    }));
+
+    const response = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: {
+          name: "complete_checkout",
+          arguments: { id: "chk_1" },
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          ucp: { status: "requires_action" },
+          action: {
+            type: "trusted_checkout_handoff",
+            url: "/checkout/chk_1",
+          },
+          messages: [{ code: "trusted_ui_required" }],
+        },
       },
     });
   });
@@ -530,10 +651,10 @@ describe("UCP MCP routes", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     await expect(first.json()).resolves.toMatchObject({
-      result: { content: [{ json: { checkout: { id: "chk_1" } } }] },
+      result: { structuredContent: { checkout: { id: "chk_1" } } },
     });
     await expect(replay.json()).resolves.toMatchObject({
-      result: { content: [{ json: { checkout: { id: "chk_1" } } }] },
+      result: { structuredContent: { checkout: { id: "chk_1" } } },
     });
     expect(conflict.status).toBe(409);
     await expect(conflict.json()).resolves.toMatchObject({

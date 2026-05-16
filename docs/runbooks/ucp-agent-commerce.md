@@ -20,6 +20,38 @@ Check MCP tool listing:
 Invoke-RestMethod http://localhost:7712/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"tools","method":"tools/list"}'
 ```
 
+## ChatGPT App Connector
+
+ChatGPT now calls connectors "apps." Configure Chase Sets as a data-and-action ChatGPT app from the remote MCP endpoint:
+
+- MCP endpoint: `https://<marketplace-host>/ucp/mcp`
+- Supported auth mode: Mixed Authentication
+- OAuth issuer metadata: `https://<marketplace-host>/.well-known/oauth-authorization-server`
+- OAuth authorization endpoint: `https://<marketplace-host>/ucp/oauth/authorize`
+- OAuth token endpoint: `https://<marketplace-host>/ucp/oauth/token`
+
+For local smoke tests, use the sandbox platform API host:
+
+```powershell
+$body = '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"chatgpt-smoke","version":"0.1.0"}}}'
+Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $body
+```
+
+Verify ChatGPT-compatible tool metadata:
+
+```powershell
+$tools = Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"tools","method":"tools/list"}'
+$tools.result.tools | Select-Object name,securitySchemes,annotations
+```
+
+Verify a public catalog call returns `structuredContent`:
+
+```powershell
+Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"search","method":"tools/call","params":{"name":"search_catalog","arguments":{"query":"charizard","limit":3}}}'
+```
+
+Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or AP2 mandate effects.
+
 ## Signed Checkout Writes
 
 Checkout write requests must include:

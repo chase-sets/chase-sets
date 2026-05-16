@@ -16,6 +16,7 @@ import {
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpEnvelope,
+  type UcpMcpToolDescriptor,
 } from "@chase-sets/ucp";
 import type { ResolvedActor } from "./auth";
 
@@ -244,6 +245,67 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string) {
       message,
     },
   };
+}
+
+function toolResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
+  return {
+    structuredContent: result,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(result),
+      },
+    ],
+    ...(requiresOAuthChallenge(result)
+      ? {
+          _meta: {
+            "mcp/www_authenticate": oauthChallenge(tool),
+          },
+        }
+      : {}),
+  };
+}
+
+function requiresOAuthChallenge(result: UcpEnvelope) {
+  return result.messages?.some((message) => message.code === "authentication_required") ?? false;
+}
+
+function oauthChallenge(tool: UcpMcpToolDescriptor) {
+  const scopes = tool.securitySchemes
+    .flatMap((scheme) => scheme.type === "oauth2" ? [...scheme.scopes] : [])
+    .filter((scope, index, scopes) => scopes.indexOf(scope) === index);
+  return scopes.length > 0
+    ? `Bearer realm="Chase Sets", scope="${scopes.join(" ")}"`
+    : 'Bearer realm="Chase Sets"';
+}
+
+function unsignedMcpTrustedHandoff(
+  tool: UcpMcpToolDescriptor,
+  args: Readonly<Record<string, unknown>>,
+) {
+  const checkoutId = typeof args.id === "string" ? args.id : null;
+  const action = tool.name === "cancel_checkout"
+    ? {
+        type: "trusted_checkout_handoff",
+        ...(checkoutId ? { url: `/checkout/${checkoutId}` } : {}),
+        reason: "Checkout cancellation is available only through trusted UI for ChatGPT OAuth callers.",
+      }
+    : {
+        type: "trusted_checkout_handoff",
+        ...(checkoutId ? { url: `/checkout/${checkoutId}` } : {}),
+        reason: "Checkout completion requires trusted UI unless a signed UCP/AP2 agent supplies verified mandate evidence.",
+      };
+  const message = tool.name === "cancel_checkout"
+    ? "Open the trusted checkout UI to abandon or revise this checkout session."
+    : "Open the trusted checkout UI before creating orders or payment through ChatGPT.";
+
+  return createUcpEnvelope("requires_action", { action }, [
+    {
+      severity: "warning",
+      code: "trusted_ui_required",
+      message,
+    },
+  ]);
 }
 
 function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
@@ -1051,13 +1113,18 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
           name: tool.name,
           title: tool.title,
           description: tool.description,
-          inputSchema: {
-            type: "object",
-            additionalProperties: true,
-          },
+          inputSchema: tool.inputSchema,
+          outputSchema: tool.outputSchema,
+          securitySchemes: tool.securitySchemes,
           annotations: {
             capability: tool.capability,
             idempotencyKeyRequired: tool.idempotencyKeyRequired,
+            ...tool.annotations,
+          },
+          _meta: {
+            securitySchemes: tool.securitySchemes,
+            "openai/toolInvocation/invoking": tool.invoking,
+            "openai/toolInvocation/invoked": tool.invoked,
           },
         })),
       }));
@@ -1071,13 +1138,16 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         return c.json(jsonRpcError(body.id, -32602, `Unknown UCP MCP tool '${toolName}'.`), 400);
       }
 
-      if (tool.idempotencyKeyRequired && missingIdempotencyKey(c.req.raw)) {
-        return c.json(jsonRpcError(body.id, -32602, `Idempotency-Key is required for ${tool.name}.`), 400);
-      }
-
+      const args = normalizeArguments(params.arguments);
       if (tool.idempotencyKeyRequired) {
         const signedFailure = await signedWriteFailure(c.req.raw);
         if (signedFailure) {
+          if (tool.trustedHandoffOnUnsignedMcp && c.get("actor")) {
+            return c.json(jsonRpcResult(body.id, toolResult(
+              tool,
+              unsignedMcpTrustedHandoff(tool, args),
+            )));
+          }
           emitObserver(options.observer?.signedWriteRejected, {
             transport: "mcp",
             operation: tool.name,
@@ -1099,9 +1169,12 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
           });
           return c.json(jsonRpcError(body.id, -32602, signatureFailure), 400);
         }
+
+        if (missingIdempotencyKey(c.req.raw)) {
+          return c.json(jsonRpcError(body.id, -32602, `Idempotency-Key is required for ${tool.name}.`), 400);
+        }
       }
 
-      const args = normalizeArguments(params.arguments);
       const result = tool.idempotencyKeyRequired
         ? await invokeMcpTool(c, options, tool.name, args, idempotencyStore)
         : await (options.mcpToolHandlers?.[tool.name]?.({
@@ -1117,12 +1190,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       }
 
       return c.json(jsonRpcResult(body.id, {
-        content: [
-          {
-            type: "json",
-            json: result,
-          },
-        ],
+        ...toolResult(tool, result),
       }));
     }
 

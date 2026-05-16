@@ -71,71 +71,280 @@ export type UcpMcpToolDescriptor = Readonly<{
   capability: (typeof UCP_CAPABILITIES)[keyof typeof UCP_CAPABILITIES];
   description: string;
   idempotencyKeyRequired: boolean;
+  inputSchema: Readonly<Record<string, unknown>>;
+  outputSchema: Readonly<Record<string, unknown>>;
+  securitySchemes: readonly UcpMcpSecurityScheme[];
+  annotations: Readonly<{
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    openWorldHint: boolean;
+    idempotentHint?: boolean;
+  }>;
+  invoking: string;
+  invoked: string;
+  trustedHandoffOnUnsignedMcp?: boolean;
 }>;
+
+export type UcpMcpSecurityScheme =
+  | Readonly<{ type: "noauth" }>
+  | Readonly<{ type: "oauth2"; scopes: readonly string[] }>;
+
+const UCP_ENVELOPE_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    ucp: {
+      type: "object",
+      properties: {
+        version: { type: "string" },
+        status: { type: "string" },
+      },
+      required: ["version", "status"],
+    },
+    messages: {
+      type: "array",
+      items: { type: "object", additionalProperties: true },
+    },
+  },
+  required: ["ucp"],
+} as const;
+
+const CATALOG_READ_SECURITY = [{ type: "noauth" }] as const;
+const CHECKOUT_READ_SECURITY = [{ type: "oauth2", scopes: ["checkout:read"] }] as const;
+const CHECKOUT_WRITE_SECURITY = [{ type: "oauth2", scopes: ["checkout:write"] }] as const;
+const ORDER_READ_SECURITY = [{ type: "oauth2", scopes: ["order:read"] }] as const;
+
+function readAnnotations() {
+  return {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+    idempotentHint: true,
+  } as const;
+}
+
+function writeAnnotations(params: Readonly<{
+  destructive?: boolean;
+  openWorld?: boolean;
+  idempotent?: boolean;
+}> = {}) {
+  return {
+    readOnlyHint: false,
+    destructiveHint: params.destructive ?? false,
+    openWorldHint: params.openWorld ?? false,
+    ...(params.idempotent === undefined ? {} : { idempotentHint: params.idempotent }),
+  } as const;
+}
 
 export const UCP_MCP_TOOLS = [
   {
     name: "search_catalog",
     title: "Search Catalog",
     capability: UCP_CAPABILITIES.catalogSearch,
-    description: "Search buyer-visible marketplace products by query and filters.",
+    description: "Use this when a ChatGPT user wants to find buyer-visible Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
     idempotencyKeyRequired: false,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        query: { type: "string", description: "Search text such as a card name, set, tag, or category." },
+        limit: { type: "number", minimum: 1, maximum: 50 },
+        cursor: { type: "string" },
+        filters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            category: { type: "string" },
+            tag: { type: "string" },
+            blueprintId: { type: "string" },
+            language: { type: "string" },
+          },
+        },
+      },
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CATALOG_READ_SECURITY,
+    annotations: readAnnotations(),
+    invoking: "Searching marketplace products",
+    invoked: "Marketplace products found",
   },
   {
     name: "lookup_catalog",
     title: "Lookup Catalog",
     capability: UCP_CAPABILITIES.catalogLookup,
-    description: "Resolve product or variant identifiers into buyer-visible product records.",
+    description: "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs buyer-visible product details.",
     idempotencyKeyRequired: false,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", description: "Single catalog item or product identifier to resolve." },
+        ids: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 20,
+          description: "Catalog item or product identifiers to resolve.",
+        },
+      },
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CATALOG_READ_SECURITY,
+    annotations: readAnnotations(),
+    invoking: "Looking up marketplace products",
+    invoked: "Marketplace products resolved",
   },
   {
     name: "get_product",
     title: "Get Product",
     capability: UCP_CAPABILITIES.catalogLookup,
-    description: "Retrieve one product with option-selection and availability context.",
+    description: "Use this when a ChatGPT user needs one buyer-visible product detail, variants, seller availability, and option-selection context.",
     idempotencyKeyRequired: false,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", description: "Catalog item or product identifier to retrieve." },
+      },
+      required: ["id"],
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CATALOG_READ_SECURITY,
+    annotations: readAnnotations(),
+    invoking: "Loading product detail",
+    invoked: "Product detail loaded",
   },
   {
     name: "create_checkout",
     title: "Create Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Create a checkout session from agent-provided purchase intent.",
+    description: "Use this after the user chooses marketplace items to create a Chase Sets checkout session. This requires a linked buyer account and does not move money.",
     idempotencyKeyRequired: false,
+    inputSchema: {
+      type: "object",
+      additionalProperties: true,
+      properties: {
+        source: { type: "object", additionalProperties: true },
+        intent: { type: "object", additionalProperties: true },
+        type: { type: "string", enum: ["cart", "buy-now", "offer-intent", "offer"] },
+        items: { type: "array", items: { type: "object", additionalProperties: true } },
+        line_items: { type: "array", items: { type: "object", additionalProperties: true } },
+        shipping_option: { type: "string" },
+        optimization_goal: { type: "string", enum: ["fewest-shipments", "lowest-total"] },
+      },
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    annotations: writeAnnotations(),
+    invoking: "Creating checkout session",
+    invoked: "Checkout session created",
   },
   {
     name: "get_checkout",
     title: "Get Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Read the current state of a checkout session.",
+    description: "Use this to read a checkout session for the linked buyer account. Do not use it for public product discovery.",
     idempotencyKeyRequired: false,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", description: "Checkout session id." },
+      },
+      required: ["id"],
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CHECKOUT_READ_SECURITY,
+    annotations: readAnnotations(),
+    invoking: "Reading checkout session",
+    invoked: "Checkout session loaded",
   },
   {
     name: "update_checkout",
     title: "Update Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Update buyer, fulfillment, or payment-selection details on a checkout session.",
+    description: "Use this to update shipping option, optimization goal, or shipping address on an existing Chase Sets checkout session. This requires a linked buyer account and does not move money.",
     idempotencyKeyRequired: false,
+    inputSchema: {
+      type: "object",
+      additionalProperties: true,
+      properties: {
+        id: { type: "string", description: "Checkout session id." },
+        shipping_option: { type: "string" },
+        optimization_goal: { type: "string", enum: ["fewest-shipments", "lowest-total"] },
+        shipping_address: { type: "object", additionalProperties: true },
+      },
+      required: ["id"],
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    annotations: writeAnnotations(),
+    invoking: "Updating checkout session",
+    invoked: "Checkout session updated",
   },
   {
     name: "complete_checkout",
     title: "Complete Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Attempt to place the order, requiring trusted UI escalation unless AP2 mandate support is present.",
+    description: "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP/AP2 agents may continue only when Payments verifies mandate support.",
     idempotencyKeyRequired: true,
+    inputSchema: {
+      type: "object",
+      additionalProperties: true,
+      properties: {
+        id: { type: "string", description: "Checkout session id." },
+        shipping_address: { type: "object", additionalProperties: true },
+        acknowledged_material_changes: { type: "boolean" },
+        marketplace_checkout_fee_quote_fingerprint: { type: "string" },
+      },
+      required: ["id"],
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    annotations: writeAnnotations({ destructive: true, openWorld: true }),
+    invoking: "Preparing trusted checkout handoff",
+    invoked: "Checkout handoff ready",
+    trustedHandoffOnUnsignedMcp: true,
   },
   {
     name: "cancel_checkout",
     title: "Cancel Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Cancel a checkout session.",
+    description: "Use this only when the user asks to cancel or abandon checkout. Checkout cancellation currently returns a trusted UI handoff because Checkout does not own a cancel command yet.",
     idempotencyKeyRequired: true,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", description: "Checkout session id." },
+      },
+      required: ["id"],
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    annotations: writeAnnotations({ destructive: true, idempotent: true }),
+    invoking: "Preparing checkout cancellation handoff",
+    invoked: "Checkout cancellation handoff ready",
+    trustedHandoffOnUnsignedMcp: true,
   },
   {
     name: "get_order",
     title: "Get Order",
     capability: UCP_CAPABILITIES.order,
-    description: "Retrieve the current state of an order for the linked buyer or seller account.",
+    description: "Use this to retrieve a purchase or sale order for the linked buyer or seller account.",
     idempotencyKeyRequired: false,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", description: "Order id." },
+      },
+      required: ["id"],
+    },
+    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    securitySchemes: ORDER_READ_SECURITY,
+    annotations: readAnnotations(),
+    invoking: "Reading marketplace order",
+    invoked: "Marketplace order loaded",
   },
 ] as const satisfies readonly UcpMcpToolDescriptor[];
 
