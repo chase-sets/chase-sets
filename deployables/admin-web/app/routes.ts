@@ -82,9 +82,12 @@ const experienceLayoutRoutes = contextRoutes
   );
 
 export default [
+  route("manifest.webmanifest", "routes/manifest.ts"),
+  route("service-worker.js", "routes/service-worker.ts"),
   route("favicon.svg", "routes/favicon-svg.ts"),
   route("favicon.ico", "routes/favicon.ts"),
   route("health/ready", "routes/health-ready.ts"),
+  route("offline", "routes/offline.tsx"),
   route("/", "routes/index.tsx"),
   ...catalogRootRoutes,
   ...identityRootRoutes,
