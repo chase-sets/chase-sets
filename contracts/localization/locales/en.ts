@@ -4120,6 +4120,23 @@ export const englishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.support.owned": "Support owned",
   "support.features.supportRequests.ui.supportRequestListPage.hours": "{hours} hours",
   "support.routes.marketplace.accountSupport.support.marketplace": "Support | Marketplace",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback": "Image fallback",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.updated": "Image fallback updated",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.cleared": "Image fallback cleared",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.summary": "{usage} fallback",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback": "No image fallback.",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.fallback": "Set image fallback",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.clear.image.fallback": "Clear image fallback",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.url": "URL",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.alt.text": "Alt text",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.usage": "Usage",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.variants": "Variants",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.fallback.2": "Set image fallback",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.description": "Use permanent when the image is a real selectable item image, or loading-only when it is just a loading indicator.",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.save.4": "Save",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.variants.json": "Variants JSON",
+  "discovery.features.search.ui.searchPage.default.product.image": "Default product image",
+  "discovery.features.itemDetail.ui.itemDetailPage.default.product.image": "Default product image",
 } as const;
 
 export type EnglishTranslationKey = keyof typeof englishTranslations;

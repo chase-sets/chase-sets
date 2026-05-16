@@ -1,7 +1,7 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
-import type { BulkPublishPreview, BulkPublishResult, CatalogItemDetail, CatalogItemListItem } from "./contracts";
+import type { BulkPublishPreview, BulkPublishResult, CatalogItemDetail, CatalogItemImageFallback, CatalogItemListItem } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 
 export type CatalogItemMetadataInput = {
@@ -84,6 +84,14 @@ export function setImageUrls(id: string, imageUrls: string[]) {
   return api.setImageUrls<CommandResponse>(id, imageUrls);
 }
 
+export function setImageFallback(id: string, imageFallback: CatalogItemImageFallback) {
+  return api.setImageFallback<CommandResponse>(id, imageFallback);
+}
+
+export function clearImageFallback(id: string) {
+  return api.clearImageFallback<CommandResponse>(id);
+}
+
 export function linkExternalProductReference(
   id: string,
   providerKey: string,
@@ -109,5 +117,4 @@ export function unlinkExternalProductReference(
     externalKey,
   );
 }
-
 

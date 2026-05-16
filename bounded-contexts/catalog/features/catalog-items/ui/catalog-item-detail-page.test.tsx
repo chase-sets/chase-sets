@@ -19,6 +19,7 @@ const catalogItem: CatalogItemDetail = {
   external_product_references: [],
   tags: [],
   image_urls: [],
+  image_fallback: null,
   updated_at: "2026-05-13T00:00:00.000Z",
 };
 

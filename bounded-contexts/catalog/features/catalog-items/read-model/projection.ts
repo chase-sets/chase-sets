@@ -212,6 +212,25 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
+    "catalog.catalog-item.image-fallback-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { imageFallback } = event.data as { imageFallback: unknown };
+
+      await db.query(
+        `UPDATE catalog_items SET image_fallback = $2, updated_at = $3 WHERE catalog_item_id = $1`,
+        [itemId, JSON.stringify(imageFallback), event.timing.recordedAt],
+      );
+    },
+
+    "catalog.catalog-item.image-fallback-cleared": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE catalog_items SET image_fallback = NULL, updated_at = $2 WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
+    },
+
     "catalog.catalog-item.external-product-reference-linked": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { providerKey, externalKey, selectedOptions } = event.data as {

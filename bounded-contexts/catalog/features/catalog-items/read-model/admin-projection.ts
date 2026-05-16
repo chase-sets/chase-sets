@@ -31,6 +31,7 @@ type BaseCatalogItemRow = Readonly<{
   tags: unknown;
   image_urls: unknown;
   product_asset_sets: unknown;
+  image_fallback: unknown;
   updated_at: string;
 }>;
 
@@ -201,8 +202,9 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       tags,
       image_urls,
       product_asset_sets,
+      image_fallback,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
       title_i18n = EXCLUDED.title_i18n,
@@ -220,6 +222,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       tags = EXCLUDED.tags,
       image_urls = EXCLUDED.image_urls,
       product_asset_sets = EXCLUDED.product_asset_sets,
+      image_fallback = EXCLUDED.image_fallback,
       updated_at = EXCLUDED.updated_at`,
     [
       item.catalog_item_id,
@@ -244,6 +247,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       JSON.stringify(asStringArray(item.tags)),
       JSON.stringify(asStringArray(item.image_urls)),
       JSON.stringify(asArray(item.product_asset_sets)),
+      item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
       item.updated_at,
     ],
   );
@@ -408,6 +412,12 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.product-asset-sets-set": async (event) => {
+      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+    },
+    "catalog.catalog-item.image-fallback-set": async (event) => {
+      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+    },
+    "catalog.catalog-item.image-fallback-cleared": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.external-product-reference-linked": async (event) => {

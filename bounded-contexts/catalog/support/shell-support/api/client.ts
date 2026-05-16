@@ -643,6 +643,21 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async setImageFallback<T>(id: string, imageFallback: unknown): Promise<T> {
+      const response = await client.items[":id"]["image-fallback"].$put({
+        param: { id },
+        json: { imageFallback },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async clearImageFallback<T>(id: string): Promise<T> {
+      const response = await client.items[":id"]["image-fallback"].$delete({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async linkExternalProductReference<T>(
       id: string,
       providerKey: string,

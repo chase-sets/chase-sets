@@ -165,6 +165,58 @@ describe("CatalogItem aggregate", () => {
       expect(events[0].type).toBe("catalog.catalog-item.field-value-cleared");
     });
 
+    it("sets and clears an item image fallback", () => {
+      const setEvents = decide(decideCatalogItem, createdState(), {
+        type: "SetCatalogItemImageFallback" as const,
+        imageFallback: {
+          url: " https://assets.example/pokemon-back.webp ",
+          alt: " Pokemon card back ",
+          usage: "permanent",
+          variants: {
+            card: {
+              oneX: " https://assets.example/pokemon-back-card.webp ",
+              twoX: "https://assets.example/pokemon-back-card@2x.webp",
+            },
+          },
+        },
+      });
+      const withFallback = givenEvents(
+        createdState(),
+        evolveCatalogItem,
+        setEvents as CatalogItemEvent[],
+      );
+      const clearEvents = decide(decideCatalogItem, withFallback, {
+        type: "ClearCatalogItemImageFallback" as const,
+      });
+
+      expect(setEvents[0]).toMatchObject({
+        type: "catalog.catalog-item.image-fallback-set",
+        data: {
+          imageFallback: {
+            url: "https://assets.example/pokemon-back.webp",
+            alt: "Pokemon card back",
+            usage: "permanent",
+          },
+        },
+      });
+      expect(clearEvents[0].type).toBe("catalog.catalog-item.image-fallback-cleared");
+    });
+
+    it("rejects an item image fallback without alt text", () => {
+      expectDomainError(
+        () => decide(decideCatalogItem, createdState(), {
+          type: "SetCatalogItemImageFallback" as const,
+          imageFallback: {
+            url: "https://assets.example/pokemon-back.webp",
+            alt: "",
+            usage: "loading-only",
+            variants: {},
+          },
+        }),
+        "Catalog item image fallback requires alt text.",
+      );
+    });
+
     it("rejects clearing a non-existent field value", () => {
       expectDomainError(
         () => decide(decideCatalogItem, createdState(), { type: "ClearCatalogItemFieldValue" as const, fieldId: fieldA }),

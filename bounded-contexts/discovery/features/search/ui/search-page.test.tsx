@@ -34,6 +34,7 @@ const searchResult: DiscoverySearchItem = {
   tags: [],
   image_urls: [],
   product_asset_sets: [],
+  image_fallback: null,
   market_summary: null,
   updated_at: "2026-05-13T00:00:00.000Z",
 };
@@ -56,6 +57,7 @@ const japaneseSearchResult: DiscoverySearchItem = {
   tags: [],
   image_urls: [],
   product_asset_sets: [],
+  image_fallback: null,
   market_summary: {
     lowest_price_amount: "10.00",
     active_listing_count: 1,

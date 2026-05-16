@@ -46,6 +46,7 @@ type ItemDetailCatalogItemRow = Readonly<{
   tags: unknown;
   image_urls: unknown;
   product_asset_sets: unknown;
+  image_fallback: unknown;
   updated_at: string;
 }>;
 
@@ -287,9 +288,10 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       tags,
       image_urls,
       product_asset_sets,
+      image_fallback,
       product_schema,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -307,6 +309,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       tags = EXCLUDED.tags,
       image_urls = EXCLUDED.image_urls,
       product_asset_sets = EXCLUDED.product_asset_sets,
+      image_fallback = EXCLUDED.image_fallback,
       product_schema = EXCLUDED.product_schema,
       updated_at = EXCLUDED.updated_at`,
     [
@@ -345,6 +348,7 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
       JSON.stringify(tags),
       JSON.stringify(imageUrls),
       JSON.stringify(productAssetSets),
+      item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
       productSchema === null ? null : JSON.stringify(productSchema),
       item.updated_at,
     ],
@@ -648,6 +652,33 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
           JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
           event.timing.recordedAt,
         ],
+      );
+
+      await refreshDiscoveryItemDetailPage(db, itemId);
+    },
+    "catalog.catalog-item.image-fallback-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+      const { imageFallback } = event.data as { imageFallback: unknown };
+
+      await db.query(
+        `UPDATE discovery_item_detail_catalog_items
+         SET image_fallback = $2,
+             updated_at = $3
+         WHERE catalog_item_id = $1`,
+        [itemId, JSON.stringify(imageFallback), event.timing.recordedAt],
+      );
+
+      await refreshDiscoveryItemDetailPage(db, itemId);
+    },
+    "catalog.catalog-item.image-fallback-cleared": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+
+      await db.query(
+        `UPDATE discovery_item_detail_catalog_items
+         SET image_fallback = NULL,
+             updated_at = $2
+         WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
       );
 
       await refreshDiscoveryItemDetailPage(db, itemId);

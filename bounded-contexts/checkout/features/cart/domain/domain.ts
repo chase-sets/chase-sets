@@ -23,6 +23,9 @@ export type CheckoutCartLine = Readonly<{
   itemTitle: string;
   itemSubtitle: string | null;
   itemImageUrl: string | null;
+  itemImageLoadingUrl: string | null;
+  itemImageLoadingAlt: string | null;
+  itemImageLoadingSrcSet: string | null;
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
   quantity: number;
@@ -54,6 +57,9 @@ export type AddCartLineCommand = Readonly<{
   itemTitle: string;
   itemSubtitle: string | null;
   itemImageUrl: string | null;
+  itemImageLoadingUrl?: string | null;
+  itemImageLoadingAlt?: string | null;
+  itemImageLoadingSrcSet?: string | null;
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
   quantity: number;
@@ -106,6 +112,9 @@ export type CartLineAddedEvent = DomainEvent<
     itemTitle: string;
     itemSubtitle: string | null;
     itemImageUrl: string | null;
+    itemImageLoadingUrl?: string | null;
+    itemImageLoadingAlt?: string | null;
+    itemImageLoadingSrcSet?: string | null;
     selectedOptions: VersionSelectedOptionEntry[];
     productSummary: string | null;
     quantity: number;
@@ -221,6 +230,9 @@ export const decideCheckoutCart: AggregateDecider<
             ),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
             itemImageUrl: normalizeOptionalText(command.itemImageUrl),
+            itemImageLoadingUrl: normalizeOptionalText(command.itemImageLoadingUrl),
+            itemImageLoadingAlt: normalizeOptionalText(command.itemImageLoadingAlt),
+            itemImageLoadingSrcSet: normalizeOptionalText(command.itemImageLoadingSrcSet),
             selectedOptions: normalizeVersionSelection(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
             quantity: ensurePositiveInteger(
@@ -323,6 +335,9 @@ export const evolveCheckoutCart: AggregateEvolver<
             itemTitle: event.data.itemTitle,
             itemSubtitle: event.data.itemSubtitle,
             itemImageUrl: event.data.itemImageUrl,
+            itemImageLoadingUrl: normalizeOptionalText(event.data.itemImageLoadingUrl),
+            itemImageLoadingAlt: normalizeOptionalText(event.data.itemImageLoadingAlt),
+            itemImageLoadingSrcSet: normalizeOptionalText(event.data.itemImageLoadingSrcSet),
             selectedOptions: event.data.selectedOptions,
             productSummary: event.data.productSummary,
             quantity: event.data.quantity,

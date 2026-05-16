@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS discovery_search_catalog_items (
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
+  image_fallback jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -28,7 +29,8 @@ ALTER TABLE discovery_search_catalog_items
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
-  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_search_catalog_items_slug_idx ON discovery_search_catalog_items (slug) WHERE slug <> '';
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_items_language_idx ON discovery_search_catalog_items (language_code);
@@ -136,6 +138,7 @@ CREATE TABLE IF NOT EXISTS discovery_search_items (
   dimension_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
+  image_fallback jsonb NULL,
   search_text tsvector,
   search_text_simple tsvector,
   search_embedding vector(1536),
@@ -157,7 +160,8 @@ ALTER TABLE discovery_search_items
 
 ALTER TABLE discovery_search_items
   ADD COLUMN IF NOT EXISTS field_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS dimension_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS dimension_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_search_items_slug_idx ON discovery_search_items (slug) WHERE slug <> '';
 CREATE INDEX IF NOT EXISTS discovery_search_items_language_idx ON discovery_search_items (language_code);

@@ -2,6 +2,7 @@ import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { CatalogItemId, FieldId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";
+import type { CatalogItemImageFallback } from "../domain/domain";
 import type { BlueprintIds } from "../../blueprints/api/seed";
 import type { CategoryIds } from "../../categories/api/seed";
 import type { FieldIds } from "../../fields/api/seed";
@@ -43,6 +44,7 @@ export async function seedCatalogItems(
       externalKey: string;
       selectedOptions: Array<{ dimensionId: string; optionId: string }>;
     }>;
+    imageFallback?: CatalogItemImageFallback;
   };
 
   const items: ItemDef[] = [
@@ -65,6 +67,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "fire"],
       tags: ["base-set", "charizard", "holo", "vintage"],
+      imageFallback: pokemonEnglishCardBack(),
       externalProductReferences: [
         {
           providerKey: "tcgplayer",
@@ -101,6 +104,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "electric"],
       tags: ["jungle", "pikachu", "vintage"],
+      imageFallback: pokemonEnglishCardBack(),
       externalProductReferences: [
         {
           providerKey: "tcgplayer",
@@ -142,6 +146,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "fire"],
       tags: ["base-set", "charizard", "holo", "japanese", "vintage"],
+      imageFallback: pokemonJapaneseCardBack(),
     },
     {
       itemId: catalogSeedIds.items.lugiaNeoGenesis as CatalogItemId,
@@ -162,6 +167,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-2", "psychic"],
       tags: ["lugia", "neo-genesis", "vintage"],
+      imageFallback: pokemonEnglishCardBack(),
     },
     {
       itemId: catalogSeedIds.items.mewtwoBlackStarPromo as CatalogItemId,
@@ -182,6 +188,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "psychic"],
       tags: ["mewtwo", "promo", "vintage"],
+      imageFallback: pokemonEnglishCardBack(),
     },
     {
       itemId: catalogSeedIds.items.bulbasaurBaseSet as CatalogItemId,
@@ -202,6 +209,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "grass"],
       tags: ["base-set", "bulbasaur", "vintage"],
+      imageFallback: pokemonEnglishCardBack(),
     },
     {
       itemId: catalogSeedIds.items.pikachuPrismaticEvolutions as CatalogItemId,
@@ -222,6 +230,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-9", "electric"],
       tags: ["modern", "pikachu", "prismatic-evolutions"],
+      imageFallback: pokemonEnglishCardBack(),
     },
     {
       itemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack as CatalogItemId,
@@ -239,6 +248,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "sealed-products", "booster-packs"],
       tags: ["booster-pack", "prismatic-evolutions", "sealed"],
+      imageFallback: pokemonSealedFallback(),
     },
     {
       itemId: catalogSeedIds.items.surgingSparksBoosterBox as CatalogItemId,
@@ -256,6 +266,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "sealed-products", "booster-boxes"],
       tags: ["booster-box", "sealed", "surging-sparks"],
+      imageFallback: pokemonSealedFallback(),
     },
     {
       itemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox as CatalogItemId,
@@ -273,6 +284,7 @@ export async function seedCatalogItems(
       ],
       categoryKeys: ["pokemon-tcg", "sealed-products", "elite-trainer-boxes"],
       tags: ["elite-trainer-box", "sealed", "twilight-masquerade"],
+      imageFallback: pokemonSealedFallback(),
     },
   ];
 
@@ -313,6 +325,13 @@ export async function seedCatalogItems(
       tags: item.tags,
     });
 
+    if (item.imageFallback) {
+      await sendSeedCommand(services.items.commandHandler, streamId, {
+        type: "SetCatalogItemImageFallback",
+        imageFallback: item.imageFallback,
+      });
+    }
+
     for (const reference of item.externalProductReferences ?? []) {
       await sendSeedCommand(services.items.commandHandler, streamId, {
         type: "LinkExternalProductReference",
@@ -330,6 +349,35 @@ export async function seedCatalogItems(
 
     console.log(`  Item "${item.title.values.en}" created and published`);
   }
+}
+
+function pokemonEnglishCardBack(): CatalogItemImageFallback {
+  return imageFallback("/fake-cdn/assets/pokemon_tcg_back.png", "Pokemon TCG English card back", "permanent");
+}
+
+function pokemonJapaneseCardBack(): CatalogItemImageFallback {
+  return imageFallback("/fake-cdn/assets/pokemon-card-back.png", "Pokemon TCG Japanese card back", "permanent");
+}
+
+function pokemonSealedFallback(): CatalogItemImageFallback {
+  return imageFallback("/fake-cdn/assets/pokemon-card-back.png", "Pokemon sealed product loading image", "loading-only");
+}
+
+function imageFallback(
+  url: string,
+  alt: string,
+  usage: CatalogItemImageFallback["usage"],
+): CatalogItemImageFallback {
+  return {
+    url,
+    alt,
+    usage,
+    variants: {
+      card: { oneX: url, twoX: url },
+      detail: { oneX: url, twoX: url },
+      thumbnail: { oneX: url, twoX: url },
+    },
+  };
 }
 
 function l10n(en: string, values: Record<string, string> = {}): LocalizedTextMap {
