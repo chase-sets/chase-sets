@@ -33,9 +33,12 @@ describe("UCP contract profile", () => {
     const profile = buildUcpBusinessProfile("https://marketplace.example");
 
     expect(Object.keys(profile.ucp.capabilities).sort()).toEqual([
+      UCP_CAPABILITIES.ap2Mandate,
       UCP_CAPABILITIES.catalogLookup,
       UCP_CAPABILITIES.catalogSearch,
       UCP_CAPABILITIES.checkout,
+      UCP_CAPABILITIES.identityLinking,
+      UCP_CAPABILITIES.order,
     ].sort());
     expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]?.config).toEqual({
       completion_requires_trusted_ui_without_ap2_mandate: true,

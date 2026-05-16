@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, verify as verifySignatureBytes } from "node:crypto";
 import { Hono, type Context } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   buildUcpBusinessProfile,
   createUcpEnvelope,
@@ -62,6 +63,13 @@ export type UcpSignatureVerificationOptions = Readonly<{
   keyResolver: UcpSignatureKeyResolver;
 }>;
 
+export type UcpProfileCacheOptions = Readonly<{
+  db: PgQueryable;
+  fetch?: typeof globalThis.fetch;
+  ttlMs?: number;
+  now?: () => Date;
+}>;
+
 export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
@@ -77,6 +85,33 @@ const SIGNED_WRITE_HEADERS = [
   "Content-Digest",
   "UCP-Agent",
 ] as const;
+
+const DEFAULT_PROFILE_CACHE_TTL_MS = 15 * 60 * 1000;
+
+export const platformUcpRuntimeSchemaSql = `
+CREATE TABLE IF NOT EXISTS platform_ucp_idempotency_records (
+  key text PRIMARY KEY,
+  request_hash text NOT NULL,
+  response jsonb NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS platform_ucp_idempotency_records_created_at_idx
+  ON platform_ucp_idempotency_records (created_at);
+
+CREATE TABLE IF NOT EXISTS platform_ucp_agent_profiles (
+  profile_url text PRIMARY KEY,
+  profile jsonb NOT NULL,
+  fetched_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  last_error text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS platform_ucp_agent_profiles_expires_at_idx
+  ON platform_ucp_agent_profiles (expires_at);
+`;
 
 function requestOrigin(request: Request) {
   const url = new URL(request.url);
@@ -143,6 +178,16 @@ function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Readonly<Record<string, unknown>>
     : {};
+}
+
+function readObject(value: unknown): Readonly<Record<string, unknown>> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : null;
+}
+
+function readArray(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function missingSignedWriteHeaders(request: Request) {
@@ -350,6 +395,151 @@ function createMemoryUcpIdempotencyStore(): UcpIdempotencyStore {
   };
 }
 
+export function createPostgresUcpIdempotencyStore(db: PgQueryable): UcpIdempotencyStore {
+  return {
+    get: async (key) => {
+      const result = await db.query<{
+        key: string;
+        request_hash: string;
+        response: UcpEnvelope;
+        created_at: Date | string;
+      }>(
+        `SELECT key, request_hash, response, created_at
+         FROM platform_ucp_idempotency_records
+         WHERE key = $1`,
+        [key],
+      );
+      const row = result.rows[0];
+      return row
+        ? {
+            key: row.key,
+            requestHash: row.request_hash,
+            response: row.response,
+            createdAt: row.created_at instanceof Date
+              ? row.created_at.toISOString()
+              : String(row.created_at),
+          }
+        : null;
+    },
+    put: async (record) => {
+      await db.query(
+        `INSERT INTO platform_ucp_idempotency_records (
+           key,
+           request_hash,
+           response,
+           created_at,
+           updated_at
+         ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, now())
+         ON CONFLICT (key) DO NOTHING`,
+        [
+          record.key,
+          record.requestHash,
+          JSON.stringify(record.response),
+          record.createdAt,
+        ],
+      );
+    },
+  };
+}
+
+export function createUcpProfileKeyResolver(
+  options: UcpProfileCacheOptions,
+): UcpSignatureKeyResolver {
+  return async (profileUrl, keyId) => {
+    const profile = await resolveCachedUcpProfile(options, profileUrl);
+    return findProfileSigningKey(profile, keyId);
+  };
+}
+
+async function resolveCachedUcpProfile(
+  options: UcpProfileCacheOptions,
+  profileUrl: string,
+) {
+  const now = options.now?.() ?? new Date();
+  const cached = await options.db.query<{
+    profile: unknown;
+    expires_at: Date | string;
+  }>(
+    `SELECT profile, expires_at
+     FROM platform_ucp_agent_profiles
+     WHERE profile_url = $1`,
+    [profileUrl],
+  );
+  const cachedRow = cached.rows[0];
+  const cachedExpiresAt = cachedRow
+    ? new Date(cachedRow.expires_at).getTime()
+    : 0;
+  if (cachedRow && cachedExpiresAt > now.getTime()) {
+    return readObject(cachedRow.profile) ?? {};
+  }
+
+  try {
+    const response = await (options.fetch ?? globalThis.fetch)(profileUrl, {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`UCP profile fetch failed with status ${response.status}.`);
+    }
+    const profile = readObject(await response.json()) ?? {};
+    const fetchedAt = now.toISOString();
+    const expiresAt = new Date(
+      now.getTime() + (options.ttlMs ?? DEFAULT_PROFILE_CACHE_TTL_MS),
+    ).toISOString();
+    await options.db.query(
+      `INSERT INTO platform_ucp_agent_profiles (
+         profile_url,
+         profile,
+         fetched_at,
+         expires_at,
+         last_error,
+         updated_at
+       ) VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz, NULL, now())
+       ON CONFLICT (profile_url) DO UPDATE
+       SET profile = EXCLUDED.profile,
+           fetched_at = EXCLUDED.fetched_at,
+           expires_at = EXCLUDED.expires_at,
+           last_error = NULL,
+           updated_at = EXCLUDED.updated_at`,
+      [profileUrl, JSON.stringify(profile), fetchedAt, expiresAt],
+    );
+    return profile;
+  } catch (error) {
+    await options.db.query(
+      `INSERT INTO platform_ucp_agent_profiles (
+         profile_url,
+         profile,
+         fetched_at,
+         expires_at,
+         last_error,
+         updated_at
+       ) VALUES ($1, '{}'::jsonb, now(), now(), $2, now())
+       ON CONFLICT (profile_url) DO UPDATE
+       SET last_error = EXCLUDED.last_error,
+           updated_at = EXCLUDED.updated_at`,
+      [profileUrl, error instanceof Error ? error.message : String(error)],
+    );
+    throw error;
+  }
+}
+
+function findProfileSigningKey(
+  profile: Readonly<Record<string, unknown>>,
+  keyId: string,
+) {
+  const keys = [
+    ...readArray(profile.signing_keys),
+    ...readArray(readObject(profile.ucp)?.signing_keys),
+  ];
+  for (const entry of keys) {
+    const key = readObject(entry);
+    if (!key || key.kid !== keyId) {
+      continue;
+    }
+    return key as JsonWebKey;
+  }
+  return null;
+}
+
 function idempotencyScope(
   operation: string,
   request: Request,
@@ -485,6 +675,9 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
   );
   app.post("/checkout-sessions/:id/cancel", async (c) =>
     invokeRestWrite(c, options, "cancel_checkout", { id: c.req.param("id") }, idempotencyStore),
+  );
+  app.get("/orders/:id", async (c) =>
+    c.json(await invokeRestHandler(options.restHandlers, "get_order", handlerInput(c, { id: c.req.param("id") }))),
   );
 
   return app;

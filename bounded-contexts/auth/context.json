@@ -22,6 +22,7 @@
     "runtime-support",
     "seed-support",
     "social-login-support",
+    "ucp-support",
     "ui-support"
   ],
   "publicExports": [
@@ -434,6 +435,17 @@
       "justification": "social-login-support keeps provider adapter details out of feature UI and session aggregates while still staying inside the Auth boundary.",
       "createdFor": "sign-in and registration Social Login journeys.",
       "sunsetWhen": "Remove when social login support is extracted to a dedicated provider contract or no longer spans multiple Auth slices."
+    },
+    "ucp-support": {
+      "classification": "support",
+      "purpose": "Provide Auth-owned OAuth authorization, token, and revocation routes for UCP identity linking.",
+      "allowedWhen": "Allowed because UCP OAuth spans the Auth authorization journey and deployable protocol composition.",
+      "expectedConsumers": [
+        "Deployable composition for UCP identity linking"
+      ],
+      "justification": "Auth owns the OAuth journey while Identity owns durable linked platform authorization facts.",
+      "createdFor": "authentication and account-selection for UCP identity linking.",
+      "sunsetWhen": "Remove when UCP identity linking can move into a single Auth feature slice."
     },
     "ui-support": {
       "classification": "support",

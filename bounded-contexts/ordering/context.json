@@ -13,7 +13,8 @@
     "account-support",
     "request-support",
     "runtime-support",
-    "seed-support"
+    "seed-support",
+    "ucp-support"
   ],
   "publicExports": [
     ".",
@@ -373,6 +374,17 @@
       "createdFor": "ordering workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "ucp-support": {
+      "classification": "support",
+      "purpose": "Provide Ordering-owned UCP order read adapters over purchase and sale projections.",
+      "allowedWhen": "Allowed because UCP order reads are an external protocol entrypoint over Ordering-owned read models.",
+      "expectedConsumers": [
+        "Platform UCP route composition"
+      ],
+      "justification": "Ordering owns Order, Purchase, and Sale state; UCP remains only a protocol facade.",
+      "createdFor": "UCP standalone order reads.",
+      "sunsetWhen": "Remove if UCP order reads move into an Ordering feature-local API slice."
     },
     "routes": {
       "classification": "routes",

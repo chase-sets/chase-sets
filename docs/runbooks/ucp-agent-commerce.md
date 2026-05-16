@@ -30,14 +30,26 @@ Checkout write requests must include:
 - `Content-Digest`
 - `Idempotency-Key`
 
-Current runtime verifies required headers, SHA-256 body digest, and replay/idempotency before invoking checkout write handlers. When configured with a UCP profile/key resolver, it also verifies RFC 9421 HTTP Message Signatures against the signer's public key. Production enablement must provide durable key/profile caching, durable idempotency storage, response signing policy, and telemetry for signature failures.
+Current runtime verifies required headers, SHA-256 body digest, and replay/idempotency before invoking checkout write handlers. Production platform-api composition wires the Postgres-backed UCP idempotency store and profile/key cache from the platform control database. When configured with a UCP profile/key resolver, it also verifies RFC 9421 HTTP Message Signatures against the signer's public key.
+
+Check OAuth metadata:
+
+```powershell
+Invoke-RestMethod http://localhost:7712/.well-known/oauth-authorization-server
+```
+
+Order reads are available through the linked buyer or seller account:
+
+```powershell
+Invoke-RestMethod http://localhost:7712/ucp/v1/orders/<order-id> -Headers @{ Authorization = "Bearer <ucp-access-token>" }
+```
 
 ## Incident Response
 
 For suspected replay or agent abuse:
 
-- Pause the platform/client in Identity once linked-platform authorization exists.
-- Revoke OAuth tokens and refresh tokens.
+- Pause the platform/client in Identity by revoking the Linked Platform Authorization.
+- Revoke OAuth access tokens and refresh tokens through `/ucp/oauth/revoke`.
 - Search UCP audit records by agent profile, operation, account, and idempotency key.
 - Compare `Content-Digest` values for duplicate or tampered requests.
 - Confirm no duplicate Ordering or Payments facts were emitted.
@@ -45,7 +57,8 @@ For suspected replay or agent abuse:
 ## Production Readiness Gates
 
 - UCP profile advertises only capabilities with wired bounded-context handlers.
-- OAuth identity linking maps UCP scopes to Chase Sets permissions.
+- OAuth identity linking maps UCP scopes to Chase Sets permissions and persists Linked Platform Authorization records in Identity.
 - Signature verification resolves agent keys from UCP profile/key discovery and is enabled in production runtime composition.
 - Idempotency records are durable and survive process restarts.
-- Staging smoke confirms `/.well-known/ucp`, `/ucp/v1`, and `/ucp/mcp` on the marketplace host; trusted checkout handoff stays covered by focused Checkout UCP tests until AP2 payment-handler handoff and order reads are implemented.
+- AP2/payment-handler support is guarded: Payments declares trusted handlers and returns continuation/rejection states, but headless completion is disabled.
+- Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, `/ucp/v1`, `/ucp/mcp`, and linked-account order reads on the marketplace host.

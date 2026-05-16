@@ -301,6 +301,7 @@ describe("platform api app", () => {
           { name: "update_checkout" },
           { name: "complete_checkout" },
           { name: "cancel_checkout" },
+          { name: "get_order" },
         ],
       },
     });

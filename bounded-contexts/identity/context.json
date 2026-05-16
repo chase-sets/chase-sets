@@ -28,6 +28,7 @@
     "runtime-support",
     "seed-support",
     "shell-support",
+    "ucp-support",
     "ui-support"
   ],
   "publicExports": [
@@ -394,6 +395,18 @@
       "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "ucp-support": {
+      "classification": "support",
+      "purpose": "Provide Identity-owned durable Linked Platform Authorization storage for UCP delegated access.",
+      "allowedWhen": "Allowed because linked platform authorization spans OAuth token resolution, consent audit, and deployable protocol composition.",
+      "expectedConsumers": [
+        "Auth UCP OAuth routes",
+        "Platform actor resolution"
+      ],
+      "justification": "Identity owns the durable user/account authorization fact while Auth owns the OAuth journey.",
+      "createdFor": "UCP identity linking.",
+      "sunsetWhen": "Move into a dedicated Identity feature slice when linked platform authorization gets UI management."
     },
     "ui-support": {
       "classification": "support",

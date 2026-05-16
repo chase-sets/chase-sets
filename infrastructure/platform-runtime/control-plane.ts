@@ -1,4 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { platformUcpRuntimeSchemaSql } from "./ucp";
 
 export const platformControlPlaneSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_control_leases (
@@ -46,6 +47,8 @@ CREATE INDEX IF NOT EXISTS platform_realtime_stream_leases_connection_key_idx
 
 CREATE INDEX IF NOT EXISTS platform_realtime_stream_leases_expires_at_idx
   ON platform_realtime_stream_leases (expires_at);
+
+${platformUcpRuntimeSchemaSql}
 `;
 
 export type PlatformLease = Readonly<{

@@ -131,31 +131,97 @@ async function resolveGuestCheckoutActor(
 }
 
 export async function resolveActorFromRequest(
-  services: PlatformIdentityServices["auth"],
+  services: PlatformIdentityServices,
   request: Request,
 ): Promise<ResolvedActor | null> {
-  const sessionToken = readAuthSessionToken(request);
-  if (!sessionToken) {
-    return resolveGuestCheckoutActor(services, request);
+  const linkedActor = await resolveLinkedPlatformActor(services, request);
+  if (linkedActor) {
+    return linkedActor;
   }
 
-  const result = await services.db.query<{
+  const sessionToken = readAuthSessionToken(request);
+  if (!sessionToken) {
+    return resolveGuestCheckoutActor(services.auth, request);
+  }
+
+  const result = await services.auth.db.query<{
     session_id: string;
     expires_at: string;
   }>(
     `SELECT session_id, expires_at
      FROM identity_session_tokens
      WHERE token_hash = $1`,
-    [services.auth.hashSecret(sessionToken)],
+    [services.auth.auth.hashSecret(sessionToken)],
   );
   const tokenRecord = result.rows[0] ?? null;
 
   if (!tokenRecord || new Date(tokenRecord.expires_at).getTime() <= Date.now()) {
-    return resolveGuestCheckoutActor(services, request);
+    return resolveGuestCheckoutActor(services.auth, request);
   }
 
   return (
-    (await resolveActorFromSessionId(services, tokenRecord.session_id)) ??
-    (await resolveGuestCheckoutActor(services, request))
+    (await resolveActorFromSessionId(services.auth, tokenRecord.session_id)) ??
+    (await resolveGuestCheckoutActor(services.auth, request))
   );
+}
+
+async function resolveLinkedPlatformActor(
+  services: PlatformIdentityServices,
+  request: Request,
+): Promise<ResolvedActor | null> {
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authorization.slice("Bearer ".length).trim();
+  if (!token.startsWith("ucp_at_")) {
+    return null;
+  }
+
+  const linked = await services.identity.linkedPlatformAuthorizations
+    .resolveAccessToken(services.auth.auth.hashSecret(token));
+  if (!linked) {
+    return null;
+  }
+
+  const membership = await services.auth.identity.getActiveMembershipForUserAccount(
+    linked.user_id,
+    linked.account_id,
+  );
+  if (!membership) {
+    return null;
+  }
+
+  return {
+    sessionId: `ucp:${linked.authorization_id}`,
+    tenantId: services.auth.identity.bootstrapTenantId,
+    userId: linked.user_id,
+    accountId: linked.account_id,
+    membershipId: membership.membership_id,
+    roleKey: membership.role_key,
+    permissions: scopedPermissions(
+      linked.scopes,
+      membership.role_permissions as readonly string[],
+    ),
+  };
+}
+
+function scopedPermissions(
+  scopes: readonly string[],
+  membershipPermissions: readonly string[],
+) {
+  const allowed = new Set<string>();
+  if (scopes.includes("catalog:read")) {
+    allowed.add("catalog.view");
+    allowed.add("listings.view");
+  }
+  if (scopes.includes("checkout:read") || scopes.includes("order:read")) {
+    allowed.add("orders.view");
+  }
+  if (scopes.includes("checkout:write")) {
+    allowed.add("orders.manage");
+  }
+
+  return membershipPermissions.filter((permission) => allowed.has(permission));
 }

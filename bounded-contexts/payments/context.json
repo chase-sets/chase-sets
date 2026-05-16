@@ -14,7 +14,8 @@
   "allowedSupportDirectories": [
     "request-support",
     "runtime-support",
-    "seed-support"
+    "seed-support",
+    "ucp-support"
   ],
   "publicExports": [
     ".",
@@ -219,6 +220,18 @@
       "createdFor": "payments workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "ucp-support": {
+      "classification": "support",
+      "purpose": "Provide Payments-owned UCP payment-handler declarations and AP2 guarded-completion decisions.",
+      "allowedWhen": "Allowed because UCP payment-handler handoff is an external protocol adapter over Payments-owned payment risk decisions.",
+      "expectedConsumers": [
+        "Checkout UCP completion adapter",
+        "Platform UCP route composition"
+      ],
+      "justification": "Payments owns payment handlers and AP2 mandate acceptance; Checkout only coordinates the trusted checkout session.",
+      "createdFor": "UCP guarded AP2/payment-handler hardening.",
+      "sunsetWhen": "Move into a Payments feature slice when production AP2 mandate verification is implemented."
     },
     "routes": {
       "classification": "routes",

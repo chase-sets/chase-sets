@@ -2,7 +2,12 @@ import { createHash, createSign, generateKeyPairSync, type KeyObject } from "nod
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/ucp";
-import { createUcpMcpRoutes, createUcpProfileRoutes, createUcpRestRoutes } from "./ucp";
+import {
+  createUcpMcpRoutes,
+  createUcpProfileKeyResolver,
+  createUcpProfileRoutes,
+  createUcpRestRoutes,
+} from "./ucp";
 
 function signedHeaders(body: string, extra: Readonly<Record<string, string>> = {}) {
   return {
@@ -265,6 +270,32 @@ describe("UCP REST routes", () => {
   });
 });
 
+describe("UCP profile key cache", () => {
+  it("caches fetched agent signing keys in the platform store", async () => {
+    const db = createFakeProfileDb();
+    const fetch = vi.fn(async () =>
+      new Response(JSON.stringify({
+        signing_keys: [
+          { kid: "platform-2026", kty: "RSA", n: "abc", e: "AQAB" },
+        ],
+      }), { status: 200 }),
+    );
+    const resolver = createUcpProfileKeyResolver({
+      db,
+      fetch,
+      ttlMs: 60_000,
+      now: () => new Date("2026-05-16T00:00:00.000Z"),
+    });
+
+    const first = await resolver("https://agent.example/.well-known/ucp", "platform-2026");
+    const second = await resolver("https://agent.example/.well-known/ucp", "platform-2026");
+
+    expect(first).toMatchObject({ kid: "platform-2026" });
+    expect(second).toMatchObject({ kid: "platform-2026" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("UCP MCP routes", () => {
   it("lists UCP tool names instead of Chase Sets-native MCP descriptors", async () => {
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
@@ -402,3 +433,35 @@ describe("UCP MCP routes", () => {
     });
   });
 });
+
+function createFakeProfileDb() {
+  const profiles = new Map<string, {
+    profile: unknown;
+    expires_at: string;
+  }>();
+
+  return {
+    async query<Row = Record<string, unknown>>(
+      text: string,
+      values: readonly unknown[] = [],
+    ) {
+      if (text.includes("SELECT profile, expires_at")) {
+        const row = profiles.get(String(values[0]));
+        return {
+          rows: row ? [row as Row] : [],
+          rowCount: row ? 1 : 0,
+        };
+      }
+
+      if (text.includes("INSERT INTO platform_ucp_agent_profiles")) {
+        profiles.set(String(values[0]), {
+          profile: JSON.parse(String(values[1] ?? "{}")),
+          expires_at: String(values[3] ?? new Date().toISOString()),
+        });
+        return { rows: [], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected query: ${text}`);
+    },
+  };
+}

@@ -2,6 +2,7 @@ import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { transactionalEmailOutboxSchemaSql } from "@chase-sets/transactional-email-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
+import { authUcpOAuthSchemaSql } from "../ucp-support/oauth";
 
 const authSessionSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_sessions (
@@ -148,6 +149,7 @@ export const authSchemaSql = [
   transactionalEmailOutboxSchemaSql,
   notificationOutboxSchemaSql,
   authIdentityProjectionSchemaSql,
+  authUcpOAuthSchemaSql,
   authSessionSchemaSql,
   authCredentialSchemaSql,
 ].join("\n\n");

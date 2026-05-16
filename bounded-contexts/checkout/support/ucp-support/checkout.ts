@@ -6,6 +6,12 @@ import type { CheckoutSessionRow } from "../../features/sessions/read-model/quer
 import type { CheckoutOptimizationGoal, CheckoutShippingAddress } from "../../features/sessions/domain/domain";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
+type UcpPaymentHandlerHandoff = Readonly<{
+  payment: Readonly<Record<string, unknown>>;
+  validateCompleteRequest: (
+    body: Readonly<Record<string, unknown>>,
+  ) => UcpEnvelope | null;
+}>;
 
 export type CheckoutUcpHandlers = Readonly<{
   restHandlers: Readonly<Record<string, UcpHandler>>;
@@ -29,6 +35,7 @@ type CheckoutIntentBody = Readonly<{
 
 export function createCheckoutUcpHandlers(
   checkout: Pick<CheckoutServices, "sessions">,
+  options: Readonly<{ paymentHandoff?: UcpPaymentHandlerHandoff }> = {},
 ): CheckoutUcpHandlers {
   const handlers = {
     create_checkout: async (input: UcpOperationHandlerInput) => {
@@ -61,10 +68,10 @@ export function createCheckoutUcpHandlers(
         );
 
         return createUcpEnvelope("ok", {
-          checkout: session ? sessionToUcpCheckout(session) : {
-            id: result.sessionId,
-            status: "started",
-          },
+            checkout: session ? sessionToUcpCheckout(session, options.paymentHandoff) : {
+              id: result.sessionId,
+              status: "started",
+            },
         });
       } catch (error) {
         return validationError(error);
@@ -82,7 +89,7 @@ export function createCheckoutUcpHandlers(
         : null;
 
       return session
-        ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session) })
+        ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options.paymentHandoff) })
         : checkoutNotFound();
     },
     update_checkout: async (input: UcpOperationHandlerInput) => {
@@ -140,7 +147,7 @@ export function createCheckoutUcpHandlers(
           access.actor.accountId,
         );
         return session
-          ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session) })
+          ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options.paymentHandoff) })
           : checkoutNotFound();
       } catch (error) {
         return validationError(error);
@@ -160,16 +167,25 @@ export function createCheckoutUcpHandlers(
         return checkoutNotFound();
       }
 
+      const body = await readInputObject<Readonly<Record<string, unknown>>>(input);
+      const guardedPaymentResponse = options.paymentHandoff?.validateCompleteRequest(body);
+      if (guardedPaymentResponse) {
+        return createUcpEnvelope(guardedPaymentResponse.ucp.status, {
+          checkout: sessionToUcpCheckout(session, options.paymentHandoff),
+          ...stripUcpEnvelope(guardedPaymentResponse),
+        }, guardedPaymentResponse.messages ?? []);
+      }
+
       if (session.payment_id || session.submitted_offer_id) {
-        return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session) });
+        return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options.paymentHandoff) });
       }
 
       return createUcpEnvelope("requires_action", {
-        checkout: sessionToUcpCheckout(session),
+        checkout: sessionToUcpCheckout(session, options.paymentHandoff),
         action: {
           type: "trusted_checkout_handoff",
           url: `/checkout/${session.session_id}`,
-          reason: "Checkout completion requires buyer review in trusted UI until AP2 mandate verification and payment-handler handoff are implemented.",
+          reason: "Checkout completion requires buyer review in trusted UI until Payments enables production AP2 mandate verification and payment-handler handoff.",
         },
       }, [
         {
@@ -311,7 +327,10 @@ function requireCheckoutAccess(
   };
 }
 
-function sessionToUcpCheckout(session: CheckoutSessionRow) {
+function sessionToUcpCheckout(
+  session: CheckoutSessionRow,
+  paymentHandoff?: UcpPaymentHandlerHandoff,
+) {
   return {
     id: session.session_id,
     status: session.payment_id
@@ -338,9 +357,15 @@ function sessionToUcpCheckout(session: CheckoutSessionRow) {
     order_ids: session.order_ids,
     payment_id: session.payment_id,
     offer_id: session.submitted_offer_id,
+    ...(paymentHandoff ? { payment: paymentHandoff.payment } : {}),
     created_at: session.created_at,
     updated_at: session.updated_at,
   };
+}
+
+function stripUcpEnvelope(envelope: UcpEnvelope) {
+  const { ucp: _ucp, messages: _messages, ...payload } = envelope;
+  return payload;
 }
 
 function readCheckoutSessionId(input: UcpOperationHandlerInput) {

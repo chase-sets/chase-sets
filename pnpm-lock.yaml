@@ -681,6 +681,9 @@ importers:
       '@chase-sets/reputation':
         specifier: workspace:*
         version: link:../reputation
+      '@chase-sets/ucp':
+        specifier: workspace:*
+        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -751,6 +754,9 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
+      '@chase-sets/ucp':
+        specifier: workspace:*
+        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
