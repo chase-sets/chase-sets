@@ -1,54 +1,48 @@
 ---
 name: plan-with-context
-description: Plan implementation, operational workflow changes, or product features against the Chase Sets bounded-context model, ubiquitous language, code, and docs. Use when the user asks to plan or implement a change with one-question-at-a-time prompts, recommended answers, code/doc cross-checks, plan/doc creation, goal creation, and no product code changes during planning.
+description: Plan Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes against the bounded-context model. Use when the user asks to plan or implement a change with repo evidence, one blocking question at a time, recommended answers, durable plan notes, goal creation, and no product/runtime edits during planning.
 ---
 
 # Plan With Context
 
-Plan a change against the repo's domain model inside an isolated feature worktree. Product and domain implementation still require planning first. When the user explicitly asks this skill to make an operational workflow, infrastructure, documentation, or skill-maintenance change, complete the planning pass, record the decisions, then implement those non-product changes in the same worktree once no blocking questions remain.
-
-## Repo Map
-
-- Context map: `bounded-contexts/README.md`.
-- Context sources of truth: `bounded-contexts/<context>/README.md`, `GLOSSARY.md`, and `context.json`.
-- Structure rules: `docs/architecture/bounded-context-structure.md`.
-- Cross-context docs: `docs/`.
-- Cross-context glossary index: `docs/GLOSSARY.md`; add local terms to owning context glossaries first.
-- Context-owned notes and modeling docs: `bounded-contexts/<context>/docs/`.
-- System ADRs: `docs/adr/`.
-- Do not create or rely on `CONTEXT.md` or `CONTEXT-MAP.md` in this repo.
+Plan changes from inside an isolated git worktree, using the repo's bounded contexts as the source of truth. Product and domain implementation require planning first. For explicit documentation, infrastructure, operational workflow, or skill-maintenance requests, finish the planning pass, record the decisions, create the goal, then make the scoped non-product edits.
 
 ## Workflow
 
-1. Create or switch into a dedicated feature worktree before reading deeply or writing the plan.
-2. Identify likely owning context(s) from inside that worktree.
-3. Read the repo map files plus each candidate context's `README.md`, `GLOSSARY.md`, and `context.json`.
-4. Search code for relevant terms, events, routes, IDs, projections, UI labels, and tests before asking answerable questions.
-5. Create or update `.codex/plans/<yyyymmdd>-<feature-slug>.md`, using the local current date for sortable ordering, for example `20260513-my-new-feature.md`.
-6. Ask the next blocking question with the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use interactive `request_user_input` prompts when available; otherwise ask in plain text.
-7. After each answer or finding, update the plan and any already-settled docs.
-8. When planning is complete, create a `/goal` whose objective references the worktree path, branch, plan path, and owns implementation, durable doc promotion, verification, visual checks when UI is in scope, PR submission, passing CI, PR merge, preview deploy verification and cleanup, staging deploy verification, production deploy verification when the merge reaches `main`, and plan retention.
-9. For explicit operational workflow, infrastructure, documentation, or skill-maintenance implementation requests, proceed with the scoped edits after the goal exists and update the plan as decisions are resolved.
-
-Walk questions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
+1. Create or reuse a dedicated worktree under `.codex/worktrees/<yyyymmdd>-<feature-slug>` and branch `codex/<feature-slug>`.
+2. Run all later reads, edits, plan updates, dependency setup, and verification commands from that worktree.
+3. Identify likely owning context(s), then read:
+   - `bounded-contexts/README.md`
+   - `bounded-contexts/<context>/README.md`
+   - `bounded-contexts/<context>/GLOSSARY.md`
+   - `bounded-contexts/<context>/context.json`
+   - `docs/architecture/bounded-context-structure.md` when structure matters
+4. Search code and tests for relevant terms, events, routes, IDs, projections, UI labels, and integrations before asking questions.
+5. Create or update `.codex/plans/<yyyymmdd>-<feature-slug>.md` using the local current date.
+6. Resolve decisions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
+7. Ask exactly one blocking question at a time. Include the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use `request_user_input` when available.
+8. Update the plan after each answer, repo finding, contradiction, recommendation, and doc change.
+9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation scope, verification, durable doc promotion, PR, CI, merge, deployment checks, and retained plan.
 
 ## Worktree Setup
 
-Create the worktree first so planning, implementation, builds, tests, app servers, generated env, and Docker resources stay isolated from other work.
+Use an embedded worktree so the chat can run commands inside the accessible repo workspace:
 
-1. Derive a short feature slug from the request, then choose a sibling worktree path such as `../chase-sets-<yyyymmdd>-<feature-slug>` and a branch such as `codex/<feature-slug>`.
-2. Branch from the current repo HEAD unless the user names a base; if the branch or path exists, inspect it and reuse it only when it clearly belongs to this request.
-3. If already in a dedicated feature worktree for this exact request, use it and record that decision. Otherwise run `git worktree add <path> -b <branch>` from the source repo.
-4. Continue all later reads, edits, plan updates, docs, dependency setup, and verification commands from the new worktree path.
-5. Run `pnpm run deps:install` or `node ./scripts/worktree-deps.mjs install` in the worktree before any build/test/dev command that needs dependencies.
-6. Run `pnpm run sandbox:doctor` in the worktree after dependency setup. Use `docs/runbooks/local-worktree-sandboxes.md` when troubleshooting ports, Docker Compose projects, generated `.env.sandbox.local`, or DB-backed tests.
-7. Record the worktree path, branch, sandbox id, and any setup caveats in the plan before asking the first blocking product/domain question.
+```powershell
+git worktree add .codex/worktrees/<yyyymmdd>-<feature-slug> -b codex/<feature-slug>
+```
 
-Never use `sandbox:clean:all` as part of this skill. Use only current-worktree cleanup commands, such as `pnpm run dev:down` or `pnpm run sandbox:clean`, and only when cleanup is explicitly needed.
+- Branch from current `HEAD` unless the user names another base.
+- Reuse an existing branch or path only when it clearly belongs to this request.
+- Keep `.codex/worktrees/` gitignored; do not add `.gitignore` exceptions for generated worktrees.
+- Install dependencies in the worktree before build, test, or dev commands: `pnpm run deps:install` or `node ./scripts/worktree-deps.mjs install`.
+- The default shared pnpm store for embedded worktrees is `.codex/worktrees/.chase-sets-pnpm-store`; set `CHASE_SETS_PNPM_STORE_DIR` only if the default fails.
+- Run `pnpm run sandbox:doctor` after dependency setup. Use `docs/runbooks/local-worktree-sandboxes.md` for sandbox troubleshooting.
+- Never run `sandbox:clean:all`. Use current-worktree cleanup only when explicitly needed, such as `pnpm run dev:down` or `pnpm run sandbox:clean`.
 
-## Working Plan
+## Plan File
 
-Use `.codex/plans/<yyyymmdd>-<feature-slug>.md` as durable memory for compaction, handoff, review, and optional `/goal` tracking. Keep it in dependency order and include only sections that are useful:
+Use only useful sections from this template:
 
 ```markdown
 # <Feature>
@@ -63,46 +57,31 @@ Use `.codex/plans/<yyyymmdd>-<feature-slug>.md` as durable memory for compaction
 ## Goal Completion Criteria
 ```
 
-Update the plan after every worktree setup finding, answered question, repo finding, accepted/rejected recommendation, and doc change. `Worktree` must list the path, branch, sandbox id, dependency setup status, and current setup blockers if any. `Goal Completion Criteria` must list what the later implementation goal must verify, promote, retain, submit, merge, and confirm in deployed preview, staging, or production environments as appropriate for the change.
-Do not delete the plan as part of cleanup; cleanup is limited to temporary artifacts. Keep the plan committed with the implementation so reviewers can inspect the planning decisions later.
+The `Worktree` section must list path, branch, sandbox id, dependency setup status, pnpm store path, and setup blockers. Keep the plan committed with the implementation; do not delete it during cleanup.
 
-Treat "Use `$plan-with-context` to implement <feature>" or "Use `$plan-with-context` to make this change" as an explicit request to create the implementation goal after planning. If goal tooling is unavailable, write the exact goal prompt into the plan and tell the user.
+## Rules
 
-## Planning Rules
+- Do not edit product code, runtime code, schemas, tests, or UI during planning.
+- For explicit documentation, infrastructure, operational workflow, or skill-maintenance requests, keep implementation edits scoped to those surfaces unless the user separately approves product/runtime changes.
+- Resolve answerable questions from code and docs yourself.
+- Call out glossary conflicts and propose one canonical term plus owning context.
+- Tie each cross-context interaction to one behavior owner and one stable published fact.
+- Stress-test decisions for normal flow, partial flow, stale data or replay, cross-context handoff, failure/cancellation, and low-value card economics when relevant.
+- Surface contradictions between docs, code, and the plan before continuing.
 
-- Ask exactly one question at a time and wait for feedback.
-- Resolve questions from code/docs yourself when possible.
-- Do not edit product code, runtime code, schemas, tests, or UI during the planning pass. For explicit operational workflow, infrastructure, documentation, or skill-maintenance implementation requests, keep edits scoped to those surfaces unless the user separately approves product/runtime changes.
-- Call out glossary conflicts immediately.
-- Propose a canonical term and owning context for vague or overloaded language.
-- Stress-test abstractions with scenarios covering normal flow, partial/multi-party flow, stale data or replay, cross-context handoff, failure/cancellation, and low-value card economics when relevant.
-- Tie every cross-context interaction to one behavior owner and a stable published fact.
-- Surface contradictions between the plan, docs, and code before continuing.
+## Where To Put Durable Docs
 
-## Where To Look
+- Local term: `bounded-contexts/<context>/GLOSSARY.md`
+- Cross-context term index: `docs/GLOSSARY.md`
+- Context note: `bounded-contexts/<context>/docs/<topic>.md`
+- System decision: `docs/adr/<next-number>-<slug>.md`
+- Architecture: `docs/architecture/<topic>.md`
+- API docs: `docs/api/`
+- Runbooks: `docs/runbooks/`
+- Design-system patterns: `packages/design-system/`
 
-- Owning context: `features/*/{domain,read-model,api,ui,integrations}`, `routes/`, `support/*-support/`, and tests.
-- Cross-context surface: `contracts/` for primitives, typed IDs, and integration events.
-- Shared technical adapters: `infrastructure/`.
-- Composition roots only: `deployables/`.
+Update `docs/README.md` when adding durable docs that should appear in the curated docs map. Use ADRs only for hard-to-reverse or surprising decisions with real trade-offs.
 
-## Documentation Destinations
-
-- Local term: `bounded-contexts/<context>/GLOSSARY.md`.
-- Cross-context term index: `docs/GLOSSARY.md`.
-- Context policy/modeling note: `bounded-contexts/<context>/docs/<topic>.md`.
-- System-wide decision: `docs/adr/<next-number>-<slug>.md`.
-- Cross-cutting architecture: `docs/architecture/<topic>.md`.
-- API docs: `docs/api/`.
-- Runbooks: `docs/runbooks/`.
-- Design-system patterns: `packages/design-system/`.
-
-Update `docs/README.md` when adding durable owner-owned docs that should appear in the curated map.
-
-Offer an ADR only when the choice is hard to reverse, surprising without context, and the result of a real trade-off. Prefer context docs for context-local decisions.
-
-## Cleanup
+## Pause Report
 
 Before pausing, report the worktree path, branch, sandbox status, plan path, resolved decisions, docs updated, contradictions found, and next unresolved question.
-
-This skill is complete when the feature worktree exists, the plan/docs are written in that worktree, and the implementation goal exists. For explicit operational workflow, infrastructure, documentation, or skill-maintenance implementation requests, the current turn may continue through the scoped implementation and local verification. The goal is complete only after implementation in the feature worktree, durable doc promotion, automated checks, mobile/desktop visual verification when relevant, PR submission, passing CI, PR merge, successful preview deploy verification and cleanup, successful staging deploy verification, successful production deploy verification when the merge reaches `main`, and committing the retained `.codex/plans/<yyyymmdd>-<feature-slug>.md`.
