@@ -57,7 +57,7 @@ Owns one axis of variation and its allowed `Option` set.
 
 Owns one descriptive attribute definition. Fields describe Catalog Items and never create Products.
 
-Field values may be simple values or reference-shaped values. A reference-shaped value points at a Catalog Reference Record when the selected value needs its own metadata, relationships, and lifecycle. For example, a card's Set field can point at the `Ascended Heroes` Reference Record, and that record can carry card count, release date, abbreviation, source ID, and its relationship to the `Mega Evolution` Series.
+Field values may be simple values or reference-shaped values. A reference-shaped value points at a Catalog Reference Record when the selected value needs its own metadata, relationships, and lifecycle. For example, a Pokemon card's Expansion field can point at the `Ascended Heroes` Reference Record, and that record can carry card count, release date, abbreviation, source ID, and its relationship to the `Mega Evolution` Series.
 
 ### Component
 
@@ -77,13 +77,13 @@ Owns consumer-facing grouping metadata. Categories never participate in product 
 
 ### Reference Type
 
-Owns the reusable kind of rich descriptive data, such as `Set`, `Series`, or `Product Line`.
+Owns the reusable kind of rich descriptive data, such as `Expansion`, `Series`, or `Product Line`.
 
 Reference Types do not create Products and do not replace Dimensions. They define the natural-language bucket for Reference Records that Catalog Items may point at through Field values.
 
 ### Reference Record
 
-Owns one reusable rich value under a Reference Type, such as `Ascended Heroes` under `Set` or `Mega Evolution` under `Series`.
+Owns one reusable rich value under a Reference Type, such as `Ascended Heroes` under `Expansion` or `Mega Evolution` under `Series`.
 
 Reference Records can carry attributes and relationships to other Reference Records. These relationships may form a bounded hierarchy such as `Expansion -> Series -> TCG/Product Line -> Manufacturer`. A Catalog Item that points at a Reference Record receives that rich information in item detail read models without duplicating those facts onto every item.
 

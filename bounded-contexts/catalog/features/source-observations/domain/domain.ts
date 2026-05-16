@@ -17,6 +17,11 @@ export type SourceObservationNormalized = JsonObject & Readonly<{
   cardNumber: string;
   setId: string;
   setName: string;
+  expansionId: string;
+  expansionName: string;
+  expansionAbbreviation: string | null;
+  expansionCardCount: number | null;
+  expansionParallelSetCardCount: number | null;
   seriesId: string | null;
   seriesName: string | null;
   rarity: string | null;
@@ -27,6 +32,7 @@ export type SourceObservationNormalized = JsonObject & Readonly<{
   imageBaseUrl: string | null;
   imageUrls: readonly string[];
   productAssetSet: ProductAssetSet | null;
+  parallelSet: boolean;
   variants: JsonObject;
 }>;
 

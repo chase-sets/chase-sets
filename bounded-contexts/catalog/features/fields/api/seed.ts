@@ -9,7 +9,7 @@ type FieldDef = {
   fieldId: FieldId;
   name: LocalizedTextMap;
   description: LocalizedTextMap;
-  valueType: "string" | "number" | "boolean" | "date" | "json" | "localized_text";
+  valueType: "string" | "number" | "boolean" | "date" | "json" | "localized_text" | "reference";
   behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
 };
 
@@ -18,7 +18,7 @@ const fieldDefs: FieldDef[] = [
     key: "card-number",
     fieldId: catalogSeedIds.fields.cardNumber as FieldId,
     name: l10n("Card Number"),
-    description: l10n("The card number within its set (for example 4/102)"),
+    description: l10n("The card number within its expansion (for example 4/102)"),
     valueType: "string",
     behavior: { filterable: true, searchable: false, sortable: true },
   },
@@ -31,11 +31,11 @@ const fieldDefs: FieldDef[] = [
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
-    key: "set-name",
-    fieldId: catalogSeedIds.fields.setName as FieldId,
-    name: l10n("Set Name"),
-    description: l10n("The expansion set or product line the item belongs to"),
-    valueType: "string",
+    key: "expansion",
+    fieldId: catalogSeedIds.fields.expansion as FieldId,
+    name: l10n("Expansion"),
+    description: l10n("The Pokemon TCG expansion the item belongs to"),
+    valueType: "reference",
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
@@ -47,10 +47,10 @@ const fieldDefs: FieldDef[] = [
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
-    key: "artist",
-    fieldId: catalogSeedIds.fields.artist as FieldId,
-    name: l10n("Artist"),
-    description: l10n("The illustrator of the card"),
+    key: "card-illustrator",
+    fieldId: catalogSeedIds.fields.cardIllustrator as FieldId,
+    name: l10n("Card Illustrator"),
+    description: l10n("The artist who illustrated the image on the card"),
     valueType: "string",
     behavior: { filterable: true, searchable: true, sortable: true },
   },

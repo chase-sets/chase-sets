@@ -24,6 +24,7 @@ export interface SourceObservationDetail extends SourceObservationListItem {
 
 export interface TcgdexSetImportResult {
   setId: string;
+  expansionId: string;
   languageCode: string;
   observed: number;
   observationIds: string[];

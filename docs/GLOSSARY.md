@@ -24,7 +24,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Seller | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Transaction role played by an Account. |
 | Catalog Item | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Canonical parent definition of a thing. |
 | Product | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Valid sellable option combination under a Catalog Item. |
-| Reference Type | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable kind of rich descriptive catalog value, such as Set, Series, or Product Line. |
+| Reference Type | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable kind of rich descriptive catalog value, such as Expansion, Series, or Product Line. |
 | Reference Record | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Rich reusable catalog value that can be selected by item fields and carry attributes or relationships. |
 | Inventory Item | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Account-owned stock for one resolved product and storage location. |
 | Listing | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Seller-published ask before an order exists. |

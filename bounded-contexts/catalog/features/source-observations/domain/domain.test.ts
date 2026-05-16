@@ -14,6 +14,11 @@ const normalized: SourceObservationNormalized = {
   cardNumber: "136",
   setId: "swsh3",
   setName: "Darkness Ablaze",
+  expansionId: "swsh3",
+  expansionName: "Darkness Ablaze",
+  expansionAbbreviation: "DAA",
+  expansionCardCount: 189,
+  expansionParallelSetCardCount: 155,
   seriesId: "swsh",
   seriesName: "Sword & Shield",
   rarity: "Uncommon",
@@ -26,6 +31,7 @@ const normalized: SourceObservationNormalized = {
     "https://assets.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
   ],
   productAssetSet: null,
+  parallelSet: true,
   variants: { normal: true, reverse: true },
 };
 

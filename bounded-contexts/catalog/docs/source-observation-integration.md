@@ -10,7 +10,7 @@ External providers never write canonical Catalog Items directly. Provider integr
 
 TCGdex is the first provider.
 
-The first implementation imports one configured Pokemon set in one language from live TCGdex REST endpoints:
+The first implementation imports one configured Pokemon TCG expansion in one language from live TCGdex REST endpoints. TCGdex names this provider resource `set`; Catalog maps it to Pokemon's official `Expansion` language:
 
 - `https://api.tcgdex.net/v2/{language}/sets/{setId}`
 - `https://api.tcgdex.net/v2/{language}/cards/{cardId}`
@@ -47,6 +47,8 @@ Stored TCGdex source payloads are sanitized before persistence; provider pricing
 Promotion creates a draft Catalog Item for the observed Pokemon card print, assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category, records TCGdex source mapping, attaches the Product Asset Set, and keeps Chase Sets-owned image URLs as a migration compatibility projection.
 
 Promoted Catalog Items remain drafts so operators can verify blueprint fields, product resolution, and downstream display before publishing.
+
+Promotion sets the Catalog Item's `Expansion` field as a Reference Record value. The Expansion Reference Record carries reusable release facts such as release date, card count, abbreviation, TCGdex source ID, and a relationship to its Series. Series records relate to the Pokemon Trading Card Game Product Line, which relates to the Manufacturer/Publisher reference. TCGdex `variants.reverse` is represented with Pokemon checklist terminology as `Parallel set` availability.
 
 Operators may bulk promote explicitly selected Source Observations from the admin list screen. Bulk promotion is still a review action: it only accepts selected observation IDs, promotes records that are still `observed`, and reports terminal or missing records as skipped or failed instead of changing them.
 

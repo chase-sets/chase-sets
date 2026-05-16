@@ -38,9 +38,9 @@ function buildColumns(): DataColumn<SourceObservationListItem>[] {
       cell: (row) => row.normalized.name,
     },
     {
-      key: "set",
-      header: t("catalog.features.sourceObservations.ui.list.set"),
-      cell: (row) => row.normalized.setName,
+      key: "expansion",
+      header: t("catalog.features.sourceObservations.ui.list.expansion"),
+      cell: (row) => row.normalized.expansionName ?? row.normalized.setName,
     },
     {
       key: "number",
@@ -129,7 +129,7 @@ export function SourceObservationListPage({
     setSetId("");
     listControls.setFilters({
       language: result.languageCode,
-      setId: result.setId,
+      setId: result.expansionId ?? result.setId,
       status: "observed",
     });
     revalidator.revalidate();
@@ -292,7 +292,7 @@ export function SourceObservationListPage({
               ]}
             />
             <TextInput
-              label={t("catalog.features.sourceObservations.ui.list.tcgdex.set.id")}
+              label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
               value={listControls.setId}
               onChange={(event) => listControls.setSetId(event.target.value)}
             />
@@ -312,13 +312,13 @@ export function SourceObservationListPage({
         onPageChange={listControls.setPage}
         createButton={
           <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
-            {t("catalog.features.sourceObservations.ui.list.import.tcgdex.set")}</Button>
+            {t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}</Button>
         }
       />
       <Dialog
         open={showImport}
         onOpenChange={setShowImport}
-        title={t("catalog.features.sourceObservations.ui.list.import.tcgdex.set")}
+        title={t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
         footer={<Button onClick={handleImport}>{t("catalog.features.sourceObservations.ui.list.import")}</Button>}
       >
         <Stack gap={3}>
@@ -328,7 +328,7 @@ export function SourceObservationListPage({
             onChange={(event) => setLanguageCode(event.target.value)}
           />
           <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.tcgdex.set.id")}
+            label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
             value={setId}
             onChange={(event) => setSetId(event.target.value)}
           />
@@ -402,7 +402,7 @@ function formatPromotionScope(scope: Required<SourceObservationPromotionScope>):
         })
       : "",
     scope.setId
-      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.set", {
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.expansion", {
           setId: scope.setId,
         })
       : "",

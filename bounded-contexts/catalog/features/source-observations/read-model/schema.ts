@@ -25,6 +25,6 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
   ON catalog_source_observations USING gin (
     to_tsvector(
       'simple',
-      coalesce(normalized->>'name', '') || ' ' || coalesce(normalized->>'setName', '') || ' ' || external_key
+      coalesce(normalized->>'name', '') || ' ' || coalesce(normalized->>'expansionName', normalized->>'setName', '') || ' ' || external_key
     )
   );`;

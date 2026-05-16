@@ -31,9 +31,9 @@ export async function seedComponents(
     for (const [fieldKey, required] of [
       ["card-number", true],
       ["card-name", true],
-      ["set-name", true],
+      ["expansion", true],
       ["rarity", true],
-      ["artist", false],
+      ["card-illustrator", false],
       ["release-year", false],
     ] as const) {
       await sendSeedCommand(services.components.commandHandler, streamId, {
@@ -121,7 +121,7 @@ export async function seedComponents(
     });
 
     for (const [fieldKey, required] of [
-      ["set-name", true],
+      ["expansion", true],
       ["release-year", false],
       ["pack-count", true],
     ] as const) {

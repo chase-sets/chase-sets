@@ -475,6 +475,7 @@
         "components",
         "dimensions",
         "fields",
+        "reference-data",
         "source-observations"
       ],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",

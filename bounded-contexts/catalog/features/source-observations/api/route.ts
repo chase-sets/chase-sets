@@ -8,7 +8,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset, provider, source, language, setId } = c.req.query();
+    const { search, status, limit, offset, provider, source, language, setId, expansionId } = c.req.query();
     const result = await services.listSourceObservations({
       search,
       status,
@@ -16,7 +16,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       offset: Number(offset) || undefined,
       provider: provider ?? source,
       language,
-      setId,
+      setId: expansionId ?? setId,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -25,7 +25,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     const body = await c.req.json();
     const result = await services.importTcgdexSet({
       languageCode: String(body.languageCode ?? "en"),
-      setId: String(body.setId ?? ""),
+      setId: String(body.expansionId ?? body.setId ?? ""),
       context: c.get("context"),
     });
 
@@ -121,7 +121,7 @@ function parsePromotionScope(input: unknown): SourceObservationFilterScope {
     status: stringField(record.status),
     provider: stringField(record.provider) ?? stringField(record.source),
     language: stringField(record.language),
-    setId: stringField(record.setId),
+    setId: stringField(record.expansionId) ?? stringField(record.setId),
   };
 }
 
