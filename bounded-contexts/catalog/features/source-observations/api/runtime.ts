@@ -98,7 +98,11 @@ export function createSourceObservationRuntime(
   return {
     commandHandler,
     importTcgdexSet: async ({ languageCode, setId, context }) => {
-      const observations = await fetchTcgdexSetObservations({ languageCode, setId });
+      const observations = await fetchTcgdexSetObservations({
+        languageCode,
+        setId,
+        assetStorage: deps.assetStorage,
+      });
 
       for (const observation of observations) {
         await recordObservation(observation, context);

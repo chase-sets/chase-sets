@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type { CatalogAssetStorage } from "./asset-storage";
 
 const TCGDEX_BASE_URL = "https://api.tcgdex.net/v2";
 const PROVIDER_KEY = "tcgdex";
+const HIGH_QUALITY_ASSET_VARIANT = "high.webp";
+const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -65,6 +68,7 @@ export async function fetchTcgdexSetObservations(input: {
   languageCode: string;
   setId: string;
   fetch?: typeof globalThis.fetch;
+  assetStorage?: CatalogAssetStorage;
 }): Promise<readonly TcgdexObservationInput[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
   const setId = input.setId.trim();
@@ -77,21 +81,42 @@ export async function fetchTcgdexSetObservations(input: {
   for (const cardBrief of set.cards) {
     const cardUrl = `${TCGDEX_BASE_URL}/${languageCode}/cards/${encodeURIComponent(cardBrief.id)}`;
     const card = await fetchJson<TcgdexCard>(fetcher, cardUrl);
-    observations.push(toObservation({ card, set, languageCode, sourceUrl: cardUrl, observedAt }));
+    observations.push(
+      await toObservation({
+        card,
+        set,
+        languageCode,
+        sourceUrl: cardUrl,
+        observedAt,
+        fetcher,
+        assetStorage: input.assetStorage,
+      }),
+    );
   }
 
   return observations;
 }
 
-function toObservation(input: {
+async function toObservation(input: {
   card: TcgdexCard;
   set: TcgdexSet;
   languageCode: string;
   sourceUrl: string;
   observedAt: string;
-}): TcgdexObservationInput {
+  fetcher: typeof globalThis.fetch;
+  assetStorage?: CatalogAssetStorage;
+}): Promise<TcgdexObservationInput> {
   const releaseYear = releaseYearFromDate(input.set.releaseDate);
   const sourcePayload = toJsonValue(sanitizeTcgdexCardPayload(input.card));
+  const sourceImageUrls = input.card.image
+    ? [`${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`]
+    : [];
+  const imageUrls = await mirrorTcgdexImageAsset({
+    card: input.card,
+    languageCode: input.languageCode,
+    fetcher: input.fetcher,
+    assetStorage: input.assetStorage,
+  });
   const normalized: SourceObservationNormalized = {
     kind: "pokemon-card",
     tcg: "pokemon",
@@ -108,8 +133,12 @@ function toObservation(input: {
     releaseYear,
     category: input.card.category,
     imageBaseUrl: input.card.image ?? null,
-    imageUrls: input.card.image ? [`${input.card.image}/low.webp`, `${input.card.image}/high.webp`] : [],
+    imageUrls,
     variants: normalizeVariants(input.card.variants),
+  };
+  const providerNormalizedForHash: SourceObservationNormalized = {
+    ...normalized,
+    imageUrls: sourceImageUrls,
   };
 
   return {
@@ -118,12 +147,48 @@ function toObservation(input: {
     externalKey: input.card.id,
     sourceUrl: input.sourceUrl,
     languageCode: input.languageCode,
-    sourceRecordHash: hashJson({ normalized, sourcePayload }),
+    sourceRecordHash: hashJson({
+      normalized: providerNormalizedForHash,
+      sourcePayload,
+    }),
     sourceUpdatedAt: input.card.updated ?? null,
     observedAt: input.observedAt,
     normalized,
     sourcePayload,
   };
+}
+
+async function mirrorTcgdexImageAsset(input: {
+  card: TcgdexCard;
+  languageCode: string;
+  fetcher: typeof globalThis.fetch;
+  assetStorage?: CatalogAssetStorage;
+}): Promise<readonly string[]> {
+  if (!input.card.image) {
+    return [];
+  }
+
+  if (!input.assetStorage) {
+    throw new Error("Catalog asset storage is required to import TCGdex image assets.");
+  }
+
+  const assetUrl = `${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`;
+  const response = await input.fetcher(assetUrl);
+  if (!response.ok) {
+    throw new Error(`TCGdex asset request failed with ${response.status} for ${assetUrl}.`);
+  }
+
+  const body = new Uint8Array(await response.arrayBuffer());
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim() ||
+    "image/webp";
+  const stored = await input.assetStorage.putObject({
+    key: tcgdexAssetObjectKey(input.languageCode, input.card.id),
+    body,
+    contentType,
+    cacheControl: ASSET_CACHE_CONTROL,
+  });
+
+  return [stored.publicUrl];
 }
 
 function sanitizeTcgdexCardPayload(card: TcgdexCard): JsonRecord {
@@ -147,6 +212,11 @@ function normalizeVariants(variants: Readonly<Record<string, boolean>> | undefin
 
 function buildObservationId(languageCode: string, cardId: string): string {
   return `tcgdex_${normalizeKey(languageCode)}_${cardId.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
+}
+
+function tcgdexAssetObjectKey(languageCode: string, cardId: string): string {
+  const externalKey = cardId.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+  return `catalog/source-observations/tcgdex/${normalizeKey(languageCode)}/${externalKey}/${HIGH_QUALITY_ASSET_VARIANT}`;
 }
 
 function releaseYearFromDate(value: string | undefined): number | null {

@@ -12,6 +12,11 @@ import { createComponentRuntime } from "../../features/components/api/runtime";
 import { createDimensionRuntime } from "../../features/dimensions/api/runtime";
 import { createFieldRuntime } from "../../features/fields/api/runtime";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
+import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
+
+export type CatalogHostPorts = Readonly<{
+  catalogAssetStorage?: CatalogAssetStorage;
+}>;
 
 export type CatalogServices = Readonly<{
   dimensions: ReturnType<typeof createDimensionRuntime>;
@@ -26,11 +31,19 @@ export type CatalogServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createCatalogServices(pool: PgTransactionalPool): CatalogServices {
+export function createCatalogServices(
+  pool: PgTransactionalPool,
+  ports: CatalogHostPorts = {},
+): CatalogServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const deps = { eventStore, checkpointStore, db } as const;
+  const deps = {
+    eventStore,
+    checkpointStore,
+    db,
+    assetStorage: ports.catalogAssetStorage,
+  } as const;
 
   const dimensions = createDimensionRuntime(deps);
   const fields = createFieldRuntime(deps);

@@ -77,6 +77,15 @@ function resetConfigEnv() {
   delete process.env.PLATFORM_ADMIN_PASSWORD;
   delete process.env.PLATFORM_ADMIN_DISPLAY_NAME;
   delete process.env.PLATFORM_ADMIN_ACCOUNT_NAME;
+  delete process.env.CATALOG_ASSET_STORAGE_KIND;
+  delete process.env.CATALOG_ASSET_LOCAL_ROOT;
+  delete process.env.CATALOG_ASSET_PUBLIC_BASE_URL;
+  delete process.env.CATALOG_ASSET_S3_BUCKET;
+  delete process.env.CATALOG_ASSET_S3_REGION;
+  delete process.env.CATALOG_ASSET_S3_ENDPOINT;
+  delete process.env.CATALOG_ASSET_S3_ACCESS_KEY_ID;
+  delete process.env.CATALOG_ASSET_S3_SECRET_ACCESS_KEY;
+  delete process.env.CATALOG_ASSET_S3_FORCE_PATH_STYLE;
 }
 
 beforeEach(resetConfigEnv);
@@ -165,6 +174,33 @@ describe("platform api config", () => {
     expect(loadConfig().paymentProcessor).toEqual({ kind: "fake" });
     expect(loadConfig().moneyMovement).toEqual({ kind: "fake" });
     expect(loadConfig().mobileMessaging).toEqual({ kind: "noop" });
+    expect(loadConfig().catalogAssetStorage).toEqual({
+      kind: "filesystem",
+      rootDir: "artifacts/catalog-assets",
+      publicBaseUrl: "http://localhost:6182/catalog-assets",
+    });
+  });
+
+  it("loads S3-compatible Catalog asset storage from environment variables", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_S3_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+    process.env.CATALOG_ASSET_S3_ACCESS_KEY_ID = "spaces-key";
+    process.env.CATALOG_ASSET_S3_SECRET_ACCESS_KEY = "spaces-secret";
+
+    expect(loadConfig().catalogAssetStorage).toEqual({
+      kind: "s3",
+      bucket: "catalog-assets",
+      region: "nyc3",
+      endpoint: "https://nyc3.digitaloceanspaces.com",
+      publicBaseUrl: "https://assets.chasesets.com",
+      accessKeyId: "spaces-key",
+      secretAccessKey: "spaces-secret",
+      forcePathStyle: false,
+    });
   });
 
   it("loads Twilio SMS/RCS webhook configuration when enabled", () => {
@@ -270,6 +306,10 @@ describe("platform api config", () => {
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_live";
     process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
 
     const config = loadConfig();
 
@@ -281,6 +321,11 @@ describe("platform api config", () => {
       onboardingUrlsConfigured: true,
       fakeFallbackAllowed: false,
       liveSecretKeyLikely: true,
+    });
+    expect(config.catalogAssetStorage).toMatchObject({
+      kind: "s3",
+      bucket: "catalog-assets",
+      region: "nyc3",
     });
   });
 

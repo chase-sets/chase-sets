@@ -13,6 +13,12 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import {
+  createFilesystemObjectStorage,
+  createS3ObjectStorage,
+  readFilesystemObject,
+  type ObjectStorage,
+} from "@chase-sets/object-storage";
+import {
   createTwilioMessagingWebhookGateway,
 } from "@chase-sets/twilio-messaging";
 import {
@@ -41,7 +47,7 @@ import {
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
-import { loadConfig } from "./config";
+import { loadConfig, type PlatformApiCatalogAssetStorageConfig } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 
 const observability = getObservabilityRuntime();
@@ -110,6 +116,7 @@ const mobileMessageWebhookGateway = config.mobileMessaging.kind === "twilio"
       requireSignature: config.mobileMessaging.requireWebhookSignature,
     })
   : undefined;
+const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 
 if (config.paymentProcessor.kind === "fake") {
   logger.warn("Platform API is using the fake payment processor.", {
@@ -141,6 +148,7 @@ const runtime = createPlatformApiHost({
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
+    catalogAssetStorage,
     socialLoginProviders,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
@@ -311,6 +319,7 @@ const app = buildPlatformApiApp(runtime, {
     maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
   },
 });
+mountLocalCatalogAssetRoute(app, config.catalogAssetStorage);
 const realtimeRetentionSweeper = config.realtime.backgroundMaintenanceEnabled
   ? createRealtimeRetentionSweeper({
       stores: realtimeStores,
@@ -326,6 +335,46 @@ const realtimeRetentionSweeper = config.realtime.backgroundMaintenanceEnabled
   : undefined;
 if (realtimeRetentionSweeper) {
   void realtimeRetentionSweeper.sweep();
+}
+
+function createCatalogAssetStorage(
+  storageConfig: PlatformApiCatalogAssetStorageConfig,
+): ObjectStorage {
+  return storageConfig.kind === "s3"
+    ? createS3ObjectStorage(storageConfig)
+    : createFilesystemObjectStorage(storageConfig);
+}
+
+function mountLocalCatalogAssetRoute(
+  app: ReturnType<typeof buildPlatformApiApp>,
+  storageConfig: PlatformApiCatalogAssetStorageConfig,
+) {
+  if (storageConfig.kind !== "filesystem") {
+    return;
+  }
+
+  const routePrefix = "/catalog-assets/";
+  app.get("/catalog-assets/*", async (c) => {
+    const key = c.req.path.slice(routePrefix.length);
+    const object = await readFilesystemObject(storageConfig.rootDir, key);
+    if (!object) {
+      return c.notFound();
+    }
+
+    return new Response(toArrayBuffer(object.body), {
+      headers: {
+        "cache-control": "public, max-age=31536000, immutable",
+        "content-type": object.contentType,
+      },
+    });
+  });
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
 }
 const realtimePartitionMaintainerStores = [...new Set(
   realtimeStores.map((store) => store.db),

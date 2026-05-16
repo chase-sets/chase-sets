@@ -276,6 +276,9 @@
       "@chase-sets/notifications": [
         "./contracts/notifications/index.ts"
       ],
+      "@chase-sets/object-storage": [
+        "./infrastructure/object-storage/index.ts"
+      ],
       "@chase-sets/observability": [
         "./infrastructure/observability/index.ts"
       ],
