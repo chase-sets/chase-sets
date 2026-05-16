@@ -347,6 +347,38 @@ describe("marketplace search route", () => {
     expect(setSearchParams).not.toHaveBeenCalled();
   });
 
+  it("treats a final cursor page as terminal after merging loaded results", async () => {
+    const secondPageItem = {
+      ...searchDataWithResults("raichu").data.items[0],
+      catalog_item_id: "cat_raichu",
+      slug: "raichu",
+      title: "Raichu",
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+      items: [secondPageItem],
+      facets: [],
+      total: null,
+      count: 1,
+      nextCursor: null,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    mockUseLoaderData.mockReturnValue(searchDataWithCursor("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+    await waitFor(() => expect(screen.getByText("Raichu")).toBeTruthy());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
+  });
+
   it("applies realtime market patches to cursor-loaded product results", async () => {
     const secondPageItem = {
       ...searchDataWithResults("raichu").data.items[0],
