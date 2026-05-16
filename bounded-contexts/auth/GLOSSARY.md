@@ -91,3 +91,12 @@ Examples:
 - Facebook
 
 Provider access tokens, client secrets, and raw provider payloads are integration details. They must stay out of Auth session events and Identity user events.
+
+## OAuth Authorization
+
+An **OAuth Authorization** is the Auth-owned user journey that lets a user select an account and grant delegated UCP access to an external platform.
+
+Notes:
+
+- Auth owns authorization, account selection, token-facing actor resolution, and safe return paths.
+- Identity owns the durable Linked Platform Authorization consent and revocation facts.

@@ -286,6 +286,16 @@ Notes:
 - Ordering and Fulfillment consume immutable shipping destination snapshots, not live Identity address records.
 - Inventory Storage Location and Fulfillment Ship-from Location are separate operational concepts and must not be collapsed into Shipping Address.
 
+### Linked Platform Authorization
+
+A **Linked Platform Authorization** is user/account consent that permits an external platform to act through delegated UCP scopes.
+
+Notes:
+
+- Linked Platform Authorizations are not API keys.
+- Auth owns the interactive OAuth/account-selection journey.
+- Identity owns the durable consent, platform/client reference, revocation facts, and audit trail.
+
 ## Auditing and Events
 
 All stored/transmitted events (not domain) and audit records must include:

@@ -1,0 +1,193 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Chase Sets UCP REST API",
+    "version": "0.1.0",
+    "summary": "UCP REST transport mounted at /ucp/v1. Domain behavior is owned by bounded-context handlers."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:7712/ucp/v1",
+      "description": "Local sandbox platform API"
+    }
+  ],
+  "paths": {
+    "/catalog/search": {
+      "post": {
+        "tags": ["Catalog"],
+        "summary": "Search buyer-visible products.",
+        "responses": { "200": { "$ref": "#/components/responses/UcpEnvelope" } }
+      }
+    },
+    "/catalog/lookup": {
+      "post": {
+        "tags": ["Catalog"],
+        "summary": "Lookup products or variants by identifier.",
+        "responses": { "200": { "$ref": "#/components/responses/UcpEnvelope" } }
+      }
+    },
+    "/catalog/product": {
+      "post": {
+        "tags": ["Catalog"],
+        "summary": "Get one product with option-selection context.",
+        "responses": { "200": { "$ref": "#/components/responses/UcpEnvelope" } }
+      }
+    },
+    "/checkout-sessions": {
+      "post": {
+        "tags": ["Checkout"],
+        "summary": "Create a checkout session.",
+        "parameters": [
+          { "$ref": "#/components/parameters/UcpAgent" },
+          { "$ref": "#/components/parameters/SignatureInput" },
+          { "$ref": "#/components/parameters/Signature" },
+          { "$ref": "#/components/parameters/ContentDigest" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/UcpEnvelope" } }
+      }
+    },
+    "/checkout-sessions/{id}": {
+      "get": {
+        "tags": ["Checkout"],
+        "summary": "Get a checkout session.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": { "200": { "$ref": "#/components/responses/UcpEnvelope" } }
+      },
+      "put": {
+        "tags": ["Checkout"],
+        "summary": "Update a checkout session.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "$ref": "#/components/parameters/UcpAgent" },
+          { "$ref": "#/components/parameters/SignatureInput" },
+          { "$ref": "#/components/parameters/Signature" },
+          { "$ref": "#/components/parameters/ContentDigest" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/UcpEnvelope" } }
+      }
+    },
+    "/checkout-sessions/{id}/complete": {
+      "post": {
+        "tags": ["Checkout"],
+        "summary": "Attempt checkout completion.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "$ref": "#/components/parameters/UcpAgent" },
+          { "$ref": "#/components/parameters/SignatureInput" },
+          { "$ref": "#/components/parameters/Signature" },
+          { "$ref": "#/components/parameters/ContentDigest" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/UcpEnvelope" },
+          "400": { "$ref": "#/components/responses/UcpEnvelope" }
+        }
+      }
+    },
+    "/checkout-sessions/{id}/cancel": {
+      "post": {
+        "tags": ["Checkout"],
+        "summary": "Cancel a checkout session.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "$ref": "#/components/parameters/UcpAgent" },
+          { "$ref": "#/components/parameters/SignatureInput" },
+          { "$ref": "#/components/parameters/Signature" },
+          { "$ref": "#/components/parameters/ContentDigest" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/UcpEnvelope" },
+          "400": { "$ref": "#/components/responses/UcpEnvelope" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "UcpAgent": {
+        "name": "UCP-Agent",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "RFC 8941 dictionary containing the signer profile URL, for example profile=\"https://agent.example/.well-known/ucp\"."
+      },
+      "SignatureInput": {
+        "name": "Signature-Input",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "RFC 9421 signature input, including signed components and keyid."
+      },
+      "Signature": {
+        "name": "Signature",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "RFC 9421 HTTP Message Signature."
+      },
+      "ContentDigest": {
+        "name": "Content-Digest",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "SHA-256 digest for the exact request body."
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Replay key scoped by operation, actor/account, UCP-Agent, and request hash."
+      }
+    },
+    "schemas": {
+      "UcpEnvelope": {
+        "type": "object",
+        "required": ["ucp"],
+        "properties": {
+          "ucp": {
+            "type": "object",
+            "required": ["version", "status"],
+            "properties": {
+              "version": { "type": "string" },
+              "status": { "type": "string", "enum": ["ok", "error", "requires_action"] }
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["severity", "code", "message"],
+              "properties": {
+                "severity": { "type": "string", "enum": ["info", "warning", "error"] },
+                "code": { "type": "string" },
+                "message": { "type": "string" },
+                "target": { "type": "string" }
+              }
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "responses": {
+      "UcpEnvelope": {
+        "description": "UCP envelope response.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/UcpEnvelope" }
+          }
+        }
+      }
+    }
+  }
+}

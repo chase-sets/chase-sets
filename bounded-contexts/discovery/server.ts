@@ -1,4 +1,5 @@
 export { createDiscoveryRequestApiClient } from "./support/request-support/api-client";
+export { createDiscoveryUcpHandlers } from "./support/ucp-support/catalog";
 export {
   discoveryRealtimeManifest,
   discoveryRealtimeRegistration,

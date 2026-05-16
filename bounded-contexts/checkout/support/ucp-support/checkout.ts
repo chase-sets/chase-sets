@@ -1,0 +1,475 @@
+import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/ucp";
+import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { CheckoutServices } from "../runtime-support/services";
+import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
+import type { CheckoutOptimizationGoal, CheckoutShippingAddress } from "../../features/sessions/domain/domain";
+
+type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
+
+export type CheckoutUcpHandlers = Readonly<{
+  restHandlers: Readonly<Record<string, UcpHandler>>;
+  mcpToolHandlers: Readonly<Record<string, UcpHandler>>;
+}>;
+
+type CheckoutIntentBody = Readonly<{
+  source?: unknown;
+  type?: unknown;
+  intent?: unknown;
+  items?: unknown;
+  line_items?: unknown;
+  shippingOption?: unknown;
+  shipping_option?: unknown;
+  optimizationGoal?: unknown;
+  optimization_goal?: unknown;
+  shippingAddress?: unknown;
+  shipping_address?: unknown;
+  requestedBalanceCreditAmount?: unknown;
+}>;
+
+export function createCheckoutUcpHandlers(
+  checkout: Pick<CheckoutServices, "sessions">,
+): CheckoutUcpHandlers {
+  const handlers = {
+    create_checkout: async (input: UcpOperationHandlerInput) => {
+      const access = requireCheckoutAccess(input, "orders.manage");
+      if (access.error) {
+        return access.error;
+      }
+
+      const body = await readInputObject<CheckoutIntentBody>(input);
+      const source = readObject(body.source) ?? readObject(body.intent) ?? body;
+      const sourceType = readString(source.type) ?? readString(body.type);
+
+      try {
+        const result = sourceType === "cart"
+          ? await checkout.sessions.createFromCart(
+              {
+                accountId: access.actor.accountId as AccountId,
+                shippingOption: readShippingOption(body),
+                optimizationGoal: readOptimizationGoal(body),
+              },
+              access.context,
+            )
+          : sourceType === "offer-intent" || sourceType === "offer"
+            ? await createOfferIntent(checkout, source, body, access)
+            : await createBuyNow(checkout, source, body, access);
+
+        const session = await checkout.sessions.getSession(
+          result.sessionId,
+          access.actor.accountId,
+        );
+
+        return createUcpEnvelope("ok", {
+          checkout: session ? sessionToUcpCheckout(session) : {
+            id: result.sessionId,
+            status: "started",
+          },
+        });
+      } catch (error) {
+        return validationError(error);
+      }
+    },
+    get_checkout: async (input: UcpOperationHandlerInput) => {
+      const access = requireCheckoutAccess(input, "orders.view");
+      if (access.error) {
+        return access.error;
+      }
+
+      const sessionId = readCheckoutSessionId(input);
+      const session = sessionId
+        ? await checkout.sessions.getSession(sessionId, access.actor.accountId)
+        : null;
+
+      return session
+        ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session) })
+        : checkoutNotFound();
+    },
+    update_checkout: async (input: UcpOperationHandlerInput) => {
+      const access = requireCheckoutAccess(input, "orders.manage");
+      if (access.error) {
+        return access.error;
+      }
+
+      const sessionId = readCheckoutSessionId(input);
+      if (!sessionId) {
+        return validationError("Checkout session id is required.");
+      }
+
+      const body = await readInputObject<CheckoutIntentBody>(input);
+
+      try {
+        const shippingOption = readShippingOption(body);
+        if (shippingOption) {
+          await checkout.sessions.selectShippingOption(
+            {
+              sessionId,
+              accountId: access.actor.accountId as AccountId,
+              shippingOption,
+            },
+            access.context,
+          );
+        }
+
+        const optimizationGoal = readOptimizationGoal(body);
+        if (optimizationGoal) {
+          await checkout.sessions.selectOptimizationGoal(
+            {
+              sessionId,
+              accountId: access.actor.accountId as AccountId,
+              optimizationGoal,
+            },
+            access.context,
+          );
+        }
+
+        const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
+        if (shippingAddress) {
+          await checkout.sessions.setShippingAddress(
+            {
+              sessionId,
+              accountId: access.actor.accountId as AccountId,
+              shippingAddress,
+            },
+            access.context,
+          );
+        }
+
+        const session = await checkout.sessions.getSession(
+          sessionId,
+          access.actor.accountId,
+        );
+        return session
+          ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session) })
+          : checkoutNotFound();
+      } catch (error) {
+        return validationError(error);
+      }
+    },
+    complete_checkout: async (input: UcpOperationHandlerInput) => {
+      const access = requireCheckoutAccess(input, "orders.manage");
+      if (access.error) {
+        return access.error;
+      }
+
+      const sessionId = readCheckoutSessionId(input);
+      const session = sessionId
+        ? await checkout.sessions.getSession(sessionId, access.actor.accountId)
+        : null;
+      if (!session) {
+        return checkoutNotFound();
+      }
+
+      if (session.payment_id || session.submitted_offer_id) {
+        return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session) });
+      }
+
+      return createUcpEnvelope("requires_action", {
+        checkout: sessionToUcpCheckout(session),
+        action: {
+          type: "trusted_checkout_handoff",
+          url: `/checkout/${session.session_id}`,
+          reason: "Checkout completion requires buyer review in trusted UI until AP2 mandate verification and payment-handler handoff are implemented.",
+        },
+      }, [
+        {
+          severity: "warning",
+          code: "trusted_ui_required",
+          message: "Use trusted checkout handoff before creating orders or payment through an AI agent.",
+        },
+      ]);
+    },
+    cancel_checkout: async () =>
+      createUcpEnvelope("requires_action", {
+        action: {
+          type: "trusted_checkout_handoff",
+          reason: "Checkout does not own a cancel command yet; buyers can abandon or revise the session in trusted UI.",
+        },
+      }, [
+        {
+          severity: "warning",
+          code: "cancel_not_owned",
+          message: "Cancel checkout is not wired because the Checkout Session aggregate does not model cancellation yet.",
+        },
+      ]),
+  } satisfies Readonly<Record<string, UcpHandler>>;
+
+  return {
+    restHandlers: handlers,
+    mcpToolHandlers: handlers,
+  };
+}
+
+async function createBuyNow(
+  checkout: Pick<CheckoutServices, "sessions">,
+  source: Readonly<Record<string, unknown>>,
+  body: CheckoutIntentBody,
+  access: CheckoutAccess,
+) {
+  const item = readCheckoutItem(source, body);
+  return checkout.sessions.createBuyNow(
+    {
+      accountId: access.actor.accountId as AccountId,
+      listingId: readString(item.listingId ?? item.listing_id) ?? "",
+      catalogItemId: readString(item.catalogItemId ?? item.catalog_item_id ?? item.id) ?? "",
+      productId: readString(item.productId ?? item.product_id ?? item.variantId ?? item.variant_id) ?? "",
+      itemTitle: readString(item.itemTitle ?? item.title) ?? "",
+      itemSubtitle: readNullableString(item.itemSubtitle ?? item.subtitle),
+      selectedOptions: readSelectedOptions(item.selectedOptions ?? item.selected_options),
+      productSummary: readNullableString(item.productSummary ?? item.product_summary),
+      quantity: readQuantity(item.quantity),
+      fulfillmentMode:
+        readString(item.fulfillmentMode ?? item.fulfillment_mode) === "locked-listing"
+          ? "locked-listing"
+          : "optimize",
+      lockedListingId: readNullableString(item.lockedListingId ?? item.locked_listing_id ?? item.listingId ?? item.listing_id),
+      sellerPreferenceId: readNullableString(item.sellerPreferenceId ?? item.seller_preference_id),
+      shippingOption: readShippingOption(body),
+      optimizationGoal: readOptimizationGoal(body),
+    },
+    access.context,
+  );
+}
+
+async function createOfferIntent(
+  checkout: Pick<CheckoutServices, "sessions">,
+  source: Readonly<Record<string, unknown>>,
+  body: CheckoutIntentBody,
+  access: CheckoutAccess,
+) {
+  if (access.actor.roleKey === "guest-buyer") {
+    throw new Error("Register or sign in before placing purchase intent.");
+  }
+
+  const item = readCheckoutItem(source, body);
+  return checkout.sessions.createOfferIntent(
+    {
+      accountId: access.actor.accountId as AccountId,
+      catalogItemId: readString(item.catalogItemId ?? item.catalog_item_id ?? item.id) ?? "",
+      productId: readString(item.productId ?? item.product_id ?? item.variantId ?? item.variant_id) ?? "",
+      itemTitle: readString(item.itemTitle ?? item.title) ?? "",
+      itemSubtitle: readNullableString(item.itemSubtitle ?? item.subtitle),
+      selectedOptions: readSelectedOptions(item.selectedOptions ?? item.selected_options),
+      productSummary: readNullableString(item.productSummary ?? item.product_summary),
+      offerPriceAmount:
+        readNullableString(source.offerPriceAmount ?? source.offer_price_amount) ??
+        readMoneyMajorUnits(readObject(source.offerPrice ?? source.offer_price)) ??
+        "",
+      quantity: readQuantity(item.quantity),
+      shippingOption: readShippingOption(body),
+      optimizationGoal: readOptimizationGoal(body),
+    },
+    access.context,
+  );
+}
+
+type CheckoutAccess = Exclude<ReturnType<typeof requireCheckoutAccess>, { error: UcpEnvelope }>;
+
+function requireCheckoutAccess(
+  input: UcpOperationHandlerInput,
+  permission: "orders.view" | "orders.manage",
+) {
+  if (!input.actor) {
+    return {
+      error: createUcpEnvelope("error", {}, [
+        {
+          severity: "error",
+          code: "authentication_required",
+          message: "UCP checkout requires a linked buyer account.",
+        },
+      ]),
+    };
+  }
+
+  if (!input.actor.permissions.includes(permission) && !input.actor.permissions.includes("guest-checkout.manage")) {
+    return {
+      error: createUcpEnvelope("error", {}, [
+        {
+          severity: "error",
+          code: "authorization_forbidden",
+          message: "The linked buyer account cannot manage this checkout session.",
+        },
+      ]),
+    };
+  }
+
+  if (!input.context) {
+    return {
+      error: createUcpEnvelope("error", {}, [
+        {
+          severity: "error",
+          code: "context_required",
+          message: "UCP checkout requires an event-store context.",
+        },
+      ]),
+    };
+  }
+
+  return {
+    actor: input.actor,
+    context: input.context,
+  };
+}
+
+function sessionToUcpCheckout(session: CheckoutSessionRow) {
+  return {
+    id: session.session_id,
+    status: session.payment_id
+      ? "payment_started"
+      : session.submitted_offer_id
+        ? "purchase_intent_submitted"
+        : "started",
+    source_type: session.source_type,
+    shipping_option: session.shipping_option,
+    optimization_goal: session.optimization_goal,
+    shipping_address: session.shipping_address,
+    line_items: session.lines.map((line) => ({
+      catalog_item_id: line.catalogItemId,
+      product_id: line.productId,
+      listing_id: line.listingId,
+      title: line.itemTitle,
+      subtitle: line.itemSubtitle,
+      selected_options: line.selectedOptions,
+      product_summary: line.productSummary,
+      quantity: line.quantity,
+      fulfillment_mode: line.fulfillmentMode ?? "optimize",
+      availability_state: line.availabilityState ?? "available",
+    })),
+    order_ids: session.order_ids,
+    payment_id: session.payment_id,
+    offer_id: session.submitted_offer_id,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+  };
+}
+
+function readCheckoutSessionId(input: UcpOperationHandlerInput) {
+  return input.params.id || readString(input.arguments.id) || "";
+}
+
+function readCheckoutItem(
+  source: Readonly<Record<string, unknown>>,
+  body: CheckoutIntentBody,
+) {
+  const sourceItem = readObject(source.item) ?? source;
+  const items = Array.isArray(source.items)
+    ? source.items
+    : Array.isArray(body.items)
+      ? body.items
+      : Array.isArray(body.line_items)
+        ? body.line_items
+        : [];
+  return readObject(items[0]) ?? sourceItem;
+}
+
+async function readInputObject<T extends Readonly<Record<string, unknown>>>(
+  input: UcpOperationHandlerInput,
+): Promise<T> {
+  const args = input.arguments ?? {};
+  return Object.keys(args).length > 0
+    ? args as T
+    : readJsonObject<T>(input.request);
+}
+
+async function readJsonObject<T extends Readonly<Record<string, unknown>>>(
+  request: Request,
+): Promise<T> {
+  const value = await request.clone().json().catch(() => ({}));
+  return (readObject(value) ?? {}) as T;
+}
+
+function readObject(value: unknown): Readonly<Record<string, unknown>> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : null;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readNullableString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readQuantity(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : typeof value === "string" && value.trim().length > 0
+      ? Number(value)
+      : 1;
+}
+
+function readShippingOption(body: CheckoutIntentBody) {
+  return readString(body.shippingOption ?? body.shipping_option);
+}
+
+function readOptimizationGoal(body: CheckoutIntentBody): CheckoutOptimizationGoal | undefined {
+  const value = readString(body.optimizationGoal ?? body.optimization_goal);
+  return value === "fewest-shipments" ? "fewest-shipments" : value === "lowest-total" ? "lowest-total" : undefined;
+}
+
+function readShippingAddress(value: unknown): CheckoutShippingAddress | null {
+  const source = readObject(value);
+  if (!source) {
+    return null;
+  }
+
+  return {
+    name: String(source.name ?? ""),
+    company: readNullableString(source.company),
+    line1: String(source.line1 ?? source.line_1 ?? ""),
+    line2: readNullableString(source.line2 ?? source.line_2),
+    city: String(source.city ?? ""),
+    state: String(source.state ?? ""),
+    postalCode: String(source.postalCode ?? source.postal_code ?? ""),
+    country: String(source.country ?? "US"),
+    phone: readNullableString(source.phone),
+    email: readNullableString(source.email),
+  };
+}
+
+function readSelectedOptions(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map(readObject)
+        .filter((entry): entry is Readonly<Record<string, unknown>> => entry !== null)
+        .map((entry) => ({
+          dimensionId: readString(entry.dimensionId ?? entry.dimension_id) ?? "",
+          optionId: readString(entry.optionId ?? entry.option_id) ?? "",
+        }))
+    : [];
+}
+
+function readMoneyMajorUnits(value: Readonly<Record<string, unknown>> | null) {
+  if (!value) {
+    return null;
+  }
+
+  const amount = readString(value.amount);
+  if (!amount) {
+    return null;
+  }
+
+  return `${amount.slice(0, -2) || "0"}.${amount.slice(-2).padStart(2, "0")}`;
+}
+
+function checkoutNotFound() {
+  return createUcpEnvelope("error", {}, [
+    {
+      severity: "error",
+      code: "checkout_not_found",
+      message: "Checkout could not resolve the requested checkout session for the linked buyer account.",
+    },
+  ]);
+}
+
+function validationError(error: unknown) {
+  return createUcpEnvelope("error", {}, [
+    {
+      severity: "error",
+      code: "validation_failed",
+      message: error instanceof Error ? error.message : String(error),
+    },
+  ]);
+}
