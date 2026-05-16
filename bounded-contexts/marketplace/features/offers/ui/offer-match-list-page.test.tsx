@@ -21,7 +21,14 @@ const offer: OfferMatchListItem = {
   accepted_at: null,
   created_at: "2026-04-28T00:00:00.000Z",
   updated_at: "2026-04-28T00:00:00.000Z",
+  listing_id: "lst_1",
+  listing_price_amount: "22.00",
+  listing_quantity_cap: 2,
+  listing_visible_quantity: 2,
+  offer_price_gap_amount: "2.00",
+  offer_to_listing_price_bps: 9091,
   seller_available_quantity: 2,
+  seller_listing_availability_status: "available",
   can_fulfill: true,
   in_sell_list: true,
 };
@@ -51,5 +58,22 @@ describe("MarketplaceOfferMatchListPage", () => {
     expect(markup).toContain("Seller shipping allowance");
     expect(markup).toContain("Queue multiple offers from the same buyer");
     expect(markup).toContain("Shipping allowance: 5% of accepted offer value");
+    expect(markup).toContain("Listing price: $22.00");
+    expect(markup).toContain("Offer is 90.91% of ask");
+  });
+
+  it("shows listing price next to the best offer so sellers can judge the gap", () => {
+    const markup = renderToString(
+      <MarketplaceOfferMatchListPage
+        data={{ items: [offer] }}
+        cartData={{ items: [] }}
+      />,
+    );
+
+    expect(markup).toContain("Best Offer Matches");
+    expect(markup).toContain("Your Listing");
+    expect(markup).toContain("$22.00");
+    expect(markup).toContain("$20.00");
+    expect(markup).toContain("$2.00 below ask");
   });
 });

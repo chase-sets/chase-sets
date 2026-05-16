@@ -22,6 +22,12 @@ export type MarketplaceOfferListRow = Readonly<{
 
 export type OfferMatchRow = MarketplaceOfferListRow &
   Readonly<{
+    listing_id: string;
+    listing_price_amount: string;
+    listing_quantity_cap: number;
+    listing_visible_quantity: number;
+    offer_price_gap_amount: string;
+    offer_to_listing_price_bps: number;
     buyer_display_name: string | null;
     seller_available_quantity: number;
     seller_listing_availability_status: "available" | "unavailable";
@@ -87,20 +93,20 @@ const sellerVisibilitySql = `
   )
 )`;
 
-function sellerOfferSelectSql(sellerAccountSql: string) {
+function sellerBestListingJoinSql(sellerAccountSql: string) {
   return `
-  offer.*,
-  buyer.display_name AS buyer_display_name,
-  COALESCE((
-    SELECT SUM(
+  INNER JOIN LATERAL (
+    SELECT
+      listing.listing_id,
+      listing.price_amount AS listing_price_amount,
+      listing.quantity_cap AS listing_quantity_cap,
       LEAST(
         listing.quantity_cap,
         GREATEST(
           item.total_quantity - COALESCE(active_holds.held_quantity, 0),
           0
         )
-      )
-    )::integer
+      )::integer AS listing_visible_quantity
     FROM marketplace_listing_pages AS listing
     INNER JOIN marketplace_supply_items AS item
       ON item.item_id = listing.inventory_item_id
@@ -114,7 +120,33 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
     WHERE listing.account_id = ${sellerAccountSql}
       AND listing.status = 'active'
       AND listing.product_id = offer.product_id
-  ), 0)::integer AS seller_available_quantity,
+    ORDER BY
+      CASE
+        WHEN listing.price_amount > 0 THEN offer.price_amount / listing.price_amount
+        ELSE 0
+      END DESC,
+      listing.price_amount ASC,
+      listing.updated_at DESC,
+      listing.listing_id ASC
+    LIMIT 1
+  ) AS matched_listing ON TRUE`;
+}
+
+function sellerOfferSelectSql(sellerAccountSql: string) {
+  return `
+  offer.*,
+  buyer.display_name AS buyer_display_name,
+  matched_listing.listing_id,
+  matched_listing.listing_price_amount::text AS listing_price_amount,
+  matched_listing.listing_quantity_cap,
+  matched_listing.listing_visible_quantity,
+  matched_listing.listing_visible_quantity AS seller_available_quantity,
+  (matched_listing.listing_price_amount - offer.price_amount)::numeric(12,2)::text AS offer_price_gap_amount,
+  CASE
+    WHEN matched_listing.listing_price_amount > 0
+      THEN ROUND((offer.price_amount / matched_listing.listing_price_amount) * 10000)::integer
+    ELSE 0
+  END AS offer_to_listing_price_bps,
   COALESCE(availability.status, 'available') AS seller_listing_availability_status,
   EXISTS (
     SELECT 1
@@ -129,12 +161,19 @@ function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
     (seller_offer.status = 'submitted'
       AND seller_offer.seller_listing_availability_status = 'available'
       AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested) DESC,
+    seller_offer.offer_to_listing_price_bps DESC,
     seller_offer.price_amount::numeric DESC,
     seller_offer.quantity_requested DESC,
     ${tieBreakerSql}`;
 }
 
 type OfferMatchPageRow = MarketplaceOfferPageRow & {
+  listing_id: string;
+  listing_price_amount: string;
+  listing_quantity_cap: number;
+  listing_visible_quantity: number;
+  offer_price_gap_amount: string;
+  offer_to_listing_price_bps: number;
   buyer_display_name: string | null;
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable" | null | undefined;
@@ -150,6 +189,12 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
 
   return {
     ...offer,
+    listing_id: row.listing_id,
+    listing_price_amount: row.listing_price_amount,
+    listing_quantity_cap: row.listing_quantity_cap,
+    listing_visible_quantity: row.listing_visible_quantity,
+    offer_price_gap_amount: row.offer_price_gap_amount,
+    offer_to_listing_price_bps: row.offer_to_listing_price_bps,
     buyer_display_name: row.buyer_display_name,
     seller_available_quantity: row.seller_available_quantity,
     seller_listing_availability_status: row.seller_listing_availability_status ?? "available",
@@ -229,6 +274,7 @@ export async function listOfferMatches(
          SELECT
            ${sellerOfferSelectSql("$1")}
          FROM marketplace_offer_pages AS offer
+         ${sellerBestListingJoinSql("$1")}
          LEFT JOIN marketplace_account_pages AS buyer
            ON buyer.account_id = offer.buyer_account_id
          LEFT JOIN marketplace_seller_listing_availability_pages AS availability
@@ -260,6 +306,7 @@ export async function getOfferMatch(
     `SELECT
        ${sellerOfferSelectSql("$1")}
      FROM marketplace_offer_pages AS offer
+     ${sellerBestListingJoinSql("$1")}
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
@@ -310,6 +357,7 @@ export async function listOfferMatchSellList(
        FROM marketplace_buyer_offer_match_sell_list_pages AS cart
        INNER JOIN marketplace_offer_pages AS offer
          ON offer.offer_id = cart.offer_id
+       ${sellerBestListingJoinSql("$1")}
        LEFT JOIN marketplace_account_pages AS buyer
          ON buyer.account_id = offer.buyer_account_id
        LEFT JOIN marketplace_seller_listing_availability_pages AS availability
@@ -344,6 +392,7 @@ export async function listOfferMatchesForSellers(
      FROM seller_accounts AS seller_account
      INNER JOIN marketplace_offer_pages AS offer
        ON offer.offer_id = $1
+     ${sellerBestListingJoinSql("seller_account.seller_account_id")}
      LEFT JOIN marketplace_account_pages AS buyer
        ON buyer.account_id = offer.buyer_account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability

@@ -36,6 +36,28 @@ function formatAllowancePercentage(bps: number) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
 }
 
+function formatPriceGap(amount: string) {
+  const value = Number(amount);
+
+  if (Number.isNaN(value)) {
+    return t("marketplace.features.offers.ui.offerMatchListPage.ask.gap.unknown");
+  }
+
+  if (value > 0) {
+    return t("marketplace.features.offers.ui.offerMatchListPage.below.ask", {
+      amount: formatMoney(value.toFixed(2)),
+    });
+  }
+
+  if (value < 0) {
+    return t("marketplace.features.offers.ui.offerMatchListPage.over.ask", {
+      amount: formatMoney(Math.abs(value).toFixed(2)),
+    });
+  }
+
+  return t("marketplace.features.offers.ui.offerMatchListPage.meets.ask");
+}
+
 function termsSource(terms: MarketplaceListingTermsPreview) {
   if (terms.agreement_id) {
     return "Seller terms";
@@ -84,6 +106,14 @@ export function MarketplaceOfferMatchListPage({
 }) {
   const queuedCount = cartData?.items.length ?? 0;
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
+  const atOrAboveAskCount = data.items.filter(
+    (item) => item.offer_to_listing_price_bps >= 10000,
+  ).length;
+  const bestMatchPercentage = data.items.length
+    ? formatAllowancePercentage(
+        Math.max(...data.items.map((item) => item.offer_to_listing_price_bps)),
+      )
+    : "0%";
   const listingsUnavailable = data.items.some(
     (item) => item.seller_listing_availability_status === "unavailable",
   );
@@ -96,7 +126,7 @@ export function MarketplaceOfferMatchListPage({
       <PageHeader
         eyebrow={t("marketplace.features.offers.ui.offerMatchListPage.seller")}
         title={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches")}
-        description={t("marketplace.features.offers.ui.offerMatchListPage.review.offer.matches.that.currently.match")}
+        description={t("marketplace.features.offers.ui.offerMatchListPage.compare.best.offers.to.your.listing")}
         actions={
           <LinkButton href="/account/listings" tone="secondary">
             {t("marketplace.features.offers.ui.offerMatchListPage.view.listings")}</LinkButton>
@@ -104,11 +134,13 @@ export function MarketplaceOfferMatchListPage({
       />
 
       <MarketplaceDashboardPanel
-        title={t("marketplace.features.offers.ui.offerMatchListPage.offer.match.health")}
-        description={t("marketplace.features.offers.ui.offerMatchListPage.offer.match.health.description")}
+        title={t("marketplace.features.offers.ui.offerMatchListPage.best.match.snapshot")}
+        description={t("marketplace.features.offers.ui.offerMatchListPage.best.match.snapshot.description")}
         metrics={[
           { label: t("marketplace.features.offers.ui.offerMatchListPage.active.matches"), value: data.items.length },
-          { label: t("marketplace.features.offers.ui.offerMatchListPage.ready.to.fulfill"), value: fulfillableCount },
+          { label: t("marketplace.features.offers.ui.offerMatchListPage.ready.to.accept"), value: fulfillableCount },
+          { label: t("marketplace.features.offers.ui.offerMatchListPage.at.or.above.ask"), value: atOrAboveAskCount },
+          { label: t("marketplace.features.offers.ui.offerMatchListPage.best.match"), value: bestMatchPercentage },
           { label: t("marketplace.features.offers.ui.offerMatchListPage.queued"), value: queuedCount },
         ]}
       />
@@ -150,6 +182,16 @@ export function MarketplaceOfferMatchListPage({
                       <Text size="sm" tone="secondary">
                         {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.offer.price", {
                           price: formatMoney(item.price_amount),
+                        })}
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.listing.price", {
+                          price: formatMoney(item.listing_price_amount),
+                        })}
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.offer.to.ask", {
+                          percentage: formatAllowancePercentage(item.offer_to_listing_price_bps),
                         })}
                       </Text>
                       {terms ? (
@@ -221,7 +263,7 @@ export function MarketplaceOfferMatchListPage({
         </Card>
       </PageSection>
 
-      <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches.2")}>
+      <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.best.offer.matches")}>
         <DataTable
           rows={[...data.items]}
           getRowId={(row) => row.offer_id}
@@ -244,14 +286,45 @@ export function MarketplaceOfferMatchListPage({
               ),
             },
             {
-              key: "buyer",
-              header: t("marketplace.features.offers.ui.offerMatchListPage.buyer"),
-              cell: (row) => row.buyer_display_name ?? row.buyer_account_id,
+              key: "listing",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.your.listing"),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{formatMoney(row.listing_price_amount)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.offers.ui.offerMatchListPage.listing.quantity", {
+                      visible: row.listing_visible_quantity,
+                      cap: row.listing_quantity_cap,
+                    })}
+                  </Text>
+                </Stack>
+              ),
             },
             {
-              key: "price",
-              header: t("marketplace.features.offers.ui.offerMatchListPage.offer.price"),
-              cell: (row) => formatMoney(row.price_amount),
+              key: "best-offer",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.best.offer"),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{formatMoney(row.price_amount)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {row.buyer_display_name ?? row.buyer_account_id}
+                  </Text>
+                </Stack>
+              ),
+            },
+            {
+              key: "gap",
+              header: t("marketplace.features.offers.ui.offerMatchListPage.offer.vs.ask"),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Badge tone={row.offer_to_listing_price_bps >= 10000 ? "success" : "accent"}>
+                    {formatAllowancePercentage(row.offer_to_listing_price_bps)}
+                  </Badge>
+                  <Text size="sm" tone="secondary">
+                    {formatPriceGap(row.offer_price_gap_amount)}
+                  </Text>
+                </Stack>
+              ),
             },
             {
               key: "quantity",
@@ -259,9 +332,13 @@ export function MarketplaceOfferMatchListPage({
               align: "right",
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text>{row.quantity_requested}</Text>
+                  <Text>{t("marketplace.features.offers.ui.offerMatchListPage.requested.quantity", {
+                    quantity: row.quantity_requested,
+                  })}</Text>
                   <Text size="sm" tone="secondary">
-                    {row.seller_available_quantity} available
+                    {t("marketplace.features.offers.ui.offerMatchListPage.available.quantity", {
+                      quantity: row.seller_available_quantity,
+                    })}
                   </Text>
                 </Stack>
               ),
