@@ -15,6 +15,7 @@ import {
   ToolbarButton,
   ToolbarInput,
   ToolbarSeparator,
+  TopNav,
 } from "../components/actions";
 import { Card, DataTable, ImageGallery } from "../components/data-display";
 import {
@@ -480,6 +481,33 @@ describe("design system", () => {
     await user.click(screen.getByRole("button", { name: "Sell" }));
 
     expect(await screen.findByText("Seller workflows")).toBeTruthy();
+  });
+
+  it("keeps dropdown chevrons above the active top nav pill", () => {
+    render(
+      <ChaseRoot>
+        <TopNav
+          items={[
+            { key: "browse", label: "Browse", icon: "search" },
+            {
+              key: "sell",
+              label: "Sell",
+              icon: "store",
+              children: [
+                { key: "listings", label: "Listings", href: "/account/listings" }
+              ]
+            }
+          ]}
+          activeKey="listings"
+        />
+      </ChaseRoot>
+    );
+
+    const sellSummary = screen.getByText("Sell").closest("summary");
+    const chevronWrapper = sellSummary?.querySelector("svg")?.parentElement?.parentElement;
+
+    expect(sellSummary).toBeTruthy();
+    expect(chevronWrapper?.className).toContain("relative z-10");
   });
 
   it("renders motion primitives safely on the server", () => {
