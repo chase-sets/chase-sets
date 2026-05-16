@@ -43,15 +43,15 @@ The current implementation also uses four supporting authoring concepts:
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
 - `Source Asset` — the highest-quality imported image retained for provenance and future variant regeneration
-- `Reference Type` — a reusable kind of rich descriptive value, such as Set, Series, or Product Line
-- `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Set
+- `Reference Type` — a reusable kind of rich descriptive value, such as Expansion, Series, or Product Line
+- `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Expansion
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
 
 ## Rich Reference Model
 
-Use a `Reference Record` when a field value needs its own durable identity, attributes, or relationships. For example, a Set is not just text on every card. It can be a Reference Record with card count, release date, abbreviation, source ID, and a relationship to a Series Reference Record.
+Use a `Reference Record` when a field value needs its own durable identity, attributes, or relationships. For example, a Pokemon TCG Expansion is not just text on every card. It can be a Reference Record with card count, release date, abbreviation, source ID, and a relationship to a Series Reference Record.
 
 Reference Record relationships may form a hierarchy. For example, an Expansion can point to a Series, the Series can point to a TCG/Product Line, and the TCG/Product Line can point to a Manufacturer. Catalog Items should select the most specific applicable Reference Record and inherit broader reusable facts through that hierarchy.
 

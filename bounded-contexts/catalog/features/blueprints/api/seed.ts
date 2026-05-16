@@ -45,9 +45,9 @@ export async function seedBlueprints(
       fieldRules: [
         { fieldId: fields["card-number"], required: true },
         { fieldId: fields["card-name"], required: true },
-        { fieldId: fields["set-name"], required: true },
+        { fieldId: fields.expansion, required: true },
         { fieldId: fields.rarity, required: true },
-        { fieldId: fields.artist, required: false },
+        { fieldId: fields["card-illustrator"], required: false },
         { fieldId: fields["release-year"], required: false },
       ],
     });
@@ -137,7 +137,7 @@ export async function seedBlueprints(
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {
       type: "SetBlueprintFields",
       fieldRules: [
-        { fieldId: fields["set-name"], required: true },
+        { fieldId: fields.expansion, required: true },
         { fieldId: fields["release-year"], required: false },
         { fieldId: fields["pack-count"], required: true },
       ],

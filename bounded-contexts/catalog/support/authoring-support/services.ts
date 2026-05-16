@@ -54,7 +54,7 @@ export function createCatalogServices(
   const blueprints = createBlueprintRuntime(deps);
   const categories = createCategoryRuntime(deps);
   const items = createCatalogItemRuntime(deps);
-  const sourceObservations = createSourceObservationRuntime(deps, items);
+  const sourceObservations = createSourceObservationRuntime(deps, items, referenceData);
 
   return {
     dimensions,

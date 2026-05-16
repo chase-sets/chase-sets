@@ -58,7 +58,7 @@ export async function listSourceObservations(
       "source_url",
       "(normalized->>'setId')",
       "(normalized->>'name')",
-      "(normalized->>'setName')",
+      "coalesce(normalized->>'expansionName', normalized->>'setName')",
     ],
     "observed_at DESC",
     filter.conditions,
@@ -168,7 +168,7 @@ function buildSourceObservationFilter(
 
   if (scope.setId) {
     values.push(scope.setId);
-    conditions.push(`(normalized->>'setId') = $${values.length}`);
+    conditions.push(`((normalized->>'setId') = $${values.length} OR (normalized->>'expansionId') = $${values.length})`);
   }
 
   if (options.includeListFilters && scope.status) {
@@ -179,7 +179,7 @@ function buildSourceObservationFilter(
   if (options.includeListFilters && scope.search) {
     values.push(`%${scope.search}%`);
     const param = `$${values.length}`;
-    conditions.push(`(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'setName') ILIKE ${param})`);
+    conditions.push(`(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`);
   }
 
   return { conditions, values };

@@ -93,6 +93,33 @@ describe("source observation routes", () => {
     });
   });
 
+  it("accepts TCGdex expansion ID as the Catalog-facing import request field", async () => {
+    const importTcgdexSet = vi.fn(async () => ({
+      setId: "base1",
+      expansionId: "base1",
+      languageCode: "en",
+      observed: 102,
+      observationIds: [],
+    }));
+    const services = {
+      importTcgdexSet,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/imports/tcgdex-set", {
+      method: "POST",
+      body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(importTcgdexSet).toHaveBeenCalledWith({
+      languageCode: "en",
+      setId: "base1",
+      context,
+    });
+  });
+
   it("bulk promotes observations matching an explicit filter scope", async () => {
     const promoteObservationScope = vi.fn(async () => ({
       requested: 100,

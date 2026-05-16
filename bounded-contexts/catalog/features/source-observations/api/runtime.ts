@@ -10,9 +10,18 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
-import type { CatalogItemId, BlueprintId, CategoryId, FieldId } from "../../../ids";
+import type {
+  CatalogItemId,
+  BlueprintId,
+  CategoryId,
+  FieldId,
+  ReferenceRecordId,
+  ReferenceTypeId,
+} from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
+import type { ReferenceDataServices } from "../../reference-data/api/runtime";
+import type { ReferenceRelationship } from "../../reference-data/domain/domain";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -92,6 +101,7 @@ export type SourceObservationServices = Readonly<{
 export function createSourceObservationRuntime(
   deps: CatalogRuntimeDeps,
   items: CatalogItemServices,
+  referenceData: ReferenceDataServices,
 ): SourceObservationServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -133,6 +143,8 @@ export function createSourceObservationRuntime(
     const catalogItemId = createId("cat") as CatalogItemId;
     await createCatalogDraftFromObservation({
       items,
+      referenceData,
+      deps,
       catalogItemId,
       normalized: input.observation.normalized,
       providerKey: input.observation.provider_key,
@@ -229,6 +241,7 @@ export function createSourceObservationRuntime(
 
       return {
         setId,
+        expansionId: setId,
         languageCode,
         observed: observations.length,
         observationIds: observations.map((observation) => observation.observationId),
@@ -294,6 +307,8 @@ async function drainRuntimeProjectors(projectors: readonly Projector[]) {
 
 async function createCatalogDraftFromObservation(input: {
   items: CatalogItemServices;
+  referenceData: ReferenceDataServices;
+  deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
   normalized: SourceObservationNormalized;
   providerKey: string;
@@ -301,7 +316,13 @@ async function createCatalogDraftFromObservation(input: {
   context: EventStoreContext;
 }) {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const subtitle = `${input.normalized.setName} ${input.normalized.cardNumber}`;
+  const subtitle = `${input.normalized.expansionName} ${input.normalized.cardNumber}`;
+  const expansionReferenceId = await ensurePokemonReferenceHierarchy({
+    deps: input.deps,
+    referenceData: input.referenceData,
+    normalized: input.normalized,
+    context: input.context,
+  });
 
   await input.items.commandHandler({
     streamId,
@@ -325,14 +346,14 @@ async function createCatalogDraftFromObservation(input: {
   });
   await setFieldValue(input, "cardNumber", input.normalized.cardNumber);
   await setFieldValue(input, "cardName", localizedJsonText(input.normalized.name));
-  await setFieldValue(input, "setName", input.normalized.setName);
+  await setFieldValue(input, "expansion", { referenceId: expansionReferenceId });
 
   if (input.normalized.rarity) {
     await setFieldValue(input, "rarity", input.normalized.rarity);
   }
 
   if (input.normalized.illustrator) {
-    await setFieldValue(input, "artist", input.normalized.illustrator);
+    await setFieldValue(input, "cardIllustrator", input.normalized.illustrator);
   }
 
   if (input.normalized.releaseYear !== null) {
@@ -354,7 +375,7 @@ async function createCatalogDraftFromObservation(input: {
       tags: [
         "pokemon",
         "tcgdex",
-        `set:${input.normalized.setId}`,
+        `expansion:${input.normalized.expansionId}`,
         `category:${input.normalized.category.toLowerCase()}`,
       ],
     },
@@ -412,11 +433,217 @@ async function setFieldValue(
 const catalogFieldByKey = {
   cardNumber: catalogSeedIds.fields.cardNumber,
   cardName: catalogSeedIds.fields.cardName,
-  setName: catalogSeedIds.fields.setName,
+  expansion: catalogSeedIds.fields.expansion,
   rarity: catalogSeedIds.fields.rarity,
-  artist: catalogSeedIds.fields.artist,
+  cardIllustrator: catalogSeedIds.fields.cardIllustrator,
   releaseYear: catalogSeedIds.fields.releaseYear,
 } as const;
+
+async function ensurePokemonReferenceHierarchy(input: {
+  deps: CatalogRuntimeDeps;
+  referenceData: ReferenceDataServices;
+  normalized: SourceObservationNormalized;
+  context: EventStoreContext;
+}): Promise<ReferenceRecordId> {
+  await ensureReferenceType(input, {
+    referenceTypeId: catalogSeedIds.referenceTypes.manufacturer as ReferenceTypeId,
+    key: "manufacturer",
+    name: "Manufacturer",
+    description: "A company responsible for publishing or manufacturing catalog products.",
+    attributeKeys: ["homepage-url"],
+  });
+  await ensureReferenceType(input, {
+    referenceTypeId: catalogSeedIds.referenceTypes.productLine as ReferenceTypeId,
+    key: "product-line",
+    name: "Product Line",
+    description: "A branded collectible product line.",
+    attributeKeys: ["official-name", "short-name"],
+  });
+  await ensureReferenceType(input, {
+    referenceTypeId: catalogSeedIds.referenceTypes.series as ReferenceTypeId,
+    key: "series",
+    name: "Series",
+    description: "An official Pokemon TCG series that groups expansions.",
+    attributeKeys: ["tcgdex-series-id"],
+  });
+  await ensureReferenceType(input, {
+    referenceTypeId: catalogSeedIds.referenceTypes.expansion as ReferenceTypeId,
+    key: "expansion",
+    name: "Expansion",
+    description: "An official Pokemon TCG card expansion.",
+    attributeKeys: [
+      "abbreviation",
+      "card-count",
+      "parallel-set-card-count",
+      "release-date",
+      "tcgdex-set-id",
+    ],
+  });
+
+  const manufacturerId = await ensureReferenceRecord(input, {
+    referenceRecordId:
+      catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational,
+    typeKey: "manufacturer",
+    key: "the-pokemon-company-international",
+    name: "The Pokemon Company International",
+    description: "Publisher of the English Pokemon Trading Card Game.",
+    attributes: { "homepage-url": "https://www.pokemon.com/us" },
+  });
+  const productLineId = await ensureReferenceRecord(input, {
+    referenceRecordId:
+      catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame,
+    typeKey: "product-line",
+    key: "pokemon-trading-card-game",
+    name: "Pokemon Trading Card Game",
+    description: "The Pokemon Trading Card Game product line.",
+    attributes: {
+      "official-name": "Pokemon Trading Card Game",
+      "short-name": "Pokemon TCG",
+    },
+    relationships: [{ relationshipType: "published-by", referenceId: manufacturerId }],
+  });
+  const seriesReferenceId = input.normalized.seriesName
+    ? await ensureReferenceRecord(input, {
+        referenceRecordId: createId("ref") as ReferenceRecordId,
+        typeKey: "series",
+        key: normalizeReferenceKey(input.normalized.seriesName),
+        name: input.normalized.seriesName,
+        description: `${input.normalized.seriesName} Pokemon TCG series.`,
+        attributes: input.normalized.seriesId
+          ? { "tcgdex-series-id": input.normalized.seriesId }
+          : {},
+        relationships: [{ relationshipType: "part-of", referenceId: productLineId }],
+      })
+    : productLineId;
+
+  const expansionAttributes: Record<string, JsonValue> = {
+    "tcgdex-set-id": input.normalized.expansionId,
+  };
+
+  if (input.normalized.releaseDate) {
+    expansionAttributes["release-date"] = input.normalized.releaseDate;
+  }
+
+  if (input.normalized.expansionAbbreviation) {
+    expansionAttributes.abbreviation = input.normalized.expansionAbbreviation;
+  }
+
+  if (input.normalized.expansionCardCount !== null) {
+    expansionAttributes["card-count"] = input.normalized.expansionCardCount;
+  }
+
+  if (input.normalized.expansionParallelSetCardCount !== null) {
+    expansionAttributes["parallel-set-card-count"] =
+      input.normalized.expansionParallelSetCardCount;
+  }
+
+  return ensureReferenceRecord(input, {
+    referenceRecordId: createId("ref") as ReferenceRecordId,
+    typeKey: "expansion",
+    key: normalizeReferenceKey(input.normalized.expansionName),
+    name: input.normalized.expansionName,
+    description: `${input.normalized.expansionName} Pokemon TCG expansion.`,
+    attributes: expansionAttributes,
+    relationships: [{ relationshipType: "part-of", referenceId: seriesReferenceId }],
+  });
+}
+
+async function ensureReferenceType(
+  input: {
+    deps: CatalogRuntimeDeps;
+    referenceData: ReferenceDataServices;
+    context: EventStoreContext;
+  },
+  def: {
+    referenceTypeId: ReferenceTypeId;
+    key: string;
+    name: string;
+    description: string;
+    attributeKeys: readonly string[];
+  },
+): Promise<void> {
+  const existing = await input.deps.db.query(
+    "SELECT reference_type_id FROM catalog_reference_types WHERE reference_type_id = $1",
+    [def.referenceTypeId],
+  );
+
+  if (existing.rowCount && existing.rowCount > 0) {
+    return;
+  }
+
+  const streamId = `catalog.reference-type-${def.referenceTypeId}`;
+  await input.referenceData.referenceTypeCommandHandler({
+    streamId,
+    command: {
+      type: "CreateReferenceType",
+      referenceTypeId: def.referenceTypeId,
+      key: def.key,
+      name: localizedText(def.name),
+      description: localizedText(def.description),
+      attributeKeys: def.attributeKeys,
+    },
+    context: input.context,
+  });
+  await input.referenceData.referenceTypeCommandHandler({
+    streamId,
+    command: { type: "PublishReferenceType" },
+    context: input.context,
+  });
+  await drainRuntimeProjectors(input.referenceData.projectors);
+}
+
+async function ensureReferenceRecord(
+  input: {
+    deps: CatalogRuntimeDeps;
+    referenceData: ReferenceDataServices;
+    context: EventStoreContext;
+  },
+  def: {
+    referenceRecordId: ReferenceRecordId;
+    typeKey: string;
+    key: string;
+    name: string;
+    description: string;
+    attributes?: Readonly<Record<string, JsonValue>>;
+    relationships?: readonly ReferenceRelationship[];
+  },
+): Promise<ReferenceRecordId> {
+  const existing = await input.deps.db.query<{ reference_record_id: string }>(
+    `SELECT reference_record_id
+     FROM catalog_reference_records
+     WHERE type_key = $1 AND key = $2
+     LIMIT 1`,
+    [def.typeKey, def.key],
+  );
+
+  if (existing.rows[0]?.reference_record_id) {
+    return existing.rows[0].reference_record_id as ReferenceRecordId;
+  }
+
+  const streamId = `catalog.reference-record-${def.referenceRecordId}`;
+  await input.referenceData.referenceRecordCommandHandler({
+    streamId,
+    command: {
+      type: "CreateReferenceRecord",
+      referenceRecordId: def.referenceRecordId,
+      typeKey: def.typeKey,
+      key: def.key,
+      name: localizedText(def.name),
+      description: localizedText(def.description),
+      attributes: def.attributes ?? {},
+      relationships: def.relationships ?? [],
+    },
+    context: input.context,
+  });
+  await input.referenceData.referenceRecordCommandHandler({
+    streamId,
+    command: { type: "PublishReferenceRecord" },
+    context: input.context,
+  });
+  await drainRuntimeProjectors(input.referenceData.projectors);
+
+  return def.referenceRecordId;
+}
 
 function localizedText(value: string): LocalizedTextMap {
   return {
@@ -425,6 +652,10 @@ function localizedText(value: string): LocalizedTextMap {
       en: value,
     },
   };
+}
+
+function normalizeReferenceKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
 function localizedJsonText(value: string): JsonObject {

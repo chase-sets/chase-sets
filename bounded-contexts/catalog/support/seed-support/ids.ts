@@ -7,6 +7,8 @@ export type SeedFieldId = TypedUlid<"fld">;
 export type SeedComponentId = TypedUlid<"cmp">;
 export type SeedBlueprintId = TypedUlid<"bpr">;
 export type SeedCategoryId = TypedUlid<"ctg">;
+export type SeedReferenceTypeId = TypedUlid<"rft">;
+export type SeedReferenceRecordId = TypedUlid<"ref">;
 
 export const catalogSeedIds = {
   dimensions: {
@@ -62,11 +64,46 @@ export const catalogSeedIds = {
   fields: {
     cardNumber: "fld_seed_card_number" as SeedFieldId,
     cardName: "fld_seed_card_name" as SeedFieldId,
-    setName: "fld_seed_set_name" as SeedFieldId,
+    expansion: "fld_seed_expansion" as SeedFieldId,
     rarity: "fld_seed_rarity" as SeedFieldId,
-    artist: "fld_seed_artist" as SeedFieldId,
+    cardIllustrator: "fld_seed_card_illustrator" as SeedFieldId,
     releaseYear: "fld_seed_release_year" as SeedFieldId,
     packCount: "fld_seed_pack_count" as SeedFieldId,
+  },
+  referenceTypes: {
+    manufacturer: "rft_seed_manufacturer" as SeedReferenceTypeId,
+    productLine: "rft_seed_product_line" as SeedReferenceTypeId,
+    series: "rft_seed_series" as SeedReferenceTypeId,
+    expansion: "rft_seed_expansion" as SeedReferenceTypeId,
+  },
+  referenceRecords: {
+    manufacturers: {
+      thePokemonCompanyInternational:
+        "ref_seed_the_pokemon_company_international" as SeedReferenceRecordId,
+    },
+    productLines: {
+      pokemonTradingCardGame:
+        "ref_seed_pokemon_trading_card_game" as SeedReferenceRecordId,
+    },
+    series: {
+      base: "ref_seed_series_base" as SeedReferenceRecordId,
+      neo: "ref_seed_series_neo" as SeedReferenceRecordId,
+      scarletViolet: "ref_seed_series_scarlet_violet" as SeedReferenceRecordId,
+      wizardBlackStarPromos:
+        "ref_seed_series_wizards_black_star_promos" as SeedReferenceRecordId,
+    },
+    expansions: {
+      baseSet: "ref_seed_expansion_base_set" as SeedReferenceRecordId,
+      jungle: "ref_seed_expansion_jungle" as SeedReferenceRecordId,
+      neoGenesis: "ref_seed_expansion_neo_genesis" as SeedReferenceRecordId,
+      wizardsBlackStarPromos:
+        "ref_seed_expansion_wizards_black_star_promos" as SeedReferenceRecordId,
+      prismaticEvolutions:
+        "ref_seed_expansion_prismatic_evolutions" as SeedReferenceRecordId,
+      surgingSparks: "ref_seed_expansion_surging_sparks" as SeedReferenceRecordId,
+      twilightMasquerade:
+        "ref_seed_expansion_twilight_masquerade" as SeedReferenceRecordId,
+    },
   },
   components: {
     singleCardIdentity: "cmp_seed_single_card_identity" as SeedComponentId,

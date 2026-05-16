@@ -6,6 +6,7 @@ import { seedCategories } from "../../features/categories/api/seed";
 import { seedComponents } from "../../features/components/api/seed";
 import { seedDimensions } from "../../features/dimensions/api/seed";
 import { seedFields } from "../../features/fields/api/seed";
+import { seedReferenceData } from "../../features/reference-data/api/seed";
 import { drainProjectors } from "../seed-support/context";
 
 export async function seedCatalogDatabase(pool: PgTransactionalPool) {
@@ -30,6 +31,7 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool) {
     seedFields(services),
   ]);
 
+  const references = await seedReferenceData(services);
   const components = await seedComponents(services, dimensions, fields);
   const blueprints = await seedBlueprints(
     services,
@@ -38,9 +40,8 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool) {
     fields,
   );
   const categories = await seedCategories(services);
-  await seedCatalogItems(services, blueprints, fields, categories);
+  await seedCatalogItems(services, blueprints, fields, categories, references);
   await drainProjectors("catalog", services.projectors);
 
   console.log("\nSeed complete!");
 }
-

@@ -29,6 +29,8 @@ describe("TCGdex client", () => {
           id: "swsh3",
           name: "Darkness Ablaze",
           releaseDate: "2020-08-14",
+          cardCount: { official: 189, reverse: 155, total: 201 },
+          abbreviation: { official: "DAA" },
           serie: { id: "swsh", name: "Sword & Shield" },
           cards: [{ id: "swsh3-136", localId: "136", name: "Furret" }],
         },
@@ -99,6 +101,11 @@ describe("TCGdex client", () => {
         cardNumber: "136",
         setId: "swsh3",
         setName: "Darkness Ablaze",
+        expansionId: "swsh3",
+        expansionName: "Darkness Ablaze",
+        expansionAbbreviation: "DAA",
+        expansionCardCount: 189,
+        expansionParallelSetCardCount: 155,
         seriesName: "Sword & Shield",
         rarity: "Uncommon",
         illustrator: "tetsuya koizumi",
@@ -110,6 +117,7 @@ describe("TCGdex client", () => {
           kind: "product-image",
           sourceHash: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
         },
+        parallelSet: true,
       },
     });
     expect(storedAssets.map((asset) => asset.key)).toEqual([

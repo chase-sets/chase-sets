@@ -6,6 +6,7 @@ import type { CatalogItemImageFallback } from "../domain/domain";
 import type { BlueprintIds } from "../../blueprints/api/seed";
 import type { CategoryIds } from "../../categories/api/seed";
 import type { FieldIds } from "../../fields/api/seed";
+import type { PokemonReferenceIds } from "../../reference-data/api/seed";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 
 export async function seedCatalogItems(
@@ -13,6 +14,7 @@ export async function seedCatalogItems(
   blueprints: BlueprintIds,
   fields: FieldIds,
   categories: CategoryIds,
+  references: PokemonReferenceIds,
 ): Promise<void> {
   console.log("Seeding catalog items...");
 
@@ -20,11 +22,11 @@ export async function seedCatalogItems(
     "pokemon-card-single": [
       fields["card-number"],
       fields["card-name"],
-      fields["set-name"],
+      fields.expansion,
       fields.rarity,
     ],
     "pokemon-sealed-product": [
-      fields["set-name"],
+      fields.expansion,
       fields["pack-count"],
     ],
   };
@@ -36,7 +38,7 @@ export async function seedCatalogItems(
     subtitle: LocalizedTextMap;
     description: LocalizedTextMap;
     blueprintKey: string;
-    fieldValues: [string, string | number | LocalizedTextMap][];
+    fieldValues: [string, string | number | LocalizedTextMap | { referenceId: string }][];
     categoryKeys: string[];
     tags: string[];
     externalProductReferences?: Array<{
@@ -46,6 +48,10 @@ export async function seedCatalogItems(
     }>;
     imageFallback?: CatalogItemImageFallback;
   };
+
+  const expansionReference = (key: keyof PokemonReferenceIds["expansions"]) => ({
+    referenceId: references.expansions[key],
+  });
 
   const items: ItemDef[] = [
     {
@@ -60,9 +66,9 @@ export async function seedCatalogItems(
       fieldValues: [
         ["card-number", "4/102"],
         ["card-name", l10n("Charizard")],
-        ["set-name", "Base Set"],
+        ["expansion", expansionReference("base-set")],
         ["rarity", "Holo Rare"],
-        ["artist", "Mitsuhiro Arita"],
+        ["card-illustrator", "Mitsuhiro Arita"],
         ["release-year", 1999],
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "fire"],
@@ -97,9 +103,9 @@ export async function seedCatalogItems(
       fieldValues: [
         ["card-number", "60/64"],
         ["card-name", l10n("Pikachu")],
-        ["set-name", "Jungle"],
+        ["expansion", expansionReference("jungle")],
         ["rarity", "Common"],
-        ["artist", "Kagemaru Himeno"],
+        ["card-illustrator", "Kagemaru Himeno"],
         ["release-year", 1999],
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "electric"],
@@ -139,9 +145,9 @@ export async function seedCatalogItems(
       fieldValues: [
         ["card-number", "No.006"],
         ["card-name", l10n("Charizard", { ja: "リザードン" })],
-        ["set-name", "Expansion Pack"],
+        ["expansion", expansionReference("base-set")],
         ["rarity", "Holo Rare"],
-        ["artist", "Mitsuhiro Arita"],
+        ["card-illustrator", "Mitsuhiro Arita"],
         ["release-year", 1996],
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "fire"],
@@ -160,9 +166,9 @@ export async function seedCatalogItems(
       fieldValues: [
         ["card-number", "9/111"],
         ["card-name", l10n("Lugia")],
-        ["set-name", "Neo Genesis"],
+        ["expansion", expansionReference("neo-genesis")],
         ["rarity", "Holo Rare"],
-        ["artist", "Hironobu Yoshida"],
+        ["card-illustrator", "Hironobu Yoshida"],
         ["release-year", 2000],
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-2", "psychic"],
@@ -181,9 +187,9 @@ export async function seedCatalogItems(
       fieldValues: [
         ["card-number", "3"],
         ["card-name", l10n("Mewtwo")],
-        ["set-name", "Wizards Black Star Promos"],
+        ["expansion", expansionReference("wizards-black-star-promos")],
         ["rarity", "Promo"],
-        ["artist", "Ken Sugimori"],
+        ["card-illustrator", "Ken Sugimori"],
         ["release-year", 1999],
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "psychic"],
@@ -202,9 +208,9 @@ export async function seedCatalogItems(
       fieldValues: [
         ["card-number", "44/102"],
         ["card-name", l10n("Bulbasaur")],
-        ["set-name", "Base Set"],
+        ["expansion", expansionReference("base-set")],
         ["rarity", "Common"],
-        ["artist", "Mitsuhiro Arita"],
+        ["card-illustrator", "Mitsuhiro Arita"],
         ["release-year", 1999],
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-1", "grass"],
@@ -223,9 +229,9 @@ export async function seedCatalogItems(
       fieldValues: [
         ["card-number", "025"],
         ["card-name", l10n("Pikachu")],
-        ["set-name", "Prismatic Evolutions"],
+        ["expansion", expansionReference("prismatic-evolutions")],
         ["rarity", "Illustration Rare"],
-        ["artist", "Ryuta Fuse"],
+        ["card-illustrator", "Ryuta Fuse"],
         ["release-year", 2025],
       ],
       categoryKeys: ["pokemon-tcg", "singles", "gen-9", "electric"],
@@ -242,7 +248,7 @@ export async function seedCatalogItems(
       ),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
-        ["set-name", "Prismatic Evolutions"],
+        ["expansion", expansionReference("prismatic-evolutions")],
         ["release-year", 2025],
         ["pack-count", 1],
       ],
@@ -260,7 +266,7 @@ export async function seedCatalogItems(
       ),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
-        ["set-name", "Surging Sparks"],
+        ["expansion", expansionReference("surging-sparks")],
         ["release-year", 2024],
         ["pack-count", 36],
       ],
@@ -278,7 +284,7 @@ export async function seedCatalogItems(
       ),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
-        ["set-name", "Twilight Masquerade"],
+        ["expansion", expansionReference("twilight-masquerade")],
         ["release-year", 2024],
         ["pack-count", 9],
       ],

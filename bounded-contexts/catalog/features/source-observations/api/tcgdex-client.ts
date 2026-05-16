@@ -25,6 +25,15 @@ export type TcgdexSet = Readonly<{
   id: string;
   name: string;
   releaseDate?: string;
+  cardCount?: Readonly<{
+    official?: number;
+    reverse?: number;
+    total?: number;
+  }>;
+  abbreviation?: Readonly<{
+    official?: string;
+  }>;
+  tcgOnline?: string;
   serie?: Readonly<{
     id: string;
     name: string;
@@ -63,6 +72,7 @@ export type TcgdexObservationInput = Readonly<{
 
 export type TcgdexSetImportResult = Readonly<{
   setId: string;
+  expansionId: string;
   languageCode: string;
   observed: number;
   observationIds: readonly string[];
@@ -135,6 +145,11 @@ async function toObservation(input: {
     cardNumber: String(input.card.localId),
     setId: input.set.id,
     setName: input.set.name,
+    expansionId: input.set.id,
+    expansionName: input.set.name,
+    expansionAbbreviation: expansionAbbreviation(input.set),
+    expansionCardCount: input.set.cardCount?.official ?? input.set.cardCount?.total ?? null,
+    expansionParallelSetCardCount: input.set.cardCount?.reverse ?? null,
     seriesId: input.set.serie?.id ?? null,
     seriesName: input.set.serie?.name ?? null,
     rarity: input.card.rarity ?? null,
@@ -145,6 +160,7 @@ async function toObservation(input: {
     imageBaseUrl: input.card.image ?? null,
     imageUrls,
     productAssetSet,
+    parallelSet: input.card.variants?.reverse === true,
     variants: normalizeVariants(input.card.variants),
   };
   const providerNormalizedForHash: SourceObservationNormalized = {
@@ -245,6 +261,10 @@ function releaseYearFromDate(value: string | undefined): number | null {
 
   const year = Number.parseInt(value.slice(0, 4), 10);
   return Number.isFinite(year) ? year : null;
+}
+
+function expansionAbbreviation(set: TcgdexSet): string | null {
+  return set.abbreviation?.official ?? set.tcgOnline ?? null;
 }
 
 function hashJson(value: unknown): string {
