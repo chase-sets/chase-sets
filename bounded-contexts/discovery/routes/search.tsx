@@ -446,7 +446,9 @@ function mergeDiscoverySearchResponses(
     ...firstPage,
     items,
     count: items.length,
-    nextCursor: extraPages.at(-1)?.nextCursor ?? firstPage.nextCursor,
+    nextCursor: extraPages.length > 0
+      ? extraPages.at(-1)?.nextCursor ?? null
+      : firstPage.nextCursor,
   };
 }
 
