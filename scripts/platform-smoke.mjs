@@ -231,6 +231,21 @@ async function expectUcpEndpoints(origin) {
       throw new Error(`UCP MCP tools did not include ${expectedTool}.`);
     }
   }
+
+  const oauthResponse = await expectOk(
+    "UCP OAuth authorization server metadata",
+    `${origin}/.well-known/oauth-authorization-server`,
+  );
+  const oauthMetadata = await oauthResponse.json();
+  if (!oauthMetadata.code_challenge_methods_supported?.includes("S256")) {
+    throw new Error("UCP OAuth metadata did not advertise PKCE S256.");
+  }
+  if (!oauthMetadata.grant_types_supported?.includes("refresh_token")) {
+    throw new Error("UCP OAuth metadata did not advertise refresh_token grants.");
+  }
+  if (oauthMetadata.introspection_endpoint !== `${origin}/ucp/oauth/introspect`) {
+    throw new Error("UCP OAuth metadata did not advertise the token introspection endpoint.");
+  }
 }
 
 async function expectRedirect(label, input, expectedAuthority) {

@@ -47,11 +47,13 @@ export type UcpIdempotencyRecord = Readonly<{
   requestHash: string;
   response: UcpEnvelope;
   createdAt: string;
+  expiresAt?: string | null;
 }>;
 
 export type UcpIdempotencyStore = Readonly<{
   get: (key: string) => Promise<UcpIdempotencyRecord | null> | UcpIdempotencyRecord | null;
   put: (record: UcpIdempotencyRecord) => Promise<void> | void;
+  pruneExpired?: (now?: Date) => Promise<number> | number;
 }>;
 
 export type UcpSignatureKeyResolver = (
@@ -70,11 +72,41 @@ export type UcpProfileCacheOptions = Readonly<{
   now?: () => Date;
 }>;
 
+export type UcpRuntimeObserver = Readonly<{
+  signedWriteRejected?: (event: UcpRuntimeSecurityEvent) => void;
+  signatureVerificationFailed?: (event: UcpRuntimeSecurityEvent) => void;
+  idempotencyReplayed?: (event: UcpRuntimeIdempotencyEvent) => void;
+  idempotencyConflict?: (event: UcpRuntimeIdempotencyEvent) => void;
+  operationCompleted?: (event: UcpRuntimeOperationEvent) => void;
+}>;
+
+export type UcpRuntimeSecurityEvent = Readonly<{
+  transport: "rest" | "mcp";
+  operation: string;
+  reason: string;
+  agentProfileUrl: string | null;
+}>;
+
+export type UcpRuntimeIdempotencyEvent = Readonly<{
+  transport: "rest" | "mcp";
+  operation: string;
+  key: string;
+  agentProfileUrl: string | null;
+}>;
+
+export type UcpRuntimeOperationEvent = Readonly<{
+  transport: "rest" | "mcp";
+  operation: string;
+  status: UcpEnvelope["ucp"]["status"];
+  agentProfileUrl: string | null;
+}>;
+
 export type CreateUcpRoutesOptions = Readonly<{
   restHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   mcpToolHandlers?: Readonly<Record<string, UcpOperationHandler>>;
   idempotencyStore?: UcpIdempotencyStore;
   signatureVerification?: UcpSignatureVerificationOptions;
+  observer?: UcpRuntimeObserver;
 }>;
 
 const JSON_RPC_VERSION = "2.0";
@@ -94,11 +126,19 @@ CREATE TABLE IF NOT EXISTS platform_ucp_idempotency_records (
   request_hash text NOT NULL,
   response jsonb NOT NULL,
   created_at timestamptz NOT NULL,
+  expires_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE platform_ucp_idempotency_records
+  ADD COLUMN IF NOT EXISTS expires_at timestamptz NULL;
+
 CREATE INDEX IF NOT EXISTS platform_ucp_idempotency_records_created_at_idx
   ON platform_ucp_idempotency_records (created_at);
+
+CREATE INDEX IF NOT EXISTS platform_ucp_idempotency_records_expires_at_idx
+  ON platform_ucp_idempotency_records (expires_at)
+  WHERE expires_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS platform_ucp_agent_profiles (
   profile_url text PRIMARY KEY,
@@ -230,6 +270,17 @@ function ucpAgentProfileUrl(request: Request) {
   const header = request.headers.get("UCP-Agent")?.trim() ?? "";
   const match = /(?:^|[,\s])profile="([^"]+)"/.exec(header);
   return match?.[1] ?? null;
+}
+
+function emitObserver<TEvent>(
+  observer: ((event: TEvent) => void) | undefined,
+  event: TEvent,
+) {
+  try {
+    observer?.(event);
+  } catch {
+    // Observability must never change UCP request behavior.
+  }
 }
 
 function parseSignatureInput(request: Request) {
@@ -388,14 +439,40 @@ function idempotencyConflictEnvelope() {
 function createMemoryUcpIdempotencyStore(): UcpIdempotencyStore {
   const records = new Map<string, UcpIdempotencyRecord>();
   return {
-    get: (key) => records.get(key) ?? null,
+    get: (key) => {
+      const record = records.get(key);
+      if (!record) {
+        return null;
+      }
+      if (record.expiresAt && new Date(record.expiresAt).getTime() <= Date.now()) {
+        records.delete(key);
+        return null;
+      }
+      return record;
+    },
     put: (record) => {
       records.set(record.key, record);
+    },
+    pruneExpired: (now = new Date()) => {
+      let deletedCount = 0;
+      for (const [key, record] of records) {
+        if (record.expiresAt && new Date(record.expiresAt).getTime() <= now.getTime()) {
+          records.delete(key);
+          deletedCount += 1;
+        }
+      }
+      return deletedCount;
     },
   };
 }
 
-export function createPostgresUcpIdempotencyStore(db: PgQueryable): UcpIdempotencyStore {
+export function createPostgresUcpIdempotencyStore(
+  db: PgQueryable,
+  options: Readonly<{
+    retentionMs?: number;
+    now?: () => Date;
+  }> = {},
+): UcpIdempotencyStore {
   return {
     get: async (key) => {
       const result = await db.query<{
@@ -403,10 +480,12 @@ export function createPostgresUcpIdempotencyStore(db: PgQueryable): UcpIdempoten
         request_hash: string;
         response: UcpEnvelope;
         created_at: Date | string;
+        expires_at: Date | string | null;
       }>(
-        `SELECT key, request_hash, response, created_at
+        `SELECT key, request_hash, response, created_at, expires_at
          FROM platform_ucp_idempotency_records
-         WHERE key = $1`,
+         WHERE key = $1
+           AND (expires_at IS NULL OR expires_at > now())`,
         [key],
       );
       const row = result.rows[0];
@@ -418,26 +497,45 @@ export function createPostgresUcpIdempotencyStore(db: PgQueryable): UcpIdempoten
             createdAt: row.created_at instanceof Date
               ? row.created_at.toISOString()
               : String(row.created_at),
+            expiresAt: row.expires_at instanceof Date
+              ? row.expires_at.toISOString()
+              : row.expires_at ? String(row.expires_at) : null,
           }
         : null;
     },
     put: async (record) => {
+      const createdAt = new Date(record.createdAt);
+      const expiresAt = record.expiresAt ??
+        (options.retentionMs
+          ? new Date(createdAt.getTime() + options.retentionMs).toISOString()
+          : null);
       await db.query(
         `INSERT INTO platform_ucp_idempotency_records (
            key,
            request_hash,
            response,
            created_at,
+           expires_at,
            updated_at
-         ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, now())
+         ) VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, now())
          ON CONFLICT (key) DO NOTHING`,
         [
           record.key,
           record.requestHash,
           JSON.stringify(record.response),
           record.createdAt,
+          expiresAt,
         ],
       );
+    },
+    pruneExpired: async (now = options.now?.() ?? new Date()) => {
+      const result = await db.query(
+        `DELETE FROM platform_ucp_idempotency_records
+         WHERE expires_at IS NOT NULL
+           AND expires_at <= $1::timestamptz`,
+        [now.toISOString()],
+      );
+      return result.rowCount ?? 0;
     },
   };
 }
@@ -563,6 +661,12 @@ async function invokeRestWrite(
 ) {
   const failure = await signedWriteOrJsonError(c.req.raw);
   if (failure) {
+    emitObserver(options.observer?.signedWriteRejected, {
+      transport: "rest",
+      operation,
+      reason: failure.messages?.[0]?.message ?? "Signed write rejected.",
+      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+    });
     return c.json(failure, 400);
   }
 
@@ -571,6 +675,12 @@ async function invokeRestWrite(
     options.signatureVerification,
   );
   if (signatureFailure) {
+    emitObserver(options.observer?.signatureVerificationFailed, {
+      transport: "rest",
+      operation,
+      reason: signatureFailure,
+      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+    });
     return c.json(createUcpEnvelope("error", {}, [
       {
         severity: "error",
@@ -589,9 +699,22 @@ async function invokeRestWrite(
   const requestHash = await requestBodyHash(c.req.raw);
   const existing = await idempotencyStore.get(key);
   if (existing) {
-    return existing.requestHash === requestHash
-      ? c.json(existing.response)
-      : c.json(idempotencyConflictEnvelope(), 409);
+    if (existing.requestHash === requestHash) {
+      emitObserver(options.observer?.idempotencyReplayed, {
+        transport: "rest",
+        operation,
+        key,
+        agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+      });
+      return c.json(existing.response);
+    }
+    emitObserver(options.observer?.idempotencyConflict, {
+      transport: "rest",
+      operation,
+      key,
+      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+    });
+    return c.json(idempotencyConflictEnvelope(), 409);
   }
 
   const response = await invokeRestHandler(options.restHandlers, operation, input);
@@ -600,6 +723,12 @@ async function invokeRestWrite(
     requestHash,
     response,
     createdAt: new Date().toISOString(),
+  });
+  emitObserver(options.observer?.operationCompleted, {
+    transport: "rest",
+    operation,
+    status: response.ucp.status,
+    agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
   });
   return c.json(response);
 }
@@ -622,9 +751,22 @@ async function invokeMcpTool(
   const requestHash = await requestBodyHash(c.req.raw);
   const existing = await idempotencyStore.get(key);
   if (existing) {
-    return existing.requestHash === requestHash
-      ? existing.response
-      : idempotencyConflictEnvelope();
+    if (existing.requestHash === requestHash) {
+      emitObserver(options.observer?.idempotencyReplayed, {
+        transport: "mcp",
+        operation: toolName,
+        key,
+        agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+      });
+      return existing.response;
+    }
+    emitObserver(options.observer?.idempotencyConflict, {
+      transport: "mcp",
+      operation: toolName,
+      key,
+      agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+    });
+    return idempotencyConflictEnvelope();
   }
 
   const response = await (options.mcpToolHandlers?.[toolName]?.(input) ?? unsupported(toolName));
@@ -633,6 +775,12 @@ async function invokeMcpTool(
     requestHash,
     response,
     createdAt: new Date().toISOString(),
+  });
+  emitObserver(options.observer?.operationCompleted, {
+    transport: "mcp",
+    operation: toolName,
+    status: response.ucp.status,
+    agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
   });
   return response;
 }
@@ -740,6 +888,12 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       if (tool.idempotencyKeyRequired) {
         const signedFailure = await signedWriteFailure(c.req.raw);
         if (signedFailure) {
+          emitObserver(options.observer?.signedWriteRejected, {
+            transport: "mcp",
+            operation: tool.name,
+            reason: signedFailure,
+            agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+          });
           return c.json(jsonRpcError(body.id, -32602, signedFailure), 400);
         }
         const signatureFailure = await verifyHttpMessageSignature(
@@ -747,6 +901,12 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
           options.signatureVerification,
         );
         if (signatureFailure) {
+          emitObserver(options.observer?.signatureVerificationFailed, {
+            transport: "mcp",
+            operation: tool.name,
+            reason: signatureFailure,
+            agentProfileUrl: ucpAgentProfileUrl(c.req.raw),
+          });
           return c.json(jsonRpcError(body.id, -32602, signatureFailure), 400);
         }
       }

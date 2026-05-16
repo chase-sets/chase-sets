@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/ucp";
 import {
+  createPostgresUcpIdempotencyStore,
   createUcpMcpRoutes,
   createUcpProfileKeyResolver,
   createUcpProfileRoutes,
@@ -185,6 +186,48 @@ describe("UCP REST routes", () => {
     });
   });
 
+  it("emits observer events for completed writes, replays, and idempotency conflicts", async () => {
+    const events: string[] = [];
+    const handler = vi.fn(async () => ({
+      ucp: { version: UCP_VERSION, status: "ok" as const },
+      checkout: { id: "chk_1" },
+    }));
+    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({
+      restHandlers: {
+        create_checkout: handler,
+      },
+      observer: {
+        operationCompleted: (event) => events.push(`completed:${event.operation}:${event.status}`),
+        idempotencyReplayed: (event) => events.push(`replayed:${event.operation}`),
+        idempotencyConflict: (event) => events.push(`conflict:${event.operation}`),
+      },
+    }));
+    const firstBody = JSON.stringify({ source: { type: "cart" } });
+    const secondBody = JSON.stringify({ source: { type: "buy-now" } });
+
+    await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: firstBody,
+      headers: signedHeaders(firstBody, { "Idempotency-Key": "idem_events" }),
+    });
+    await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: firstBody,
+      headers: signedHeaders(firstBody, { "Idempotency-Key": "idem_events" }),
+    });
+    await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: secondBody,
+      headers: signedHeaders(secondBody, { "Idempotency-Key": "idem_events" }),
+    });
+
+    expect(events).toEqual([
+      "completed:create_checkout:ok",
+      "replayed:create_checkout",
+      "conflict:create_checkout",
+    ]);
+  });
+
   it("verifies HTTP Message Signatures when a UCP key resolver is configured", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", {
       modulusLength: 2048,
@@ -293,6 +336,25 @@ describe("UCP profile key cache", () => {
     expect(first).toMatchObject({ kid: "platform-2026" });
     expect(second).toMatchObject({ kid: "platform-2026" });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("UCP Postgres idempotency store", () => {
+  it("sets retention expiry, ignores expired replay records, and prunes old records", async () => {
+    const db = createFakeIdempotencyDb();
+    const store = createPostgresUcpIdempotencyStore(db, {
+      retentionMs: 60_000,
+      now: () => new Date("2026-05-16T12:02:00.000Z"),
+    });
+    await store.put({
+      key: "idem_1",
+      requestHash: "hash_1",
+      response: { ucp: { version: UCP_VERSION, status: "ok" } },
+      createdAt: "2026-05-16T12:00:00.000Z",
+    });
+
+    await expect(store.get("idem_1")).resolves.toBeNull();
+    await expect(store.pruneExpired?.()).resolves.toBe(1);
   });
 });
 
@@ -459,6 +521,58 @@ function createFakeProfileDb() {
           expires_at: String(values[3] ?? new Date().toISOString()),
         });
         return { rows: [], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected query: ${text}`);
+    },
+  };
+}
+
+function createFakeIdempotencyDb() {
+  const records = new Map<string, {
+    key: string;
+    request_hash: string;
+    response: unknown;
+    created_at: string;
+    expires_at: string | null;
+  }>();
+
+  return {
+    async query<Row = Record<string, unknown>>(
+      text: string,
+      values: readonly unknown[] = [],
+    ) {
+      if (text.includes("INSERT INTO platform_ucp_idempotency_records")) {
+        const row = {
+          key: String(values[0]),
+          request_hash: String(values[1]),
+          response: JSON.parse(String(values[2] ?? "{}")),
+          created_at: String(values[3]),
+          expires_at: values[4] ? String(values[4]) : null,
+        };
+        records.set(row.key, row);
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (text.includes("SELECT key, request_hash")) {
+        const row = records.get(String(values[0]));
+        const live = row && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now());
+        return {
+          rows: live ? [row as Row] : [],
+          rowCount: live ? 1 : 0,
+        };
+      }
+
+      if (text.includes("DELETE FROM platform_ucp_idempotency_records")) {
+        const now = new Date(String(values[0])).getTime();
+        let rowCount = 0;
+        for (const [key, row] of records) {
+          if (row.expires_at && new Date(row.expires_at).getTime() <= now) {
+            records.delete(key);
+            rowCount += 1;
+          }
+        }
+        return { rows: [], rowCount };
       }
 
       throw new Error(`Unexpected query: ${text}`);

@@ -43,7 +43,12 @@ export function createPaymentsUcpHandoff(
         return null;
       }
 
-      if (readString(ap2?.checkout_mandate)) {
+      if (ap2) {
+        const mandateValidation = validateAp2MandateShape(ap2);
+        if (mandateValidation) {
+          return mandateValidation;
+        }
+
         return createUcpEnvelope("requires_action", {
           action: {
             type: "trusted_checkout_handoff",
@@ -79,6 +84,34 @@ export function createPaymentsUcpHandoff(
       return null;
     },
   };
+}
+
+function validateAp2MandateShape(ap2: Readonly<Record<string, unknown>>) {
+  const checkoutMandate = readObject(ap2.checkout_mandate);
+  const paymentMandate = readObject(ap2.payment_mandate);
+  const mandate = checkoutMandate ?? paymentMandate;
+
+  if (!mandate) {
+    return createUcpEnvelope("error", {}, [
+      {
+        severity: "error",
+        code: "invalid_ap2_mandate",
+        message: "AP2 completion requires structured checkout_mandate or payment_mandate details.",
+      },
+    ]);
+  }
+
+  if (!readString(mandate.id) || !readString(mandate.signature)) {
+    return createUcpEnvelope("error", {}, [
+      {
+        severity: "error",
+        code: "invalid_ap2_mandate",
+        message: "AP2 mandates must include an id and signature before Payments can evaluate autonomous completion.",
+      },
+    ]);
+  }
+
+  return null;
 }
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> | null {
