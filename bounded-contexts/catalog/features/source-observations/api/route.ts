@@ -2,19 +2,21 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { SourceObservationServices } from "./runtime";
+import type { SourceObservationFilterScope } from "../read-model/queries";
 
 export function sourceObservationRoutes(services: SourceObservationServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset, provider, language } = c.req.query();
+    const { search, status, limit, offset, provider, source, language, setId } = c.req.query();
     const result = await services.listSourceObservations({
       search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
-      provider,
+      provider: provider ?? source,
       language,
+      setId,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -30,10 +32,32 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result, 201);
   });
 
+  app.post("/bulk-promote/preview", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      scope?: unknown;
+    };
+    const result = await services.previewPromoteObservationScope({
+      scope: parsePromotionScope(body.scope),
+    });
+
+    return c.json(result);
+  });
+
   app.post("/bulk-promote", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
+      scope?: unknown;
     };
+
+    if (body.scope) {
+      const result = await services.promoteObservationScope({
+        scope: parsePromotionScope(body.scope),
+        context: c.get("context"),
+      });
+
+      return c.json(result);
+    }
+
     const observationIds = Array.isArray(body.observationIds)
       ? body.observationIds.map((observationId: unknown) => String(observationId))
       : [];
@@ -83,4 +107,24 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
   });
 
   return app;
+}
+
+function parsePromotionScope(input: unknown): SourceObservationFilterScope {
+  if (!input || typeof input !== "object") {
+    return {};
+  }
+
+  const record = input as Record<string, unknown>;
+
+  return {
+    search: stringField(record.search),
+    status: stringField(record.status),
+    provider: stringField(record.provider) ?? stringField(record.source),
+    language: stringField(record.language),
+    setId: stringField(record.setId),
+  };
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

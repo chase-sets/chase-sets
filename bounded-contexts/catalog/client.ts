@@ -21,6 +21,8 @@ export type {
   Field,
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,
+  SourceObservationPromotionPreview,
+  SourceObservationPromotionScope,
   SourceObservationDetail,
   SourceObservationListItem,
 } from "./support/client-support/contracts";

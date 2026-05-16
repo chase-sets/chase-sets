@@ -594,6 +594,20 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewBulkPromoteSourceObservations<T>(scope: unknown): Promise<T> {
+      const response = await client["source-observations"]["bulk-promote"].preview.$post({
+        json: { scope },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async bulkPromoteSourceObservationsByScope<T>(scope: unknown): Promise<T> {
+      const response = await client["source-observations"]["bulk-promote"].$post({
+        json: { scope },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async promoteSourceObservation<T>(id: string): Promise<T> {
       const response = await client["source-observations"][":id"].promote.$post({
         param: { id },

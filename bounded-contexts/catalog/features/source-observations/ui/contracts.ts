@@ -29,6 +29,21 @@ export interface TcgdexSetImportResult {
   observationIds: string[];
 }
 
+export interface SourceObservationPromotionScope {
+  search?: string;
+  status?: string;
+  provider?: string;
+  language?: string;
+  setId?: string;
+}
+
+export interface SourceObservationPromotionPreview {
+  matched: number;
+  eligible: number;
+  terminal: number;
+  scope: Required<SourceObservationPromotionScope>;
+}
+
 export type BulkSourceObservationPromotionStatus =
   | "promoted"
   | "skipped"
