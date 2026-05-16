@@ -105,6 +105,15 @@ locals {
   }
 
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.marketplace_domains)
+  ucp_route_prefixes   = ["/.well-known", "/ucp"]
+  ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.marketplace_domains) : []
+  ucp_ingress_routes = {
+    for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
+    "${route[0]}:${route[1]}" => {
+      authority   = route[0]
+      path_prefix = route[1]
+    }
+  }
 
   public_web_instances = local.is_production ? 2 : 1
   api_instances        = local.is_production ? 2 : 1

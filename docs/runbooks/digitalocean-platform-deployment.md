@@ -168,7 +168,7 @@ The staging job:
 11. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 12. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
 13. Waits for landing, admin, and marketplace domains.
-14. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements.
+14. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
 
 Production starts automatically after this staging job succeeds. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.
 

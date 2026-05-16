@@ -54,4 +54,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain('variable "catalog_asset_s3_bucket"');
     expect(platformVariables).toContain('variable "catalog_asset_public_base_url"');
   });
+
+  it("routes non-production UCP agent discovery and transport paths to platform-api", () => {
+    expect(platformLocals).toContain('ucp_route_prefixes   = ["/.well-known", "/ucp"]');
+    expect(platformLocals).toContain("ucp_ingress_routes");
+    expect(platformMain).toContain("for_each = local.ucp_ingress_routes");
+    expect(platformMain).toContain("prefix = rule.value.path_prefix");
+    expect(platformMain).toContain('name                 = "platform-api"');
+  });
 });
