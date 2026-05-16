@@ -770,6 +770,8 @@ export interface MarketplaceFacetItem {
   count?: number;
 }
 
+export type MarketplaceFacetSelectionMode = "single" | "multiple";
+
 export interface MarketplaceFacetRailProps {
   title?: ReactNode;
   description?: ReactNode;
@@ -777,6 +779,7 @@ export interface MarketplaceFacetRailProps {
   items: MarketplaceFacetItem[];
   selectedId?: string;
   selectedIds?: readonly string[];
+  selectionMode?: MarketplaceFacetSelectionMode;
   onSelect: (id: string) => void;
 }
 
@@ -787,9 +790,11 @@ export function MarketplaceFacetRail({
   items,
   selectedId = "",
   selectedIds,
+  selectionMode = selectedIds ? "multiple" : "single",
   onSelect
 }: MarketplaceFacetRailProps) {
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
+  const multiple = selectionMode === "multiple";
   return (
     <Card variant="feature">
       <div className="space-y-4">
@@ -804,22 +809,28 @@ export function MarketplaceFacetRail({
             size="sm"
             onClick={() => onSelect("")}
             leadingIcon="grid"
+            aria-pressed={!selectedId && (!selectedValues || selectedValues.size === 0)}
             block
           >
             {allLabel}
           </Button>
-          {items.map((item) => (
-            <Button
-              key={item.id}
-              tone={(selectedValues?.has(item.id) ?? selectedId === item.id) ? "primary" : "ghost"}
-              size="sm"
-              onClick={() => onSelect(item.id)}
-              leadingIcon="tag"
-              block
-            >
-              {item.count == null ? item.label : `${item.label} (${item.count})`}
-            </Button>
-          ))}
+          {items.map((item) => {
+            const selected = selectedValues?.has(item.id) ?? selectedId === item.id;
+
+            return (
+              <Button
+                key={item.id}
+                tone={selected ? "primary" : "ghost"}
+                size="sm"
+                onClick={() => onSelect(item.id)}
+                leadingIcon={multiple && selected ? "check" : "tag"}
+                aria-pressed={selected}
+                block
+              >
+                {item.count == null ? item.label : `${item.label} (${item.count})`}
+              </Button>
+            );
+          })}
         </div>
       </div>
     </Card>
@@ -833,6 +844,7 @@ export interface MarketplaceFacetStripProps {
   items: MarketplaceFacetItem[];
   selectedId?: string;
   selectedIds?: readonly string[];
+  selectionMode?: MarketplaceFacetSelectionMode;
   onSelect: (id: string) => void;
   allLeadingIcon?: IconName;
   itemLeadingIcon?: IconName;
@@ -845,11 +857,13 @@ export function MarketplaceFacetStrip({
   items,
   selectedId = "",
   selectedIds,
+  selectionMode = selectedIds ? "multiple" : "single",
   onSelect,
   allLeadingIcon = "grid",
   itemLeadingIcon = "tag"
 }: MarketplaceFacetStripProps) {
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
+  const multiple = selectionMode === "multiple";
 
   return (
     <section
@@ -866,20 +880,26 @@ export function MarketplaceFacetStrip({
             size="sm"
             onClick={() => onSelect("")}
             leadingIcon={allLeadingIcon}
+            aria-pressed={!selectedId && (!selectedValues || selectedValues.size === 0)}
           >
             {allLabel}
           </Button>
-          {items.map((item) => (
-            <Button
-              key={item.id}
-              tone={(selectedValues?.has(item.id) ?? selectedId === item.id) ? "primary" : "ghost"}
-              size="sm"
-              onClick={() => onSelect(item.id)}
-              leadingIcon={itemLeadingIcon}
-            >
-              {item.count == null ? item.label : `${item.label} (${item.count})`}
-            </Button>
-          ))}
+          {items.map((item) => {
+            const selected = selectedValues?.has(item.id) ?? selectedId === item.id;
+
+            return (
+              <Button
+                key={item.id}
+                tone={selected ? "primary" : "ghost"}
+                size="sm"
+                onClick={() => onSelect(item.id)}
+                leadingIcon={multiple && selected ? "check" : itemLeadingIcon}
+                aria-pressed={selected}
+              >
+                {item.count == null ? item.label : `${item.label} (${item.count})`}
+              </Button>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -893,6 +913,7 @@ export interface MarketplaceFacetChoiceGroupProps {
   items: MarketplaceFacetItem[];
   selectedId?: string;
   selectedIds?: readonly string[];
+  selectionMode?: MarketplaceFacetSelectionMode;
   onSelect: (id: string) => void;
   allLeadingIcon?: IconName;
   itemLeadingIcon?: IconName;
@@ -905,12 +926,14 @@ export function MarketplaceFacetChoiceGroup({
   items,
   selectedId = "",
   selectedIds,
+  selectionMode = selectedIds ? "multiple" : "single",
   onSelect,
   allLeadingIcon = "grid",
   itemLeadingIcon = "tag"
 }: MarketplaceFacetChoiceGroupProps) {
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const anySelected = selectedValues ? selectedValues.size > 0 : Boolean(selectedId);
+  const multiple = selectionMode === "multiple";
 
   const renderChoice = (
     id: string,
@@ -933,7 +956,19 @@ export function MarketplaceFacetChoiceGroup({
       )}
     >
       <span className="inline-flex min-w-0 items-center gap-2">
-        <Icon name={icon} size="sm" tone={selected ? "inverse" : "accent"} />
+        {multiple && id ? (
+          <span
+            aria-hidden="true"
+            className={cx(
+              "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-tokenSm border",
+              selected ? "border-inverse text-inverse" : "border-muted bg-surface-2"
+            )}
+          >
+            {selected ? <Icon name="check" size="sm" tone="inverse" /> : null}
+          </span>
+        ) : (
+          <Icon name={icon} size="sm" tone={selected ? "inverse" : "accent"} />
+        )}
         <span className="min-w-0 truncate">{label}</span>
       </span>
       {count == null ? null : (
