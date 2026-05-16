@@ -24,6 +24,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Observability](./runbooks/observability.md): local OpenTelemetry and LGTM stack.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
 - [Postage Operations](./runbooks/postage-operations.md): postage label provider configuration and label smoke checks.
+- [Playwright E2E](./runbooks/playwright-e2e.md): local browser e2e setup and sandbox-aware run commands.
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
