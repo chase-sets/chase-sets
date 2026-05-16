@@ -49,6 +49,9 @@
         "test:process": "vitest run scripts/process.test.mjs",
         "test:sandbox": "vitest run scripts/sandbox.test.mjs",
         "test:platform-smoke": "vitest run scripts/platform-smoke-args.test.mjs",
+        "test:e2e": "playwright test",
+        "test:e2e:headed": "playwright test --headed",
+        "test:e2e:install": "playwright install",
         "test:digitalocean-app-deployment": "vitest run scripts/digitalocean-app-deployment.test.mjs scripts/digitalocean-platform-config.test.mjs",
         "test:digitalocean-registry-cleanup": "vitest run scripts/digitalocean-registry-cleanup.test.mjs",
         "test:workspace-metadata": "vitest run scripts/sync-workspace-metadata.test.mjs",
@@ -86,6 +89,7 @@
         "check:localization": "node ./scripts/check-localization.mjs"
     },
     "devDependencies": {
+        "@playwright/test": "^1.60.0",
         "@tailwindcss/vite": "^4.2.2",
         "@testing-library/react": "^16.3.2",
         "@testing-library/user-event": "^14.6.1",
