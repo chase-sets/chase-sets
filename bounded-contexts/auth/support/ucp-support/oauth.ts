@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { createHash } from "node:crypto";
+import { Hono, type Context } from "hono";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AuthServices } from "../runtime-support/services";
@@ -14,10 +15,18 @@ CREATE TABLE IF NOT EXISTS identity_ucp_oauth_authorization_codes (
   account_id text NOT NULL,
   scopes jsonb NOT NULL DEFAULT '[]'::jsonb,
   state text NULL,
+  code_challenge text NOT NULL DEFAULT '',
+  code_challenge_method text NOT NULL DEFAULT 'S256',
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identity_ucp_oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS code_challenge text NOT NULL DEFAULT '';
+
+ALTER TABLE identity_ucp_oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS code_challenge_method text NOT NULL DEFAULT 'S256';
 
 CREATE INDEX IF NOT EXISTS identity_ucp_oauth_authorization_codes_expires_at_idx
   ON identity_ucp_oauth_authorization_codes (expires_at);
@@ -39,7 +48,53 @@ export type UcpOAuthRoutesOptions = Readonly<{
       refreshTokenExpiresAt?: string | null;
       grantedAt: string;
     }>) => Promise<unknown>;
+    resolveToken: (tokenHash: string) => Promise<{
+      authorization_id: string;
+      platform_profile_url: string;
+      client_id: string;
+      user_id: string;
+      account_id: string;
+      scopes: readonly string[];
+      access_token_expires_at: string;
+      refresh_token_expires_at: string | null;
+    } | null>;
+    rotateRefreshToken: (params: Readonly<{
+      refreshTokenHash: string;
+      newAccessTokenHash: string;
+      newRefreshTokenHash: string;
+      accessTokenExpiresAt: string;
+      refreshTokenExpiresAt: string;
+      refreshedAt: string;
+    }>) => Promise<{
+      platform_profile_url: string;
+      client_id: string;
+      user_id: string;
+      account_id: string;
+      scopes: readonly string[];
+    } | null>;
     revokeToken: (tokenHash: string, revokedAt: string) => Promise<boolean>;
+    revokeAuthorization: (params: Readonly<{
+      authorizationId: string;
+      accountId: string;
+      revokedAt: string;
+      reason?: string | null;
+    }>) => Promise<boolean>;
+    listForAccount: (accountId: string) => Promise<readonly {
+      authorization_id: string;
+      platform_profile_url: string;
+      client_id: string;
+      user_id: string;
+      account_id: string;
+      scopes: readonly string[];
+      status: string;
+      access_token_expires_at: string;
+      refresh_token_expires_at: string | null;
+      granted_at: string;
+      last_refreshed_at: string | null;
+      revoked_at: string | null;
+      revocation_reason: string | null;
+      updated_at: string;
+    }[]>;
   }>;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
 }>;
@@ -63,6 +118,9 @@ type AuthorizationCodeRow = Readonly<{
   user_id: string;
   account_id: string;
   scopes: readonly string[];
+  state: string | null;
+  code_challenge: string;
+  code_challenge_method: string;
   expires_at: string;
 }>;
 
@@ -75,12 +133,13 @@ export function createUcpOAuthMetadataRoutes() {
       issuer: origin,
       authorization_endpoint: `${origin}/ucp/oauth/authorize`,
       token_endpoint: `${origin}/ucp/oauth/token`,
+      introspection_endpoint: `${origin}/ucp/oauth/introspect`,
       revocation_endpoint: `${origin}/ucp/oauth/revoke`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       scopes_supported: SUPPORTED_SCOPES,
       token_endpoint_auth_methods_supported: ["none"],
-      code_challenge_methods_supported: [],
+      code_challenge_methods_supported: ["S256"],
     });
   });
 
@@ -97,14 +156,23 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     const responseType = url.searchParams.get("response_type")?.trim() ?? "";
     const state = url.searchParams.get("state")?.trim() ?? null;
     const scopes = normalizeScopes(url.searchParams.get("scope"));
+    const codeChallenge = url.searchParams.get("code_challenge")?.trim() ?? "";
+    const codeChallengeMethod = url.searchParams.get("code_challenge_method")?.trim() ?? "";
     const platformProfileUrl =
       url.searchParams.get("platform_profile_url")?.trim() ??
-      (isHttpUrl(clientId) ? clientId : "");
+      (isTrustedHttpUrl(clientId) ? clientId : "");
 
-    if (responseType !== "code" || !clientId || !isHttpUrl(redirectUri) || !isHttpUrl(platformProfileUrl)) {
+    if (
+      responseType !== "code" ||
+      !clientId ||
+      !isTrustedHttpUrl(redirectUri) ||
+      !isTrustedHttpUrl(platformProfileUrl) ||
+      codeChallengeMethod !== "S256" ||
+      !isPkceChallenge(codeChallenge)
+    ) {
       return c.json({
         error: "invalid_request",
-        error_description: "response_type=code, client_id, redirect_uri, and platform_profile_url are required.",
+        error_description: "response_type=code, client_id, trusted redirect_uri, trusted platform_profile_url, and PKCE S256 are required.",
       }, 400);
     }
 
@@ -129,8 +197,10 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
          account_id,
          scopes,
          state,
+         code_challenge,
+         code_challenge_method,
          expires_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::timestamptz)`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::timestamptz)`,
       [
         createId("cmd"),
         options.auth.auth.hashSecret(code),
@@ -141,6 +211,8 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
         actor.accountId,
         JSON.stringify(scopes),
         state,
+        codeChallenge,
+        codeChallengeMethod,
         expiresAt,
       ],
     );
@@ -155,23 +227,32 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
 
   app.post("/token", async (c) => {
     const body = await readFormOrJson(c.req.raw);
-    if (readString(body.grant_type) !== "authorization_code") {
+    const grantType = readString(body.grant_type);
+    if (grantType === "refresh_token") {
+      return refreshAccessToken(c, options, body);
+    }
+    if (grantType !== "authorization_code") {
       return c.json({
         error: "unsupported_grant_type",
-        error_description: "UCP identity linking currently supports authorization_code.",
+        error_description: "UCP identity linking supports authorization_code and refresh_token.",
       }, 400);
     }
 
     const code = readString(body.code);
     const redirectUri = readString(body.redirect_uri);
+    const codeVerifier = readString(body.code_verifier);
     if (!code) {
       return c.json({ error: "invalid_request", error_description: "code is required." }, 400);
+    }
+    if (!codeVerifier) {
+      return c.json({ error: "invalid_request", error_description: "code_verifier is required." }, 400);
     }
 
     const codeRow = await consumeAuthorizationCode(
       options.auth,
       options.auth.auth.hashSecret(code),
       redirectUri,
+      codeVerifier,
     );
     if (!codeRow) {
       return c.json({ error: "invalid_grant", error_description: "Authorization code is invalid or expired." }, 400);
@@ -205,6 +286,33 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     });
   });
 
+  app.post("/introspect", async (c) => {
+    const body = await readFormOrJson(c.req.raw);
+    const token = readString(body.token);
+    if (!token) {
+      return c.json({ active: false });
+    }
+
+    const authorization = await options.linkedPlatformAuthorizations.resolveToken(
+      options.auth.auth.hashSecret(token),
+    );
+    if (!authorization) {
+      return c.json({ active: false });
+    }
+
+    const scopes = normalizeScopes(authorization.scopes);
+    return c.json({
+      active: true,
+      client_id: authorization.client_id,
+      username: authorization.user_id,
+      sub: authorization.user_id,
+      account_id: authorization.account_id,
+      platform_profile_url: authorization.platform_profile_url,
+      scope: scopes.join(" "),
+      exp: Math.floor(new Date(authorization.access_token_expires_at).getTime() / 1000),
+    });
+  });
+
   app.post("/revoke", async (c) => {
     const body = await readFormOrJson(c.req.raw);
     const token = readString(body.token);
@@ -219,28 +327,120 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     return c.body(null, 200);
   });
 
+  app.get("/authorizations", async (c) => {
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+
+    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
+    return c.json({
+      authorizations: authorizations.map((authorization) => ({
+        id: authorization.authorization_id,
+        platform_profile_url: authorization.platform_profile_url,
+        client_id: authorization.client_id,
+        scopes: normalizeScopes(authorization.scopes),
+        status: authorization.status,
+        access_token_expires_at: authorization.access_token_expires_at,
+        refresh_token_expires_at: authorization.refresh_token_expires_at,
+        granted_at: authorization.granted_at,
+        last_refreshed_at: authorization.last_refreshed_at,
+        revoked_at: authorization.revoked_at,
+        revocation_reason: authorization.revocation_reason,
+        updated_at: authorization.updated_at,
+      })),
+    });
+  });
+
+  app.post("/authorizations/:id/revoke", async (c) => {
+    const actor = await options.resolveActor(c.req.raw);
+    if (!actor) {
+      return c.json({ error: "login_required" }, 401);
+    }
+
+    const revoked = await options.linkedPlatformAuthorizations.revokeAuthorization({
+      authorizationId: c.req.param("id"),
+      accountId: actor.accountId,
+      revokedAt: new Date().toISOString(),
+      reason: "account_consent_revoked",
+    });
+    return c.json({ revoked });
+  });
+
   return app;
+}
+
+async function refreshAccessToken(
+  c: Context,
+  options: UcpOAuthRoutesOptions,
+  body: Readonly<Record<string, unknown>>,
+) {
+  const refreshToken = readString(body.refresh_token);
+  if (!refreshToken) {
+    return c.json({ error: "invalid_request", error_description: "refresh_token is required." }, 400);
+  }
+
+  const accessToken = options.auth.auth.issueOpaqueToken("ucp_at");
+  const newRefreshToken = options.auth.auth.issueOpaqueToken("ucp_rt");
+  const now = new Date();
+  const accessTokenExpiresAt = new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString();
+  const refreshTokenExpiresAt = new Date(now.getTime() + REFRESH_TOKEN_TTL_MS).toISOString();
+  const authorization = await options.linkedPlatformAuthorizations.rotateRefreshToken({
+    refreshTokenHash: options.auth.auth.hashSecret(refreshToken),
+    newAccessTokenHash: options.auth.auth.hashSecret(accessToken),
+    newRefreshTokenHash: options.auth.auth.hashSecret(newRefreshToken),
+    accessTokenExpiresAt,
+    refreshTokenExpiresAt,
+    refreshedAt: now.toISOString(),
+  });
+
+  if (!authorization) {
+    return c.json({ error: "invalid_grant", error_description: "Refresh token is invalid or expired." }, 400);
+  }
+
+  return c.json({
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
+    refresh_token: newRefreshToken,
+    scope: normalizeScopes(authorization.scopes).join(" "),
+  });
 }
 
 async function consumeAuthorizationCode(
   auth: AuthServices,
   codeHash: string,
   redirectUri: string | undefined,
+  codeVerifier: string,
 ) {
   const result = await auth.db.query<AuthorizationCodeRow>(
-    `UPDATE identity_ucp_oauth_authorization_codes
-     SET consumed_at = now()
+    `SELECT code_id, client_id, platform_profile_url, redirect_uri, user_id,
+            account_id, scopes, state, code_challenge, code_challenge_method, expires_at
+     FROM identity_ucp_oauth_authorization_codes
      WHERE code_hash = $1
        AND consumed_at IS NULL
        AND expires_at > now()
        AND ($2::text IS NULL OR redirect_uri = $2)
-     RETURNING code_id, client_id, platform_profile_url, redirect_uri, user_id,
-               account_id, scopes, expires_at`,
+     LIMIT 1`,
     [codeHash, redirectUri ?? null],
   );
   const row = result.rows[0];
-  return row
-    ? { ...row, scopes: Array.isArray(row.scopes) ? row.scopes : [] }
+  if (!row || row.code_challenge_method !== "S256" || pkceS256(codeVerifier) !== row.code_challenge) {
+    return null;
+  }
+
+  const consumed = await auth.db.query<AuthorizationCodeRow>(
+    `UPDATE identity_ucp_oauth_authorization_codes
+     SET consumed_at = now()
+     WHERE code_id = $1
+       AND consumed_at IS NULL
+     RETURNING code_id, client_id, platform_profile_url, redirect_uri, user_id,
+               account_id, scopes, state, code_challenge, code_challenge_method, expires_at`,
+    [row.code_id],
+  );
+  const consumedRow = consumed.rows[0];
+  return consumedRow
+    ? { ...consumedRow, scopes: Array.isArray(consumedRow.scopes) ? consumedRow.scopes : [] }
     : null;
 }
 
@@ -282,13 +482,34 @@ function readString(value: unknown) {
     : undefined;
 }
 
-function isHttpUrl(value: string) {
+function isTrustedHttpUrl(value: string) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:";
+    if (url.protocol === "https:") {
+      return true;
+    }
+    return url.protocol === "http:" && isLocalHost(url.hostname);
   } catch {
     return false;
   }
+}
+
+function isLocalHost(hostname: string) {
+  const value = hostname.toLowerCase();
+  return value === "localhost" ||
+    value === "127.0.0.1" ||
+    value === "::1" ||
+    value.endsWith(".localhost");
+}
+
+function isPkceChallenge(value: string) {
+  return /^[A-Za-z0-9._~-]{43,128}$/.test(value);
+}
+
+function pkceS256(verifier: string) {
+  return createHash("sha256")
+    .update(verifier)
+    .digest("base64url");
 }
 
 function requestOrigin(request: Request) {

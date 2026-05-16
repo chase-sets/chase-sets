@@ -30,7 +30,7 @@ V1 advertises both UCP REST and UCP MCP in the business profile:
 
 REST routes and UCP MCP tools must share protocol DTOs, validation, authorization, signed-request checks, idempotency/replay policy, audit policy, and context-owned handlers. Deployables may mount the routes, but domain decisions stay in the owning bounded context.
 
-Checkout completion requires a trusted UI handoff unless a later AP2 Mandate implementation verifies autonomous purchase authority. OAuth identity linking must be modeled separately from API keys because UCP delegated access is user/account consent, not a generic software credential.
+Checkout completion requires a trusted UI handoff unless a later AP2 Mandate implementation verifies autonomous purchase authority. OAuth identity linking must be modeled separately from API keys because UCP delegated access is user/account consent, not a generic software credential. UCP OAuth uses Authorization Code with PKCE S256, refresh-token rotation, introspection, and consent revocation.
 
 ## Consequences
 
@@ -51,4 +51,4 @@ Initial verification covers:
 - Idempotency-key requirements for checkout completion and cancellation.
 - Platform API mounts for `/.well-known/ucp`, `/ucp/v1`, and `/ucp/mcp`.
 
-Order reads, OAuth scope enforcement, durable replay storage, production profile/key caching, AP2 guarded continuation, and staging smoke checks are now part of the hardening baseline. Response signing remains future work. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through a cached resolver, and replay conflict behavior have focused automated coverage.
+Order reads, OAuth scope enforcement, PKCE, refresh rotation, token introspection, linked-platform consent revocation, durable replay storage with retention/pruning, production profile/key caching, AP2 guarded continuation, UCP runtime observer events, and staging smoke checks are now part of the hardening baseline. Response signing and real AP2 mandate/payment-handler funds transfer remain future work. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through a cached resolver, replay conflict behavior, OAuth token lifecycle behavior, and AP2 guardrails have focused automated coverage.

@@ -35,6 +35,7 @@ import {
 import {
   createPostgresUcpIdempotencyStore,
   createUcpProfileKeyResolver,
+  type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import {
@@ -282,6 +283,42 @@ const realtimeWakeSignal = config.realtime.wakeSignalEnabled
       realtimeObserver,
     )
   : undefined;
+const ucpObserver = {
+  signedWriteRejected: (event) => {
+    logger.warn("UCP signed write rejected.", {
+      type: "ucp.signed_write.rejected",
+      ...event,
+    });
+  },
+  signatureVerificationFailed: (event) => {
+    logger.warn("UCP signature verification failed.", {
+      type: "ucp.signature_verification.failed",
+      ...event,
+    });
+  },
+  idempotencyReplayed: (event) => {
+    logger.info("UCP idempotent response replayed.", {
+      type: "ucp.idempotency.replayed",
+      transport: event.transport,
+      operation: event.operation,
+      agentProfileUrl: event.agentProfileUrl,
+    });
+  },
+  idempotencyConflict: (event) => {
+    logger.warn("UCP idempotency conflict.", {
+      type: "ucp.idempotency.conflict",
+      transport: event.transport,
+      operation: event.operation,
+      agentProfileUrl: event.agentProfileUrl,
+    });
+  },
+  operationCompleted: (event) => {
+    logger.info("UCP operation completed.", {
+      type: "ucp.operation.completed",
+      ...event,
+    });
+  },
+} satisfies UcpRuntimeObserver;
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
@@ -321,10 +358,13 @@ const app = buildPlatformApiApp(runtime, {
       }
     : undefined,
   ucp: {
-    idempotencyStore: createPostgresUcpIdempotencyStore(pools.control),
+    idempotencyStore: createPostgresUcpIdempotencyStore(pools.control, {
+      retentionMs: 7 * 24 * 60 * 60 * 1000,
+    }),
     signatureVerification: {
       keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
     },
+    observer: ucpObserver,
   },
   realtimeResourceLimits: {
     maxTopicsPerStream: config.realtime.maxTopicsPerStream,

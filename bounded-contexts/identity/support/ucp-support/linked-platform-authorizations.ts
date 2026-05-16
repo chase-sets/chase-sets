@@ -14,9 +14,21 @@ CREATE TABLE IF NOT EXISTS identity_linked_platform_authorizations (
   access_token_expires_at timestamptz NOT NULL,
   refresh_token_expires_at timestamptz NULL,
   granted_at timestamptz NOT NULL,
+  last_refreshed_at timestamptz NULL,
+  refresh_token_rotated_at timestamptz NULL,
   revoked_at timestamptz NULL,
+  revocation_reason text NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE identity_linked_platform_authorizations
+  ADD COLUMN IF NOT EXISTS last_refreshed_at timestamptz NULL;
+
+ALTER TABLE identity_linked_platform_authorizations
+  ADD COLUMN IF NOT EXISTS refresh_token_rotated_at timestamptz NULL;
+
+ALTER TABLE identity_linked_platform_authorizations
+  ADD COLUMN IF NOT EXISTS revocation_reason text NULL;
 
 CREATE INDEX IF NOT EXISTS identity_linked_platform_authorizations_access_token_idx
   ON identity_linked_platform_authorizations (access_token_hash)
@@ -39,7 +51,10 @@ export type LinkedPlatformAuthorizationRow = Readonly<{
   access_token_expires_at: string;
   refresh_token_expires_at: string | null;
   granted_at: string;
+  last_refreshed_at: string | null;
+  refresh_token_rotated_at: string | null;
   revoked_at: string | null;
+  revocation_reason: string | null;
   updated_at: string;
 }>;
 
@@ -60,7 +75,23 @@ export type LinkedPlatformAuthorizationStore = Readonly<{
   resolveAccessToken: (
     accessTokenHash: string,
   ) => Promise<LinkedPlatformAuthorizationRow | null>;
+  resolveToken: (tokenHash: string) => Promise<LinkedPlatformAuthorizationRow | null>;
+  rotateRefreshToken: (params: Readonly<{
+    refreshTokenHash: string;
+    newAccessTokenHash: string;
+    newRefreshTokenHash: string;
+    accessTokenExpiresAt: string;
+    refreshTokenExpiresAt: string;
+    refreshedAt: string;
+  }>) => Promise<LinkedPlatformAuthorizationRow | null>;
   revokeToken: (tokenHash: string, revokedAt: string) => Promise<boolean>;
+  revokeAuthorization: (params: Readonly<{
+    authorizationId: string;
+    accountId: string;
+    revokedAt: string;
+    reason?: string | null;
+  }>) => Promise<boolean>;
+  listForAccount: (accountId: string) => Promise<readonly LinkedPlatformAuthorizationRow[]>;
 }>;
 
 export function createLinkedPlatformAuthorizationStore(
@@ -129,17 +160,92 @@ export function createLinkedPlatformAuthorizationStore(
         ? mapLinkedPlatformAuthorizationRow(result.rows[0])
         : null;
     },
+    resolveToken: async (tokenHash) => {
+      const result = await db.query<LinkedPlatformAuthorizationRow>(
+        `SELECT *
+         FROM identity_linked_platform_authorizations
+         WHERE status = 'active'
+           AND (
+             (access_token_hash = $1 AND access_token_expires_at > now())
+             OR
+             (refresh_token_hash = $1 AND refresh_token_expires_at IS NOT NULL AND refresh_token_expires_at > now())
+           )
+         LIMIT 1`,
+        [tokenHash],
+      );
+      return result.rows[0]
+        ? mapLinkedPlatformAuthorizationRow(result.rows[0])
+        : null;
+    },
+    rotateRefreshToken: async (params) => {
+      const result = await db.query<LinkedPlatformAuthorizationRow>(
+        `UPDATE identity_linked_platform_authorizations
+         SET access_token_hash = $2,
+             refresh_token_hash = $3,
+             access_token_expires_at = $4::timestamptz,
+             refresh_token_expires_at = $5::timestamptz,
+             last_refreshed_at = $6::timestamptz,
+             refresh_token_rotated_at = $6::timestamptz,
+             updated_at = now()
+         WHERE refresh_token_hash = $1
+           AND status = 'active'
+           AND refresh_token_expires_at IS NOT NULL
+           AND refresh_token_expires_at > now()
+         RETURNING *`,
+        [
+          params.refreshTokenHash,
+          params.newAccessTokenHash,
+          params.newRefreshTokenHash,
+          params.accessTokenExpiresAt,
+          params.refreshTokenExpiresAt,
+          params.refreshedAt,
+        ],
+      );
+      return result.rows[0]
+        ? mapLinkedPlatformAuthorizationRow(result.rows[0])
+        : null;
+    },
     revokeToken: async (tokenHash, revokedAt) => {
       const result = await db.query(
         `UPDATE identity_linked_platform_authorizations
          SET status = 'revoked',
              revoked_at = $2::timestamptz,
+             revocation_reason = COALESCE(revocation_reason, 'token_revocation'),
              updated_at = now()
          WHERE status = 'active'
            AND (access_token_hash = $1 OR refresh_token_hash = $1)`,
         [tokenHash, revokedAt],
       );
       return (result.rowCount ?? 0) > 0;
+    },
+    revokeAuthorization: async (params) => {
+      const result = await db.query(
+        `UPDATE identity_linked_platform_authorizations
+         SET status = 'revoked',
+             revoked_at = $3::timestamptz,
+             revocation_reason = $4,
+             updated_at = now()
+         WHERE authorization_id = $1
+           AND account_id = $2
+           AND status = 'active'`,
+        [
+          params.authorizationId,
+          params.accountId,
+          params.revokedAt,
+          params.reason ?? "account_consent_revoked",
+        ],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+    listForAccount: async (accountId) => {
+      const result = await db.query<LinkedPlatformAuthorizationRow>(
+        `SELECT *
+         FROM identity_linked_platform_authorizations
+         WHERE account_id = $1
+         ORDER BY granted_at DESC, authorization_id DESC`,
+        [accountId],
+      );
+      return result.rows.map(mapLinkedPlatformAuthorizationRow);
     },
   };
 }
