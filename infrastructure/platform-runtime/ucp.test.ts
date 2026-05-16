@@ -61,6 +61,24 @@ describe("UCP profile routes", () => {
       },
     });
   });
+
+  it("uses HTTPS for public hosts reached through internal HTTP", async () => {
+    const app = new Hono().route("/.well-known", createUcpProfileRoutes());
+
+    const response = await app.request("http://marketplace.staging.chasesets.com/.well-known/ucp");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ucp: {
+        services: {
+          "dev.ucp.shopping": [
+            { transport: "rest", endpoint: "https://marketplace.staging.chasesets.com/ucp/v1" },
+            { transport: "mcp", endpoint: "https://marketplace.staging.chasesets.com/ucp/mcp" },
+          ],
+        },
+      },
+    });
+  });
 });
 
 describe("UCP REST routes", () => {
