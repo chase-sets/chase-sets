@@ -12,6 +12,7 @@ const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const FIELD_STREAM_PREFIX = "catalog.field-";
+const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
 
 type BaseCatalogItemRow = Readonly<{
   catalog_item_id: string;
@@ -36,6 +37,39 @@ type ExternalProductReferenceRow = Readonly<{
   external_key: string;
   selected_options: unknown;
   updated_at: string;
+}>;
+
+type ReferenceRecordRow = Readonly<{
+  reference_record_id: string;
+  type_key: string;
+  key: string;
+  name: string;
+  attributes: unknown;
+  relationships: unknown;
+  status: string;
+}>;
+
+type ReferenceRelationship = Readonly<{
+  relationshipType: string;
+  referenceId: string;
+}>;
+
+type ReferenceRecordRef = Readonly<{
+  referenceId: string;
+  typeKey: string;
+  key: string;
+  name: string;
+  attributes: unknown;
+  relationships: readonly (ReferenceRelationship & {
+    reference?: Readonly<{
+      referenceId: string;
+      typeKey: string;
+      key: string;
+      name: string;
+      status: string;
+    }>;
+  })[];
+  status: string;
 }>;
 
 async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: string): Promise<void> {
@@ -114,6 +148,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   const fieldValues = asArray<FieldValue>(item.field_values);
   const categoryIds = asStringArray(item.category_ids);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
+  const referenceIds = fieldValues.map((entry) => referenceIdFromValue(entry.value)).filter((entry): entry is string => entry !== null);
   const externalReferencesResult = await db.query<ExternalProductReferenceRow>(
     `SELECT provider_key, external_key, selected_options, updated_at
      FROM catalog_external_product_references
@@ -122,18 +157,20 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
     [itemId],
   );
 
-  const [fieldNames, categoryNames, blueprintNames] = await Promise.all([
+  const [fieldNames, categoryNames, blueprintNames, references] = await Promise.all([
     loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds),
     loadNameMap(db, "catalog_categories", "category_id", "name", categoryIds),
     item.blueprint_id
       ? loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
       : Promise.resolve(new Map<string, string>()),
+    loadReferenceRecordMap(db, referenceIds),
   ]);
 
   const namedFieldValues = fieldValues.map((entry) => ({
     fieldId: entry.fieldId,
     fieldName: fieldNames.get(entry.fieldId) ?? entry.fieldId,
     value: entry.value,
+    reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
   }));
 
   const namedCategories = categoryIds.map((categoryId) => ({
@@ -232,6 +269,35 @@ async function findCatalogItemIdsByField(db: PgQueryable, fieldId: string): Prom
   return result.rows.map((row) => row.catalog_item_id);
 }
 
+async function findCatalogItemIdsByReferenceRecord(
+  db: PgQueryable,
+  referenceRecordId: string,
+): Promise<string[]> {
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT DISTINCT catalog_item_id
+     FROM catalog_items, jsonb_array_elements(field_values) AS field_value
+     WHERE field_value->'value'->>'referenceId' = $1
+        OR field_value->'value'->>'reference_record_id' = $1`,
+    [referenceRecordId],
+  );
+
+  return result.rows.map((row) => row.catalog_item_id);
+}
+
+async function findReferenceRecordIdsByRelatedReference(
+  db: PgQueryable,
+  referenceRecordId: string,
+): Promise<string[]> {
+  const result = await db.query<{ reference_record_id: string }>(
+    `SELECT DISTINCT reference_record_id
+     FROM catalog_reference_records, jsonb_array_elements(relationships) AS relationship
+     WHERE relationship->>'referenceId' = $1`,
+    [referenceRecordId],
+  );
+
+  return result.rows.map((row) => row.reference_record_id);
+}
+
 async function findCatalogItemIdsByBlueprint(db: PgQueryable, blueprintId: string): Promise<string[]> {
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT catalog_item_id FROM catalog_items WHERE blueprint_id = $1`,
@@ -265,6 +331,22 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
 
   async function refreshCategoryDependents(categoryId: string) {
     await refreshCatalogItemIds(db, await findCatalogItemIdsByCategory(db, categoryId));
+  }
+
+  async function refreshReferenceDependents(referenceRecordId: string) {
+    const relatedRecordIds = await findReferenceRecordIdsByRelatedReference(db, referenceRecordId);
+    const itemIds = [
+      ...(await findCatalogItemIdsByReferenceRecord(db, referenceRecordId)),
+      ...(
+        await Promise.all(
+          relatedRecordIds.map((relatedRecordId) =>
+            findCatalogItemIdsByReferenceRecord(db, relatedRecordId),
+          ),
+        )
+      ).flat(),
+    ];
+
+    await refreshCatalogItemIds(db, [...new Set(itemIds)]);
   }
 
   return {
@@ -355,5 +437,111 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     "catalog.field.archived": async (event) => {
       await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX));
     },
+
+    "catalog.reference-record.created": async (event) => {
+      await refreshReferenceDependents(event.data.referenceRecordId as string);
+    },
+    "catalog.reference-record.revised": async (event) => {
+      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+    },
+    "catalog.reference-record.published": async (event) => {
+      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+    },
+    "catalog.reference-record.deprecated": async (event) => {
+      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+    },
+    "catalog.reference-record.archived": async (event) => {
+      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+    },
   };
+}
+
+function referenceIdFromValue(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as { referenceId?: unknown; reference_record_id?: unknown };
+
+  if (typeof candidate.referenceId === "string" && candidate.referenceId.length > 0) {
+    return candidate.referenceId;
+  }
+
+  if (typeof candidate.reference_record_id === "string" && candidate.reference_record_id.length > 0) {
+    return candidate.reference_record_id;
+  }
+
+  return null;
+}
+
+async function loadReferenceRecordMap(
+  db: PgQueryable,
+  ids: readonly string[],
+): Promise<Map<string, ReferenceRecordRef>> {
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const primaryRows = await loadReferenceRecordRows(db, uniqueIds);
+  const relatedIds = [
+    ...new Set(
+      primaryRows.flatMap((row) =>
+        asArray<ReferenceRelationship>(row.relationships)
+          .map((relationship) => relationship.referenceId)
+          .filter((referenceId): referenceId is string => typeof referenceId === "string"),
+      ),
+    ),
+  ];
+  const relatedRows = await loadReferenceRecordRows(db, relatedIds);
+  const relatedById = new Map(relatedRows.map((row) => [row.reference_record_id, row]));
+
+  return new Map(
+    primaryRows.map((row) => [
+      row.reference_record_id,
+      {
+        referenceId: row.reference_record_id,
+        typeKey: row.type_key,
+        key: row.key,
+        name: row.name,
+        attributes: row.attributes,
+        relationships: asArray<ReferenceRelationship>(row.relationships).map((relationship) => {
+          const related = relatedById.get(relationship.referenceId);
+
+          return {
+            relationshipType: relationship.relationshipType,
+            referenceId: relationship.referenceId,
+            reference: related
+              ? {
+                  referenceId: related.reference_record_id,
+                  typeKey: related.type_key,
+                  key: related.key,
+                  name: related.name,
+                  status: related.status,
+                }
+              : undefined,
+          };
+        }),
+        status: row.status,
+      },
+    ]),
+  );
+}
+
+async function loadReferenceRecordRows(
+  db: PgQueryable,
+  ids: readonly string[],
+): Promise<ReferenceRecordRow[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<ReferenceRecordRow>(
+    `SELECT reference_record_id, type_key, key, name, attributes, relationships, status
+     FROM catalog_reference_records
+     WHERE reference_record_id = ANY($1)`,
+    [ids],
+  );
+
+  return result.rows;
 }

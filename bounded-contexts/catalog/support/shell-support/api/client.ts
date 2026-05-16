@@ -452,7 +452,7 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async setFieldValue<T>(id: string, fieldId: string, value: string): Promise<T> {
+    async setFieldValue<T>(id: string, fieldId: string, value: unknown): Promise<T> {
       const response = await client.items[":id"].fields[":fieldId"].$put({
         param: { id, fieldId },
         json: { value },
