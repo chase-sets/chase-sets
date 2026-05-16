@@ -316,7 +316,9 @@ export function SearchResultsLayout({
   return (
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <div className="hidden lg:block">
-        <div className="sticky top-20 self-start">{filters}</div>
+        <div className="sticky top-20 max-h-[calc(100dvh-6rem)] self-start overflow-y-auto overscroll-contain pb-4 pr-1">
+          {filters}
+        </div>
       </div>
       {content}
     </div>
