@@ -17,6 +17,7 @@ export type {
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
+export type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
 export type {
   CategoryListResponse,
   DiscoveryCategoryItem,
@@ -34,6 +35,7 @@ import type {
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
+import type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
 
 type DiscoveryApiApp = ReturnType<typeof buildDiscoveryApi>;
 
@@ -94,6 +96,11 @@ export function createDiscoveryApiClient({
     async searchItems(query = ""): Promise<DiscoverySearchResponse> {
       const normalizedQuery = query.startsWith("?") ? query.slice(1) : query;
       const url = `${baseUrl.replace(/\/$/, "")}/items${normalizedQuery ? `?${normalizedQuery}` : ""}`;
+      return parseJsonResponse(await configuredFetch(url, { headers }));
+    },
+    async previewBulkAddSearchResults(query = ""): Promise<DiscoveryBulkCartPreview> {
+      const normalizedQuery = query.startsWith("?") ? query.slice(1) : query;
+      const url = `${baseUrl.replace(/\/$/, "")}/items/bulk-cart-preview${normalizedQuery ? `?${normalizedQuery}` : ""}`;
       return parseJsonResponse(await configuredFetch(url, { headers }));
     },
     async getItemDetail(id: string): Promise<DiscoveryItemDetail> {

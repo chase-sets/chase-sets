@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeSimpleSearchText } from "../domain/normalization";
+import type { ProductSchema } from "../../../support/client-support/contracts";
 
 export type DiscoverySearchParams = {
   search?: string;
@@ -38,6 +39,39 @@ export type ListResult<T> = {
   total: number | null;
   nextCursor: string | null;
 };
+
+export type DiscoveryBulkCartPreviewLine = Readonly<{
+  catalog_item_id: string;
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  image_url: string | null;
+  image_loading_url: string | null;
+  image_loading_alt: string | null;
+  image_loading_srcset: string | null;
+  product_id: string;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
+  quantity: number;
+}>;
+
+export type DiscoveryBulkCartPreviewSkippedItem = Readonly<{
+  catalog_item_id: string;
+  slug: string;
+  title: string;
+  reason: "product-options-required" | "invalid-product-selection";
+  message: string;
+}>;
+
+export type DiscoveryBulkCartPreview = Readonly<{
+  totalMatches: number | null;
+  eligibleCount: number;
+  skippedCount: number;
+  overLimit: boolean;
+  limit: number;
+  lines: DiscoveryBulkCartPreviewLine[];
+  skippedItems: DiscoveryBulkCartPreviewSkippedItem[];
+}>;
 
 export type DiscoverySearchItemRow = Readonly<{
   catalog_item_id: string;
@@ -373,6 +407,259 @@ export async function searchDiscoveryItems(
       ? Number.parseInt(countResult.rows[0].count, 10)
       : null,
     nextCursor: hasNextPage && lastRow ? encodeSearchCursor(lastRow) : null,
+  };
+}
+
+type ProductSchemaRow = Readonly<{
+  dimension_id: string;
+  dimension_name: string;
+  required: boolean;
+  allowed_option_ids: unknown;
+  applies_when: unknown;
+  dimension_display_order: number;
+  option_id: string | null;
+  option_code: string | null;
+  option_label: string | null;
+  option_display_order: number | null;
+  numeric_value: string | number | null;
+}>;
+
+function jsonArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+async function loadProductSchemasForBlueprints(
+  db: PgQueryable,
+  blueprintIds: readonly string[],
+): Promise<Map<string, ProductSchema>> {
+  const uniqueBlueprintIds = [...new Set(blueprintIds.filter(Boolean))];
+  if (uniqueBlueprintIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<ProductSchemaRow & { blueprint_id: string }>(
+    `SELECT
+       rule.blueprint_id,
+       rule.dimension_id,
+       dimension.name AS dimension_name,
+       rule.required,
+       rule.allowed_option_ids,
+       rule.applies_when,
+       rule.display_order AS dimension_display_order,
+       option.option_id,
+       option.code AS option_code,
+       option.label AS option_label,
+       option.display_order AS option_display_order,
+       option.numeric_value
+     FROM discovery_search_catalog_blueprint_dimensions AS rule
+     INNER JOIN discovery_search_catalog_dimensions AS dimension
+       ON dimension.dimension_id = rule.dimension_id
+     LEFT JOIN LATERAL jsonb_array_elements_text(rule.allowed_option_ids) WITH ORDINALITY AS allowed(option_id, allowed_order)
+       ON true
+     LEFT JOIN discovery_search_catalog_dimension_options AS option
+       ON option.option_id = allowed.option_id
+      AND option.dimension_id = rule.dimension_id
+      AND option.status = 'active'
+     WHERE rule.blueprint_id = ANY($1::text[])
+     ORDER BY rule.blueprint_id ASC, rule.display_order ASC, allowed.allowed_order ASC, option.display_order ASC, option.label ASC`,
+    [uniqueBlueprintIds],
+  );
+
+  const byBlueprint = new Map<string, ProductSchemaRow[]>();
+  for (const row of result.rows) {
+    byBlueprint.set(row.blueprint_id, [...(byBlueprint.get(row.blueprint_id) ?? []), row]);
+  }
+
+  const schemas = new Map<string, ProductSchema>();
+  for (const [blueprintId, rows] of byBlueprint.entries()) {
+    const byDimension = new Map<string, ProductSchema["dimensions"][number]>();
+    for (const row of rows) {
+      const existing = byDimension.get(row.dimension_id);
+      const allowedOptions = row.option_id && row.option_label
+        ? [{
+            optionId: row.option_id,
+            code: row.option_code ?? row.option_id,
+            label: row.option_label,
+            displayOrder: row.option_display_order ?? 0,
+            numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
+          }]
+        : [];
+      byDimension.set(row.dimension_id, {
+        dimensionId: row.dimension_id,
+        dimensionName: row.dimension_name,
+        valueKind: "unordered",
+        required: row.required,
+        appliesWhen: jsonArray<{ dimensionId: string; optionIds: string[] }>(row.applies_when),
+        allowedOptions: [
+          ...(existing?.allowedOptions ?? []),
+          ...allowedOptions,
+        ],
+      });
+    }
+
+    const dimensions = [...byDimension.values()];
+    schemas.set(blueprintId, {
+      canonicalDimensionOrder: dimensions.map((dimension) => ({
+        dimensionId: dimension.dimensionId,
+        dimensionName: dimension.dimensionName,
+      })),
+      dimensions,
+    });
+  }
+
+  return schemas;
+}
+
+function selectedOptionMap(filters: readonly DiscoveryDimensionFilter[] | undefined) {
+  const grouped = groupDimensionFilters(filters);
+  const selected = new Map<string, string>();
+  for (const [dimensionId, optionIds] of grouped.entries()) {
+    if (optionIds.length === 1) {
+      selected.set(dimensionId, optionIds[0]);
+    }
+  }
+  return selected;
+}
+
+function isSchemaDimensionActive(
+  dimension: ProductSchema["dimensions"][number],
+  selections: ReadonlyMap<string, string>,
+) {
+  return dimension.appliesWhen.every((clause) => {
+    const selectedOptionId = selections.get(clause.dimensionId);
+    return selectedOptionId !== undefined && clause.optionIds.includes(selectedOptionId);
+  });
+}
+
+function resolvePreviewLine(
+  item: DiscoverySearchItemRow,
+  schema: ProductSchema | null,
+  selections: ReadonlyMap<string, string>,
+): DiscoveryBulkCartPreviewLine | DiscoveryBulkCartPreviewSkippedItem {
+  if (!schema || schema.dimensions.length === 0) {
+    return {
+      catalog_item_id: item.catalog_item_id,
+      slug: item.slug,
+      title: item.title,
+      subtitle: item.subtitle,
+      image_url: stringArray(item.image_urls)[0] ?? null,
+      image_loading_url: null,
+      image_loading_alt: null,
+      image_loading_srcset: null,
+      product_id: `${item.catalog_item_id}::`,
+      selected_options: [],
+      product_summary: null,
+      quantity: 1,
+    };
+  }
+
+  const selectedOptions: { dimensionId: string; optionId: string }[] = [];
+  const productSummaryParts: string[] = [];
+  for (const order of schema.canonicalDimensionOrder) {
+    const dimension = schema.dimensions.find((entry) => entry.dimensionId === order.dimensionId);
+    if (!dimension || !isSchemaDimensionActive(dimension, selections)) {
+      continue;
+    }
+
+    const selectedOptionId = selections.get(dimension.dimensionId);
+    if (!selectedOptionId) {
+      if (dimension.required) {
+        return {
+          catalog_item_id: item.catalog_item_id,
+          slug: item.slug,
+          title: item.title,
+          reason: "product-options-required",
+          message: `${dimension.dimensionName} is required before this item can be added.`,
+        };
+      }
+      continue;
+    }
+
+    const option = dimension.allowedOptions.find((candidate) => candidate.optionId === selectedOptionId);
+    if (!option) {
+      return {
+        catalog_item_id: item.catalog_item_id,
+        slug: item.slug,
+        title: item.title,
+        reason: "invalid-product-selection",
+        message: `${dimension.dimensionName} does not match this item.`,
+      };
+    }
+
+    selectedOptions.push({ dimensionId: dimension.dimensionId, optionId: option.optionId });
+    productSummaryParts.push(`${dimension.dimensionName}: ${option.label || option.code}`);
+  }
+
+  const selectedRecord = Object.fromEntries(
+    selectedOptions.map((entry) => [entry.dimensionId, entry.optionId]),
+  );
+
+  return {
+    catalog_item_id: item.catalog_item_id,
+    slug: item.slug,
+    title: item.title,
+    subtitle: item.subtitle,
+    image_url: stringArray(item.image_urls)[0] ?? null,
+    image_loading_url: null,
+    image_loading_alt: null,
+    image_loading_srcset: null,
+    product_id: `${item.catalog_item_id}::${schema.canonicalDimensionOrder
+      .map((entry) => `${entry.dimensionId}:${selectedRecord[entry.dimensionId] ?? "-"}`)
+      .join("|")}`,
+    selected_options: selectedOptions,
+    product_summary: productSummaryParts.length > 0 ? productSummaryParts.join(", ") : null,
+    quantity: 1,
+  };
+}
+
+export async function previewBulkAddSearchResults(
+  db: PgQueryable,
+  params: DiscoverySearchParams = {},
+  limit = 250,
+): Promise<DiscoveryBulkCartPreview> {
+  const result = await searchDiscoveryItems(db, {
+    ...params,
+    limit: limit + 1,
+    offset: 0,
+    cursor: undefined,
+    includeTotal: true,
+  });
+  const items = result.items.slice(0, limit);
+  const schemas = await loadProductSchemasForBlueprints(
+    db,
+    items.map((item) => item.blueprint_id).filter((id): id is string => Boolean(id)),
+  );
+  const selections = selectedOptionMap(params.dimensionFilters);
+  const lines: DiscoveryBulkCartPreviewLine[] = [];
+  const skippedItems: DiscoveryBulkCartPreviewSkippedItem[] = [];
+
+  for (const item of items) {
+    const resolved = resolvePreviewLine(
+      item,
+      item.blueprint_id ? schemas.get(item.blueprint_id) ?? null : null,
+      selections,
+    );
+    if ("product_id" in resolved) {
+      lines.push(resolved);
+    } else {
+      skippedItems.push(resolved);
+    }
+  }
+
+  return {
+    totalMatches: result.total,
+    eligibleCount: lines.length,
+    skippedCount: skippedItems.length,
+    overLimit: (result.total ?? result.items.length) > limit,
+    limit,
+    lines,
+    skippedItems,
   };
 }
 

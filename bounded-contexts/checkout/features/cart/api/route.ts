@@ -92,6 +92,34 @@ function parseFulfillmentMode(body: Record<string, unknown>) {
   };
 }
 
+function parseCartLineBody(body: Record<string, unknown>) {
+  const fulfillment = parseFulfillmentMode(body);
+
+  return {
+    catalogItemId: String(body.catalogItemId ?? ""),
+    productId: String(body.productId ?? ""),
+    itemTitle: String(body.itemTitle ?? ""),
+    itemSubtitle:
+      body.itemSubtitle === null || body.itemSubtitle === undefined
+        ? null
+        : String(body.itemSubtitle),
+    itemImageUrl:
+      body.itemImageUrl === null || body.itemImageUrl === undefined
+        ? null
+        : String(body.itemImageUrl),
+    itemImageLoadingUrl: optionalBodyString(body.itemImageLoadingUrl),
+    itemImageLoadingAlt: optionalBodyString(body.itemImageLoadingAlt),
+    itemImageLoadingSrcSet: optionalBodyString(body.itemImageLoadingSrcSet),
+    selectedOptions: parseVersionSelection(body.selectedOptions),
+    productSummary:
+      body.productSummary === null || body.productSummary === undefined
+        ? null
+        : String(body.productSummary),
+    quantity: Number(body.quantity ?? 0),
+    ...fulfillment,
+  };
+}
+
 function countCartItems(items: readonly { quantity: number }[]) {
   return items.reduce((sum, item) => sum + item.quantity, 0);
 }
@@ -124,38 +152,48 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     }
 
     const body = await c.req.json();
-    const fulfillment = parseFulfillmentMode(body);
 
     try {
       const result = await services.addLine(
         {
           accountId: access.actor.accountId as never,
-          catalogItemId: String(body.catalogItemId ?? ""),
-          productId: String(body.productId ?? ""),
-          itemTitle: String(body.itemTitle ?? ""),
-            itemSubtitle:
-              body.itemSubtitle === null || body.itemSubtitle === undefined
-                ? null
-                : String(body.itemSubtitle),
-            itemImageUrl:
-              body.itemImageUrl === null || body.itemImageUrl === undefined
-                ? null
-                : String(body.itemImageUrl),
-            itemImageLoadingUrl: optionalBodyString(body.itemImageLoadingUrl),
-            itemImageLoadingAlt: optionalBodyString(body.itemImageLoadingAlt),
-            itemImageLoadingSrcSet: optionalBodyString(body.itemImageLoadingSrcSet),
-            selectedOptions: parseVersionSelection(body.selectedOptions),
-          productSummary:
-            body.productSummary === null || body.productSummary === undefined
-              ? null
-              : String(body.productSummary),
-          quantity: Number(body.quantity ?? 0),
-          ...fulfillment,
+          ...parseCartLineBody(body),
         },
         context,
       );
 
       return c.json({ id: result.lineId, version: result.version, status: "added" }, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/cart/bulk", async (c) => {
+    const access = requireCartAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing") } }, 401);
+    }
+
+    const body = await c.req.json<Record<string, unknown>>();
+    const rawLines: unknown[] = Array.isArray(body.lines) ? body.lines : [];
+
+    try {
+      const result = await services.addLines(
+        {
+          accountId: access.actor.accountId as never,
+          lines: rawLines
+            .filter((line: unknown): line is Record<string, unknown> => Boolean(line && typeof line === "object"))
+            .map(parseCartLineBody),
+        },
+        context,
+      );
+
+      return c.json({ status: "completed", ...result });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -286,38 +324,44 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
     const context = c.get("context") ?? createGuestCheckoutContext();
 
     const body = await c.req.json();
-    const fulfillment = parseFulfillmentMode(body);
 
     try {
       const result = await services.addLine(
         {
           accountId: ownerId as never,
-          catalogItemId: String(body.catalogItemId ?? ""),
-          productId: String(body.productId ?? ""),
-          itemTitle: String(body.itemTitle ?? ""),
-            itemSubtitle:
-              body.itemSubtitle === null || body.itemSubtitle === undefined
-                ? null
-                : String(body.itemSubtitle),
-            itemImageUrl:
-              body.itemImageUrl === null || body.itemImageUrl === undefined
-                ? null
-                : String(body.itemImageUrl),
-            itemImageLoadingUrl: optionalBodyString(body.itemImageLoadingUrl),
-            itemImageLoadingAlt: optionalBodyString(body.itemImageLoadingAlt),
-            itemImageLoadingSrcSet: optionalBodyString(body.itemImageLoadingSrcSet),
-            selectedOptions: parseVersionSelection(body.selectedOptions),
-          productSummary:
-            body.productSummary === null || body.productSummary === undefined
-              ? null
-              : String(body.productSummary),
-          quantity: Number(body.quantity ?? 0),
-          ...fulfillment,
+          ...parseCartLineBody(body),
         },
         context,
       );
 
       return c.json({ id: result.lineId, version: result.version, status: "added" }, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/cart/bulk", async (c) => {
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+    }
+
+    const context = c.get("context") ?? createGuestCheckoutContext();
+    const body = await c.req.json<Record<string, unknown>>();
+    const rawLines: unknown[] = Array.isArray(body.lines) ? body.lines : [];
+
+    try {
+      const result = await services.addLines(
+        {
+          accountId: ownerId as never,
+          lines: rawLines
+            .filter((line: unknown): line is Record<string, unknown> => Boolean(line && typeof line === "object"))
+            .map(parseCartLineBody),
+        },
+        context,
+      );
+
+      return c.json({ status: "completed", ...result });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

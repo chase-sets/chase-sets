@@ -313,4 +313,75 @@ describe("SearchPage", () => {
 
     expect(props.onLoadMore).toHaveBeenCalledTimes(1);
   });
+
+  it("previews adding the focused result set to cart", () => {
+    const onPreview = vi.fn();
+
+    renderSearchPage({
+      search: "base set",
+      committedSearch: "base set",
+      bulkAdd: {
+        status: "idle",
+        onPreview,
+        onCommit: vi.fn(),
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add matching to cart" }));
+
+    expect(onPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("summarizes eligible and skipped products before bulk adding", () => {
+    const onCommit = vi.fn();
+
+    renderSearchPage({
+      search: "base set",
+      committedSearch: "base set",
+      bulkAdd: {
+        status: "idle",
+        onPreview: vi.fn(),
+        onCommit,
+        data: {
+          status: "bulk-preview",
+          preview: {
+            totalMatches: 2,
+            eligibleCount: 1,
+            skippedCount: 1,
+            overLimit: false,
+            limit: 250,
+            lines: [{
+              catalog_item_id: "cat_bulbasaur",
+              slug: "bulbasaur-cat_bulbasaur",
+              title: "Bulbasaur",
+              subtitle: "Japanese Base Set",
+              image_url: null,
+              image_loading_url: null,
+              image_loading_alt: null,
+              image_loading_srcset: null,
+              product_id: "cat_bulbasaur::condition:raw",
+              selected_options: [{ dimensionId: "condition", optionId: "raw" }],
+              product_summary: "Condition: Raw",
+              quantity: 1,
+            }],
+            skippedItems: [{
+              catalog_item_id: "cat_charizard",
+              slug: "charizard-cat_charizard",
+              title: "Charizard",
+              reason: "product-options-required",
+              message: "Condition is required before this item can be added.",
+            }],
+          },
+        },
+      },
+    });
+
+    expect(screen.getByRole("dialog", { name: "Add matching products" })).toBeTruthy();
+    expect(screen.getByText("Ready")).toBeTruthy();
+    expect(screen.getByText("Need options")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add eligible products" }));
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
 });

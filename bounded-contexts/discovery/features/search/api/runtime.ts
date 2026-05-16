@@ -2,6 +2,8 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { DiscoveryRuntimeDeps } from "../../../support/runtime-support";
 import {
   searchDiscoveryItems,
+  previewBulkAddSearchResults,
+  type DiscoveryBulkCartPreview,
   type DiscoverySearchItemRow,
   type DiscoverySearchParams,
   type ListResult,
@@ -15,6 +17,9 @@ export type DiscoveryItemSearchServices = Readonly<{
   searchItems: (
     params?: DiscoverySearchParams,
   ) => Promise<ListResult<DiscoverySearchItemRow>>;
+  previewBulkAdd: (
+    params?: DiscoverySearchParams,
+  ) => Promise<DiscoveryBulkCartPreview>;
   rebuildSearchIndex: () => Promise<void>;
   projectors: readonly Projector[];
 }>;
@@ -24,6 +29,7 @@ export function createDiscoveryItemSearchRuntime(
 ): DiscoveryItemSearchServices {
   return {
     searchItems: (params = {}) => searchDiscoveryItems(deps.db, params),
+    previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),
     rebuildSearchIndex: () => rebuildDiscoverySearchIndex(deps.db),
     projectors: [
       createProjector({

@@ -36,6 +36,16 @@ function buildApp(options: Readonly<{
 function createServices(): CheckoutCartServices {
   return {
     addLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 1 })),
+    addLines: vi.fn(async () => ({
+      requestedLineCount: 2,
+      addedLineCount: 1,
+      mergedLineCount: 1,
+      failedLineCount: 0,
+      lines: [
+        { index: 0, lineId: "cli_1" as never, status: "added", message: null },
+        { index: 1, lineId: "cli_2" as never, status: "merged", message: null },
+      ],
+    })),
     setLineQuantity: vi.fn(async () => ({ lineId: "cli_1" as never, version: 2 })),
     setLineFulfillment: vi.fn(async () => ({ lineId: "cli_1" as never, version: 4 })),
     removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 3 })),
@@ -221,6 +231,73 @@ describe("checkout cart routes", () => {
         audit: expect.objectContaining({
           forAccountId: "acc_guest_checkout",
           performedByUserId: "usr_guest_checkout",
+        }),
+      }),
+    );
+  });
+
+  it("adds multiple browsed marketplace products to the current account cart", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: [
+            {
+              catalogItemId: "cat_charizard",
+              productId: "cat_charizard::form=raw",
+              itemTitle: "Charizard",
+              selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+              quantity: 1,
+            },
+            {
+              catalogItemId: "cat_blastoise",
+              productId: "cat_blastoise::form=raw",
+              itemTitle: "Blastoise",
+              selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+              quantity: 1,
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "completed",
+      requestedLineCount: 2,
+      addedLineCount: 1,
+      mergedLineCount: 1,
+      failedLineCount: 0,
+    });
+    expect(services.addLines).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        lines: expect.arrayContaining([
+          expect.objectContaining({
+            catalogItemId: "cat_charizard",
+            quantity: 1,
+          }),
+        ]),
+      }),
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_buyer",
+          performedByUserId: "usr_1",
         }),
       }),
     );
