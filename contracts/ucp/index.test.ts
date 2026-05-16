@@ -52,6 +52,28 @@ describe("UCP MCP tools", () => {
       UCP_MCP_TOOLS.filter((tool) => tool.idempotencyKeyRequired).map((tool) => tool.name),
     ).toEqual(["complete_checkout", "cancel_checkout"]);
   });
+
+  it("declares ChatGPT Apps-compatible schemas, auth, and annotations", () => {
+    const search = UCP_MCP_TOOLS.find((tool) => tool.name === "search_catalog");
+    const createCheckout = UCP_MCP_TOOLS.find((tool) => tool.name === "create_checkout");
+    const completeCheckout = UCP_MCP_TOOLS.find((tool) => tool.name === "complete_checkout");
+
+    expect(search).toMatchObject({
+      inputSchema: { type: "object" },
+      outputSchema: { type: "object" },
+      securitySchemes: [{ type: "noauth" }],
+      annotations: { readOnlyHint: true },
+    });
+    expect(createCheckout).toMatchObject({
+      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    });
+    expect(completeCheckout).toMatchObject({
+      trustedHandoffOnUnsignedMcp: true,
+      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      annotations: { destructiveHint: true, openWorldHint: true },
+    });
+  });
 });
 
 describe("UCP envelopes", () => {

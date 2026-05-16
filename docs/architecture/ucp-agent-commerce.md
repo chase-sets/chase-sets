@@ -13,6 +13,18 @@ UCP is a standards-facing protocol facade. It translates between external agent/
 
 Deployables mount these surfaces only. Protocol constants, envelopes, tool metadata, and profile construction live in `contracts/ucp`. Transport guardrails live in `infrastructure/platform-runtime/ucp`. Domain handlers stay in owning bounded contexts.
 
+## ChatGPT Apps Compatibility
+
+ChatGPT Apps are remote MCP clients. Chase Sets exposes the existing UCP MCP tool names directly to ChatGPT instead of adding a ChatGPT-specific commerce contract. Tool descriptors include JSON schemas, output schemas, OAuth/no-auth security schemes, read/write annotations, and invocation labels so ChatGPT can select the right marketplace operation while the underlying handler remains owned by Discovery, Checkout, Ordering, Payments, Auth, or Identity.
+
+The ChatGPT app uses mixed authentication:
+
+- `initialize` and `tools/list` can run without authentication.
+- Public catalog tools use no-auth and read Discovery-owned buyer-visible data.
+- Checkout and order tools use OAuth through the Auth-owned UCP authorization server and Identity-owned Linked Platform Authorization records.
+
+ChatGPT OAuth does not replace UCP request signatures. If ChatGPT calls signed checkout completion or cancellation tools without `UCP-Agent`, HTTP Message Signature, `Content-Digest`, and idempotency headers, the MCP runtime returns a trusted checkout handoff instead of invoking AP2/headless money movement. Signed UCP/AP2 agents keep the existing signed-write path and Payments-owned mandate verification.
+
 ## Ownership
 
 | UCP Concern | Chase Sets Owner |
