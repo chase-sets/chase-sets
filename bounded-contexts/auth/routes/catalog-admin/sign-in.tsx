@@ -16,7 +16,10 @@ export default function CatalogAdminSignInRoute() {
     <SignInPage
       errorMessage={actionData && "error" in actionData ? actionData.error : null}
       notice={actionData && "status" in actionData ? actionData : null}
+      signInMethods={catalogAdminAuthHostConfig.signInMethods}
+      allowManualMagicLinkTokenEntry={
+        catalogAdminAuthHostConfig.allowManualMagicLinkTokenEntry
+      }
     />
   );
 }
-

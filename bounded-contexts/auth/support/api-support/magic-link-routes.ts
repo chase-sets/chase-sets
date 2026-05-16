@@ -55,7 +55,7 @@ export function registerMagicLinkRoutes(
       context: getBootstrapContext(c),
     });
 
-    return c.json({ tokenId, token, expiresAt });
+    return c.json({ tokenId, expiresAt });
   });
 
   app.post("/magic-link/consume", async (c) => {

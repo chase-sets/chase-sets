@@ -10,10 +10,15 @@ import {
   Stack,
   Text,
   TextInput,
+  type SegmentedControlItem,
 } from "@chase-sets/design-system";
 import type { FormEvent } from "react";
 import { useRef, useState } from "react";
-import type { AuthActionNotice } from "../../../support/route-support/auth-host";
+import {
+  DEFAULT_SIGN_IN_METHODS,
+  type AuthActionNotice,
+  type SignInMethod,
+} from "../../../support/route-support/auth-host";
 import {
   getPasskeyCredential,
   type PasskeyCredentialPayload,
@@ -23,7 +28,7 @@ import {
   PasskeyHiddenFields,
 } from "../../../support/ui-support/auth-hidden-fields";
 
-type SignInMethod = "password" | "phone-code" | "magic-link" | "passkey";
+type SignInMethodItem = SegmentedControlItem & Readonly<{ value: SignInMethod }>;
 
 export function SignInPage(props: Readonly<{
   action?: string;
@@ -31,10 +36,23 @@ export function SignInPage(props: Readonly<{
   hiddenFields?: readonly { name: string; value: string }[];
   notice?: AuthActionNotice | null;
   returnTo?: string;
+  signInMethods?: readonly SignInMethod[];
+  allowManualMagicLinkTokenEntry?: boolean;
 }>) {
-  const [method, setMethod] = useState<SignInMethod>(
-    props.notice?.status === "phone-code-sent" ? "phone-code" : "password",
+  const signInMethods = props.signInMethods ?? DEFAULT_SIGN_IN_METHODS;
+  const methodItems = ([
+    { value: "password", label: t("auth.features.signIn.ui.signInPage.password"), icon: "lock" },
+    { value: "phone-code", label: t("auth.features.signIn.ui.signInPage.phone.code"), icon: "message" },
+    { value: "magic-link", label: t("auth.features.signIn.ui.signInPage.magic.link"), icon: "message" },
+    { value: "passkey", label: t("auth.features.signIn.ui.signInPage.passkey"), icon: "shield" },
+  ] satisfies SignInMethodItem[]).filter((item) =>
+    signInMethods.includes(item.value),
   );
+  const initialMethod =
+    props.notice?.status === "phone-code-sent" && signInMethods.includes("phone-code")
+      ? "phone-code"
+      : (methodItems[0]?.value ?? "password");
+  const [method, setMethod] = useState<SignInMethod>(initialMethod);
   const [passkeyPayload, setPasskeyPayload] =
     useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
@@ -91,17 +109,6 @@ export function SignInPage(props: Readonly<{
           }
           description={statusMessage}
           tone="success"
-          actions={
-            props.notice?.status === "magic-link-sent" ? (
-              <form action={props.action} method="post">
-                <HiddenFields fields={props.hiddenFields} />
-                <input type="hidden" name="intent" value="magic-link-consume" readOnly />
-                <input type="hidden" name="token" value={props.notice.token} readOnly />
-                <Button type="submit" tone="secondary" size="sm">
-                  {t("auth.features.signIn.ui.signInPage.continue")}</Button>
-              </form>
-            ) : null
-          }
         />
       ) : null}
 
@@ -126,19 +133,16 @@ export function SignInPage(props: Readonly<{
         </Stack>
       </Card>
 
-      <SegmentedControl
-        fullWidth
-        value={method}
-        onValueChange={(value) => setMethod(value as SignInMethod)}
-        items={[
-          { value: "password", label: t("auth.features.signIn.ui.signInPage.password"), icon: "lock" },
-          { value: "phone-code", label: t("auth.features.signIn.ui.signInPage.phone.code"), icon: "message" },
-          { value: "magic-link", label: t("auth.features.signIn.ui.signInPage.magic.link"), icon: "message" },
-          { value: "passkey", label: t("auth.features.signIn.ui.signInPage.passkey"), icon: "shield" },
-        ]}
-      />
+      {methodItems.length > 1 ? (
+        <SegmentedControl
+          fullWidth
+          value={method}
+          onValueChange={(value) => setMethod(value as SignInMethod)}
+          items={methodItems}
+        />
+      ) : null}
 
-      {method === "password" ? (
+      {method === "password" && signInMethods.includes("password") ? (
         <Card>
           <form action={props.action} method="post">
             <Stack gap={3}>
@@ -153,7 +157,7 @@ export function SignInPage(props: Readonly<{
         </Card>
       ) : null}
 
-      {method === "phone-code" ? (
+      {method === "phone-code" && signInMethods.includes("phone-code") ? (
         <Card>
           <Stack gap={4}>
             <form action={props.action} method="post">
@@ -204,7 +208,7 @@ export function SignInPage(props: Readonly<{
         </Card>
       ) : null}
 
-      {method === "magic-link" ? (
+      {method === "magic-link" && signInMethods.includes("magic-link") ? (
         <Card>
           <Stack gap={4}>
             <form action={props.action} method="post">
@@ -216,20 +220,22 @@ export function SignInPage(props: Readonly<{
                   {t("auth.features.signIn.ui.signInPage.send.magic.link")}</Button>
               </Stack>
             </form>
-            <form action={props.action} method="post">
-              <Stack gap={3}>
-                <HiddenFields fields={props.hiddenFields} />
-                <input type="hidden" name="intent" value="magic-link-consume" readOnly />
-                <TextInput label={t("auth.features.signIn.ui.signInPage.magic.link.token")} name="token" required />
-                <Button type="submit" tone="secondary">
-                  {t("auth.features.signIn.ui.signInPage.continue.with.token")}</Button>
-              </Stack>
-            </form>
+            {props.allowManualMagicLinkTokenEntry ? (
+              <form action={props.action} method="post">
+                <Stack gap={3}>
+                  <HiddenFields fields={props.hiddenFields} />
+                  <input type="hidden" name="intent" value="magic-link-consume" readOnly />
+                  <TextInput label={t("auth.features.signIn.ui.signInPage.magic.link.token")} name="token" required />
+                  <Button type="submit" tone="secondary">
+                    {t("auth.features.signIn.ui.signInPage.continue.with.token")}</Button>
+                </Stack>
+              </form>
+            ) : null}
           </Stack>
         </Card>
       ) : null}
 
-      {method === "passkey" ? (
+      {method === "passkey" && signInMethods.includes("passkey") ? (
         <Card>
           <form
             ref={passkeyFormRef}
