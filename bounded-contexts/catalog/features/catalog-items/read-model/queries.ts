@@ -33,6 +33,7 @@ export type CatalogItemDetailRow = Readonly<{
   external_product_references: unknown;
   tags: unknown;
   image_urls: unknown;
+  product_asset_sets: unknown;
   updated_at: string;
 }>;
 

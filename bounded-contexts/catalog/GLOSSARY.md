@@ -15,6 +15,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Component`
 - `Category`
 - `Source Observation`
+- `Product Asset Set`
 - `Reference Type`
 - `Reference Record`
 
@@ -38,6 +39,9 @@ The current implementation also uses four supporting authoring concepts:
 - `Component` — a reusable bundle of Field and Dimension rules used to compose Blueprints
 - `Category` — a consumer-facing grouping for browsing and merchandising that does not affect Product identity
 - `Source Observation` — a provider-sourced candidate record reviewed before it becomes Catalog truth
+- `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
+- `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
+- `Source Asset` — the highest-quality imported image retained for provenance and future variant regeneration
 - `Reference Type` — a reusable kind of rich descriptive value, such as Set, Series, or Product Line
 - `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Set
 
@@ -65,6 +69,8 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Component` contributes reusable Field and Dimension rules to Blueprints.
 - A `Category` organizes Catalog Items without changing Product identity.
 - A `Source Observation` may be promoted into a Catalog Item after review.
+- A `Product Asset Set` belongs to the Source Observation or Catalog Item it describes.
+- An `Asset Variant` belongs to exactly one Product Asset Set.
 - A `Reference Type` groups Reference Records by natural kind.
 - A `Reference Record` may be selected as a Field value on many Catalog Items.
 - A `Reference Record` may relate to other Reference Records.
@@ -164,6 +170,7 @@ Catalog defines:
 - the relationship between Dimensions, Options, and Products
 - the authoring relationship between Blueprints, Fields, Components, Categories, Reference Records, and Catalog Items
 - the review and promotion policy for provider Source Observations
+- the normalized product imagery contract published as Product Asset Sets
 
 Catalog does not define:
 

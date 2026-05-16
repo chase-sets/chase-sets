@@ -1,5 +1,6 @@
 import type { BlueprintRef } from "../../blueprints/ui/contracts";
 import type { CategoryRef } from "../../categories/ui/contracts";
+import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 
 export interface CatalogItemListItem {
   catalog_item_id: string;
@@ -41,6 +42,7 @@ export interface CatalogItemDetail {
   }>;
   tags: string[];
   image_urls: string[];
+  product_asset_sets: ProductAssetSet[];
   updated_at: string;
 }
 

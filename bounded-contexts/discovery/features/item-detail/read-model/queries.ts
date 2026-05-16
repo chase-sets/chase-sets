@@ -18,6 +18,7 @@ export type DiscoveryItemDetailRow = Readonly<{
   categories: unknown;
   tags: unknown;
   image_urls: unknown;
+  product_asset_sets: unknown;
   product_schema: unknown;
   market_summary: Readonly<{
     lowest_price_amount: string | null;
@@ -209,6 +210,7 @@ export async function getDiscoveryItemDetail(
     categories: normalizeCategoryRefs(item.categories),
     tags: normalizeStringArray(item.tags),
     image_urls: normalizeStringArray(item.image_urls),
+    product_asset_sets: asArray(item.product_asset_sets),
     market_summary: marketSummary,
     market_listings: listingsResult.rows.map((row) => ({
       ...row,

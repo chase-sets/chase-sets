@@ -377,6 +377,8 @@ export interface ListingCardProps {
   title: string;
   model?: ListingModel;
   imageSrc?: string;
+  imageSrcSet?: string;
+  imageSizes?: string;
   imageAlt?: string;
   showMediaPlaceholder?: boolean;
   price: ReactNode;
@@ -415,6 +417,8 @@ export function ListingCard({
   title,
   model = "product",
   imageSrc,
+  imageSrcSet,
+  imageSizes,
   imageAlt,
   showMediaPlaceholder = true,
   price,
@@ -486,6 +490,8 @@ export function ListingCard({
           {imageSrc ? (
             <img
               src={imageSrc}
+              srcSet={imageSrcSet}
+              sizes={imageSizes}
               alt={imageAlt ?? title}
               className="h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
             />

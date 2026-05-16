@@ -13,6 +13,7 @@ export const catalogCatalogItemSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_i
   category_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
   external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -63,7 +65,8 @@ ALTER TABLE catalog_items
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
-  ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb;
+  ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TABLE catalog_admin_catalog_item_list_pages
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
@@ -75,7 +78,8 @@ ALTER TABLE catalog_admin_catalog_item_detail_pages
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
-  ADD COLUMN IF NOT EXISTS external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_status_idx
   ON catalog_admin_catalog_item_list_pages (status);

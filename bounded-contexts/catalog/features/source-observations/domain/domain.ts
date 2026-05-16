@@ -4,6 +4,7 @@ import type {
   DomainEvent,
 } from "@chase-sets/event-core";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
+import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import { assert, assertNever } from "../../../support/runtime-support/common";
 
 export type SourceObservationStatus = "observed" | "promoted" | "rejected";
@@ -25,6 +26,7 @@ export type SourceObservationNormalized = JsonObject & Readonly<{
   category: string;
   imageBaseUrl: string | null;
   imageUrls: readonly string[];
+  productAssetSet: ProductAssetSet | null;
   variants: JsonObject;
 }>;
 

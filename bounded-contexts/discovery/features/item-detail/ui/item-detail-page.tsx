@@ -39,6 +39,10 @@ import type {
   DiscoveryAccountOfferMatch,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
+import {
+  buildDiscoveryProductAssetSrcSet,
+  selectDiscoveryProductAssetUrl,
+} from "../../../support/client-support/product-assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 import { ProductSelector } from "./product-selector";
 import {
@@ -103,6 +107,40 @@ function formatFieldValue(value: unknown): string {
   }
 
   return JSON.stringify(value);
+}
+
+function buildItemDetailImages(data: DiscoveryItemDetail) {
+  const detailSrc = selectDiscoveryProductAssetUrl(
+    data.product_asset_sets,
+    "catalog-detail",
+  );
+
+  if (detailSrc) {
+    const thumbnailSrc = selectDiscoveryProductAssetUrl(
+      data.product_asset_sets,
+      "thumbnail",
+    );
+
+    return [{
+      src: detailSrc,
+      srcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "catalog-detail"),
+      sizes: "(min-width: 768px) 384px, min(100vw, 352px)",
+      thumbnailSrc: thumbnailSrc ?? detailSrc,
+      thumbnailSrcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "thumbnail"),
+      alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
+        title: data.title,
+        index: 1,
+      }),
+    }];
+  }
+
+  return data.image_urls.map((url, index) => ({
+    src: url,
+    alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
+      title: data.title,
+      index: index + 1,
+    }),
+  }));
 }
 
 function formatUpdatedAt(value: string): string {
@@ -618,13 +656,7 @@ function LoadedItemDetailPage({
     hasInitialSelectedOptionFilters,
   ]);
 
-  const images = data.image_urls.map((url, index) => ({
-    src: url,
-    alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
-      title: data.title,
-      index: index + 1,
-    }),
-  }));
+  const images = buildItemDetailImages(data);
   const explicitSelectedOptions = data.product_schema
     ? summarizeSelections(data.product_schema, selections)
     : [];

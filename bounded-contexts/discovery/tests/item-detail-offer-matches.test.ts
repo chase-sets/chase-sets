@@ -96,6 +96,7 @@ describe("item detail offer matches", () => {
                 categories: [],
                 tags: [],
                 image_urls: [],
+                product_asset_sets: [],
                 product_schema: null,
                 updated_at: "2026-04-28T00:00:00.000Z",
               },

@@ -368,6 +368,16 @@ async function createCatalogDraftFromObservation(input: {
     },
     context: input.context,
   });
+  if (input.normalized.productAssetSet) {
+    await input.items.commandHandler({
+      streamId,
+      command: {
+        type: "SetCatalogItemProductAssetSets",
+        productAssetSets: [input.normalized.productAssetSet],
+      },
+      context: input.context,
+    });
+  }
   await input.items.commandHandler({
     streamId,
     command: {

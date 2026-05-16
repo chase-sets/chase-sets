@@ -33,6 +33,10 @@ import type {
   DiscoverySearchResponse,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
+import {
+  buildDiscoveryProductAssetSrcSet,
+  selectDiscoveryProductAssetUrl,
+} from "../../../support/client-support/product-assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
 const PAGE_SIZE = 24;
@@ -607,13 +611,23 @@ export function SearchPage({
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
                 const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
+                const imageSrc =
+                  selectDiscoveryProductAssetUrl(item.product_asset_sets, "search-card") ??
+                  item.image_urls[0] ??
+                  discoveryAssetUrls.defaultProductImage;
+                const imageSrcSet = buildDiscoveryProductAssetSrcSet(
+                  item.product_asset_sets,
+                  "search-card",
+                );
 
                 return (
                   <ListingCard
                     key={item.catalog_item_id}
                     href={itemDetailHref}
                     title={item.title}
-                    imageSrc={item.image_urls[0] ?? discoveryAssetUrls.defaultProductImage}
+                    imageSrc={imageSrc}
+                    imageSrcSet={imageSrcSet}
+                    imageSizes="(min-width: 1536px) 160px, (min-width: 640px) 160px, 100vw"
                     imageAlt={item.title}
                     price={formatPrice(item)}
                     priceDetail={formatListingMeta(item)}

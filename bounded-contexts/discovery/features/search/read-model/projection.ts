@@ -45,6 +45,7 @@ type SearchCatalogItemRow = Readonly<{
   category_ids: unknown;
   tags: unknown;
   image_urls: unknown;
+  product_asset_sets: unknown;
   updated_at: string;
 }>;
 
@@ -188,6 +189,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
   const categoryIds = uniqueStrings(rawCategoryIds);
   const tags = asStringArray(item.tags);
   const imageUrls = asStringArray(item.image_urls);
+  const productAssetSets = asArray(item.product_asset_sets);
   const fieldValues = asArray<FieldValue>(item.field_values);
   const filterableFields = await loadFilterableFieldDefinitions(
     db,
@@ -282,10 +284,11 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       field_filter_values,
       dimension_filter_values,
       image_urls,
+      product_asset_sets,
       search_text,
       search_text_simple,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, to_tsvector('english', $20), to_tsvector('simple', $21), $22)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, to_tsvector('english', $21), to_tsvector('simple', $22), $23)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -305,6 +308,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       field_filter_values = EXCLUDED.field_filter_values,
       dimension_filter_values = EXCLUDED.dimension_filter_values,
       image_urls = EXCLUDED.image_urls,
+      product_asset_sets = EXCLUDED.product_asset_sets,
       search_text = EXCLUDED.search_text,
       search_text_simple = EXCLUDED.search_text_simple,
       updated_at = EXCLUDED.updated_at`,
@@ -328,6 +332,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       JSON.stringify(fieldFilterValues),
       JSON.stringify(dimensionFilterValues),
       JSON.stringify(imageUrls),
+      JSON.stringify(productAssetSets),
       searchText,
       normalizeSimpleSearchText(searchText),
       item.updated_at,
@@ -648,6 +653,24 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
              updated_at = $3
          WHERE catalog_item_id = $1`,
         [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
+      );
+
+      await refreshDiscoverySearchItem(db, itemId);
+    },
+    "catalog.catalog-item.product-asset-sets-set": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+      const { productAssetSets } = event.data as { productAssetSets: unknown };
+
+      await db.query(
+        `UPDATE discovery_search_catalog_items
+         SET product_asset_sets = $2,
+             updated_at = $3
+         WHERE catalog_item_id = $1`,
+        [
+          itemId,
+          JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
+          event.timing.recordedAt,
+        ],
       );
 
       await refreshDiscoverySearchItem(db, itemId);
