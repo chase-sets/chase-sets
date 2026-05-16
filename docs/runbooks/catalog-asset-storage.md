@@ -29,11 +29,21 @@ CATALOG_ASSET_PUBLIC_BASE_URL=http://localhost:6192/catalog-assets
 
 ## Shared Environments
 
-Shared environments should use DigitalOcean Spaces through the S3-compatible adapter:
+Preview, staging, and production use separate DigitalOcean Spaces buckets with Standard Storage and CDN-backed custom domains:
+
+| Environment | Bucket | Public base URL |
+| --- | --- | --- |
+| `preview` | `chase-sets-preview-catalog-assets` | `https://assets.preview.chasesets.com` |
+| `staging` | `chase-sets-staging-catalog-assets` | `https://assets.staging.chasesets.com` |
+| `production` | `chase-sets-production-catalog-assets` | `https://assets.chasesets.com` |
+
+PR previews share the preview bucket and CDN domain. The PR-specific platform Terraform states consume that shared asset storage and must not own it directly.
+
+Shared environments use DigitalOcean Spaces through the S3-compatible adapter:
 
 ```bash
 CATALOG_ASSET_STORAGE_KIND=s3
-CATALOG_ASSET_S3_BUCKET=chase-sets-catalog-assets
+CATALOG_ASSET_S3_BUCKET=chase-sets-production-catalog-assets
 CATALOG_ASSET_S3_REGION=nyc3
 CATALOG_ASSET_S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
 CATALOG_ASSET_PUBLIC_BASE_URL=https://assets.chasesets.com
@@ -41,7 +51,7 @@ CATALOG_ASSET_S3_ACCESS_KEY_ID=...
 CATALOG_ASSET_S3_SECRET_ACCESS_KEY=...
 ```
 
-Production rejects filesystem-backed Catalog asset storage. Keep bucket permissions, CDN policy, and lifecycle rules outside Catalog; Catalog owns only the provider import decision and the public URL it stores.
+Production rejects filesystem-backed Catalog asset storage. The `infrastructure/digitalocean/catalog-assets` Terraform root owns bucket permissions, CDN policy, managed certificates, and CDN custom domains. DigitalOcean creates the matching DNS records when the CDN domains are attached. Catalog owns only the provider import decision and the public URL it stores.
 
 ## Object Keys
 
@@ -65,3 +75,4 @@ The source hash keeps replay/idempotency stable while allowing a future provider
 - If TCGdex provides an image but download, processing, or storage fails, the observation fails and should be retried.
 - Re-imports of the same source image use the same deterministic object keys.
 - Discovery and downstream contexts should continue using the previously projected Product Asset Set until a new Catalog asset event projects successfully.
+- Preview assets expire after 90 days through the preview bucket lifecycle rule. Staging and production assets do not expire automatically.

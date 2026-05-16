@@ -38,7 +38,18 @@ locals {
   database_pool_idle_timeout_ms       = "5000"
   database_pool_connection_timeout_ms = "10000"
   catalog_asset_s3_endpoint           = "https://${var.region}.digitaloceanspaces.com"
-  catalog_asset_public_base_url       = trimspace(var.catalog_asset_public_base_url) != "" ? var.catalog_asset_public_base_url : "https://${var.catalog_asset_s3_bucket}.${var.region}.digitaloceanspaces.com"
+  catalog_asset_s3_buckets = {
+    preview    = "chase-sets-preview-catalog-assets"
+    staging    = "chase-sets-staging-catalog-assets"
+    production = "chase-sets-production-catalog-assets"
+  }
+  catalog_asset_public_base_urls = {
+    preview    = "https://assets.preview.${var.root_domain}"
+    staging    = "https://assets.staging.${var.root_domain}"
+    production = "https://assets.${var.root_domain}"
+  }
+  catalog_asset_s3_bucket       = local.catalog_asset_s3_buckets[var.environment]
+  catalog_asset_public_base_url = local.catalog_asset_public_base_urls[var.environment]
 
   landing_context_names = [
     "auth",
