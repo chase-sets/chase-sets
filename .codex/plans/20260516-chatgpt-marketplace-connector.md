@@ -10,6 +10,7 @@ The connector must let users interact with Chase Sets marketplace capabilities t
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets-20260516-ucp-chatgpt-connector`
 - Branch: `codex/ucp-chatgpt-connector`
+- PR: https://github.com/todd-skelton/chase-sets/pull/138
 - Base: `main` at `612d59b6 Harden UCP agentic payment path`
 - Sandbox id: `111a7017`
 - Dependency setup: complete via `pnpm run deps:install`
@@ -61,7 +62,7 @@ Do not create a new `chatgpt`, `connector`, `ai-commerce`, or `ucp` bounded cont
 - [x] Add focused contract/runtime tests for ChatGPT-compatible tool listing and tool calls.
 - [x] Update UCP connector docs/runbook with ChatGPT Apps setup and local/staging smoke steps.
 - [x] Run static checks and focused tests.
-- [ ] Create PR and follow CI/deploy verification through merge according to goal criteria.
+- [x] Create PR and follow CI/deploy verification through merge according to goal criteria.
 
 ## Verification
 
@@ -73,6 +74,12 @@ Do not create a new `chatgpt`, `connector`, `ai-commerce`, or `ucp` bounded cont
 - `pnpm run check:structure`: passed.
 - `pnpm run check:no-any`: passed.
 - `pnpm run verify:typecheck`: passed.
+- PR #138 run `25972804686`: required jobs passed; preview job skipped before label was present.
+- PR #138 run `25972907303`: required jobs passed with preview label present, including Deploy Preview and Smoke.
+- Preview direct smoke `https://pr-138.preview.chasesets.com/.well-known/ucp`: passed.
+- Preview direct smoke `https://pr-138.preview.chasesets.com/.well-known/oauth-authorization-server`: passed.
+- Preview direct smoke `POST https://pr-138.preview.chasesets.com/ucp/mcp` with `tools/list`: passed and returned ChatGPT-compatible schemas, security schemes, annotations, and `_meta`.
+- Preview direct smoke `POST https://pr-138.preview.chasesets.com/ucp/mcp` with `search_catalog`: passed and returned `structuredContent` products for `charizard`.
 
 ## Documentation To Promote
 
