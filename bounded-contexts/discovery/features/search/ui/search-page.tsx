@@ -1,11 +1,10 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AppliedFilterChips,
   Button,
   SearchInput,
   Select,
-  Pagination,
   LoadingSpinner,
   Banner,
   Stack,
@@ -39,7 +38,7 @@ import {
 } from "../../../support/client-support/product-assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
-const PAGE_SIZE = 24;
+const AUTO_LOAD_ROOT_MARGIN = "900px";
 
 const sortOptions = [
   { label: t("discovery.features.search.ui.searchPage.relevance"), value: "relevance" },
@@ -177,11 +176,12 @@ export interface SearchPageProps {
   category: string;
   language: string;
   sort: string;
-  page: number;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
   data: DiscoverySearchResponse | null;
   categories: DiscoveryCategoryItem[];
   loading?: boolean;
+  loadingMore?: boolean;
+  loadMoreError?: string | null;
   error?: string | null;
   restoreSearchFocus?: boolean;
   onSearchChange: (value: string) => void;
@@ -190,7 +190,7 @@ export interface SearchPageProps {
   onSortChange: (value: string) => void;
   onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void;
   onDynamicFilterClear: (value: Omit<DynamicSearchFilterSelection, "value">) => void;
-  onPageChange: (page: number) => void;
+  onLoadMore?: () => void;
 }
 
 function selectedFacetValues(facet: DiscoveryFacetGroup) {
@@ -219,11 +219,12 @@ export function SearchPage({
   category,
   language,
   sort,
-  page,
   dynamicFilters,
   data,
   categories,
   loading = false,
+  loadingMore = false,
+  loadMoreError = null,
   error = null,
   restoreSearchFocus = false,
   onSearchChange,
@@ -232,11 +233,11 @@ export function SearchPage({
   onSortChange,
   onDynamicFilterChange,
   onDynamicFilterClear,
-  onPageChange,
+  onLoadMore,
 }: SearchPageProps) {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const exactTotal = data?.total ?? data?.items.length ?? 0;
-  const totalPages = data?.total ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const featuredCategories = categories.slice(0, 5);
   const liveListingItems =
     data?.items.filter((item) => item.market_summary?.active_listing_count).length ?? 0;
@@ -255,7 +256,8 @@ export function SearchPage({
     category: activeCategoryLabel,
   });
   const hasFocusedResults =
-    committedSearch.trim().length > 0 || Boolean(category) || Boolean(language) || activeDynamicFilterCount > 0 || sort !== "relevance" || page > 1;
+    committedSearch.trim().length > 0 || Boolean(category) || Boolean(language) || activeDynamicFilterCount > 0 || sort !== "relevance";
+  const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
   const dynamicAppliedFilters = buildDynamicAppliedFilters(
     data?.facets ?? [],
     dynamicFilters,
@@ -352,6 +354,26 @@ export function SearchPage({
       ) : null}
     </Stack>
   );
+
+  useEffect(() => {
+    if (!canLoadMore || loadingMore || loadMoreError || !onLoadMore) {
+      return undefined;
+    }
+
+    const target = loadMoreRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        onLoadMore();
+      }
+    }, { rootMargin: AUTO_LOAD_ROOT_MARGIN });
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [canLoadMore, loadingMore, loadMoreError, onLoadMore]);
 
   return (
     <SearchResultsLayout
@@ -676,14 +698,36 @@ export function SearchPage({
                 }
               />
             ) : null}
-            {totalPages > 1 ? (
-              <Inline align="center">
-                <Pagination
-                  page={page}
-                  totalPages={totalPages}
-                  onPageChange={onPageChange}
-                />
-              </Inline>
+            {canLoadMore || loadingMore || loadMoreError ? (
+              <Stack gap={3}>
+                <div ref={loadMoreRef} aria-hidden="true" />
+                {loadMoreError ? (
+                  <Banner
+                    tone="danger"
+                    title={t("discovery.features.search.ui.searchPage.load.more.error.title")}
+                    description={loadMoreError}
+                  />
+                ) : null}
+                {loadingMore ? (
+                  <Inline align="center">
+                    <LoadingSpinner label={t("discovery.features.search.ui.searchPage.loading.more.results")} />
+                  </Inline>
+                ) : null}
+                {canLoadMore ? (
+                  <Inline align="center">
+                    <Button
+                      type="button"
+                      tone={loadMoreError ? "secondary" : "ghost"}
+                      disabled={loadingMore}
+                      onClick={onLoadMore}
+                    >
+                      {loadMoreError
+                        ? t("discovery.features.search.ui.searchPage.retry.loading.results")
+                        : t("discovery.features.search.ui.searchPage.load.more.results")}
+                    </Button>
+                  </Inline>
+                ) : null}
+              </Stack>
             ) : null}
           </>
         ) : null}
