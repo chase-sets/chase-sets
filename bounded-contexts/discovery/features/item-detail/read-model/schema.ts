@@ -59,6 +59,20 @@ CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_fields (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_reference_records (
+  reference_record_id text PRIMARY KEY,
+  type_key text NOT NULL,
+  key text NOT NULL,
+  name text NOT NULL,
+  attributes jsonb NOT NULL DEFAULT '{}'::jsonb,
+  relationships jsonb NOT NULL DEFAULT '[]'::jsonb,
+  status text NOT NULL DEFAULT 'draft',
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS discovery_item_detail_catalog_reference_records_type_key_idx
+  ON discovery_item_detail_catalog_reference_records (type_key);
+
 CREATE TABLE IF NOT EXISTS discovery_item_detail_catalog_dimensions (
   dimension_id text PRIMARY KEY,
   name text NOT NULL,

@@ -13,6 +13,7 @@ export type {
 export type { Component, ComponentDetail } from "../../features/components/ui/contracts";
 export type { Dimension, DimensionDetail } from "../../features/dimensions/ui/contracts";
 export type { Field } from "../../features/fields/ui/contracts";
+export type { ReferenceRecord, ReferenceType } from "../../features/reference-data/ui/contracts";
 export type {
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,

@@ -55,13 +55,7 @@ export interface CatalogReferenceRecordRef {
   relationships: Array<{
     relationshipType: string;
     referenceId: string;
-    reference?: {
-      referenceId: string;
-      typeKey: string;
-      key: string;
-      name: string;
-      status: string;
-    };
+    reference?: CatalogReferenceRecordRef;
   }>;
   status: string;
 }

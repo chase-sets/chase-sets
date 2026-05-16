@@ -396,6 +396,194 @@ describeWithDatabase("marketplace search", () => {
     ]);
   });
 
+  it("indexes hierarchical reference data for search, facets, and item detail", async () => {
+    const expansionFieldId = "fld_expansion";
+    const blueprintId = "bpr_reference_card";
+    const itemId = "cat_azumarill_ex";
+    const manufacturerReferenceId = "ref_pokemon_company";
+    const tcgReferenceId = "ref_pokemon_tcg";
+    const seriesReferenceId = "ref_mega_evolution";
+    const expansionReferenceId = "ref_ascended_heroes";
+
+    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${manufacturerReferenceId}`, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: manufacturerReferenceId as never,
+      typeKey: "manufacturer",
+      key: "pokemon-company",
+      name: l10n("The Pokemon Company"),
+      attributes: {},
+      relationships: [],
+    });
+    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${tcgReferenceId}`, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: tcgReferenceId as never,
+      typeKey: "tcg",
+      key: "pokemon-tcg",
+      name: l10n("Pokemon TCG"),
+      attributes: {},
+      relationships: [{ relationshipType: "manufacturer", referenceId: manufacturerReferenceId as never }],
+    });
+    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${seriesReferenceId}`, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: seriesReferenceId as never,
+      typeKey: "series",
+      key: "mega-evolution",
+      name: l10n("Mega Evolution"),
+      attributes: {},
+      relationships: [{ relationshipType: "part-of-tcg", referenceId: tcgReferenceId as never }],
+    });
+    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${expansionReferenceId}`, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: expansionReferenceId as never,
+      typeKey: "expansion",
+      key: "ascended-heroes",
+      name: l10n("Ascended Heroes"),
+      attributes: {
+        "card-count": 217,
+        "release-date": "2026-01-30",
+        abbr: "ASC",
+        "source-id": "me02.5",
+      },
+      relationships: [{ relationshipType: "part-of-series", referenceId: seriesReferenceId as never }],
+    });
+
+    await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${expansionFieldId}`, {
+      type: "CreateField",
+      fieldId: expansionFieldId as never,
+      key: "expansion",
+      name: l10n("Expansion"),
+      description: l10n("Card expansion"),
+      valueType: "reference",
+      behavior: { filterable: true, searchable: true, sortable: false },
+    });
+    await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${expansionFieldId}`, { type: "ActivateField" });
+
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId: blueprintId as never,
+      key: "reference-card",
+      name: l10n("Reference Card"),
+      description: l10n("Reference-enriched card"),
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "SetBlueprintFields",
+      fieldRules: [{ fieldId: expansionFieldId as never, required: true }],
+    });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "CreateCatalogItem",
+      itemId: itemId as never,
+      title: l10n("Azumarill ex"),
+      subtitle: l10n("084"),
+      description: l10n("Azumarill ex card"),
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId: blueprintId as never,
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "SetCatalogItemFieldValue",
+      fieldId: expansionFieldId as never,
+      value: { referenceId: expansionReferenceId },
+    });
+    await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "PublishCatalogItem",
+      blueprintIsActive: true,
+      requiredFieldIds: [expansionFieldId as never],
+    });
+
+    await drainContextProcesses({
+      projectors: discoveryServices.projectors,
+      subscriptionRunners,
+    });
+
+    const seriesSearchResponse = await app.request("/api/marketplace/items?search=mega%20evolution&includeTotal=true");
+    expect(seriesSearchResponse.status).toBe(200);
+    const seriesSearchBody = await seriesSearchResponse.json();
+    expect(seriesSearchBody.total).toBe(1);
+    expect(seriesSearchBody.items[0].catalog_item_id).toBe(itemId);
+
+    const tcgSearchResponse = await app.request("/api/marketplace/items?search=pokemon%20tcg&includeTotal=true");
+    expect(tcgSearchResponse.status).toBe(200);
+    const tcgSearchBody = await tcgSearchResponse.json();
+    expect(tcgSearchBody.total).toBe(1);
+    expect(tcgSearchBody.items[0].catalog_item_id).toBe(itemId);
+
+    const expansionFilterResponse = await app.request(`/api/marketplace/items?field.${expansionFieldId}=${expansionReferenceId}&includeTotal=true`);
+    expect(expansionFilterResponse.status).toBe(200);
+    const expansionFilterBody = await expansionFilterResponse.json();
+    expect(expansionFilterBody.total).toBe(1);
+    expect(
+      expansionFilterBody.facets
+        .find((facet: { id: string }) => facet.id === expansionFieldId)
+        .values.find((value: { id: string }) => value.id === expansionReferenceId)
+        .label,
+    ).toBe("Ascended Heroes");
+
+    const seriesFilterResponse = await app.request(`/api/marketplace/items?field.${expansionFieldId}:series=${seriesReferenceId}&includeTotal=true`);
+    expect(seriesFilterResponse.status).toBe(200);
+    const seriesFilterBody = await seriesFilterResponse.json();
+    expect(seriesFilterBody.total).toBe(1);
+    expect(seriesFilterBody.items[0].catalog_item_id).toBe(itemId);
+
+    const detailResponse = await app.request(`/api/marketplace/items/${itemId}`);
+    expect(detailResponse.status).toBe(200);
+    const detailBody = await detailResponse.json();
+    expect(detailBody.field_values[0].reference).toMatchObject({
+      referenceId: expansionReferenceId,
+      name: "Ascended Heroes",
+      attributes: { "card-count": 217, abbr: "ASC" },
+      relationships: [
+        {
+          relationshipType: "part-of-series",
+          reference: {
+            referenceId: seriesReferenceId,
+            name: "Mega Evolution",
+            relationships: [
+              {
+                relationshipType: "part-of-tcg",
+                reference: {
+                  referenceId: tcgReferenceId,
+                  name: "Pokemon TCG",
+                  relationships: [
+                    {
+                      relationshipType: "manufacturer",
+                      reference: {
+                        referenceId: manufacturerReferenceId,
+                        name: "The Pokemon Company",
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${tcgReferenceId}`, {
+      type: "ReviseReferenceRecord",
+      typeKey: "tcg",
+      key: "pokemon-tcg",
+      name: l10n("Pokemon Trading Card Game"),
+      attributes: {},
+      relationships: [{ relationshipType: "manufacturer", referenceId: manufacturerReferenceId as never }],
+    });
+
+    await drainContextProcesses({
+      projectors: discoveryServices.projectors,
+      subscriptionRunners,
+    });
+
+    const updatedSearchResponse = await app.request("/api/marketplace/items?search=trading%20card%20game&includeTotal=true");
+    expect(updatedSearchResponse.status).toBe(200);
+    const updatedSearchBody = await updatedSearchResponse.json();
+    expect(updatedSearchBody.total).toBe(1);
+    expect(updatedSearchBody.items[0].catalog_item_id).toBe(itemId);
+  });
+
   it("projects conditional product resolution rules and sealed products into item detail payloads", async () => {
     const ids = {
       categoryId: "cat_pokemon",

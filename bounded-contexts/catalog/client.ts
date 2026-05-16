@@ -19,6 +19,8 @@ export type {
   Dimension,
   DimensionDetail,
   Field,
+  ReferenceRecord,
+  ReferenceType,
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,
   SourceObservationPromotionPreview,

@@ -423,6 +423,108 @@ export function createCatalogApiClient({
       return parseJsonResponse<T>(response);
     },
 
+    async listReferenceTypes<T>(query: string): Promise<T> {
+      const response = await client["reference-types"].$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async getReferenceType<T>(id: string): Promise<T> {
+      const response = await client["reference-types"][":id"].$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async createReferenceType<T>(body: unknown): Promise<T> {
+      const response = await client["reference-types"].$post({
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async reviseReferenceType<T>(id: string, body: unknown): Promise<T> {
+      const response = await client["reference-types"][":id"].$put({
+        param: { id },
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async publishReferenceType<T>(id: string): Promise<T> {
+      const response = await client["reference-types"][":id"].publish.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async deprecateReferenceType<T>(id: string): Promise<T> {
+      const response = await client["reference-types"][":id"].deprecate.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async archiveReferenceType<T>(id: string): Promise<T> {
+      const response = await client["reference-types"][":id"].archive.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+
+    async listReferenceRecords<T>(query: string): Promise<T> {
+      const response = await client["reference-records"].$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async getReferenceRecord<T>(id: string): Promise<T> {
+      const response = await client["reference-records"][":id"].$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async createReferenceRecord<T>(body: unknown): Promise<T> {
+      const response = await client["reference-records"].$post({
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async reviseReferenceRecord<T>(id: string, body: unknown): Promise<T> {
+      const response = await client["reference-records"][":id"].$put({
+        param: { id },
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async publishReferenceRecord<T>(id: string): Promise<T> {
+      const response = await client["reference-records"][":id"].publish.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async deprecateReferenceRecord<T>(id: string): Promise<T> {
+      const response = await client["reference-records"][":id"].deprecate.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async archiveReferenceRecord<T>(id: string): Promise<T> {
+      const response = await client["reference-records"][":id"].archive.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+
     async listCatalogItems<T>(query: string): Promise<T> {
       const response = await client.items.$get({
         query: queryFromString(query),

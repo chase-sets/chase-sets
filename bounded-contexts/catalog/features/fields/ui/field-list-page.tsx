@@ -35,6 +35,7 @@ const valueTypeOptions = [
   { value: "date", label: t("catalog.features.fields.ui.fieldListPage.date") },
   { value: "json", label: t("catalog.features.fields.ui.fieldListPage.json") },
   { value: "localized_text", label: t("catalog.features.fields.ui.fieldListPage.localized.text") },
+  { value: "reference", label: t("catalog.features.fields.ui.fieldListPage.reference") },
 ];
 
 const statusOptions = [
@@ -122,6 +123,5 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
     </>
   );
 }
-
 
 

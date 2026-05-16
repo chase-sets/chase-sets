@@ -154,6 +154,34 @@
           "sourceContext": "catalog"
         },
         {
+          "routeId": "reference-types",
+          "routePath": "reference-types",
+          "fileExport": "./routes/admin/reference-types",
+          "routeType": "route",
+          "sourceContext": "catalog"
+        },
+        {
+          "routeId": "reference-types-detail",
+          "routePath": "reference-types/:id",
+          "fileExport": "./routes/admin/reference-types-detail",
+          "routeType": "route",
+          "sourceContext": "catalog"
+        },
+        {
+          "routeId": "reference-records",
+          "routePath": "reference-records",
+          "fileExport": "./routes/admin/reference-records",
+          "routeType": "route",
+          "sourceContext": "catalog"
+        },
+        {
+          "routeId": "reference-records-detail",
+          "routePath": "reference-records/:id",
+          "fileExport": "./routes/admin/reference-records-detail",
+          "routeType": "route",
+          "sourceContext": "catalog"
+        },
+        {
           "routeId": "source-observations",
           "routePath": "source-observations",
           "fileExport": "./routes/admin/source-observations",
@@ -240,11 +268,22 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
+      "key": "reference-records",
+      "label": "Reference Data",
+      "icon": "book",
+      "href": "/reference-records",
+      "order": 65,
+      "visibility": "signed-in",
+      "requiredPermissions": []
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
       "key": "source-observations",
       "label": "Source Observations",
       "icon": "search",
       "href": "/source-observations",
-      "order": 70,
+      "order": 80,
       "visibility": "signed-in",
       "requiredPermissions": []
     }
@@ -410,6 +449,7 @@
         "components",
         "dimensions",
         "fields",
+        "reference-data",
         "source-observations"
       ],
       "justification": "shell-support centralizes context-local composition that should not duplicate across features.",

@@ -8,6 +8,8 @@ Category remains the primary browse facet.
 
 Field facets are eligible only when the Catalog Field is marked `filterable`. Discovery may denormalize the field name, value type, and item values into its search read model, but Catalog remains the owner of what the Field means.
 
+Reference Field facets use stable `reference_record_id` values and human-readable Reference Record names. When a Reference Record has relationships, Discovery may expose additional derived Field facets for related Reference Record types, such as filtering an Expansion field by its related Series. These derived facets are projection-only browse affordances; Catalog remains the source of the Reference Record hierarchy.
+
 Dimension facets are eligible when a Dimension appears in a Catalog Item's active Blueprint product schema. Discovery filters by stable `dimension_id` and `option_id` values and uses denormalized labels only for presentation.
 
 ## Priority
@@ -36,6 +38,8 @@ Facet counts are result-aware. Counts should be computed from the active Discove
 Dynamic filter URLs use stable Catalog identifiers:
 
 - Field filters: `field.<field_id>=<normalized-value>`
+- Reference Field filters: `field.<field_id>=<reference_record_id>`
+- Related Reference Field filters: `field.<field_id>:<reference_type_key>=<reference_record_id>`
 - Dimension filters: `dimension.<dimension_id>=<option_id>`
 
 Multiple values for the same Field or Dimension use repeated query parameters. Discovery treats multiple values within one facet group as an OR filter and different facet groups as AND filters.

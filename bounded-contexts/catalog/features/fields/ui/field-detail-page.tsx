@@ -48,6 +48,7 @@ const valueTypeOptions = [
   { value: "date", label: t("catalog.features.fields.ui.fieldDetailPage.date") },
   { value: "json", label: t("catalog.features.fields.ui.fieldDetailPage.json") },
   { value: "localized_text", label: t("catalog.features.fields.ui.fieldDetailPage.localized.text") },
+  { value: "reference", label: t("catalog.features.fields.ui.fieldDetailPage.reference") },
 ];
 
 export function FieldDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useField>[1] }) {
@@ -164,5 +165,4 @@ export function FieldDetailPage({ id, initialData }: { id: string; initialData?:
     </>
   );
 }
-
 
