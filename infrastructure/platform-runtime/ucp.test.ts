@@ -79,6 +79,24 @@ describe("UCP profile routes", () => {
       },
     });
   });
+
+  it("keeps http endpoints for local development hosts", async () => {
+    const app = new Hono().route("/.well-known", createUcpProfileRoutes());
+
+    const response = await app.request("http://localhost:7712/.well-known/ucp");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ucp: {
+        services: {
+          "dev.ucp.shopping": [
+            { transport: "rest", endpoint: "http://localhost:7712/ucp/v1" },
+            { transport: "mcp", endpoint: "http://localhost:7712/ucp/mcp" },
+          ],
+        },
+      },
+    });
+  });
 });
 
 describe("UCP REST routes", () => {
