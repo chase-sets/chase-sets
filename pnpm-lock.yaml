@@ -210,6 +210,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/ucp':
+        specifier: workspace:*
+        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -308,6 +311,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/ucp':
+        specifier: workspace:*
+        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -1107,6 +1113,12 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  contracts/ucp:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
   deployables/admin-support-api:
     dependencies:
       '@chase-sets/auth':
@@ -1528,6 +1540,9 @@ importers:
       '@chase-sets/support':
         specifier: workspace:*
         version: link:../../bounded-contexts/support
+      '@chase-sets/ucp':
+        specifier: workspace:*
+        version: link:../../contracts/ucp
       '@hono/node-server':
         specifier: ^1.19.13
         version: 1.19.14(hono@4.12.18)
@@ -1886,6 +1901,9 @@ importers:
       '@chase-sets/realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime
+      '@chase-sets/ucp':
+        specifier: workspace:*
+        version: link:../../contracts/ucp
       '@react-router/dev':
         specifier: ^7.14.0
         version: 7.15.0(@react-router/serve@7.14.0(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(typescript@5.9.3))(@types/node@25.6.2)(jiti@2.7.0)(lightningcss@1.32.0)(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(tsx@4.21.0)(typescript@5.9.3)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))(yaml@2.8.4)

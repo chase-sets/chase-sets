@@ -1,0 +1,109 @@
+import { describe, expect, it, vi } from "vitest";
+import { createDiscoveryUcpHandlers } from "../support/ucp-support/catalog";
+import type { DiscoveryItemsServices } from "../support/item-support/runtime";
+
+function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryItemsServices {
+  return {
+    market: {} as DiscoveryItemsServices["market"],
+    search: {
+      searchItems: vi.fn(async () => ({
+        items: [
+          {
+            catalog_item_id: "cat_1",
+            slug: "charizard-cat_1",
+            language_code: "en",
+            title_i18n: {},
+            title: "Charizard",
+            subtitle_i18n: {},
+            subtitle: "Base Set",
+            description_i18n: {},
+            description: "A fiery card.",
+            blueprint_id: "blueprint_card",
+            blueprint_name: "Card",
+            status: "active",
+            category_names: ["Pokemon"],
+            category_slugs: ["pokemon"],
+            tags: ["fire"],
+            image_urls: ["https://images.example/charizard.jpg"],
+            market_summary: {
+              lowest_price_amount: "12.34",
+              active_listing_count: 2,
+              total_visible_quantity: 3,
+            },
+            updated_at: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        total: 1,
+        nextCursor: null,
+      })),
+      rebuildSearchIndex: vi.fn(),
+      projectors: [],
+    },
+    detail: {
+      getItemDetail: vi.fn(async () => null),
+      projectors: [],
+    },
+    projectors: [],
+    ...overrides,
+  };
+}
+
+describe("Discovery UCP catalog handlers", () => {
+  it("maps discovery search rows to UCP product envelopes", async () => {
+    const items = buildItems();
+    const handlers = createDiscoveryUcpHandlers(items);
+
+    const result = await handlers.restHandlers.search_catalog({
+      request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
+        method: "POST",
+        body: JSON.stringify({ query: "charizard", filters: { category: "Pokemon" } }),
+      }),
+      params: {},
+    });
+
+    expect(items.search.searchItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search: "charizard",
+        category: "Pokemon",
+        includeTotal: true,
+      }),
+    );
+    expect(result).toMatchObject({
+      ucp: { status: "ok" },
+      products: [
+        {
+          id: "cat_1",
+          title: "Charizard",
+          price: { currency: "USD", amount: "1234" },
+          availability: {
+            status: "available",
+            quantity: 3,
+          },
+          extensions: {
+            chase_sets: {
+              catalog_item_id: "cat_1",
+              blueprint_id: "blueprint_card",
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it("returns a UCP not-found message when get_product cannot resolve an item", async () => {
+    const handlers = createDiscoveryUcpHandlers(buildItems());
+
+    const result = await handlers.restHandlers.get_product({
+      request: new Request("https://marketplace.example/ucp/v1/catalog/product", {
+        method: "POST",
+        body: JSON.stringify({ id: "missing" }),
+      }),
+      params: {},
+    });
+
+    expect(result).toMatchObject({
+      ucp: { status: "error" },
+      messages: [{ code: "product_not_found" }],
+    });
+  });
+});

@@ -351,6 +351,9 @@
       "@chase-sets/platform-runtime/realtime-web": [
         "./infrastructure/platform-runtime/realtime-web.ts"
       ],
+      "@chase-sets/platform-runtime/ucp": [
+        "./infrastructure/platform-runtime/ucp.ts"
+      ],
       "@chase-sets/platform-runtime/web": [
         "./infrastructure/platform-runtime/web.ts"
       ],
@@ -470,6 +473,9 @@
       ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"
+      ],
+      "@chase-sets/ucp": [
+        "./contracts/ucp/index.ts"
       ],
       "@chase-sets/web-notifications": [
         "./infrastructure/web-notifications/index.ts"

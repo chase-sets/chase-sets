@@ -58,6 +58,11 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Social Login | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Auth-owned sign-in or registration journey through an external provider. |
 | Social Login Provider | [Auth](../bounded-contexts/auth/GLOSSARY.md) | External identity provider configured for Social Login, starting with Google and Facebook. |
 | Social Login Link | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Identity-owned User fact linking one external provider identity to one User. |
+| UCP Profile | [Architecture](./architecture/ucp-agent-commerce.md) | Public `/.well-known/ucp` document that advertises supported Universal Commerce Protocol services and capabilities. |
+| UCP Capability | [Architecture](./architecture/ucp-agent-commerce.md) | Standards-facing protocol capability such as catalog search, checkout, or order read; maps to existing bounded-context behavior instead of owning domain state. |
+| Linked Platform Authorization | [Identity](../bounded-contexts/identity/GLOSSARY.md) | User/account consent that lets an external platform act through UCP scopes. |
+| Payment Handler | [Payments](../bounded-contexts/payments/GLOSSARY.md) | UCP-facing payment method declaration and instrument-processing contract owned by Payments. |
+| AP2 Mandate | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Verifiable autonomous-payment authority required before headless checkout completion can bypass trusted UI handoff. |
 
 ## Local Glossaries
 

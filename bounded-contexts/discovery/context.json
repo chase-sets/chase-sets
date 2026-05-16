@@ -22,7 +22,8 @@
     "realtime-support",
     "request-support",
     "runtime-support",
-    "shell-support"
+    "shell-support",
+    "ucp-support"
   ],
   "publicExports": [
     ".",
@@ -519,6 +520,17 @@
       "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "ucp-support": {
+      "classification": "support",
+      "purpose": "Provide Discovery-owned Universal Commerce Protocol catalog adapters for buyer-visible search and lookup.",
+      "allowedWhen": "Allowed for standards-facing protocol adapters that map UCP catalog operations to Discovery-owned read models.",
+      "expectedConsumers": [
+        "platform-api UCP route composition"
+      ],
+      "justification": "ucp-support keeps catalog/search protocol mapping inside Discovery instead of deployables or a generic UCP bounded context.",
+      "createdFor": "UCP catalog search and lookup over Discovery read models.",
+      "sunsetWhen": "Remove when UCP catalog adapters move into generated context-owned transport composition."
     },
     "routes": {
       "classification": "routes",
