@@ -17,7 +17,6 @@ import {
   NoResultsRecovery,
   PlatformCredibilityCue,
   PromoStrip,
-  ProgressiveDisclosureGroup,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
   MarketplaceLandingHero,
@@ -48,8 +47,6 @@ const sortOptions = [
   { label: t("discovery.features.search.ui.searchPage.title.z.a"), value: "title_desc" },
   { label: t("discovery.features.search.ui.searchPage.newest"), value: "newest" },
 ];
-
-const ALL_LANGUAGES = "__all__";
 
 type DynamicSearchFilterSelection = Readonly<{
   kind: "field" | "dimension";
@@ -220,22 +217,6 @@ function selectedFacetValues(facet: DiscoveryFacetGroup) {
   return facet.values.filter((value) => value.selected);
 }
 
-function facetDisclosureSummary(facet: DiscoveryFacetGroup) {
-  const selectedValues = selectedFacetValues(facet);
-
-  if (selectedValues.length === 0) {
-    return t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label });
-  }
-
-  if (selectedValues.length === 1) {
-    return selectedValues[0]?.label ?? selectedValues[0]?.id;
-  }
-
-  return t("discovery.features.search.ui.searchPage.selected.facet.values", {
-    count: selectedValues.length,
-  });
-}
-
 function notifyCartCountChanged(quantity: number) {
   if (typeof window === "undefined" || quantity <= 0) {
     return;
@@ -350,7 +331,7 @@ export function SearchPage({
       : []),
     ...dynamicAppliedFilters,
   ];
-  const categoryFacet = (
+  const filterRail = (
     <Stack gap={3}>
       <MarketplaceFacetRail
         items={categories.map((item) => ({
@@ -361,46 +342,43 @@ export function SearchPage({
         selectedId={category}
         onSelect={onCategoryChange}
       />
-      {dynamicFacets.length > 0 ? (
-        <ProgressiveDisclosureGroup
-          title={t("discovery.features.search.ui.searchPage.advanced.filters")}
-          description={t("discovery.features.search.ui.searchPage.mobile.filters.description")}
-          defaultValue={dynamicFacets
-            .filter((facet) => selectedFacetValues(facet).length > 0)
-            .map((facet) => `${facet.kind}:${facet.id}`)}
-          items={dynamicFacets.map((facet) => {
-            const selectedValues = selectedFacetValues(facet).map((value) => value.id);
+      <MarketplaceFacetRail
+        title={t("discovery.features.search.ui.searchPage.language")}
+        description={t("discovery.features.search.ui.searchPage.mobile.language.description")}
+        allLabel={t("discovery.features.search.ui.searchPage.all.languages")}
+        items={languageOptions.map((item) => ({
+          id: item.value,
+          label: item.label,
+        }))}
+        selectedId={language}
+        onSelect={onLanguageChange}
+      />
+      {dynamicFacets.map((facet) => {
+        const selectedValues = selectedFacetValues(facet).map((value) => value.id);
 
-            return {
-              value: `${facet.kind}:${facet.id}`,
-              title: facet.label,
-              description: formatFacetDescription(facet),
-              summary: facetDisclosureSummary(facet),
-              content: (
-                <MarketplaceFacetRail
-                  title={t("discovery.features.search.ui.searchPage.facet.choices", { facet: facet.label })}
-                  description={formatFacetDescription(facet)}
-                  allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-                  items={facet.values.map((value) => ({
-                    id: value.id,
-                    label: value.label,
-                    count: value.count,
-                  }))}
-                  selectedIds={selectedValues}
-                  selectionMode="multiple"
-                  onSelect={(value) => {
-                    if (value) {
-                      onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-                    } else {
-                      onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-                    }
-                  }}
-                />
-              ),
-            };
-          })}
-        />
-      ) : null}
+        return (
+          <MarketplaceFacetRail
+            key={`${facet.kind}:${facet.id}`}
+            title={facet.label}
+            description={formatFacetDescription(facet)}
+            allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+            items={facet.values.map((value) => ({
+              id: value.id,
+              label: value.label,
+              count: value.count,
+            }))}
+            selectedIds={selectedValues}
+            selectionMode="multiple"
+            onSelect={(value) => {
+              if (value) {
+                onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+              } else {
+                onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+              }
+            }}
+          />
+        );
+      })}
     </Stack>
   );
   const bulkActionData = bulkAdd?.data;
@@ -446,7 +424,7 @@ export function SearchPage({
 
   return (
     <SearchResultsLayout
-      filters={categoryFacet}
+      filters={filterRail}
       summary={
         hasFocusedResults ? null : (
           <Stack gap={6}>
@@ -514,18 +492,6 @@ export function SearchPage({
                 items={sortOptions}
                 value={sort}
                 onValueChange={onSortChange}
-              />
-            }
-            filterControlsVisibility="desktop"
-            filters={
-              <Select
-                label={t("discovery.features.search.ui.searchPage.language")}
-                items={[
-                  { label: t("discovery.features.search.ui.searchPage.all.languages"), value: ALL_LANGUAGES },
-                  ...languageOptions,
-                ]}
-                value={language || ALL_LANGUAGES}
-                onValueChange={(value) => onLanguageChange(value === ALL_LANGUAGES ? "" : value)}
               />
             }
             actions={
@@ -632,46 +598,32 @@ export function SearchPage({
                 allLeadingIcon="book"
                 itemLeadingIcon="book"
               />
-              {dynamicFacets.length > 0 ? (
-                <ProgressiveDisclosureGroup
-                  title={t("discovery.features.search.ui.searchPage.advanced.filters")}
-                  description={t("discovery.features.search.ui.searchPage.mobile.filters.description")}
-                  defaultValue={dynamicFacets
-                    .filter((facet) => selectedFacetValues(facet).length > 0)
-                    .map((facet) => `${facet.kind}:${facet.id}`)}
-                  items={dynamicFacets.map((facet) => {
-                    const selectedValues = selectedFacetValues(facet).map((value) => value.id);
+              {dynamicFacets.map((facet) => {
+                const selectedValues = selectedFacetValues(facet).map((value) => value.id);
 
-                    return {
-                      value: `${facet.kind}:${facet.id}`,
-                      title: facet.label,
-                      description: formatFacetDescription(facet),
-                      summary: facetDisclosureSummary(facet),
-                      content: (
-                        <MarketplaceFacetChoiceGroup
-                          title={t("discovery.features.search.ui.searchPage.facet.choices", { facet: facet.label })}
-                          description={formatFacetDescription(facet)}
-                          allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-                          items={facet.values.map((value) => ({
-                            id: value.id,
-                            label: value.label,
-                            count: value.count,
-                          }))}
-                          selectedIds={selectedValues}
-                          selectionMode="multiple"
-                          onSelect={(value) => {
-                            if (value) {
-                              onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-                            } else {
-                              onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-                            }
-                          }}
-                        />
-                      ),
-                    };
-                  })}
-                />
-              ) : null}
+                return (
+                  <MarketplaceFacetChoiceGroup
+                    key={`${facet.kind}:${facet.id}`}
+                    title={facet.label}
+                    description={formatFacetDescription(facet)}
+                    allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+                    items={facet.values.map((value) => ({
+                      id: value.id,
+                      label: value.label,
+                      count: value.count,
+                    }))}
+                    selectedIds={selectedValues}
+                    selectionMode="multiple"
+                    onSelect={(value) => {
+                      if (value) {
+                        onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+                      } else {
+                        onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+                      }
+                    }}
+                  />
+                );
+              })}
             </MarketplaceMobileFilterDrawer>
           </>
         ) : null}

@@ -127,8 +127,18 @@ describe("SearchPage", () => {
       categories: [],
     });
 
-    expect(screen.getByText("Japanese")).toBeTruthy();
+    expect(screen.getAllByText("Japanese").length).toBeGreaterThan(0);
     expect(screen.queryByText("Language: ja")).toBeNull();
+  });
+
+  it("renders language as a top-level desktop filter", () => {
+    const props = renderSearchPage({ language: "ja" });
+
+    expect(screen.getByText("Limit results to a catalog language.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+
+    expect(props.onLanguageChange).toHaveBeenCalledWith("en");
   });
 
   it("keeps the category facet visible when a category is selected", () => {
@@ -196,6 +206,8 @@ describe("SearchPage", () => {
     });
 
     expect(screen.getByText("2 active")).toBeTruthy();
+    expect(screen.getByText("Condition")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Excellent (1)" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Condition: Near Mint" }));
 

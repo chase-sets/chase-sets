@@ -21,13 +21,13 @@ When many eligible facets exist, Discovery uses deterministic usefulness ranking
 3. Ties favor groups with useful distinct-value counts.
 4. Dimension and Field labels break remaining ties for stable rendering.
 
-The default search UI shows the top five dynamic facet groups and the top eight values per group. Broader value discovery should be added through a canonical design-system expand or search interaction before exposing every value.
+The default search UI shows the ranked dynamic facet groups and their ranked values as top-level filters. Dynamic facets are already selected for relevance, so this search surface does not hide them behind progressive disclosure.
 
 ## Mobile Presentation
 
 Mobile search uses the canonical marketplace mobile filter pattern from the design system. Focused result pages show one compact filter bar with result summary and active filter count before the result list. Applied filters remain visible and reversible as chips outside the filter sheet.
 
-Opening filters presents a bottom sheet with vertically grouped choices for Category, Language, and ranked dynamic Field and Dimension facets. The sheet keeps 44px touch targets, clear-all access, and a show-results action. Discovery still owns URL-backed Filter State and selection behavior; the design system owns the reusable mobile filter shell and choice-group presentation.
+Opening filters presents a bottom sheet with top-level vertically grouped choices for Category, Language, and ranked dynamic Field and Dimension facets. The sheet keeps 44px touch targets, clear-all access, and a show-results action. Discovery still owns URL-backed Filter State and selection behavior; the design system owns the reusable mobile filter shell and choice-group presentation.
 
 ## Counts
 
@@ -38,6 +38,8 @@ Facet counts are result-aware. Counts should be computed from the active Discove
 Buyer-facing search uses cursor-loaded Result Sets instead of page-number pagination. The first batch is loaded by the route from the URL-backed Discovery Query. Additional batches use the returned `nextCursor`, append Search Results in the active Sort Order, and deduplicate by `catalog_item_id`.
 
 The batch size stays finite for latency and marketplace economics, but the browsing experience should not stop at the first 24 Search Results. Product search auto-loads the next cursor batch as the user approaches the end of the list and keeps an accessible load-more or retry action available for assistive technology, network failures, and browsers that cannot run the automatic observer.
+
+Desktop search keeps the filter rail sticky and independently scrollable so all top-level filters remain reachable while cursor batches append to the Result Set.
 
 Changing search text, Category, Language, Sort Order, or dynamic Filters starts a new Result Set and clears previously appended cursor batches. Cursor loading should not reintroduce offset-based count work; exact totals are requested only when a consumer truly needs total-match metadata.
 

@@ -268,6 +268,24 @@ describe("marketplace search route", () => {
     expect(options).toMatchObject({ preventScrollReset: true, replace: false });
   });
 
+  it("applies top-level language filter changes without forcing a document reload", () => {
+    const setSearchParams = vi.fn();
+    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu&page=3"), setSearchParams]);
+
+    render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Japanese" }));
+
+    const [updater, options] = setSearchParams.mock.calls[0];
+    const next = updater(new URLSearchParams("q=pikachu&page=3"));
+    expect(next.get("q")).toBe("pikachu");
+    expect(next.get("language")).toBe("ja");
+    expect(next.has("page")).toBe(false);
+    expect(options).toMatchObject({ preventScrollReset: true, replace: false });
+  });
+
   it("makes product result cards direct item-detail links without compare copy", () => {
     mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
     mockUseNavigate.mockReturnValue(vi.fn());
@@ -282,7 +300,7 @@ describe("marketplace search route", () => {
     expect(screen.getByRole("link", { name: "View details" }).getAttribute("href")).toBe(
       "/items/pikachu",
     );
-    expect(screen.getByText("English")).toBeTruthy();
+    expect(screen.getAllByText("English").length).toBeGreaterThan(0);
     expect(screen.queryByText("Language: en")).toBeNull();
     expect(screen.queryByText("Compare")).toBeNull();
     expect(
