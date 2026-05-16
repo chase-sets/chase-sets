@@ -49,7 +49,7 @@
         "test:process": "vitest run scripts/process.test.mjs",
         "test:sandbox": "vitest run scripts/sandbox.test.mjs",
         "test:platform-smoke": "vitest run scripts/platform-smoke-args.test.mjs",
-        "test:digitalocean-app-deployment": "vitest run scripts/digitalocean-app-deployment.test.mjs",
+        "test:digitalocean-app-deployment": "vitest run scripts/digitalocean-app-deployment.test.mjs scripts/digitalocean-platform-config.test.mjs",
         "test:digitalocean-registry-cleanup": "vitest run scripts/digitalocean-registry-cleanup.test.mjs",
         "test:workspace-metadata": "vitest run scripts/sync-workspace-metadata.test.mjs",
         "test:run-workspaces": "vitest run scripts/run-workspaces.test.mjs",
