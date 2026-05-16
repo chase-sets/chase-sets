@@ -10,6 +10,7 @@ export const UCP_CAPABILITIES = {
   cart: "dev.ucp.shopping.cart",
   checkout: "dev.ucp.shopping.checkout",
   order: "dev.ucp.shopping.order",
+  ap2Mandate: "dev.ucp.shopping.ap2_mandate",
   identityLinking: "dev.ucp.common.identity_linking",
 } as const;
 
@@ -127,6 +128,13 @@ export const UCP_MCP_TOOLS = [
     description: "Cancel a checkout session.",
     idempotencyKeyRequired: true,
   },
+  {
+    name: "get_order",
+    title: "Get Order",
+    capability: UCP_CAPABILITIES.order,
+    description: "Retrieve the current state of an order for the linked buyer or seller account.",
+    idempotencyKeyRequired: false,
+  },
 ] as const satisfies readonly UcpMcpToolDescriptor[];
 
 export function normalizeUcpOrigin(origin: string) {
@@ -166,6 +174,20 @@ export function buildUcpBusinessProfile(origin: string): UcpBusinessProfile {
         [UCP_CAPABILITIES.checkout]: [
           capability("checkout", "shopping/checkout.json", {
             completion_requires_trusted_ui_without_ap2_mandate: true,
+          }),
+        ],
+        [UCP_CAPABILITIES.order]: [
+          capability("order", "shopping/order.json"),
+        ],
+        [UCP_CAPABILITIES.identityLinking]: [
+          capability("identity-linking", "common/identity_linking.json", {
+            oauth_authorization_server: `${baseUrl}/.well-known/oauth-authorization-server`,
+          }),
+        ],
+        [UCP_CAPABILITIES.ap2Mandate]: [
+          capability("ap2-mandates", "shopping/ap2_mandate.json", {
+            status: "guarded_scaffold",
+            headless_completion_enabled: false,
           }),
         ],
       },

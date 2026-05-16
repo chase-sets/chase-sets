@@ -138,7 +138,7 @@ export function createIdentityAuthMiddleware(
       return;
     }
 
-    const actor = await resolveActorFromRequest(services.auth, c.req.raw);
+    const actor = await resolveActorFromRequest(services, c.req.raw);
     if (actor) {
       c.set("actor", actor);
       c.set("context", attachActiveTraceContext(createActorEventStoreContext(actor)));

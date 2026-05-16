@@ -12,6 +12,7 @@ import { createInvitationRuntime } from "../../features/invitations/api/runtime"
 import { createMembershipRuntime } from "../../features/memberships/api/runtime";
 import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
 import { createUserRuntime } from "../../features/users/api/runtime";
+import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
 
 export type IdentityServices = Readonly<{
   accounts: ReturnType<typeof createAccountRuntime>;
@@ -20,6 +21,7 @@ export type IdentityServices = Readonly<{
   invitations: ReturnType<typeof createInvitationRuntime>;
   apiKeys: ReturnType<typeof createApiKeyRuntime>;
   consents: ReturnType<typeof createConsentRuntime>;
+  linkedPlatformAuthorizations: ReturnType<typeof createLinkedPlatformAuthorizationStore>;
   shippingAddresses: ReturnType<typeof createShippingAddressRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
@@ -40,6 +42,7 @@ export function createIdentityServices(pool: PgTransactionalPool): IdentityServi
   const invitations = createInvitationRuntime(deps);
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
+  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(db);
   const shippingAddresses = createShippingAddressRuntime(deps);
 
   return {
@@ -49,6 +52,7 @@ export function createIdentityServices(pool: PgTransactionalPool): IdentityServi
     invitations,
     apiKeys,
     consents,
+    linkedPlatformAuthorizations,
     shippingAddresses,
     projectors: [
       ...accounts.projectors,

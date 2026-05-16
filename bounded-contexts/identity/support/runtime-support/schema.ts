@@ -6,6 +6,7 @@ import { identityInvitationSchemaSql } from "../../features/invitations/read-mod
 import { identityMembershipSchemaSql } from "../../features/memberships/read-model/schema";
 import { identityShippingAddressSchemaSql } from "../../features/shipping-addresses/read-model/schema";
 import { identityUserSchemaSql } from "../../features/users/read-model/schema";
+import { identityLinkedPlatformAuthorizationSchemaSql } from "../ucp-support/linked-platform-authorizations";
 
 const identityApiKeySecretSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_api_key_secrets (
@@ -25,6 +26,7 @@ export const identitySchemaSql = [
   identityInvitationSchemaSql,
   identityApiKeySchemaSql,
   identityConsentSchemaSql,
+  identityLinkedPlatformAuthorizationSchemaSql,
   identityShippingAddressSchemaSql,
   identityApiKeySecretSchemaSql,
 ].join("\n\n");

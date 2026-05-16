@@ -15,6 +15,8 @@ export type {
   PaymentProcessorWebhookEvent,
 } from "@chase-sets/payment-processing";
 export { PaymentsDomainError } from "./support/runtime-support/common";
+export { createPaymentsUcpHandoff } from "./support/ucp-support/payment-handlers";
+export type { UcpPaymentHandlerHandoff } from "./support/ucp-support/payment-handlers";
 import { createPaymentsApiClient } from "./support/request-support/api-client";
 
 export function createPaymentsRequestApiClient(request: Request) {

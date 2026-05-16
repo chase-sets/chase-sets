@@ -25,6 +25,11 @@ export {
   type PlatformAdminBootstrapConfig,
   type PlatformAdminBootstrapResult,
 } from "./support/runtime-support/production-bootstrap";
+export {
+  createLinkedPlatformAuthorizationStore,
+  type LinkedPlatformAuthorizationRow,
+  type LinkedPlatformAuthorizationStore,
+} from "./support/ucp-support/linked-platform-authorizations";
 
 function isSafeReturnTo(value: string | null) {
   return Boolean(value && value.startsWith("/") && !value.startsWith("//"));

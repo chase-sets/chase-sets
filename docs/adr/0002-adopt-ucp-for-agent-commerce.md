@@ -36,7 +36,7 @@ Checkout completion requires a trusted UI handoff unless a later AP2 Mandate imp
 
 - UCP terms are boundary DTOs. Internal ubiquitous language remains Catalog Item/Product, Listing, Offer, Cart, Checkout Session, Order/Purchase/Sale, Payment, and Shipment.
 - `@chase-sets/ucp` owns protocol constants, profile declarations, envelopes, and transport-neutral contract helpers.
-- `@chase-sets/platform-runtime/ucp` owns generic profile, REST transport, MCP transport, signature-header, digest, optional cryptographic HTTP Message Signature verification through UCP key resolution, and idempotency guardrails.
+- `@chase-sets/platform-runtime/ucp` owns generic profile, REST transport, MCP transport, signature-header, digest, cryptographic HTTP Message Signature verification through UCP key resolution, Postgres-backed profile/key caching, and durable idempotency guardrails.
 - Discovery, Checkout, Ordering, Payments, Auth, and Identity will provide concrete handlers through their existing context-owned services.
 - The existing Chase Sets-native `/mcp` bridge remains available for internal agent tooling; `/ucp/mcp` is the standards-facing UCP profile with UCP tool names.
 - Product code must not add a generic `ai-commerce` or `ucp` bounded context.
@@ -51,4 +51,4 @@ Initial verification covers:
 - Idempotency-key requirements for checkout completion and cancellation.
 - Platform API mounts for `/.well-known/ucp`, `/ucp/v1`, and `/ucp/mcp`.
 
-Future verification must add order reads, OAuth scope enforcement, durable replay storage, response signing, and staging smoke checks. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through an injected key resolver, and replay conflict behavior have focused automated coverage.
+Order reads, OAuth scope enforcement, durable replay storage, production profile/key caching, AP2 guarded continuation, and staging smoke checks are now part of the hardening baseline. Response signing remains future work. Catalog search/lookup, checkout create/update/get, trusted UI escalation for complete, transport digest checks, cryptographic request signature verification through a cached resolver, and replay conflict behavior have focused automated coverage.

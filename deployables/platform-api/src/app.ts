@@ -1,5 +1,11 @@
 import { Hono } from "hono";
-import { module as authModule } from "@chase-sets/auth";
+import {
+  module as authModule,
+} from "@chase-sets/auth";
+import {
+  createUcpOAuthMetadataRoutes,
+  createUcpOAuthRoutes,
+} from "@chase-sets/auth/server";
 import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
@@ -9,6 +15,8 @@ import {
 } from "@chase-sets/discovery/server";
 import { module as identityModule } from "@chase-sets/identity";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
+import { createPaymentsUcpHandoff } from "@chase-sets/payments/server";
 import {
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
@@ -169,20 +177,34 @@ export function buildPlatformApiApp(
   const checkoutServices = runtime.services.checkout as
     | Parameters<typeof createCheckoutUcpHandlers>[0]
     | undefined;
-  const checkoutUcpHandlers = checkoutServices?.sessions
-    ? createCheckoutUcpHandlers(checkoutServices)
+  const paymentsServices = runtime.services.payments as
+    | { publicConfig?: Parameters<typeof createPaymentsUcpHandoff>[0] }
+    | undefined;
+  const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
+    ? createPaymentsUcpHandoff(paymentsServices.publicConfig)
     : undefined;
-  const ucpOptions = discoveryUcpHandlers || checkoutUcpHandlers
+  const checkoutUcpHandlers = checkoutServices?.sessions
+    ? createCheckoutUcpHandlers(checkoutServices, { paymentHandoff })
+    : undefined;
+  const orderingServices = runtime.services.ordering as
+    | Parameters<typeof createOrderingUcpHandlers>[0]
+    | undefined;
+  const orderingUcpHandlers = orderingServices?.orders
+    ? createOrderingUcpHandlers(orderingServices)
+    : undefined;
+  const ucpOptions = discoveryUcpHandlers || checkoutUcpHandlers || orderingUcpHandlers
     ? {
         ...options.ucp,
         restHandlers: {
           ...discoveryUcpHandlers?.restHandlers,
           ...checkoutUcpHandlers?.restHandlers,
+          ...orderingUcpHandlers?.restHandlers,
           ...options.ucp?.restHandlers,
         },
         mcpToolHandlers: {
           ...discoveryUcpHandlers?.mcpToolHandlers,
           ...checkoutUcpHandlers?.mcpToolHandlers,
+          ...orderingUcpHandlers?.mcpToolHandlers,
           ...options.ucp?.mcpToolHandlers,
         },
       }
@@ -223,6 +245,14 @@ export function buildPlatformApiApp(
   app.use("/mcp/*", platformActorMiddleware);
   app.route("/mcp", createMcpRoutes(options.mcp));
   app.route("/.well-known", createUcpProfileRoutes());
+  app.route("/.well-known", createUcpOAuthMetadataRoutes());
+  app.use("/ucp/oauth/*", platformActorMiddleware);
+  app.route("/ucp/oauth", createUcpOAuthRoutes({
+    auth: identityServices.auth,
+    linkedPlatformAuthorizations:
+      identityServices.identity.linkedPlatformAuthorizations,
+    resolveActor: options.resolveActor ?? (async () => null),
+  }));
   app.use("/ucp/v1/*", platformActorMiddleware);
   app.use("/ucp/mcp", platformActorMiddleware);
   app.use("/ucp/mcp/*", platformActorMiddleware);
@@ -284,4 +314,18 @@ export function buildPlatformApiApp(
   mountApiRouters(app, apiMounts);
 
   return app;
+}
+
+function isPaymentProcessorPublicConfig(
+  value: unknown,
+): value is Parameters<typeof createPaymentsUcpHandoff>[0] {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { processorName?: unknown }).processorName === "string" &&
+    (
+      (value as { confirmationExperience?: unknown }).confirmationExperience === "processor-managed-form" ||
+      (value as { confirmationExperience?: unknown }).confirmationExperience === "processor-hosted-page"
+    )
+  );
 }

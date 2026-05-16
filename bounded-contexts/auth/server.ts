@@ -15,3 +15,7 @@ export {
   type SocialLoginProviderName,
   type SocialLoginProfile,
 } from "./support/social-login-support/providers";
+export {
+  createUcpOAuthMetadataRoutes,
+  createUcpOAuthRoutes,
+} from "./support/ucp-support/oauth";

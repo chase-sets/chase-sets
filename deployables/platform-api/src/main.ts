@@ -32,6 +32,10 @@ import {
   type RealtimeStreamLimiter,
   type RealtimeWakeSignal,
 } from "@chase-sets/platform-runtime/realtime";
+import {
+  createPostgresUcpIdempotencyStore,
+  createUcpProfileKeyResolver,
+} from "@chase-sets/platform-runtime/ucp";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import {
   getObservabilityRuntime,
@@ -293,7 +297,10 @@ const app = buildPlatformApiApp(runtime, {
   ],
   resolveActor: (request) =>
     resolveActorFromRequest(
-      runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0],
+      {
+        auth: runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0]["auth"],
+        identity: runtime.services.identity as Parameters<typeof resolveActorFromRequest>[0]["identity"],
+      },
       request,
     ),
   realtimeObserver,
@@ -313,6 +320,12 @@ const app = buildPlatformApiApp(runtime, {
         previous: config.realtime.previousCursorSigningSecrets,
       }
     : undefined,
+  ucp: {
+    idempotencyStore: createPostgresUcpIdempotencyStore(pools.control),
+    signatureVerification: {
+      keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
+    },
+  },
   realtimeResourceLimits: {
     maxTopicsPerStream: config.realtime.maxTopicsPerStream,
     maxActiveStreams: config.realtime.maxActiveStreams,
