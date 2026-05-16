@@ -8,18 +8,18 @@ Production uses the clean customer-facing namespace. Do not add a `production` l
 
 | Surface | Production | Staging |
 | --- | --- | --- |
-| Public web / landing | `chasesets.com` | `staging.chasesets.com` |
+| Public web / landing | `chasesets.com` | `landing-staging.chasesets.com` |
 | Marketplace | `marketplace.chasesets.com` | `marketplace.staging.chasesets.com` |
 | Admin | `admin.chasesets.com` | `admin.staging.chasesets.com` |
 | Public API, if exposed later | `api.chasesets.com` | `api.staging.chasesets.com` |
 
-Dash-based non-production names such as `marketplace-staging.chasesets.com` and `admin-staging.chasesets.com` are legacy names. Keep them only as redirects or compatibility inputs during migration.
+Dash-based non-production names such as `marketplace-staging.chasesets.com` and `admin-staging.chasesets.com` are legacy names. Keep them only as redirects or compatibility inputs during migration. Staging landing is the exception: keep `landing-staging.chasesets.com` as the deployable App Platform host while `staging.chasesets.com` carries staging mail identity DNS.
 
 ## Environment Boundaries
 
-Non-production environments carry the environment label directly under `chasesets.com`.
+Non-production environments carry the environment label directly under `chasesets.com`, except for the staging landing host while it is separated from staging mail DNS.
 
-- Staging: `*.staging.chasesets.com`
+- Staging: `landing-staging.chasesets.com` plus `*.staging.chasesets.com`
 - Remote dev sessions: `*.dev.chasesets.com`
 - Future PR previews, if created: `*.preview.chasesets.com` plus any deeper wildcard or provider-managed hostnames needed by the preview platform
 
@@ -39,15 +39,16 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 ## Staging
 
-`staging.chasesets.com` is the canonical staging public-web host.
+`landing-staging.chasesets.com` is the canonical staging public-web host until the staging mail identity no longer shares the `staging.chasesets.com` record name with App Platform DNS.
 
 Staging application hosts are:
 
+- `landing-staging.chasesets.com`
 - `marketplace.staging.chasesets.com`
 - `admin.staging.chasesets.com`
 - `api.staging.chasesets.com`, only if a public staging API host is needed later
 
-During migration, legacy dash-based hosts should redirect to their nested equivalents when the hosting platform supports those redirects.
+During migration, legacy marketplace and admin dash-based hosts should redirect to their nested equivalents when the hosting platform supports those redirects.
 
 ## Dev And Preview
 

@@ -39,12 +39,12 @@ Preview environments are disposable and intentionally `noindex,nofollow` for lan
 
 The long-lived staging environment uses the same full-platform shape as PR previews, but keeps stable hostnames and state across merges:
 
-- `staging.chasesets.com`: canonical staging landing `public-web`.
+- `landing-staging.chasesets.com`: canonical staging landing `public-web`.
 - `marketplace.staging.chasesets.com`: marketplace web.
 - `admin.staging.chasesets.com`: admin web.
-- Legacy dash-based staging hosts temporarily redirect to their nested replacements.
+- Legacy marketplace and admin dash-based staging hosts temporarily redirect to their nested replacements.
 
-Using `staging.chasesets.com` as the App Platform web domain means staging mail identity and Workspace DNS records must not require a root-level CNAME at the same host. Keep any mail-specific CNAME records on provider-owned selector subdomains.
+Do not use `staging.chasesets.com` as the App Platform web domain while staging mail identity and Workspace DNS records share that host. DigitalOcean App Platform can leave that domain in `CONFIGURING`, which blocks the staging gate before production deploys.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
@@ -209,7 +209,7 @@ The platform smoke script checks:
 - admin home page loads
 - admin API readiness passes through the deployed API component
 - marketplace home and search pages load when a marketplace URL is supplied
-- a legacy dash-based staging URL such as `landing-staging.chasesets.com` returns a temporary HTTPS `302` redirect to `staging.chasesets.com` when supplied
+- legacy marketplace and admin dash-based staging URLs return temporary HTTPS `302` redirects to their nested equivalents when supplied
 - waitlist signup accepts a tagged synthetic lead
 - admin password sign-in works when admin credentials are supplied
 - waitlist admin endpoint can find the synthetic lead when the smoke wrote one

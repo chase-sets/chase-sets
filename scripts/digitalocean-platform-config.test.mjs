@@ -20,6 +20,18 @@ function occurrenceCount(source, needle) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("keeps staging landing on the active dash-based App Platform host", () => {
+    expect(platformLocals).toContain(
+      'local.is_staging ? "landing-${var.environment}.${var.root_domain}"',
+    );
+    expect(platformLocals).not.toContain(
+      'local.is_staging ? "${var.environment}.${var.root_domain}"',
+    );
+    expect(platformLocals).not.toContain(
+      '"landing-${var.environment}.${var.root_domain}"     = local.landing_domain',
+    );
+  });
+
   it("wires production admin-support Catalog asset storage into the API and bootstrap job", () => {
     for (const key of [
       "CATALOG_ASSET_STORAGE_KIND",

@@ -10,12 +10,10 @@ locals {
     var.root_domain,
     "www.${var.root_domain}",
     ] : [
-    local.is_staging ? "${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}",
+    local.is_staging ? "landing-${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}",
   ]
 
-  legacy_public_redirect_domains = local.is_staging ? [
-    "landing-${var.environment}.${var.root_domain}",
-  ] : []
+  legacy_public_redirect_domains = []
 
   marketplace_domains = local.is_non_production ? [
     local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
@@ -25,7 +23,6 @@ locals {
   landing_domain     = local.public_domains[0]
   marketplace_domain = length(local.marketplace_domains) > 0 ? local.marketplace_domains[0] : null
   legacy_domain_redirects = local.is_staging ? {
-    "landing-${var.environment}.${var.root_domain}"     = local.landing_domain
     "marketplace-${var.environment}.${var.root_domain}" = local.marketplace_domain
     "admin-${var.environment}.${var.root_domain}"       = local.admin_domain
   } : {}
