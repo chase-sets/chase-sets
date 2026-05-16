@@ -3,6 +3,8 @@ import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
   BulkSourceObservationPromotionResult,
+  SourceObservationPromotionPreview,
+  SourceObservationPromotionScope,
   SourceObservationDetail,
   SourceObservationListItem,
   TcgdexSetImportResult,
@@ -37,6 +39,22 @@ export function importTcgdexSet(body: { languageCode: string; setId: string }) {
 export function bulkPromoteSourceObservations(observationIds: string[]) {
   return api.bulkPromoteSourceObservations<BulkSourceObservationPromotionResult>(
     observationIds,
+  );
+}
+
+export function previewBulkPromoteSourceObservations(
+  scope: SourceObservationPromotionScope,
+) {
+  return api.previewBulkPromoteSourceObservations<SourceObservationPromotionPreview>(
+    scope,
+  );
+}
+
+export function bulkPromoteSourceObservationsByScope(
+  scope: SourceObservationPromotionScope,
+) {
+  return api.bulkPromoteSourceObservationsByScope<BulkSourceObservationPromotionResult>(
+    scope,
   );
 }
 

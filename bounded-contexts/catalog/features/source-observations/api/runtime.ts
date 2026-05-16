@@ -25,8 +25,12 @@ import {
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
 import {
   getSourceObservationDetail,
+  listSourceObservationIdsForPromotion,
   listSourceObservations,
+  previewSourceObservationPromotionScope,
   type SourceObservationDetailRow,
+  type SourceObservationFilterScope,
+  type SourceObservationPromotionPreview,
 } from "../read-model/queries";
 import { fetchTcgdexSetObservations, type TcgdexSetImportResult } from "./tcgdex-client";
 
@@ -62,6 +66,13 @@ export type SourceObservationServices = Readonly<{
   }) => Promise<{ observationId: string; catalogItemId: CatalogItemId }>;
   promoteObservations: (input: {
     observationIds: readonly string[];
+    context: EventStoreContext;
+  }) => Promise<BulkSourceObservationPromotionResult>;
+  previewPromoteObservationScope: (input: {
+    scope: SourceObservationFilterScope;
+  }) => Promise<SourceObservationPromotionPreview>;
+  promoteObservationScope: (input: {
+    scope: SourceObservationFilterScope;
     context: EventStoreContext;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservation: (input: {
@@ -146,6 +157,62 @@ export function createSourceObservationRuntime(
     };
   }
 
+  async function promoteObservationIds(input: {
+    observationIds: readonly string[];
+    context: EventStoreContext;
+  }): Promise<BulkSourceObservationPromotionResult> {
+    const requestedIds = uniqueObservationIds(input.observationIds);
+    const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+
+    for (const observationId of requestedIds) {
+      try {
+        const observation = await getSourceObservationDetail(deps.db, observationId);
+
+        if (!observation) {
+          outcomes.push({
+            observationId,
+            status: "failed",
+            catalogItemId: null,
+            reason: "Source observation was not found.",
+          });
+          continue;
+        }
+
+        if (observation.status !== "observed") {
+          outcomes.push({
+            observationId,
+            status: "skipped",
+            catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+            reason: `Source observation is already ${observation.status}.`,
+          });
+          continue;
+        }
+
+        const promoted = await promoteObservationFromRow({
+          observation,
+          context: input.context,
+        });
+        outcomes.push({
+          observationId,
+          status: "promoted",
+          catalogItemId: promoted.catalogItemId,
+          reason: null,
+        });
+      } catch (error) {
+        outcomes.push({
+          observationId,
+          status: "failed",
+          catalogItemId: null,
+          reason: error instanceof Error ? error.message : "Promotion failed.",
+        });
+      }
+    }
+
+    await drainRuntimeProjectors([...items.projectors, ...projectors]);
+
+    return summarizePromotionOutcomes(requestedIds.length, outcomes);
+  }
+
   return {
     commandHandler,
     importTcgdexSet: async ({ languageCode, setId, context }) => {
@@ -182,54 +249,15 @@ export function createSourceObservationRuntime(
 
       return result;
     },
-    promoteObservations: async ({ observationIds, context }) => {
-      const requestedIds = uniqueObservationIds(observationIds);
-      const outcomes: BulkSourceObservationPromotionOutcome[] = [];
-
-      for (const observationId of requestedIds) {
-        try {
-          const observation = await getSourceObservationDetail(deps.db, observationId);
-
-          if (!observation) {
-            outcomes.push({
-              observationId,
-              status: "failed",
-              catalogItemId: null,
-              reason: "Source observation was not found.",
-            });
-            continue;
-          }
-
-          if (observation.status !== "observed") {
-            outcomes.push({
-              observationId,
-              status: "skipped",
-              catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
-              reason: `Source observation is already ${observation.status}.`,
-            });
-            continue;
-          }
-
-          const promoted = await promoteObservationFromRow({ observation, context });
-          outcomes.push({
-            observationId,
-            status: "promoted",
-            catalogItemId: promoted.catalogItemId,
-            reason: null,
-          });
-        } catch (error) {
-          outcomes.push({
-            observationId,
-            status: "failed",
-            catalogItemId: null,
-            reason: error instanceof Error ? error.message : "Promotion failed.",
-          });
-        }
-      }
-
-      await drainRuntimeProjectors([...items.projectors, ...projectors]);
-
-      return summarizePromotionOutcomes(requestedIds.length, outcomes);
+    promoteObservations: promoteObservationIds,
+    previewPromoteObservationScope: async ({ scope }) =>
+      previewSourceObservationPromotionScope(deps.db, scope),
+    promoteObservationScope: async ({ scope, context }) => {
+      const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
+      return promoteObservationIds({
+        observationIds,
+        context,
+      });
     },
     rejectObservation: async ({ observationId, reason, context }) => {
       await commandHandler({

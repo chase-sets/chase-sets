@@ -41,8 +41,8 @@ export function FilterBar({
         sticky && !stickyOffset && "top-16"
       )}
     >
-      <div className="flex flex-1 flex-wrap gap-3">{children}</div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      <div className="flex flex-1 flex-wrap items-end gap-3">{children}</div>
+      {actions ? <div className="flex flex-wrap items-end gap-2 md:self-end">{actions}</div> : null}
     </motion.div>
   );
 }

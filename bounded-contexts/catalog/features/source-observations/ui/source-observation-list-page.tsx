@@ -5,6 +5,7 @@ import {
   BulkActionBar,
   Button,
   Dialog,
+  Inline,
   Select,
   Stack,
   StatusPill,
@@ -19,9 +20,15 @@ import { EntityListPage } from "../../../support/shell-support/ui/entity-list-pa
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type { SourceObservationListItem } from "./contracts";
 import {
+  bulkPromoteSourceObservationsByScope,
   bulkPromoteSourceObservations,
   importTcgdexSet,
+  previewBulkPromoteSourceObservations,
 } from "./use-source-observations";
+import type {
+  SourceObservationPromotionPreview,
+  SourceObservationPromotionScope,
+} from "./contracts";
 
 function buildColumns(): DataColumn<SourceObservationListItem>[] {
   return [
@@ -81,6 +88,13 @@ export function SourceObservationListPage({
   const [setId, setSetId] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkPromoting, setBulkPromoting] = useState(false);
+  const [promoteAllScope, setPromoteAllScope] =
+    useState<SourceObservationPromotionScope>({});
+  const [promoteAllPreview, setPromoteAllPreview] =
+    useState<SourceObservationPromotionPreview | null>(null);
+  const [previewingPromoteAll, setPreviewingPromoteAll] = useState(false);
+  const [promoteAllRunning, setPromoteAllRunning] = useState(false);
+  const [showPromoteAll, setShowPromoteAll] = useState(false);
   const eligibleIds = useMemo(
     () =>
       new Set(
@@ -113,6 +127,11 @@ export function SourceObservationListPage({
     );
     setShowImport(false);
     setSetId("");
+    listControls.setFilters({
+      language: result.languageCode,
+      setId: result.setId,
+      status: "observed",
+    });
     revalidator.revalidate();
   }
 
@@ -141,6 +160,66 @@ export function SourceObservationListPage({
       );
     } finally {
       setBulkPromoting(false);
+    }
+  }
+
+  function currentPromotionScope(): SourceObservationPromotionScope {
+    return {
+      search: listControls.search,
+      status: listControls.status,
+      provider: listControls.source,
+      language: listControls.language,
+      setId: listControls.setId,
+    };
+  }
+
+  async function handlePreviewPromoteAll() {
+    const scope = currentPromotionScope();
+    setPreviewingPromoteAll(true);
+
+    try {
+      const preview = await previewBulkPromoteSourceObservations(scope);
+      setPromoteAllScope(scope);
+      setPromoteAllPreview(preview);
+      setShowPromoteAll(true);
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        "danger",
+      );
+    } finally {
+      setPreviewingPromoteAll(false);
+    }
+  }
+
+  async function handlePromoteAllMatching() {
+    setPromoteAllRunning(true);
+
+    try {
+      const result = await bulkPromoteSourceObservationsByScope(promoteAllScope);
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.bulk.promote.completed", {
+          promoted: String(result.promoted),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }),
+        result.failed > 0 ? "warning" : "success",
+      );
+      setShowPromoteAll(false);
+      setPromoteAllPreview(null);
+      setSelectedKeys(new Set());
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        "danger",
+      );
+    } finally {
+      setPromoteAllRunning(false);
     }
   }
 
@@ -197,20 +276,36 @@ export function SourceObservationListPage({
           ) : null
         }
         extraFilters={
-          <Select
-            label={t("catalog.features.sourceObservations.ui.list.language")}
-            value={listControls.language || ALL_LANGUAGES}
-            onValueChange={(value) =>
-              listControls.setLanguage(value === ALL_LANGUAGES ? "" : value)
-            }
-            items={[
-              {
-                label: t("catalog.features.sourceObservations.ui.list.all.languages"),
-                value: ALL_LANGUAGES,
-              },
-              ...languageOptions,
-            ]}
-          />
+          <>
+            <Select
+              label={t("catalog.features.sourceObservations.ui.list.language")}
+              value={listControls.language || ALL_LANGUAGES}
+              onValueChange={(value) =>
+                listControls.setLanguage(value === ALL_LANGUAGES ? "" : value)
+              }
+              items={[
+                {
+                  label: t("catalog.features.sourceObservations.ui.list.all.languages"),
+                  value: ALL_LANGUAGES,
+                },
+                ...languageOptions,
+              ]}
+            />
+            <TextInput
+              label={t("catalog.features.sourceObservations.ui.list.tcgdex.set.id")}
+              value={listControls.setId}
+              onChange={(event) => listControls.setSetId(event.target.value)}
+            />
+            <Button
+              tone="secondary"
+              leadingIcon="badgeCheck"
+              loading={previewingPromoteAll}
+              disabled={previewingPromoteAll || promoteAllRunning}
+              onClick={handlePreviewPromoteAll}
+            >
+              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.matching")}
+            </Button>
+          </>
         }
         page={listControls.page}
         pageSize={listControls.pageSize}
@@ -239,6 +334,81 @@ export function SourceObservationListPage({
           />
         </Stack>
       </Dialog>
+      <Dialog
+        open={showPromoteAll}
+        onOpenChange={setShowPromoteAll}
+        title={t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm.title")}
+        footer={
+          <Inline gap={2} align="end">
+            <Button
+              tone="secondary"
+              onClick={() => setShowPromoteAll(false)}
+              disabled={promoteAllRunning}
+            >
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
+            </Button>
+            <Button
+              leadingIcon="badgeCheck"
+              loading={promoteAllRunning}
+              disabled={!promoteAllPreview || promoteAllPreview.eligible === 0}
+              onClick={handlePromoteAllMatching}
+            >
+              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm")}
+            </Button>
+          </Inline>
+        }
+      >
+        {promoteAllPreview ? (
+          <Stack gap={3}>
+            <p>
+              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm.body", {
+                eligible: String(promoteAllPreview.eligible),
+                terminal: String(promoteAllPreview.terminal),
+                matched: String(promoteAllPreview.matched),
+              })}
+            </p>
+            <p>
+              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm.scope", {
+                scope: formatPromotionScope(promoteAllPreview.scope),
+              })}
+            </p>
+          </Stack>
+        ) : null}
+      </Dialog>
     </>
   );
+}
+
+function formatPromotionScope(scope: Required<SourceObservationPromotionScope>): string {
+  const parts = [
+    scope.search
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.search", {
+          search: scope.search,
+        })
+      : "",
+    scope.status
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.status", {
+          status: scope.status,
+        })
+      : "",
+    scope.language
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.language", {
+          language: formatLanguageCodeLabel(scope.language),
+        })
+      : "",
+    scope.provider
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.provider", {
+          provider: scope.provider,
+        })
+      : "",
+    scope.setId
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.set", {
+          setId: scope.setId,
+        })
+      : "",
+  ].filter(Boolean);
+
+  return parts.length > 0
+    ? parts.join(", ")
+    : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
 }

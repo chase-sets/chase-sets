@@ -50,6 +50,10 @@ Promoted Catalog Items remain drafts so operators can verify blueprint fields, p
 
 Operators may bulk promote explicitly selected Source Observations from the admin list screen. Bulk promotion is still a review action: it only accepts selected observation IDs, promotes records that are still `observed`, and reports terminal or missing records as skipped or failed instead of changing them.
 
+Operators may also promote all eligible Source Observations matching the current reviewed list filters after spot checking a large import. Filter-scoped promote-all must show a confirmation summary before execution, including the target filter scope and expected count, and must still promote through the same per-observation Catalog behavior. It must not silently promote every observed Source Observation globally or rely on hidden "last import" session state.
+
+The Source Observations list exposes the TCGdex set ID as a durable filter so large set imports can be reviewed and promoted by explicit scope instead of page selection. TCGdex import sets the reviewed scope to the imported language, set ID, and `observed` status.
+
 ## Conflict Pressure Tests
 
 - Re-importing an observed source record updates the Source Observation while it remains `observed`.

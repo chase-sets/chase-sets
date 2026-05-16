@@ -25,6 +25,8 @@ export type {
   Field,
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,
+  SourceObservationPromotionPreview,
+  SourceObservationPromotionScope,
 } from "../../client";
 import { createCatalogApiClient } from "../../client";
 

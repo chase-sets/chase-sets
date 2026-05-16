@@ -1,19 +1,23 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { SourceObservationListPage } from "./source-observation-list-page";
 import type { SourceObservationListItem } from "./contracts";
 
 const {
+  mockBulkPromoteSourceObservationsByScope,
   mockBulkPromoteSourceObservations,
   mockImportTcgdexSet,
+  mockPreviewBulkPromoteSourceObservations,
   mockRevalidate,
   mockUseNavigation,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
+  mockBulkPromoteSourceObservationsByScope: vi.fn(),
   mockBulkPromoteSourceObservations: vi.fn(),
   mockImportTcgdexSet: vi.fn(),
+  mockPreviewBulkPromoteSourceObservations: vi.fn(),
   mockRevalidate: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -26,14 +30,18 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./use-source-observations", () => ({
+  bulkPromoteSourceObservationsByScope: mockBulkPromoteSourceObservationsByScope,
   bulkPromoteSourceObservations: mockBulkPromoteSourceObservations,
   importTcgdexSet: mockImportTcgdexSet,
+  previewBulkPromoteSourceObservations: mockPreviewBulkPromoteSourceObservations,
 }));
 
 const query: CatalogListQuery = {
   search: "",
   status: "",
   language: "",
+  source: "",
+  setId: "",
   page: 0,
   pageSize: 50,
 };
@@ -50,6 +58,10 @@ const promoted = sourceObservation({
 });
 
 describe("SourceObservationListPage", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("bulk promotes only selected observed rows", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
@@ -84,6 +96,68 @@ describe("SourceObservationListPage", () => {
       expect(mockBulkPromoteSourceObservations).toHaveBeenCalledWith([
         "obs_observed",
       ]),
+    );
+    expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("previews and promotes all matching observations across the current filters", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockPreviewBulkPromoteSourceObservations.mockResolvedValue({
+      matched: 125,
+      eligible: 123,
+      terminal: 2,
+      scope: {
+        search: "",
+        status: "observed",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+    });
+    mockBulkPromoteSourceObservationsByScope.mockResolvedValue({
+      requested: 123,
+      promoted: 123,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    });
+
+    const { container } = render(
+      <SourceObservationListPage
+        data={{ items: [observed], total: 125, count: 1 }}
+        query={{ ...query, status: "observed", source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
+
+    fireEvent.click(
+      within(container).getByRole("button", { name: /Promote all matching/i }),
+    );
+
+    await waitFor(() =>
+      expect(mockPreviewBulkPromoteSourceObservations).toHaveBeenCalledWith({
+        search: "",
+        status: "observed",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      }),
+    );
+    expect(screen.getByText(/123 eligible observations will be promoted/i)).toBeTruthy();
+
+    const promoteAllButtons = screen.getAllByRole("button", {
+      name: /^Promote all matching$/i,
+    });
+    fireEvent.click(promoteAllButtons[promoteAllButtons.length - 1]);
+
+    await waitFor(() =>
+      expect(mockBulkPromoteSourceObservationsByScope).toHaveBeenCalledWith({
+        search: "",
+        status: "observed",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      }),
     );
     expect(mockRevalidate).toHaveBeenCalled();
   });
