@@ -4,6 +4,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  FilterBar,
   LinkButton,
   LoadingSpinner,
   Page,
@@ -108,7 +109,7 @@ export function EntityListPage<T>({
       />
       <Stack gap={4}>
         {(onSearchChange || onStatusFilterChange || extraFilters) && (
-          <Inline gap={3} align="start">
+          <FilterBar sticky={false}>
             {onSearchChange && (
               <TextInput
                 label={t("catalog.support.shellSupport.ui.entityListPage.search")}
@@ -126,7 +127,7 @@ export function EntityListPage<T>({
               />
             )}
             {extraFilters}
-          </Inline>
+          </FilterBar>
         )}
         {error && <Banner tone="danger" title={t("catalog.support.shellSupport.ui.entityListPage.error")} description={error} />}
         {loading && !items ? (
