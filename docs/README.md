@@ -12,8 +12,10 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification drawer, settings, Product Alert placement, and Notifications bounded-context ownership.
 - [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
 - [Email Delivery Completion Task List](./architecture/email-delivery-task-list.md): implementation checklist covering follow-up findings.
+- [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
+- [UCP OpenAPI](./api/ucp.openapi.json): UCP REST transport contract.
 
 ## Runbooks
 
@@ -27,6 +29,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
+- [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
 
 ## Owner-Owned Documentation
 
@@ -35,6 +38,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Progressive Disclosure](../packages/design-system/PROGRESSIVE_DISCLOSURE.md)
 - [Localization Contract](../contracts/localization/README.md)
 - [MCP Contract](../contracts/mcp/README.md)
+- [UCP Contract](../contracts/ucp/README.md)
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
 - [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
 - [Catalog Bulk Catalog Item Publish](../bounded-contexts/catalog/docs/bulk-catalog-item-publish.md)
@@ -55,6 +59,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 ## ADRs
 
 - [ADR 0001: Platform API Observability](./adr/0001-platform-api-observability.md)
+- [ADR 0002: Adopt UCP For Agent Commerce](./adr/0002-adopt-ucp-for-agent-commerce.md)
 
 ## Maintenance
 

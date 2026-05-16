@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
+import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
+  createDiscoveryUcpHandlers,
   discoveryRealtimeManifest,
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
@@ -34,6 +36,12 @@ import {
   createMcpRoutes,
   type CreateMcpRoutesOptions,
 } from "@chase-sets/platform-runtime/mcp";
+import {
+  createUcpMcpRoutes,
+  createUcpProfileRoutes,
+  createUcpRestRoutes,
+  type CreateUcpRoutesOptions,
+} from "@chase-sets/platform-runtime/ucp";
 import {
   createRealtimeStatusSnapshot,
   createRealtimeRoutes,
@@ -75,6 +83,7 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeActiveConnectionCount?: () => number;
   writeConsistencyDrainEnabled?: boolean;
   mcp?: CreateMcpRoutesOptions;
+  ucp?: CreateUcpRoutesOptions;
   internalAuthSecret?: string;
 }>;
 
@@ -151,6 +160,33 @@ export function buildPlatformApiApp(
       typeof identityModule.createServices
     >,
   } satisfies PlatformIdentityServices;
+  const discoveryServices = runtime.services.discovery as
+    | { items?: Parameters<typeof createDiscoveryUcpHandlers>[0] }
+    | undefined;
+  const discoveryUcpHandlers = discoveryServices?.items
+    ? createDiscoveryUcpHandlers(discoveryServices.items)
+    : undefined;
+  const checkoutServices = runtime.services.checkout as
+    | Parameters<typeof createCheckoutUcpHandlers>[0]
+    | undefined;
+  const checkoutUcpHandlers = checkoutServices?.sessions
+    ? createCheckoutUcpHandlers(checkoutServices)
+    : undefined;
+  const ucpOptions = discoveryUcpHandlers || checkoutUcpHandlers
+    ? {
+        ...options.ucp,
+        restHandlers: {
+          ...discoveryUcpHandlers?.restHandlers,
+          ...checkoutUcpHandlers?.restHandlers,
+          ...options.ucp?.restHandlers,
+        },
+        mcpToolHandlers: {
+          ...discoveryUcpHandlers?.mcpToolHandlers,
+          ...checkoutUcpHandlers?.mcpToolHandlers,
+          ...options.ucp?.mcpToolHandlers,
+        },
+      }
+    : options.ucp;
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
@@ -186,6 +222,12 @@ export function buildPlatformApiApp(
   app.use("/mcp", platformActorMiddleware);
   app.use("/mcp/*", platformActorMiddleware);
   app.route("/mcp", createMcpRoutes(options.mcp));
+  app.route("/.well-known", createUcpProfileRoutes());
+  app.use("/ucp/v1/*", platformActorMiddleware);
+  app.use("/ucp/mcp", platformActorMiddleware);
+  app.use("/ucp/mcp/*", platformActorMiddleware);
+  app.route("/ucp/v1", createUcpRestRoutes(ucpOptions));
+  app.route("/ucp/mcp", createUcpMcpRoutes(ucpOptions));
   app.route(
     "/api/realtime",
     createRealtimeRoutes({

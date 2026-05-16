@@ -1,7 +1,20 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { HealthProjectionReplaySummary } from "@chase-sets/platform-runtime/health";
+import { createUcpEnvelope } from "@chase-sets/ucp";
 import { buildPlatformApiApp } from "../src/app";
+
+function signedUcpHeaders(body: string) {
+  return {
+    "Content-Type": "application/json",
+    "UCP-Agent": 'profile="https://agent.example/.well-known/ucp"',
+    "Idempotency-Key": "idem_platform_test",
+    "Signature-Input": 'sig1=("@method" "@path" "content-digest");created=1778940000',
+    Signature: "sig1=:placeholder:",
+    "Content-Digest": `sha-256=:${createHash("sha256").update(body).digest("base64")}:`,
+  };
+}
 
 describe("platform api app", () => {
   it("mounts the health route", async () => {
@@ -226,6 +239,228 @@ describe("platform api app", () => {
           },
         ],
       },
+    });
+  });
+
+  it("mounts the UCP profile, REST, and MCP surfaces", async () => {
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        ucp: {
+          restHandlers: {
+            search_catalog: vi.fn(async () => createUcpEnvelope("ok", { products: [] })),
+          },
+        },
+      },
+    );
+
+    const profileResponse = await app.request("https://marketplace.example/.well-known/ucp");
+    expect(profileResponse.status).toBe(200);
+    await expect(profileResponse.json()).resolves.toMatchObject({
+      ucp: {
+        services: {
+          "dev.ucp.shopping": [
+            { transport: "rest", endpoint: "https://marketplace.example/ucp/v1" },
+            { transport: "mcp", endpoint: "https://marketplace.example/ucp/mcp" },
+          ],
+        },
+      },
+    });
+
+    const restResponse = await app.request("/ucp/v1/catalog/search", {
+      method: "POST",
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(restResponse.status).toBe(200);
+    await expect(restResponse.json()).resolves.toMatchObject({ products: [] });
+
+    const mcpResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "1", method: "tools/list" }),
+    });
+    expect(mcpResponse.status).toBe(200);
+    await expect(mcpResponse.json()).resolves.toMatchObject({
+      result: {
+        tools: [
+          { name: "search_catalog" },
+          { name: "lookup_catalog" },
+          { name: "get_product" },
+          { name: "create_checkout" },
+          { name: "get_checkout" },
+          { name: "update_checkout" },
+          { name: "complete_checkout" },
+          { name: "cancel_checkout" },
+        ],
+      },
+    });
+  });
+
+  it("wires Discovery-owned UCP catalog search handlers from runtime services", async () => {
+    const searchItems = vi.fn(async () => ({
+      items: [
+        {
+          catalog_item_id: "cat_1",
+          slug: "charizard-cat_1",
+          language_code: "en",
+          title_i18n: {},
+          title: "Charizard",
+          subtitle_i18n: {},
+          subtitle: null,
+          description_i18n: {},
+          description: "A card.",
+          blueprint_id: null,
+          blueprint_name: null,
+          status: "active",
+          category_names: [],
+          category_slugs: [],
+          tags: [],
+          image_urls: [],
+          market_summary: null,
+          updated_at: "2026-05-16T00:00:00.000Z",
+        },
+      ],
+      total: 1,
+      nextCursor: null,
+    }));
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+          discovery: {
+            items: {
+              search: {
+                searchItems,
+                rebuildSearchIndex: vi.fn(),
+                projectors: [],
+              },
+              detail: {
+                getItemDetail: vi.fn(),
+                projectors: [],
+              },
+              market: {},
+              projectors: [],
+            },
+          },
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      } as never,
+    );
+
+    const response = await app.request("/ucp/v1/catalog/search", {
+      method: "POST",
+      body: JSON.stringify({ query: "charizard" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard" }));
+    await expect(response.json()).resolves.toMatchObject({
+      ucp: { status: "ok" },
+      products: [{ id: "cat_1", title: "Charizard" }],
+    });
+  });
+
+  it("wires Checkout-owned UCP checkout handlers with platform actor context", async () => {
+    const createBuyNow = vi.fn(async () => ({ sessionId: "chk_1" as never }));
+    const getSession = vi.fn(async () => ({
+      session_id: "chk_1",
+      buyer_account_id: "acc_buyer",
+      source_type: "buy-now",
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      shipping_option: "standard",
+      shipping_address: null,
+      lines: [],
+      order_ids: [],
+      payment_id: null,
+      submitted_offer_id: null,
+      created_at: "2026-05-16T00:00:00.000Z",
+      updated_at: "2026-05-16T00:00:00.000Z",
+    }));
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+          checkout: {
+            sessions: {
+              commandHandler: vi.fn(),
+              createFromCart: vi.fn(),
+              createBuyNow,
+              createOfferIntent: vi.fn(),
+              selectShippingOption: vi.fn(),
+              selectOptimizationGoal: vi.fn(),
+              recordFulfillmentPreview: vi.fn(),
+              setShippingAddress: vi.fn(),
+              recordOrdersCreated: vi.fn(),
+              recordPaymentStarted: vi.fn(),
+              recordOfferSubmitted: vi.fn(),
+              getSession,
+              projectors: [],
+            },
+          },
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      } as never,
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "acc_buyer",
+          membershipId: "member_1",
+          roleKey: "buyer",
+          permissions: ["orders.view", "orders.manage"],
+        })),
+      },
+    );
+    const body = JSON.stringify({
+      source: {
+        type: "buy-now",
+        listing_id: "lst_1",
+        catalog_item_id: "cat_1",
+        product_id: "cat_1::form:raw",
+        title: "Charizard",
+        quantity: 1,
+      },
+    });
+
+    const response = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body,
+      headers: signedUcpHeaders(body),
+    });
+
+    expect(response.status).toBe(200);
+    expect(createBuyNow).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc_buyer" }),
+      expect.objectContaining({
+        audit: expect.objectContaining({ forAccountId: "acc_buyer" }),
+      }),
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      ucp: { status: "ok" },
+      checkout: { id: "chk_1" },
     });
   });
 

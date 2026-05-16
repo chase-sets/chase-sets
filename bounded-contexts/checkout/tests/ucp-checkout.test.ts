@@ -1,0 +1,190 @@
+import { describe, expect, it, vi } from "vitest";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import { createCheckoutUcpHandlers } from "../support/ucp-support/checkout";
+import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
+import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
+
+const actor: ResolvedActor = {
+  sessionId: "ses_1",
+  tenantId: "tnt_identity",
+  userId: "usr_1",
+  accountId: "acc_buyer",
+  membershipId: "mbr_1",
+  roleKey: "owner",
+  permissions: ["orders.view", "orders.manage"],
+};
+
+const context: EventStoreContext = {
+  tenantId: "tnt_identity" as never,
+  audit: {
+    performedByUserId: "usr_1" as never,
+    forAccountId: "acc_buyer" as never,
+  },
+};
+
+function session(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRow {
+  return {
+    session_id: "chk_1",
+    buyer_account_id: "acc_buyer",
+    source_type: "buy-now",
+    optimization_goal: "lowest-total",
+    fulfillment_preview_revision: null,
+    shipping_option: "standard",
+    shipping_address: null,
+    lines: [
+      {
+        listingId: "lst_1",
+        cartLineId: null,
+        catalogItemId: "cat_1",
+        productId: "cat_1::form:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: "Raw",
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_1",
+        sellerPreferenceId: null,
+        availabilityState: "available",
+      },
+    ],
+    order_ids: [],
+    payment_id: null,
+    submitted_offer_id: null,
+    created_at: "2026-05-16T00:00:00.000Z",
+    updated_at: "2026-05-16T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function createSessions(
+  overrides: Partial<CheckoutSessionServices> = {},
+): CheckoutSessionServices {
+  return {
+    commandHandler: vi.fn() as never,
+    createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
+    createBuyNow: vi.fn(async () => ({ sessionId: "chk_1" as never })),
+    createOfferIntent: vi.fn(async () => ({ sessionId: "chk_offer" as never })),
+    selectShippingOption: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    selectOptimizationGoal: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    recordFulfillmentPreview: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    recordOrdersCreated: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    recordPaymentStarted: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    recordOfferSubmitted: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    getSession: vi.fn(async () => session()),
+    projectors: [],
+    ...overrides,
+  };
+}
+
+function input(
+  args: Readonly<Record<string, unknown>>,
+  params: Readonly<Record<string, string>> = {},
+  resolvedActor: ResolvedActor | null = actor,
+): UcpOperationHandlerInput {
+  return {
+    actor: resolvedActor,
+    context: resolvedActor ? context : null,
+    arguments: args,
+    params,
+    request: new Request("https://marketplace.example/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: JSON.stringify(args),
+      headers: { "Content-Type": "application/json" },
+    }),
+  };
+}
+
+describe("checkout UCP handlers", () => {
+  it("creates buy-now checkout through Checkout-owned session services", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+
+    const response = await handlers.restHandlers.create_checkout(input({
+      source: {
+        type: "buy-now",
+        listing_id: "lst_1",
+        catalog_item_id: "cat_1",
+        product_id: "cat_1::form:raw",
+        title: "Charizard",
+        selected_options: [{ dimension_id: "form", option_id: "raw" }],
+        quantity: 2,
+      },
+      shipping_option: "priority",
+    }));
+
+    expect(response.ucp.status).toBe("ok");
+    expect(sessions.createBuyNow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::form:raw",
+        quantity: 2,
+        shippingOption: "priority",
+      }),
+      context,
+    );
+  });
+
+  it("updates shipping details on an existing checkout session", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+
+    const response = await handlers.restHandlers.update_checkout(input({
+      shipping_option: "expedited",
+      shipping_address: {
+        name: "Jane Smith",
+        line1: "100 Market Street",
+        city: "Chicago",
+        state: "IL",
+        postal_code: "60601",
+        country: "US",
+      },
+    }, { id: "chk_1" }));
+
+    expect(response.ucp.status).toBe("ok");
+    expect(sessions.selectShippingOption).toHaveBeenCalledWith(
+      {
+        sessionId: "chk_1",
+        accountId: "acc_buyer",
+        shippingOption: "expedited",
+      },
+      context,
+    );
+    expect(sessions.setShippingAddress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "chk_1",
+        accountId: "acc_buyer",
+      }),
+      context,
+    );
+  });
+
+  it("requires trusted UI instead of completing payment from an agent call", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+
+    const response = await handlers.restHandlers.complete_checkout(input({}, { id: "chk_1" }));
+
+    expect(response.ucp.status).toBe("requires_action");
+    expect(response.messages).toEqual([
+      expect.objectContaining({ code: "trusted_ui_required" }),
+    ]);
+  });
+
+  it("requires a linked buyer account", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+
+    const response = await handlers.restHandlers.create_checkout(input({}, {}, null));
+
+    expect(response.ucp.status).toBe("error");
+    expect(response.messages).toEqual([
+      expect.objectContaining({ code: "authentication_required" }),
+    ]);
+  });
+});

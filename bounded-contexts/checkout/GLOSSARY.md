@@ -25,3 +25,12 @@ Notes:
 ## Selected Shipping Option
 
 A **Selected Shipping Option** is the buyer's chosen shipping preference for the checkout session before orders are created.
+
+## Trusted Checkout Handoff
+
+A **Trusted Checkout Handoff** is a Checkout-owned continuation URL that lets an agent-prepared checkout session move into Chase Sets UI for buyer review and order placement.
+
+Notes:
+
+- Trusted Checkout Handoff is required for UCP checkout completion unless a supported AP2 Mandate is verified.
+- Checkout remains the owner of session state, source intent, shipping selection, and orchestration into Ordering and Payments.

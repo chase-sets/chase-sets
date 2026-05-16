@@ -39,3 +39,21 @@ Notes:
 - Payments owns buyer-paid share refund execution.
 - Ordering owns the order cancellation fact.
 - Allocation must be replay-safe so a cancellation cannot create duplicate refunds.
+
+## Payment Handler
+
+A **Payment Handler** is a UCP-facing declaration of how an external platform can collect or provide a payment instrument that Payments can process.
+
+Notes:
+
+- Payments owns payment-handler declaration, instrument validation, and provider references.
+- Payment Handlers must keep Chase Sets out of raw card handling unless a future provider contract explicitly changes that scope.
+
+## AP2 Mandate
+
+An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.
+
+Notes:
+
+- AP2 Mandates are not accepted for headless UCP checkout completion until Payments owns a durable verification model.
+- Without a verified AP2 Mandate, UCP checkout completion must use Trusted Checkout Handoff.
