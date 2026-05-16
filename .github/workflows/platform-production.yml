@@ -109,8 +109,8 @@ jobs:
       TF_VAR_environment: staging
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
-      TF_VAR_stripe_connect_return_url: https://marketplace-staging.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace-staging.chasesets.com/account/payouts/setup
+      TF_VAR_stripe_connect_return_url: https://marketplace.staging.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace.staging.chasesets.com/account/payouts/setup
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:

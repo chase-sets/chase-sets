@@ -407,7 +407,7 @@ describe("marketplace SSR routes", () => {
     vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "false");
 
     const robots = robotsLoader({
-      request: new Request("https://marketplace-staging.chasesets.com/robots.txt"),
+      request: new Request("https://marketplace.staging.chasesets.com/robots.txt"),
       params: {},
       context: undefined,
     } as never);

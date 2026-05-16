@@ -122,9 +122,9 @@ describe("platform worker config", () => {
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
     process.env.STRIPE_CONNECT_RETURN_URL =
-      "https://marketplace-staging.chasesets.com/account/payouts";
+      "https://marketplace.staging.chasesets.com/account/payouts";
     process.env.STRIPE_CONNECT_REFRESH_URL =
-      "https://marketplace-staging.chasesets.com/account/payouts/setup";
+      "https://marketplace.staging.chasesets.com/account/payouts/setup";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.EASYPOST_MODE = "test";
 
@@ -133,9 +133,9 @@ describe("platform worker config", () => {
     expect(config.paymentProcessor).toMatchObject({ kind: "stripe" });
     expect(config.moneyMovement).toMatchObject({
       kind: "stripe",
-      onboardingReturnUrl: "https://marketplace-staging.chasesets.com/account/payouts",
+      onboardingReturnUrl: "https://marketplace.staging.chasesets.com/account/payouts",
       onboardingRefreshUrl:
-        "https://marketplace-staging.chasesets.com/account/payouts/setup",
+        "https://marketplace.staging.chasesets.com/account/payouts/setup",
     });
     expect(config.postage).toEqual({
       kind: "easypost",

@@ -10,18 +10,25 @@ locals {
     var.root_domain,
     "www.${var.root_domain}",
     ] : [
-    "landing-${local.environment_slug}.${var.root_domain}",
+    local.is_staging ? "${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}",
   ]
 
-  legacy_public_redirect_domains = []
-
-  marketplace_domains = local.is_non_production ? [
-    "marketplace-${local.environment_slug}.${var.root_domain}",
+  legacy_public_redirect_domains = local.is_staging ? [
+    "landing-${var.environment}.${var.root_domain}",
   ] : []
 
-  admin_domain       = local.is_production ? "admin.${var.root_domain}" : "admin-${local.environment_slug}.${var.root_domain}"
+  marketplace_domains = local.is_non_production ? [
+    local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
+  ] : []
+
+  admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]
   marketplace_domain = length(local.marketplace_domains) > 0 ? local.marketplace_domains[0] : null
+  legacy_domain_redirects = local.is_staging ? {
+    "landing-${var.environment}.${var.root_domain}"     = local.landing_domain
+    "marketplace-${var.environment}.${var.root_domain}" = local.marketplace_domain
+    "admin-${var.environment}.${var.root_domain}"       = local.admin_domain
+  } : {}
   api_component_name = local.is_non_production ? "platform-api" : "admin-support-api"
   api_private_url    = local.is_non_production ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
   marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
@@ -98,7 +105,7 @@ locals {
     if context_name != "control"
   }
 
-  all_public_hostnames = concat(local.public_domains, local.legacy_public_redirect_domains, local.marketplace_domains)
+  all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.marketplace_domains)
 
   public_web_instances = local.is_production ? 2 : 1
   api_instances        = local.is_production ? 2 : 1
