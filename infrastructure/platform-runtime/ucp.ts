@@ -82,7 +82,7 @@ function requestOrigin(request: Request) {
   const url = new URL(request.url);
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const host = forwardedHost || request.headers.get("host") || url.host;
+  const host = forwardedHost || request.headers.get("host")?.trim() || url.host;
 
   const protocol =
     forwardedProto ||
@@ -99,6 +99,7 @@ function isPublicHostname(host: string) {
     hostname === "127.0.0.1" ||
     hostname === "[::1]" ||
     hostname === "::1" ||
+    hostname.endsWith(".localhost") ||
     hostname.endsWith(".local")
   ) {
     return false;
