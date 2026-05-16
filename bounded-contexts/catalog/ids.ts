@@ -14,6 +14,10 @@ export type BlueprintId = TypedUlid<"bpr">;
 
 export type CategoryId = TypedUlid<"ctg">;
 
+export type ReferenceTypeId = TypedUlid<"rft">;
+
+export type ReferenceRecordId = TypedUlid<"ref">;
+
 export type SelectedOptionEntry = Readonly<{
   dimensionId: DimensionId;
   optionId: OptionId;

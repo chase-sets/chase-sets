@@ -31,4 +31,53 @@ describe("CatalogItemDetailPage", () => {
     expect(html).toContain("Japanese");
     expect(html).not.toContain(">ja<");
   });
+
+  it("renders rich reference field values with attached facts", () => {
+    const html = renderToString(
+      <CatalogItemDetailPage
+        id="cat_1"
+        initialData={{
+          ...catalogItem,
+          field_values: [
+            {
+              fieldId: "fld_set",
+              fieldName: "Set",
+              value: { referenceId: "ref_ascended_heroes" },
+              reference: {
+                referenceId: "ref_ascended_heroes",
+                typeKey: "set",
+                key: "ascended-heroes",
+                name: "Ascended Heroes",
+                attributes: {
+                  "card-count": 217,
+                  "release-date": "2026-01-30",
+                  abbreviation: "ASC",
+                  "source-id": "me02.5",
+                },
+                relationships: [
+                  {
+                    relationshipType: "part-of-series",
+                    referenceId: "ref_mega_evolution",
+                    reference: {
+                      referenceId: "ref_mega_evolution",
+                      typeKey: "series",
+                      key: "mega-evolution",
+                      name: "Mega Evolution",
+                      status: "active",
+                    },
+                  },
+                ],
+                status: "active",
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(html).toContain("Ascended Heroes (set)");
+    expect(html).toContain("card-count: 217");
+    expect(html).toContain("release-date: 2026-01-30");
+    expect(html).toContain("part-of-series: Mega Evolution");
+  });
 });

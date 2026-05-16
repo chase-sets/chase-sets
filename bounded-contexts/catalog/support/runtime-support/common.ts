@@ -27,7 +27,14 @@ export type CatalogItemStatus = "draft" | "active" | "retired" | "archived";
 
 export type OptionStatus = "active" | "deprecated";
 
-export type FieldValueType = "string" | "number" | "boolean" | "date" | "json" | "localized_text";
+export type FieldValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "date"
+  | "json"
+  | "localized_text"
+  | "reference";
 
 export type LocalizedText = Readonly<{
   locale: string;

@@ -17,8 +17,10 @@ Catalog authoring uses these supporting concepts:
 - `Field`
 - `Component`
 - `Category`
+- `Reference Type`
+- `Reference Record`
 
-Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity and product resolution. `Blueprint`, `Field`, `Component`, and `Category` define how that catalog truth is authored, described, composed, and organized.
+Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity and product resolution. `Blueprint`, `Field`, `Component`, `Category`, `Reference Type`, and `Reference Record` define how that catalog truth is authored, described, composed, enriched, and organized.
 
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
@@ -31,6 +33,7 @@ Provider-fed catalog data is documented in [Source Observation Integration](./do
 - Product schema snapshots used by downstream contexts
 - Field values and category membership for Catalog Items
 - Provider Source Observations before review and promotion into canonical Catalog Items
+- Reference Types and Reference Records that provide rich reusable facts for item fields
 
 ## Does Not Own
 
@@ -54,6 +57,8 @@ Owns one axis of variation and its allowed `Option` set.
 
 Owns one descriptive attribute definition. Fields describe Catalog Items and never create Products.
 
+Field values may be simple values or reference-shaped values. A reference-shaped value points at a Catalog Reference Record when the selected value needs its own metadata, relationships, and lifecycle. For example, a card's Set field can point at the `Ascended Heroes` Reference Record, and that record can carry card count, release date, abbreviation, source ID, and its relationship to the `Mega Evolution` Series.
+
 ### Component
 
 Owns a reusable bundle of field and dimension rules used to compose Blueprints.
@@ -69,6 +74,18 @@ Owns the structural definition used to author Catalog Items and resolve Products
 ### Category
 
 Owns consumer-facing grouping metadata. Categories never participate in product identity.
+
+### Reference Type
+
+Owns the reusable kind of rich descriptive data, such as `Set`, `Series`, or `Product Line`.
+
+Reference Types do not create Products and do not replace Dimensions. They define the natural-language bucket for Reference Records that Catalog Items may point at through Field values.
+
+### Reference Record
+
+Owns one reusable rich value under a Reference Type, such as `Ascended Heroes` under `Set` or `Mega Evolution` under `Series`.
+
+Reference Records can carry attributes and relationships to other Reference Records. A Catalog Item that points at a Reference Record receives that rich information in item detail read models without duplicating those facts onto every item.
 
 ### Catalog Item
 
@@ -149,3 +166,4 @@ Those events should carry the Catalog Item snapshot plus the `product_schema` do
 3. Options belong to exactly one Dimension.
 4. Published identity-bearing structure is append-only.
 5. Downstream contexts must reference `catalog_item_id` plus `product_id`, never labels.
+6. Reference Records enrich descriptive item information but do not change `product_id`.

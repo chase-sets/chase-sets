@@ -64,6 +64,23 @@ interface FieldValue {
   fieldId: string;
   fieldName: string;
   value: unknown;
+  reference?: {
+    referenceId: string;
+    typeKey: string;
+    key: string;
+    name: string;
+    attributes: unknown;
+    relationships: Array<{
+      relationshipType: string;
+      referenceId: string;
+      reference?: {
+        name: string;
+        typeKey: string;
+        status: string;
+      };
+    }>;
+    status: string;
+  } | null;
 }
 
 interface CategoryRef {
@@ -90,6 +107,48 @@ function formatFieldValue(value: unknown): string {
   }
 
   return JSON.stringify(value);
+}
+
+function formatFieldValueRow(row: FieldValue): string {
+  if (!row.reference) {
+    return formatFieldValue(row.value);
+  }
+
+  const attributeText = isRecord(row.reference.attributes)
+    ? Object.entries(row.reference.attributes)
+        .map(([key, value]) => `${key}: ${formatFieldValue(value)}`)
+        .join(", ")
+    : "";
+  const relationshipText = row.reference.relationships
+    .map((relationship) => {
+      const target = relationship.reference?.name ?? relationship.referenceId;
+
+      return `${relationship.relationshipType}: ${target}`;
+    })
+    .join(", ");
+  const details = [attributeText, relationshipText].filter(Boolean).join("; ");
+
+  return details.length > 0
+    ? `${row.reference.name} (${row.reference.typeKey}) - ${details}`
+    : `${row.reference.name} (${row.reference.typeKey})`;
+}
+
+function parseFieldValueInput(value: string): unknown {
+  const trimmed = value.trim();
+
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function CatalogItemDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useCatalogItem>[1] }) {
@@ -168,7 +227,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   }
 
   async function handleSetFieldValue() {
-    await apiSetFieldValue(id, fieldId, fieldValue);
+    await apiSetFieldValue(id, fieldId, parseFieldValueInput(fieldValue));
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.value.set"), "success");
     setShowSetField(false);
     setFieldId("");
@@ -289,7 +348,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
 
   const fieldValueColumns: DataColumn<FieldValue>[] = [
     { key: "fieldId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field"), cell: (row) => row.fieldName },
-    { key: "value", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.value"), cell: (row) => formatFieldValue(row.value) },
+    { key: "value", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.value"), cell: (row) => formatFieldValueRow(row) },
     {
       key: "actions",
       header: "",

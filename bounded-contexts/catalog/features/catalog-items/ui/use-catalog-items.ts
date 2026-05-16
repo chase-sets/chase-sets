@@ -36,7 +36,7 @@ export function assignBlueprint(id: string, blueprintId: string) {
   return api.assignBlueprint<CommandResponse>(id, blueprintId);
 }
 
-export function setFieldValue(id: string, fieldId: string, value: string) {
+export function setFieldValue(id: string, fieldId: string, value: unknown) {
   return api.setFieldValue<CommandResponse>(id, fieldId, value);
 }
 

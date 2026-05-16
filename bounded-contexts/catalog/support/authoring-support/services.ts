@@ -11,6 +11,7 @@ import { createCategoryRuntime } from "../../features/categories/api/runtime";
 import { createComponentRuntime } from "../../features/components/api/runtime";
 import { createDimensionRuntime } from "../../features/dimensions/api/runtime";
 import { createFieldRuntime } from "../../features/fields/api/runtime";
+import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 
@@ -21,6 +22,7 @@ export type CatalogHostPorts = Readonly<{
 export type CatalogServices = Readonly<{
   dimensions: ReturnType<typeof createDimensionRuntime>;
   fields: ReturnType<typeof createFieldRuntime>;
+  referenceData: ReturnType<typeof createReferenceDataRuntime>;
   components: ReturnType<typeof createComponentRuntime>;
   blueprints: ReturnType<typeof createBlueprintRuntime>;
   categories: ReturnType<typeof createCategoryRuntime>;
@@ -47,6 +49,7 @@ export function createCatalogServices(
 
   const dimensions = createDimensionRuntime(deps);
   const fields = createFieldRuntime(deps);
+  const referenceData = createReferenceDataRuntime(deps);
   const components = createComponentRuntime(deps);
   const blueprints = createBlueprintRuntime(deps);
   const categories = createCategoryRuntime(deps);
@@ -56,6 +59,7 @@ export function createCatalogServices(
   return {
     dimensions,
     fields,
+    referenceData,
     components,
     blueprints,
     categories,
@@ -64,6 +68,7 @@ export function createCatalogServices(
     projectors: [
       ...dimensions.projectors,
       ...fields.projectors,
+      ...referenceData.projectors,
       ...components.projectors,
       ...blueprints.projectors,
       ...categories.projectors,
