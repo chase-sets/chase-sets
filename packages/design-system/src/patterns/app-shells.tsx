@@ -222,7 +222,7 @@ export function MarketplaceShell({
         actions={actions}
         width={width}
       />
-      <main id="main-content">
+      <main id="main-content" className="relative z-0">
         <Page width={width}>
           {hero}
           {sidebar ? (

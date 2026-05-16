@@ -1120,7 +1120,10 @@ describe("design system", () => {
       </ChaseRoot>
     );
 
-    expect(screen.getByRole("main").getAttribute("id")).toBe("main-content");
+    const main = screen.getByRole("main");
+
+    expect(main.getAttribute("id")).toBe("main-content");
+    expect(main.getAttribute("class")).toContain("relative z-0");
     expect(
       screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")
     ).toBe("#main-content");
