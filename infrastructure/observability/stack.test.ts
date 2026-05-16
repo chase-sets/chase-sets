@@ -33,7 +33,11 @@ describe("observability stack contracts", () => {
       .toContain("Tempo");
     expect(readStackFile("grafana/dashboards/platform-api-overview.json"))
       .toContain("Platform API Overview");
+    expect(readStackFile("grafana/dashboards/platform-api-overview.json"))
+      .toContain("UCP operation rate");
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml"))
       .toContain("Platform API elevated 5xx rate");
+    expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml"))
+      .toContain("UCP signature verification failures");
   });
 });

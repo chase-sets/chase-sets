@@ -141,6 +141,66 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("creates agentic PaymentIntents with a Stripe shared payment token", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: "pi_agentic",
+          client_secret: "pi_agentic_secret",
+          status: "succeeded",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const payment = await gateway.createAgenticPaymentSession?.({
+      paymentId: "pay_agentic" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_agentic" as never],
+      amount: "20.00",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Agentic payment",
+      idempotencyKey: "idem_agentic",
+      agenticPayment: {
+        kind: "stripe-shared-payment-token",
+        sharedPaymentGrantedToken: "spt_123",
+        ap2CheckoutMandateId: "ap2_checkout_1",
+        ap2PaymentMandateId: "ap2_payment_1",
+      },
+    });
+
+    expect(payment?.processorPaymentKind).toBe("payment-intent");
+    expect(payment?.processorPaymentReference).toBe("pi_agentic");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://stripe.test/v1/payment_intents",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Headers).get("Stripe-Version")).toBe("2026-02-25.clover");
+    expect((init.headers as Headers).get("Idempotency-Key")).toBe("idem_agentic");
+    expect(formSnapshot(init.body)).toMatchObject({
+      amount: "2000",
+      currency: "usd",
+      shared_payment_granted_token: "spt_123",
+      confirm: "true",
+      "metadata[payment_id]": "pay_agentic",
+      "metadata[order_ids]": "ord_agentic",
+      "metadata[ucp_payment_handler]": "stripe-shared-payment-token",
+      "metadata[ap2_checkout_mandate_id]": "ap2_checkout_1",
+      "metadata[ap2_payment_mandate_id]": "ap2_payment_1",
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it("parses signed Stripe checkout failure webhooks into provider-neutral events", async () => {
     const gateway = createStripePaymentProcessorGateway({
       secretKey: "sk_test",

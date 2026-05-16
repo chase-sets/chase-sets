@@ -86,6 +86,10 @@ function resetConfigEnv() {
   delete process.env.CATALOG_ASSET_S3_ACCESS_KEY_ID;
   delete process.env.CATALOG_ASSET_S3_SECRET_ACCESS_KEY;
   delete process.env.CATALOG_ASSET_S3_FORCE_PATH_STYLE;
+  delete process.env.UCP_BUSINESS_SIGNING_PRIVATE_JWK;
+  delete process.env.UCP_BUSINESS_SIGNING_KEY_ID;
+  delete process.env.UCP_BUSINESS_SIGNING_ALG;
+  delete process.env.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS;
 }
 
 beforeEach(resetConfigEnv);
@@ -355,6 +359,30 @@ describe("platform api config", () => {
     expect(loadConfig().paymentProcessor).toMatchObject({
       kind: "stripe",
       checkoutUiMode: "hosted",
+    });
+  });
+
+  it("loads UCP business signing keys from environment variables", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.UCP_BUSINESS_SIGNING_KEY_ID = "merchant-2026";
+    process.env.UCP_BUSINESS_SIGNING_ALG = "ES256";
+    process.env.UCP_BUSINESS_SIGNING_PRIVATE_JWK = JSON.stringify({
+      kty: "EC",
+      crv: "P-256",
+      x: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      y: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      d: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    });
+    process.env.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS = JSON.stringify([
+      { kty: "EC", kid: "merchant-2025", crv: "P-256", x: "x", y: "y" },
+    ]);
+
+    expect(loadConfig().ucpBusinessSigningKeys).toMatchObject({
+      current: {
+        kid: "merchant-2026",
+        alg: "ES256",
+      },
+      previousPublicJwks: [{ kid: "merchant-2025" }],
     });
   });
 

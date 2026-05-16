@@ -17,6 +17,7 @@ export type PaymentProcessorPublicConfig = Readonly<{
   confirmationExperience: "processor-managed-form" | "processor-hosted-page";
   dynamicPaymentMethods: boolean;
   sensitivePaymentDetailsHandledByProcessor: boolean;
+  agenticPaymentHandlers?: readonly AgenticPaymentHandlerDeclaration[];
 }>;
 
 export type CreateProcessorPaymentInput = Readonly<{
@@ -33,6 +34,23 @@ export type CreateProcessorPaymentInput = Readonly<{
     ipAddress?: string | null;
     userAgent?: string | null;
   }> | null;
+}>;
+
+export type AgenticPaymentHandlerDeclaration = Readonly<{
+  id: "stripe-shared-payment-token";
+  provider: "stripe";
+  type: "shared_payment_token";
+  requiresAp2Mandate: true;
+  confirmationExperience: "server-confirmed-payment-intent";
+}>;
+
+export type AgenticProcessorPaymentInput = CreateProcessorPaymentInput & Readonly<{
+  agenticPayment: Readonly<{
+    kind: "stripe-shared-payment-token";
+    sharedPaymentGrantedToken: string;
+    ap2CheckoutMandateId?: string | null;
+    ap2PaymentMandateId?: string | null;
+  }>;
 }>;
 
 export type CreatedProcessorPayment = Readonly<{
@@ -91,6 +109,9 @@ export interface PaymentProcessorGateway {
    */
   createPaymentSession(
     input: CreateProcessorPaymentInput,
+  ): Promise<CreatedProcessorPayment>;
+  createAgenticPaymentSession?(
+    input: AgenticProcessorPaymentInput,
   ): Promise<CreatedProcessorPayment>;
   createRefund(
     input: CreateProcessorRefundInput,

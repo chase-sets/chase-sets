@@ -1,6 +1,7 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
+import type { AgenticProcessorPaymentInput } from "@chase-sets/payment-processing";
 import type { buildPaymentsApi } from "./api";
 import type {
   PaymentsCheckoutStatus,
@@ -22,6 +23,7 @@ export type CreateAccountPaymentRequest = Readonly<{
   paymentMethodCategory?: string | null;
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
   returnUrlPath?: string | null;
+  agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
 }>;
 
 function paymentsApiErrorMessage(status: number, body: unknown) {

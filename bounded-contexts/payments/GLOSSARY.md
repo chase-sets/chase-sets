@@ -49,11 +49,20 @@ Notes:
 - Payments owns payment-handler declaration, instrument validation, and provider references.
 - Payment Handlers must keep Chase Sets out of raw card handling unless a future provider contract explicitly changes that scope.
 
+## Shared Payment Token
+
+A **Shared Payment Token** is a provider-scoped payment credential grant from an agent that Payments can submit to a payment processor without receiving raw card credentials.
+
+Notes:
+
+- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff and require AP2 verification before headless UCP completion.
+- Payments stores the resulting processor payment reference and metadata, not the token as durable customer payment data.
+
 ## AP2 Mandate
 
 An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.
 
 Notes:
 
-- AP2 Mandates are not accepted for headless UCP checkout completion until Payments owns a durable verification model.
+- AP2 Mandates are accepted for headless UCP checkout completion only when a production verifier is configured and a supported payment handler is present.
 - Without a verified AP2 Mandate, UCP checkout completion must use Trusted Checkout Handoff.

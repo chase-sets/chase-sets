@@ -16,7 +16,7 @@ import {
 import { module as identityModule } from "@chase-sets/identity";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
-import { createPaymentsUcpHandoff } from "@chase-sets/payments/server";
+import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import {
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
@@ -48,6 +48,7 @@ import {
   createUcpMcpRoutes,
   createUcpProfileRoutes,
   createUcpRestRoutes,
+  addUcpAp2MerchantAuthorization,
   type CreateUcpRoutesOptions,
 } from "@chase-sets/platform-runtime/ucp";
 import {
@@ -92,6 +93,7 @@ export type BuildPlatformApiOptions = Readonly<{
   writeConsistencyDrainEnabled?: boolean;
   mcp?: CreateMcpRoutesOptions;
   ucp?: CreateUcpRoutesOptions;
+  ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
 }>;
 
@@ -181,10 +183,20 @@ export function buildPlatformApiApp(
     | { publicConfig?: Parameters<typeof createPaymentsUcpHandoff>[0] }
     | undefined;
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
-    ? createPaymentsUcpHandoff(paymentsServices.publicConfig)
+    ? createPaymentsUcpHandoff(paymentsServices.publicConfig, {
+        ap2Verifier: options.ucpAp2MandateVerifier,
+      })
     : undefined;
   const checkoutUcpHandlers = checkoutServices?.sessions
-    ? createCheckoutUcpHandlers(checkoutServices, { paymentHandoff })
+    ? createCheckoutUcpHandlers(checkoutServices, {
+        paymentHandoff,
+        signCheckout: options.ucp?.businessSigningKeys
+          ? (checkout) => addUcpAp2MerchantAuthorization(
+              checkout,
+              options.ucp?.businessSigningKeys,
+            )
+          : undefined,
+      })
     : undefined;
   const orderingServices = runtime.services.ordering as
     | Parameters<typeof createOrderingUcpHandlers>[0]
@@ -244,7 +256,7 @@ export function buildPlatformApiApp(
   app.use("/mcp", platformActorMiddleware);
   app.use("/mcp/*", platformActorMiddleware);
   app.route("/mcp", createMcpRoutes(options.mcp));
-  app.route("/.well-known", createUcpProfileRoutes());
+  app.route("/.well-known", createUcpProfileRoutes(options.ucp));
   app.route("/.well-known", createUcpOAuthMetadataRoutes());
   app.use("/ucp/oauth/*", platformActorMiddleware);
   app.route("/ucp/oauth", createUcpOAuthRoutes({

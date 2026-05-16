@@ -37,11 +37,13 @@ export type UcpCapabilityDeclaration = Readonly<{
 }>;
 
 export type UcpBusinessProfile = Readonly<{
+  signing_keys?: readonly JsonWebKey[];
   ucp: Readonly<{
     version: string;
     services: Readonly<Record<string, readonly UcpServiceDeclaration[]>>;
     capabilities: Readonly<Record<string, readonly UcpCapabilityDeclaration[]>>;
     supported_versions: Readonly<Record<string, string>>;
+    signing_keys?: readonly JsonWebKey[];
   }>;
 }>;
 
@@ -141,11 +143,17 @@ export function normalizeUcpOrigin(origin: string) {
   return origin.replace(/\/+$/, "");
 }
 
-export function buildUcpBusinessProfile(origin: string): UcpBusinessProfile {
+export function buildUcpBusinessProfile(
+  origin: string,
+  options: Readonly<{ signingKeys?: readonly JsonWebKey[] }> = {},
+): UcpBusinessProfile {
   const baseUrl = normalizeUcpOrigin(origin);
+  const signingKeys = options.signingKeys?.length ? options.signingKeys : undefined;
   return {
+    ...(signingKeys ? { signing_keys: signingKeys } : {}),
     ucp: {
       version: UCP_VERSION,
+      ...(signingKeys ? { signing_keys: signingKeys } : {}),
       services: {
         [UCP_SHOPPING_SERVICE]: [
           {
@@ -186,7 +194,8 @@ export function buildUcpBusinessProfile(origin: string): UcpBusinessProfile {
         ],
         [UCP_CAPABILITIES.ap2Mandate]: [
           capability("ap2-mandates", "shopping/ap2_mandate.json", {
-            status: "guarded_scaffold",
+            status: signingKeys ? "merchant_authorization_available" : "guarded_scaffold",
+            business_response_signing: signingKeys ? "enabled" : "not-configured",
             headless_completion_enabled: false,
           }),
         ],

@@ -101,6 +101,12 @@ const realtimeReadHubCounter = meter.createCounter("chase_sets_realtime_read_hub
 const realtimeTopicLag = meter.createHistogram("chase_sets_realtime_topic_lag", {
   unit: "{message}",
 });
+const ucpOperationCounter = meter.createCounter("chase_sets_ucp_operations_total");
+const ucpSignedWriteRejectedCounter = meter.createCounter("chase_sets_ucp_signed_write_rejected_total");
+const ucpSignatureVerificationFailedCounter = meter.createCounter(
+  "chase_sets_ucp_signature_verification_failed_total",
+);
+const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_total");
 
 let runtime: ObservabilityRuntime | null = null;
 
@@ -507,6 +513,64 @@ export function recordRealtimeReadHub(event: Readonly<{
   });
 }
 
+export function recordUcpOperationCompleted(event: Readonly<{
+  transport: string;
+  operation: string;
+  status: string;
+}>): void {
+  ucpOperationCounter.add(1, {
+    transport: event.transport,
+    operation: event.operation,
+    status: event.status,
+  });
+}
+
+export function recordUcpSignedWriteRejected(event: Readonly<{
+  transport: string;
+  operation: string;
+  reason: string;
+}>): void {
+  ucpSignedWriteRejectedCounter.add(1, {
+    transport: event.transport,
+    operation: event.operation,
+    reason: normalizeReason(event.reason),
+  });
+}
+
+export function recordUcpSignatureVerificationFailed(event: Readonly<{
+  transport: string;
+  operation: string;
+  reason: string;
+}>): void {
+  ucpSignatureVerificationFailedCounter.add(1, {
+    transport: event.transport,
+    operation: event.operation,
+    reason: normalizeReason(event.reason),
+  });
+}
+
+export function recordUcpIdempotencyReplayed(event: Readonly<{
+  transport: string;
+  operation: string;
+}>): void {
+  ucpIdempotencyCounter.add(1, {
+    transport: event.transport,
+    operation: event.operation,
+    result: "replayed",
+  });
+}
+
+export function recordUcpIdempotencyConflict(event: Readonly<{
+  transport: string;
+  operation: string;
+}>): void {
+  ucpIdempotencyCounter.add(1, {
+    transport: event.transport,
+    operation: event.operation,
+    result: "conflict",
+  });
+}
+
 export function sanitizeLogFields(fields: LogFields): LogFields {
   return Object.fromEntries(
     Object.entries(fields).map(([key, value]) => [
@@ -652,6 +716,10 @@ function normalizeRouteTemplate(pathname: string): string {
 
 function toStatusClass(status: number): string {
   return `${Math.floor(status / 100)}xx`;
+}
+
+function normalizeReason(reason: string): string {
+  return reason.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "unknown";
 }
 
 function normalizeError(error: unknown): Error {

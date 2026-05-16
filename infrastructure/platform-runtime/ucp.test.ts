@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/ucp";
 import {
   createPostgresUcpIdempotencyStore,
+  addUcpAp2MerchantAuthorization,
   createUcpMcpRoutes,
   createUcpProfileKeyResolver,
   createUcpProfileRoutes,
@@ -101,6 +102,53 @@ describe("UCP profile routes", () => {
           ],
         },
       },
+    });
+  });
+
+  it("publishes business signing keys and can add AP2 merchant authorization to checkout responses", async () => {
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const businessSigningKeys = {
+      current: {
+        kid: "merchant-2026",
+        alg: "ES256" as const,
+        privateJwk: privateKey.export({ format: "jwk" }),
+      },
+    };
+    const app = new Hono().route("/.well-known", createUcpProfileRoutes({
+      businessSigningKeys,
+    }));
+
+    const response = await app.request("https://marketplace.example/.well-known/ucp");
+    const profile = await response.json();
+    expect(profile).toMatchObject({
+      signing_keys: [
+        {
+          kid: "merchant-2026",
+          alg: "ES256",
+        },
+      ],
+      ucp: {
+        capabilities: {
+          "dev.ucp.shopping.ap2_mandate": [
+            {
+              config: {
+                business_response_signing: "enabled",
+              },
+            },
+          ],
+        },
+      },
+    });
+    expect(profile.signing_keys[0]).not.toHaveProperty("d");
+
+    const signed = addUcpAp2MerchantAuthorization({
+      id: "chk_1",
+      status: "started",
+      totals: [{ type: "total", amount: 1000 }],
+    }, businessSigningKeys);
+
+    expect(signed.ap2).toMatchObject({
+      merchant_authorization: expect.stringMatching(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$/),
     });
   });
 });
