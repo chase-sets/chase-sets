@@ -16,7 +16,10 @@ export default function IdentityAdminSignInRoute() {
     <SignInPage
       errorMessage={actionData && "error" in actionData ? actionData.error : null}
       notice={actionData && "status" in actionData ? actionData : null}
+      signInMethods={identityAdminAuthHostConfig.signInMethods}
+      allowManualMagicLinkTokenEntry={
+        identityAdminAuthHostConfig.allowManualMagicLinkTokenEntry
+      }
     />
   );
 }
-
