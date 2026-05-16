@@ -100,7 +100,7 @@ export function BulkActionBar({
           ? undefined
           : { duration: motionSettings.durations.base, ease: motionSettings.easing }
       }
-      className="modern-surface sticky bottom-20 z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
+      className="modern-surface sticky bottom-[calc(7rem+env(safe-area-inset-bottom))] z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
     >
       <div className="text-sm font-semibold text-foreground">
         {formatSelectedLabel(count)}

@@ -20,6 +20,8 @@ export type {
   Dimension,
   DimensionDetail,
   Field,
+  BulkSourceObservationPromotionOutcome,
+  BulkSourceObservationPromotionResult,
 } from "../../client";
 import { createCatalogApiClient } from "../../client";
 

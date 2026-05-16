@@ -573,6 +573,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async bulkPromoteSourceObservations<T>(observationIds: string[]): Promise<T> {
+      const response = await client["source-observations"]["bulk-promote"].$post({
+        json: { observationIds },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async promoteSourceObservation<T>(id: string): Promise<T> {
       const response = await client["source-observations"][":id"].promote.$post({
         param: { id },

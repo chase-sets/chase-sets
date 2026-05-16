@@ -28,3 +28,23 @@ export interface TcgdexSetImportResult {
   observed: number;
   observationIds: string[];
 }
+
+export type BulkSourceObservationPromotionStatus =
+  | "promoted"
+  | "skipped"
+  | "failed";
+
+export interface BulkSourceObservationPromotionOutcome {
+  observationId: string;
+  status: BulkSourceObservationPromotionStatus;
+  catalogItemId: string | null;
+  reason: string | null;
+}
+
+export interface BulkSourceObservationPromotionResult {
+  requested: number;
+  promoted: number;
+  skipped: number;
+  failed: number;
+  outcomes: BulkSourceObservationPromotionOutcome[];
+}

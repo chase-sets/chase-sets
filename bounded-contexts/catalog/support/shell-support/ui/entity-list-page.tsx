@@ -51,6 +51,10 @@ interface EntityListPageProps<T> {
   onStatusFilterChange?: (value: string) => void;
   statusOptions?: { label: string; value: string }[];
   extraFilters?: ReactNode;
+  selectedKeys?: Set<string>;
+  onSelectionChange?: (keys: Set<string>) => void;
+  isRowSelectable?: (row: T, index: number) => boolean;
+  bulkActionBar?: ReactNode;
   page?: number;
   pageSize?: number;
   onPageChange?: (page: number) => void;
@@ -73,6 +77,10 @@ export function EntityListPage<T>({
   onStatusFilterChange,
   statusOptions,
   extraFilters,
+  selectedKeys,
+  onSelectionChange,
+  isRowSelectable,
+  bulkActionBar,
   page = 0,
   pageSize = 50,
   onPageChange,
@@ -135,8 +143,12 @@ export function EntityListPage<T>({
               rows={items}
               columns={columnsWithView}
               getRowId={(row) => getRowId(row)}
+              selectedKeys={selectedKeys}
+              onSelectionChange={onSelectionChange}
+              isRowSelectable={isRowSelectable}
               emptyTitle={t("catalog.support.shellSupport.ui.entityListPage.no.title", { title: title.toLowerCase() })}
             />
+            {bulkActionBar}
             {showPagination && (
               <Inline gap={2} align="center">
                 <Button
