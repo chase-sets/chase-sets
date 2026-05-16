@@ -1,7 +1,7 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
-import type { CatalogItemDetail, CatalogItemListItem } from "./contracts";
+import type { BulkPublishPreview, BulkPublishResult, CatalogItemDetail, CatalogItemListItem } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 
 export type CatalogItemMetadataInput = {
@@ -56,6 +56,14 @@ export function publishCatalogItem(id: string, blueprintIsActive: boolean, requi
   return api.publishCatalogItem<CommandResponse>(id, blueprintIsActive, requiredFieldIds);
 }
 
+export function previewBulkPublishCatalogItems(selection: unknown) {
+  return api.previewBulkPublishCatalogItems<BulkPublishPreview>(selection);
+}
+
+export function confirmBulkPublishCatalogItems(itemIds: readonly string[]) {
+  return api.confirmBulkPublishCatalogItems<BulkPublishResult>(itemIds);
+}
+
 export function reviseMetadata(id: string, body: CatalogItemMetadataInput) {
   return api.reviseMetadata<CommandResponse>(id, body);
 }
@@ -101,6 +109,5 @@ export function unlinkExternalProductReference(
     externalKey,
   );
 }
-
 
 

@@ -10,6 +10,7 @@ export interface CatalogItemListItem {
   subtitle: string | null;
   blueprint: BlueprintRef | null;
   status: string;
+  source_providers: string[];
   tags: string[];
   updated_at: string;
 }
@@ -36,4 +37,35 @@ export interface CatalogItemDetail {
   tags: string[];
   image_urls: string[];
   updated_at: string;
+}
+
+export interface BulkPublishCandidate {
+  catalog_item_id: string;
+  title: string;
+  subtitle: string | null;
+  status: string;
+  blueprint_id: string | null;
+  blueprint_name: string | null;
+  source_providers: string[];
+  outcome: "ready" | "blocked" | "published" | "failed" | "skipped";
+  reason: string | null;
+  required_field_ids: string[];
+}
+
+export interface BulkPublishPreview {
+  mode: "ids" | "filter";
+  item_ids: string[];
+  total: number;
+  ready_count: number;
+  blocked_count: number;
+  candidates: BulkPublishCandidate[];
+}
+
+export interface BulkPublishResult {
+  item_ids: string[];
+  total: number;
+  published_count: number;
+  failed_count: number;
+  skipped_count: number;
+  candidates: BulkPublishCandidate[];
 }

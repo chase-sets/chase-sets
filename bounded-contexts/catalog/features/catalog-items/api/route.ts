@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { CatalogItemServices } from "./runtime";
+import type { BulkPublishSelection, CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
@@ -28,6 +28,19 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     });
 
     return c.json({ id: itemId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/bulk-publish/preview", async (c) => {
+    const body = await c.req.json();
+    const result = await services.previewBulkPublish(toBulkPublishSelection(body.selection));
+    return c.json(result);
+  });
+
+  app.post("/bulk-publish/confirm", async (c) => {
+    const body = await c.req.json();
+    const context = c.get("context");
+    const result = await services.publishBulk(toStringArray(body.itemIds), context);
+    return c.json(result);
   });
 
   app.post("/:id/blueprint", async (c) => {
@@ -250,8 +263,17 @@ export function catalogItemRoutes(services: CatalogItemServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset, blueprintId, tag, language } = c.req.query();
-    const result = await services.listCatalogItems({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, blueprintId, tag, language });
+    const { search, status, limit, offset, blueprintId, tag, language, source } = c.req.query();
+    const result = await services.listCatalogItems({
+      search,
+      status,
+      limit: Number(limit) || undefined,
+      offset: Number(offset) || undefined,
+      blueprintId,
+      tag,
+      language,
+      source,
+    });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
@@ -266,6 +288,44 @@ export function catalogItemRoutes(services: CatalogItemServices) {
   });
 
   return app;
+}
+
+function toBulkPublishSelection(value: unknown): BulkPublishSelection {
+  if (!value || typeof value !== "object") {
+    return { mode: "ids", ids: [] };
+  }
+
+  const selection = value as { mode?: unknown; ids?: unknown; query?: unknown };
+
+  if (selection.mode === "filter") {
+    const query = selection.query && typeof selection.query === "object"
+      ? selection.query as Record<string, unknown>
+      : {};
+
+    return {
+      mode: "filter",
+      query: {
+        search: toOptionalString(query.search),
+        status: "draft",
+        blueprintId: toOptionalString(query.blueprintId),
+        tag: toOptionalString(query.tag),
+        language: toOptionalString(query.language),
+        source: toOptionalString(query.source),
+      },
+    };
+  }
+
+  return { mode: "ids", ids: toStringArray(selection.ids) };
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+function toOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function toLocalizedTextMap(value: unknown): LocalizedTextMap {
@@ -285,6 +345,5 @@ function toLocalizedTextMap(value: unknown): LocalizedTextMap {
     },
   };
 }
-
 
 

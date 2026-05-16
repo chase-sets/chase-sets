@@ -489,6 +489,20 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewBulkPublishCatalogItems<T>(selection: unknown): Promise<T> {
+      const response = await client.items["bulk-publish"].preview.$post({
+        json: { selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkPublishCatalogItems<T>(itemIds: readonly string[]): Promise<T> {
+      const response = await client.items["bulk-publish"].confirm.$post({
+        json: { itemIds },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async reviseMetadata<T>(id: string, body: unknown): Promise<T> {
       const response = await client.items[":id"].metadata.$put({
         param: { id },
