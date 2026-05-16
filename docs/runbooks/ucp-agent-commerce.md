@@ -48,4 +48,4 @@ For suspected replay or agent abuse:
 - OAuth identity linking maps UCP scopes to Chase Sets permissions.
 - Signature verification resolves agent keys from UCP profile/key discovery and is enabled in production runtime composition.
 - Idempotency records are durable and survive process restarts.
-- Staging smoke confirms `/.well-known/ucp`, `/ucp/v1`, `/ucp/mcp`, trusted checkout handoff, and order read behavior.
+- Staging smoke confirms `/.well-known/ucp`, `/ucp/v1`, and `/ucp/mcp` on the marketplace host; trusted checkout handoff stays covered by focused Checkout UCP tests until AP2 payment-handler handoff and order reads are implemented.

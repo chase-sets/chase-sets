@@ -20,6 +20,18 @@ function occurrenceCount(source, needle) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
+    expect(platformLocals).toContain(
+      'local.is_staging ? "www.${var.environment}.${var.root_domain}"',
+    );
+    expect(platformLocals).not.toContain(
+      'local.is_staging ? "${var.environment}.${var.root_domain}"',
+    );
+    expect(platformLocals).toContain(
+      '"landing-${var.environment}.${var.root_domain}"     = local.landing_domain',
+    );
+  });
+
   it("wires production admin-support Catalog asset storage into the API and bootstrap job", () => {
     for (const key of [
       "CATALOG_ASSET_STORAGE_KIND",
@@ -41,5 +53,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("catalog_asset_public_base_url");
     expect(platformVariables).toContain('variable "catalog_asset_s3_bucket"');
     expect(platformVariables).toContain('variable "catalog_asset_public_base_url"');
+  });
+
+  it("routes non-production UCP agent discovery and transport paths to platform-api", () => {
+    expect(platformLocals).toContain('ucp_route_prefixes   = ["/.well-known", "/ucp"]');
+    expect(platformLocals).toContain("ucp_ingress_routes");
+    expect(platformMain).toContain("for_each = local.ucp_ingress_routes");
+    expect(platformMain).toContain("prefix = rule.value.path_prefix");
+    expect(platformMain).toContain('name                 = "platform-api"');
   });
 });

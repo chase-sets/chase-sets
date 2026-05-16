@@ -48,7 +48,7 @@ This is a cross-cutting operations/platform naming decision, not bounded-context
 
 - Use nested environment namespaces for non-production application hosts.
 - Keep production out of a `production.chasesets.com` namespace.
-- Use `staging.chasesets.com` as the canonical staging public-web/landing host; optionally redirect `landing.staging.chasesets.com` to it.
+- Use `www.staging.chasesets.com` as the canonical staging public-web/landing host because the environment root, `staging.chasesets.com`, carries environment-level mail DNS records.
 - Prefer host-only cookies for Auth sessions unless a specific cross-application auth requirement is accepted later.
 - Treat `api.<environment>.chasesets.com` as reserved until the platform needs a public API/webhook host; the current platform uses same-origin `/api/*` routing for landing, admin, and marketplace.
 - Keep `dev.chasesets.com` as the remote-dev namespace unless a separate preview namespace is introduced for PR/platform previews.
@@ -63,7 +63,7 @@ None.
 - Add or update cross-cutting architecture documentation for environment domain names. Done in `docs/architecture/environment-domain-names.md`.
 - Update `docs/README.md` to include the new architecture reference. Done.
 - Update `docs/runbooks/digitalocean-platform-deployment.md` to replace dash-based staging hosts with nested environment hosts and document legacy redirects. Done.
-- Update `infrastructure/digitalocean/platform/locals.tf` so staging domains are nested under `staging.chasesets.com`. Done.
+- Update `infrastructure/digitalocean/platform/locals.tf` so staging domains are nested under `staging.chasesets.com`, with public-web on `www.staging.chasesets.com`. Done.
 - Update Terraform validation in `infrastructure/digitalocean/platform/variables.tf` for Stripe Connect return/refresh URLs. Done.
 - Update `.github/workflows/platform-pr.yml` staging Terraform shape values. Done.
 - Update deployable and worker tests that assert staging origins. Done.
@@ -76,11 +76,17 @@ None.
 - `pnpm run deps:install` succeeded after implementation work began.
 - `terraform fmt -check -recursive` and `terraform validate` passed in `infrastructure/digitalocean/platform`.
 - PR-style Terraform plan with fake staging variables passed with `-refresh=false -lock=false`; evaluated outputs showed:
-  - `landing_domain = "staging.chasesets.com"`
+  - `landing_domain = "staging.chasesets.com"` in the first merged implementation; post-merge deployment pressure testing found DigitalOcean App Platform stuck at `ensure-record` because `staging.chasesets.com` has root mail DNS records. Follow-up work moved this to `www.staging.chasesets.com`.
   - `admin_domain = "admin.staging.chasesets.com"`
   - `marketplace_domains = ["marketplace.staging.chasesets.com"]`
   - `legacy_public_redirect_domains = ["landing-staging.chasesets.com"]`
   - redirect rules for `landing-staging`, `marketplace-staging`, and `admin-staging` point to their nested replacements.
+- Follow-up PR-style Terraform plan with fake staging variables passed with `-refresh=false -lock=false`; evaluated outputs showed:
+  - `landing_domain = "www.staging.chasesets.com"`
+  - `public_domains = ["www.staging.chasesets.com"]`
+  - `admin_domain = "admin.staging.chasesets.com"`
+  - `marketplace_domains = ["marketplace.staging.chasesets.com"]`
+  - `legacy_public_redirect_domains = ["landing-staging.chasesets.com"]`
 - PR-style Terraform plan with fake preview variables passed with `-refresh=false -lock=false`; evaluated outputs showed:
   - `landing_domain = "pr-0.preview.chasesets.com"`
   - `admin_domain = "admin.pr-0.preview.chasesets.com"`

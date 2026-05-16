@@ -191,6 +191,48 @@ async function expectSocialLoginProviders(marketplaceOrigin) {
   }
 }
 
+async function expectUcpEndpoints(origin) {
+  const profileResponse = await expectOk("UCP business profile", `${origin}/.well-known/ucp`);
+  const profile = await profileResponse.json();
+  const services = profile.ucp?.services?.["dev.ucp.shopping"] ?? [];
+  const endpoints = new Set(
+    Array.isArray(services)
+      ? services.map((service) => `${service?.transport}:${service?.endpoint}`)
+      : [],
+  );
+  for (const expectedEndpoint of [
+    `rest:${origin}/ucp/v1`,
+    `mcp:${origin}/ucp/mcp`,
+  ]) {
+    if (!endpoints.has(expectedEndpoint)) {
+      throw new Error(`UCP business profile did not advertise ${expectedEndpoint}.`);
+    }
+  }
+
+  const restResponse = await expectOk("UCP REST profile", `${origin}/ucp/v1`);
+  const restProfile = await restResponse.json();
+  if (restProfile.ucp?.services?.["dev.ucp.shopping"] === undefined) {
+    throw new Error("UCP REST profile did not return the business profile.");
+  }
+
+  const mcpResponse = await expectOk("UCP MCP tools", `${origin}/ucp/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
+  });
+  const mcpBody = await mcpResponse.json();
+  const toolNames = new Set(
+    Array.isArray(mcpBody.result?.tools)
+      ? mcpBody.result.tools.map((tool) => tool?.name)
+      : [],
+  );
+  for (const expectedTool of ["search_catalog", "lookup_catalog", "create_checkout"]) {
+    if (!toolNames.has(expectedTool)) {
+      throw new Error(`UCP MCP tools did not include ${expectedTool}.`);
+    }
+  }
+}
+
 async function expectRedirect(label, input, expectedAuthority) {
   const response = await fetchWithRetry(
     label,
@@ -240,6 +282,7 @@ async function main() {
       "platform API health through marketplace",
       `${marketplaceUrl}/api/health/ready`,
     );
+    await expectUcpEndpoints(marketplaceUrl);
     if (requireSocialLogin) {
       await expectSocialLoginProviders(marketplaceUrl);
       await expectTextContains("marketplace sign-in social login controls", `${marketplaceUrl}/sign-in`, [

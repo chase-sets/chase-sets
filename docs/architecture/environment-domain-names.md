@@ -8,12 +8,12 @@ Production uses the clean customer-facing namespace. Do not add a `production` l
 
 | Surface | Production | Staging |
 | --- | --- | --- |
-| Public web / landing | `chasesets.com` | `staging.chasesets.com` |
+| Public web / landing | `chasesets.com` | `www.staging.chasesets.com` |
 | Marketplace | `marketplace.chasesets.com` | `marketplace.staging.chasesets.com` |
 | Admin | `admin.chasesets.com` | `admin.staging.chasesets.com` |
 | Public API, if exposed later | `api.chasesets.com` | `api.staging.chasesets.com` |
 
-Dash-based non-production names such as `marketplace-staging.chasesets.com` and `admin-staging.chasesets.com` are legacy names. Keep them only as redirects or compatibility inputs during migration.
+Dash-based non-production names such as `landing-staging.chasesets.com`, `marketplace-staging.chasesets.com`, and `admin-staging.chasesets.com` are legacy names. Keep them only as redirects or compatibility inputs during migration.
 
 ## Environment Boundaries
 
@@ -39,10 +39,13 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 ## Staging
 
-`staging.chasesets.com` is the canonical staging public-web host.
+`www.staging.chasesets.com` is the canonical staging public-web host.
+
+The environment root, `staging.chasesets.com`, is reserved for environment-level DNS such as mail identity records. Do not attach it as an App Platform web domain while it carries MX or root TXT records.
 
 Staging application hosts are:
 
+- `www.staging.chasesets.com`
 - `marketplace.staging.chasesets.com`
 - `admin.staging.chasesets.com`
 - `api.staging.chasesets.com`, only if a public staging API host is needed later
