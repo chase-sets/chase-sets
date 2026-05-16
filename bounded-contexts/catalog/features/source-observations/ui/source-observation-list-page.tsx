@@ -1,7 +1,8 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
+  BulkActionBar,
   Button,
   Dialog,
   Select,
@@ -17,7 +18,10 @@ import {
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type { SourceObservationListItem } from "./contracts";
-import { importTcgdexSet } from "./use-source-observations";
+import {
+  bulkPromoteSourceObservations,
+  importTcgdexSet,
+} from "./use-source-observations";
 
 function buildColumns(): DataColumn<SourceObservationListItem>[] {
   return [
@@ -75,6 +79,29 @@ export function SourceObservationListPage({
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
   const [setId, setSetId] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [bulkPromoting, setBulkPromoting] = useState(false);
+  const eligibleIds = useMemo(
+    () =>
+      new Set(
+        (data.items ?? [])
+          .filter((item) => item.status === "observed")
+          .map((item) => item.observation_id),
+      ),
+    [data.items],
+  );
+
+  useEffect(() => {
+    setSelectedKeys((current) =>
+      new Set(Array.from(current).filter((key) => eligibleIds.has(key))),
+    );
+  }, [eligibleIds]);
+
+  function handleSelectionChange(keys: Set<string>) {
+    setSelectedKeys(
+      new Set(Array.from(keys).filter((key) => eligibleIds.has(key))),
+    );
+  }
 
   async function handleImport() {
     const result = await importTcgdexSet({ languageCode, setId });
@@ -87,6 +114,34 @@ export function SourceObservationListPage({
     setShowImport(false);
     setSetId("");
     revalidator.revalidate();
+  }
+
+  async function handleBulkPromote() {
+    const observationIds = Array.from(selectedKeys);
+    setBulkPromoting(true);
+
+    try {
+      const result = await bulkPromoteSourceObservations(observationIds);
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.bulk.promote.completed", {
+          promoted: String(result.promoted),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }),
+        result.failed > 0 ? "warning" : "success",
+      );
+      setSelectedKeys(new Set());
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        "danger",
+      );
+    } finally {
+      setBulkPromoting(false);
+    }
   }
 
   return (
@@ -106,6 +161,41 @@ export function SourceObservationListPage({
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        selectedKeys={selectedKeys}
+        onSelectionChange={handleSelectionChange}
+        isRowSelectable={(row) => row.status === "observed"}
+        bulkActionBar={
+          selectedKeys.size > 0 ? (
+            <BulkActionBar
+              count={selectedKeys.size}
+              formatSelectedLabel={(count) =>
+                t("catalog.features.sourceObservations.ui.list.selected.count", {
+                  count: String(count),
+                })
+              }
+              actions={
+                <>
+                  <Button
+                    tone="secondary"
+                    size="sm"
+                    onClick={() => setSelectedKeys(new Set())}
+                    disabled={bulkPromoting}
+                  >
+                    {t("catalog.features.sourceObservations.ui.list.clear.selection")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    leadingIcon="badgeCheck"
+                    loading={bulkPromoting}
+                    onClick={handleBulkPromote}
+                  >
+                    {t("catalog.features.sourceObservations.ui.list.bulk.promote")}
+                  </Button>
+                </>
+              }
+            />
+          ) : null
+        }
         extraFilters={
           <Select
             label={t("catalog.features.sourceObservations.ui.list.language")}
@@ -126,7 +216,7 @@ export function SourceObservationListPage({
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
         createButton={
-          <Button onClick={() => setShowImport(true)}>
+          <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
             {t("catalog.features.sourceObservations.ui.list.import.tcgdex.set")}</Button>
         }
       />

@@ -26,8 +26,24 @@ import { buildSourceObservationProjectionHandlers } from "../read-model/projecti
 import {
   getSourceObservationDetail,
   listSourceObservations,
+  type SourceObservationDetailRow,
 } from "../read-model/queries";
 import { fetchTcgdexSetObservations, type TcgdexSetImportResult } from "./tcgdex-client";
+
+export type BulkSourceObservationPromotionOutcome = Readonly<{
+  observationId: string;
+  status: "promoted" | "skipped" | "failed";
+  catalogItemId: CatalogItemId | null;
+  reason: string | null;
+}>;
+
+export type BulkSourceObservationPromotionResult = Readonly<{
+  requested: number;
+  promoted: number;
+  skipped: number;
+  failed: number;
+  outcomes: readonly BulkSourceObservationPromotionOutcome[];
+}>;
 
 export type SourceObservationServices = Readonly<{
   commandHandler: CommandHandler<
@@ -44,6 +60,10 @@ export type SourceObservationServices = Readonly<{
     observationId: string;
     context: EventStoreContext;
   }) => Promise<{ observationId: string; catalogItemId: CatalogItemId }>;
+  promoteObservations: (input: {
+    observationIds: readonly string[];
+    context: EventStoreContext;
+  }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservation: (input: {
     observationId: string;
     reason: string;
@@ -95,6 +115,37 @@ export function createSourceObservationRuntime(
     });
   }
 
+  async function promoteObservationFromRow(input: {
+    observation: SourceObservationDetailRow;
+    context: EventStoreContext;
+  }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
+    const catalogItemId = createId("cat") as CatalogItemId;
+    await createCatalogDraftFromObservation({
+      items,
+      catalogItemId,
+      normalized: input.observation.normalized,
+      providerKey: input.observation.provider_key,
+      externalKey: input.observation.external_key,
+      context: input.context,
+    });
+
+    const promotedAt = new Date().toISOString();
+    await commandHandler({
+      streamId: sourceObservationStreamId(input.observation.observation_id),
+      command: {
+        type: "PromoteSourceObservation",
+        catalogItemId,
+        promotedAt,
+      },
+      context: input.context,
+    });
+
+    return {
+      observationId: input.observation.observation_id,
+      catalogItemId,
+    };
+  }
+
   return {
     commandHandler,
     importTcgdexSet: async ({ languageCode, setId, context }) => {
@@ -122,30 +173,59 @@ export function createSourceObservationRuntime(
         throw new Error("Only observed source observations can be promoted.");
       }
 
-      const catalogItemId = createId("cat") as CatalogItemId;
-      const normalized = observation.normalized;
-      await createCatalogDraftFromObservation({
-        items,
-        catalogItemId,
-        normalized,
-        providerKey: observation.provider_key,
-        externalKey: observation.external_key,
-        context,
-      });
-
-      const promotedAt = new Date().toISOString();
-      await commandHandler({
-        streamId: sourceObservationStreamId(observationId),
-        command: {
-          type: "PromoteSourceObservation",
-          catalogItemId,
-          promotedAt,
-        },
-        context,
-      });
+      const result = await promoteObservationFromRow({ observation, context });
       await drainRuntimeProjectors([...items.projectors, ...projectors]);
 
-      return { observationId, catalogItemId };
+      return result;
+    },
+    promoteObservations: async ({ observationIds, context }) => {
+      const requestedIds = uniqueObservationIds(observationIds);
+      const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+
+      for (const observationId of requestedIds) {
+        try {
+          const observation = await getSourceObservationDetail(deps.db, observationId);
+
+          if (!observation) {
+            outcomes.push({
+              observationId,
+              status: "failed",
+              catalogItemId: null,
+              reason: "Source observation was not found.",
+            });
+            continue;
+          }
+
+          if (observation.status !== "observed") {
+            outcomes.push({
+              observationId,
+              status: "skipped",
+              catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+              reason: `Source observation is already ${observation.status}.`,
+            });
+            continue;
+          }
+
+          const promoted = await promoteObservationFromRow({ observation, context });
+          outcomes.push({
+            observationId,
+            status: "promoted",
+            catalogItemId: promoted.catalogItemId,
+            reason: null,
+          });
+        } catch (error) {
+          outcomes.push({
+            observationId,
+            status: "failed",
+            catalogItemId: null,
+            reason: error instanceof Error ? error.message : "Promotion failed.",
+          });
+        }
+      }
+
+      await drainRuntimeProjectors([...items.projectors, ...projectors]);
+
+      return summarizePromotionOutcomes(requestedIds.length, outcomes);
     },
     rejectObservation: async ({ observationId, reason, context }) => {
       await commandHandler({
@@ -316,4 +396,27 @@ function localizedJsonText(value: string): JsonObject {
 
 function sourceObservationStreamId(observationId: string): string {
   return `catalog.source-observation-${observationId}`;
+}
+
+function uniqueObservationIds(observationIds: readonly string[]): string[] {
+  return Array.from(
+    new Set(
+      observationIds
+        .map((observationId) => observationId.trim())
+        .filter((observationId) => observationId.length > 0),
+    ),
+  );
+}
+
+function summarizePromotionOutcomes(
+  requested: number,
+  outcomes: readonly BulkSourceObservationPromotionOutcome[],
+): BulkSourceObservationPromotionResult {
+  return {
+    requested,
+    promoted: outcomes.filter((outcome) => outcome.status === "promoted").length,
+    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
+    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
+    outcomes,
+  };
 }

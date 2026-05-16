@@ -11,6 +11,8 @@ export type { Component, ComponentDetail } from "../../features/components/ui/co
 export type { Dimension, DimensionDetail } from "../../features/dimensions/ui/contracts";
 export type { Field } from "../../features/fields/ui/contracts";
 export type {
+  BulkSourceObservationPromotionOutcome,
+  BulkSourceObservationPromotionResult,
   SourceObservationDetail,
   SourceObservationListItem,
 } from "../../features/source-observations/ui/contracts";

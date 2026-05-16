@@ -26,6 +26,7 @@ export interface DataTableProps<T>
   onSortChange?: (key: string, direction: "asc" | "desc") => void;
   selectedKeys?: Set<string>;
   onSelectionChange?: (keys: Set<string>) => void;
+  isRowSelectable?: (row: T, index: number) => boolean;
   loading?: boolean;
   loadingRows?: number;
   density?: "comfortable" | "compact";
@@ -45,6 +46,7 @@ export function DataTable<T>({
   onSortChange,
   selectedKeys,
   onSelectionChange,
+  isRowSelectable,
   loading = false,
   loadingRows = 5,
   density: densityProp,
@@ -64,7 +66,13 @@ export function DataTable<T>({
 
   const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
   const allIds = selectable
-    ? rows.map((row, index) => getRowId ? getRowId(row, index) : String(index))
+    ? rows
+        .map((row, index) => ({
+          id: getRowId ? getRowId(row, index) : String(index),
+          selectable: isRowSelectable ? isRowSelectable(row, index) : true,
+        }))
+        .filter((row) => row.selectable)
+        .map((row) => row.id)
     : [];
   const allSelected = selectable && allIds.length > 0 && allIds.every((id) => selectedKeys.has(id));
 
@@ -84,8 +92,9 @@ export function DataTable<T>({
     }
   }
 
-  function handleSelectRow(id: string) {
+  function handleSelectRow(id: string, canSelect = true) {
     if (!onSelectionChange || !selectedKeys) return;
+    if (!canSelect) return;
     const next = new Set(selectedKeys);
     if (next.has(id)) {
       next.delete(id);
@@ -119,6 +128,7 @@ export function DataTable<T>({
                 <input
                   type="checkbox"
                   checked={allSelected}
+                  disabled={allIds.length === 0}
                   onChange={handleSelectAll}
                   aria-label="Select all rows"
                   className="h-4 w-4 rounded border-border accent-accent"
@@ -184,7 +194,13 @@ export function DataTable<T>({
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => handleSelectRow(rowId)}
+                          disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
+                          onChange={() =>
+                            handleSelectRow(
+                              rowId,
+                              isRowSelectable ? isRowSelectable(row, index) : true,
+                            )
+                          }
                           aria-label={`Select row ${rowId}`}
                           className="h-4 w-4 rounded border-border accent-accent"
                         />
@@ -230,31 +246,53 @@ export function DataTable<T>({
               </div>
             </div>
           ))
-        : rows.map((row, rowIndex) => (
-            <div
-              key={getRowId ? getRowId(row, rowIndex) : String(rowIndex)}
-              role="listitem"
-              className="glass-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
-            >
-              <div className="space-y-3">
-                {columns.map((column) => (
-                  <div key={column.key} className="flex items-start justify-between gap-4">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                      {column.mobileLabel ?? column.header}
+        : rows.map((row, rowIndex) => {
+            const rowId = getRowId ? getRowId(row, rowIndex) : String(rowIndex);
+            const canSelect = isRowSelectable ? isRowSelectable(row, rowIndex) : true;
+            const isSelected = selectable && selectedKeys.has(rowId);
+
+            return (
+              <div
+                key={rowId}
+                role="listitem"
+                className={cx(
+                  "glass-surface rounded-tokenLg border p-4 shadow-tokenSm",
+                  isSelected ? "border-accent bg-surface-2" : "border-muted",
+                )}
+              >
+                <div className="space-y-3">
+                  {selectable ? (
+                    <label className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={!canSelect}
+                        onChange={() => handleSelectRow(rowId, canSelect)}
+                        aria-label={`Select row ${rowId}`}
+                        className="h-4 w-4 rounded border-border accent-accent"
+                      />
+                      <span>Select</span>
+                    </label>
+                  ) : null}
+                  {columns.map((column) => (
+                    <div key={column.key} className="flex items-start justify-between gap-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                        {column.mobileLabel ?? column.header}
+                      </div>
+                      <div
+                        className={cx(
+                          "max-w-[60%] text-right text-sm text-foreground",
+                          column.align === "left" && "text-left"
+                        )}
+                      >
+                        {column.cell(row)}
+                      </div>
                     </div>
-                    <div
-                      className={cx(
-                        "max-w-[60%] text-right text-sm text-foreground",
-                        column.align === "left" && "text-left"
-                      )}
-                    >
-                      {column.cell(row)}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
     </div>
   );
 

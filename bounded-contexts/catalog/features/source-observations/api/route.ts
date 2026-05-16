@@ -30,6 +30,21 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result, 201);
   });
 
+  app.post("/bulk-promote", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+    };
+    const observationIds = Array.isArray(body.observationIds)
+      ? body.observationIds.map((observationId: unknown) => String(observationId))
+      : [];
+    const result = await services.promoteObservations({
+      observationIds,
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
   app.get("/:id", async (c) => {
     const observation = await services.getSourceObservationDetail(c.req.param("id"));
     if (!observation) {

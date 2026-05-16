@@ -38,6 +38,8 @@ Promotion creates a draft Catalog Item for the observed Pokemon card print, assi
 
 Promoted Catalog Items remain drafts so operators can verify blueprint fields, product resolution, and downstream display before publishing.
 
+Operators may bulk promote explicitly selected Source Observations from the admin list screen. Bulk promotion is still a review action: it only accepts selected observation IDs, promotes records that are still `observed`, and reports terminal or missing records as skipped or failed instead of changing them.
+
 ## Conflict Pressure Tests
 
 - Re-importing an observed source record updates the Source Observation while it remains `observed`.
