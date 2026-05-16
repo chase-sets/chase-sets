@@ -16,6 +16,8 @@ export type { Field } from "../../features/fields/ui/contracts";
 export type {
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,
+  SourceObservationPromotionPreview,
+  SourceObservationPromotionScope,
   SourceObservationDetail,
   SourceObservationListItem,
 } from "../../features/source-observations/ui/contracts";

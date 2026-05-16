@@ -10,6 +10,7 @@ export type CatalogListQuery = Readonly<{
   status: string;
   language: string;
   source: string;
+  setId: string;
   page: number;
   pageSize: number;
 }>;
@@ -19,7 +20,7 @@ export type CatalogListRouteData<T> = Readonly<{
   query: CatalogListQuery;
 }>;
 
-type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "page">>;
+type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "setId" | "page">>;
 
 export function readCatalogListQuery(request: Request): CatalogListQuery {
   const url = new URL(request.url);
@@ -30,6 +31,7 @@ export function readCatalogListQuery(request: Request): CatalogListQuery {
     status: url.searchParams.get("status")?.trim() ?? "",
     language: url.searchParams.get("language")?.trim() ?? "",
     source: url.searchParams.get("source")?.trim() ?? "",
+    setId: url.searchParams.get("setId")?.trim() ?? "",
     page: Number.isFinite(pageFromUrl) ? Math.max(0, pageFromUrl - 1) : 0,
     pageSize: CATALOG_LIST_PAGE_SIZE,
   };
@@ -48,6 +50,9 @@ export function buildCatalogListApiQuery(query: CatalogListQuery): string {
   }
   if (query.source) {
     params.set("source", query.source);
+  }
+  if (query.setId) {
+    params.set("setId", query.setId);
   }
   params.set("limit", String(query.pageSize));
   params.set("offset", String(query.page * query.pageSize));
@@ -96,6 +101,16 @@ export function applyCatalogListQueryToSearchParams(
       next.set("source", source);
     } else {
       next.delete("source");
+    }
+    next.delete("page");
+  }
+
+  if (update.setId !== undefined) {
+    const setId = update.setId.trim();
+    if (setId) {
+      next.set("setId", setId);
+    } else {
+      next.delete("setId");
     }
     next.delete("page");
   }
@@ -187,6 +202,7 @@ export function useCatalogListQueryControls(
     status: query.status,
     language: query.language,
     source: query.source,
+    setId: query.setId,
     page: query.page,
     pageSize: query.pageSize,
     loading: navigation.state !== "idle",
@@ -194,6 +210,9 @@ export function useCatalogListQueryControls(
     setStatus: (status: string) => commitWithCurrentSearch({ status }),
     setLanguage: (language: string) => commitWithCurrentSearch({ language }),
     setSource: (source: string) => commitWithCurrentSearch({ source }),
+    setSetId: (setId: string) => commitWithCurrentSearch({ setId }),
+    setFilters: (filters: Omit<CatalogListQueryUpdate, "page">) =>
+      commitWithCurrentSearch(filters),
     setPage: (page: number) => commitWithCurrentSearch({ page }),
   };
 }

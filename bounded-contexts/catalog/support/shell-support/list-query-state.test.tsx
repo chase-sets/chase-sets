@@ -44,6 +44,9 @@ function Harness({ query }: { query: CatalogListQuery }) {
       <button type="button" onClick={() => controls.setSource("tcgplayer")}>
         Source
       </button>
+      <button type="button" onClick={() => controls.setSetId("base1")}>
+        Base Set
+      </button>
       <button type="button" onClick={() => controls.setPage(2)}>
         Page 3
       </button>
@@ -59,7 +62,7 @@ describe("catalog list query state", () => {
 
   it("reads URL params and builds the API query with limit and offset", () => {
     const query = readCatalogListQuery(
-      new Request("http://localhost/catalog-items?search=charizard&status=active&language=ja&source=tcgplayer&page=3"),
+      new Request("http://localhost/catalog-items?search=charizard&status=active&language=ja&source=tcgplayer&setId=base1&page=3"),
     );
 
     expect(query).toEqual({
@@ -67,15 +70,16 @@ describe("catalog list query state", () => {
       status: "active",
       language: "ja",
       source: "tcgplayer",
+      setId: "base1",
       page: 2,
       pageSize: 50,
     });
     expect(buildCatalogListApiQuery(query)).toBe(
-      "search=charizard&status=active&language=ja&source=tcgplayer&limit=50&offset=100",
+      "search=charizard&status=active&language=ja&source=tcgplayer&setId=base1&limit=50&offset=100",
     );
   });
 
-  it("applies search, status, language, source, and page updates to URL params", () => {
+  it("applies search, status, language, source, set, and page updates to URL params", () => {
     const searched = applyCatalogListQueryToSearchParams(
       new URLSearchParams("search=old&page=3"),
       { search: " new " },
@@ -94,30 +98,38 @@ describe("catalog list query state", () => {
     );
     expect(languageFiltered.toString()).toBe("search=new&status=active&language=ja");
 
-    const paged = applyCatalogListQueryToSearchParams(
-      new URLSearchParams("search=new&status=active&language=ja"),
-      { page: 1 },
-    );
-    expect(paged.toString()).toBe("search=new&status=active&language=ja&page=2");
-
     const sourceFiltered = applyCatalogListQueryToSearchParams(
       new URLSearchParams("search=new&status=active&language=ja&page=2"),
       { source: "tcgplayer" },
     );
     expect(sourceFiltered.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer");
+
+    const setFiltered = applyCatalogListQueryToSearchParams(
+      new URLSearchParams("search=new&status=active&language=ja&source=tcgplayer&page=2"),
+      { setId: "base1" },
+    );
+    expect(setFiltered.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer&setId=base1");
+
+    const paged = applyCatalogListQueryToSearchParams(
+      new URLSearchParams("search=new&status=active&language=ja&source=tcgplayer&setId=base1"),
+      { page: 1 },
+    );
+    expect(paged.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer&setId=base1&page=2");
   });
 
   it("loads route data through the derived API query", async () => {
     const list = vi.fn(async () => ({ items: [{ id: "item-1" }], total: 1 }));
 
     const result = await loadCatalogListRouteData(
-      new Request("http://localhost/catalog-items?search=charizard&language=en&page=2"),
+      new Request("http://localhost/catalog-items?search=charizard&language=en&source=tcgplayer&setId=base1&page=2"),
       list,
     );
 
-    expect(list).toHaveBeenCalledWith("search=charizard&language=en&limit=50&offset=50");
+    expect(list).toHaveBeenCalledWith("search=charizard&language=en&source=tcgplayer&setId=base1&limit=50&offset=50");
     expect(result.query.search).toBe("charizard");
     expect(result.query.language).toBe("en");
+    expect(result.query.source).toBe("tcgplayer");
+    expect(result.query.setId).toBe("base1");
     expect(result.data.items).toEqual([{ id: "item-1" }]);
   });
 
@@ -170,5 +182,13 @@ describe("catalog list query state", () => {
       "search=charizard&source=tcgplayer",
     );
     expect(sourceOptions).toMatchObject({ replace: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Base Set" }));
+    expect(setSearchParams).toHaveBeenCalledTimes(5);
+    const [setUpdater, setOptions] = setSearchParams.mock.calls[4];
+    expect(setUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe(
+      "search=charizard&setId=base1",
+    );
+    expect(setOptions).toMatchObject({ replace: false });
   });
 });
