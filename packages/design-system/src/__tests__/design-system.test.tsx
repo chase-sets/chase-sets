@@ -28,6 +28,7 @@ import {
   PriceBreakdown,
   BuyerProtectionModule,
   ComparisonModule,
+  FilterBar,
   SavedSearchPrompt,
   SearchFilterPanel,
   SearchInput,
@@ -61,6 +62,7 @@ import {
   UiTabs as Tabs,
   UiTextarea as Textarea,
   UiTooltip as Tooltip,
+  TextInput,
   formatMarketplaceNumber
 } from "../index";
 
@@ -370,6 +372,19 @@ describe("design-system", () => {
     expect(markup).toContain("min-h-11");
     expect(markup).toContain("hidden lg:flex");
     expect(markup).toContain("Save this search");
+  });
+
+  it("bottom-aligns filter fields and actions in data-heavy admin filter bars", () => {
+    const markup = renderToString(
+      <FilterBar actions={<Button variant="secondary">Promote all matching</Button>} sticky={false}>
+        <TextInput label="Search" defaultValue="Pikachu" />
+        <Select label="Status" items={[{ label: "Observed", value: "observed" }]} />
+      </FilterBar>,
+    );
+
+    expect(markup).toContain("flex-1 flex-wrap items-end gap-3");
+    expect(markup).toContain("flex flex-wrap items-end gap-2 md:self-end");
+    expect(markup).toContain("Promote all matching");
   });
 
   it("does not reserve visible label spacing for hidden-label form controls", () => {
