@@ -11,14 +11,17 @@ describe("auth host config", () => {
       signInPath: "/sign-in",
       fallbackPath: "/account",
       signedOutReturnTo: "/search",
+      allowManualMagicLinkTokenEntry: false,
     });
     expect(catalogAdminAuthHostConfig).toMatchObject({
       requiredPermission: "catalog.view",
       defaultSuccessPath: "/catalog/dimensions",
+      allowManualMagicLinkTokenEntry: false,
     });
     expect(identityAdminAuthHostConfig).toMatchObject({
       requiredPermission: "security.manage",
       accountSelectionPath: "/identity/account-select",
+      allowManualMagicLinkTokenEntry: false,
     });
   });
 });

@@ -32,6 +32,10 @@ export default function MarketplaceSignInRoute() {
         }
         notice={actionData && "status" in actionData ? actionData : null}
         returnTo={data.returnTo}
+        signInMethods={marketplaceAuthHostConfig.signInMethods}
+        allowManualMagicLinkTokenEntry={
+          marketplaceAuthHostConfig.allowManualMagicLinkTokenEntry
+        }
       />
     </Container>
   );

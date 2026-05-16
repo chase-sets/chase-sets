@@ -19,6 +19,8 @@ export const marketplaceAuthHostConfig = {
   defaultSuccessPath: "/account",
   accountSelectionPath: "/account/select",
   signedOutReturnTo: "/search",
+  signInMethods: ["password", "phone-code", "magic-link", "passkey"],
+  allowManualMagicLinkTokenEntry: false,
   titles: {
     signIn: "Sign In | Marketplace",
     accountSelection: "Select Account | Marketplace",
@@ -34,6 +36,8 @@ export const catalogAdminAuthHostConfig = {
   accountSelectionPath: "/catalog/account-select",
   requiredPermission: "catalog.view",
   signedOutReturnTo: "/catalog/sign-in",
+  signInMethods: ["password", "phone-code", "magic-link", "passkey"],
+  allowManualMagicLinkTokenEntry: false,
   titles: {
     signIn: "Sign In | Catalog Admin",
     accountSelection: "Select Account | Catalog Admin",
@@ -48,6 +52,8 @@ export const identityAdminAuthHostConfig = {
   accountSelectionPath: "/identity/account-select",
   requiredPermission: "security.manage",
   signedOutReturnTo: "/identity/sign-in",
+  signInMethods: ["password", "phone-code", "magic-link", "passkey"],
+  allowManualMagicLinkTokenEntry: false,
   titles: {
     signIn: "Sign In | Identity Admin",
     accountSelection: "Select Account | Identity Admin",

@@ -107,6 +107,7 @@ export type MarketplaceListingServices = Readonly<{
       catalogItemId: string;
       productId: string;
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      gradedCard?: MarketplaceListingState["gradedCard"];
       storageLocationId: string;
       storageLocationName: string;
       shipFromCode: string;
@@ -116,6 +117,27 @@ export type MarketplaceListingServices = Readonly<{
       priceAmount: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+  createListingFromInventorySnapshot: (
+    params: Readonly<{
+      accountId: string;
+      inventoryItemId: string;
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      gradedCard?: MarketplaceListingState["gradedCard"];
+      storageLocationId: string;
+      storageLocationName: string;
+      shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
+      totalQuantity: number;
+      acquisitionCostAmount: string | null;
+      priceAmount: string;
+      quantityCap: number;
+      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
@@ -316,6 +338,7 @@ export function createMarketplaceListingRuntime(
     catalogItemId: string;
     productId: string;
     selectedOptions: readonly { dimensionId: string; optionId: string }[];
+    gradedCard?: MarketplaceListingState["gradedCard"];
     storageLocationId: string;
     storageLocationName: string;
     shipFromCode: string;
@@ -361,12 +384,13 @@ export function createMarketplaceListingRuntime(
          acquisition_cost_amount,
          last_stream_version,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, 0, now())
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, now())
        ON CONFLICT (item_id) DO UPDATE SET
          account_id = EXCLUDED.account_id,
          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
          product_id = EXCLUDED.product_id,
          selected_options = EXCLUDED.selected_options,
+         graded_card = EXCLUDED.graded_card,
          storage_location_id = EXCLUDED.storage_location_id,
          total_quantity = EXCLUDED.total_quantity,
          acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
@@ -377,6 +401,7 @@ export function createMarketplaceListingRuntime(
         params.catalogItemId,
         params.productId,
         JSON.stringify(params.selectedOptions),
+        params.gradedCard ? JSON.stringify(params.gradedCard) : null,
         params.storageLocationId,
         params.totalQuantity,
         params.acquisitionCostAmount,
@@ -504,6 +529,24 @@ export function createMarketplaceListingRuntime(
       assert(
         params.quantityCap <= params.totalQuantity,
         "Listing quantity caps cannot exceed created available inventory.",
+      );
+      await upsertBatchInventorySnapshot(params);
+      return createListing(
+        {
+          accountId: params.accountId as AccountId,
+          inventoryItemId: params.inventoryItemId,
+          priceAmount: params.priceAmount,
+          quantityCap: params.quantityCap,
+          purchaseLimits: params.purchaseLimits,
+          listingIdOverride: params.listingIdOverride,
+        },
+        context,
+      );
+    },
+    createListingFromInventorySnapshot: async (params, context) => {
+      assert(
+        params.quantityCap <= params.totalQuantity,
+        "Listing quantity caps cannot exceed available listing stock.",
       );
       await upsertBatchInventorySnapshot(params);
       return createListing(

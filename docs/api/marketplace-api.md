@@ -90,16 +90,17 @@ Cart to checkout:
 
 Seller listing:
 
-1. `GET /api/inventory/items`
-2. `GET /api/marketplace/account/listing-inventory`
-3. `GET /api/marketplace/account/listing-availability`
-4. `POST /api/marketplace/account/listing-availability/disable`
-5. `POST /api/marketplace/account/listing-availability/enable`
-6. `POST /api/marketplace/account/listings/preview`
-7. `POST /api/marketplace/account/listings`
-8. `POST /api/marketplace/account/listings/{id}/publish`
-9. `GET /api/marketplace/account/listings/fee-lock-report`
-10. `GET /api/marketplace/account/listings/{id}/fee-history`
+1. `POST /api/inventory/items/listing-stock/ensure`
+2. `GET /api/marketplace/account/listing-availability`
+3. `POST /api/marketplace/account/listing-availability/disable`
+4. `POST /api/marketplace/account/listing-availability/enable`
+5. `POST /api/marketplace/account/listings/preview`
+6. `POST /api/marketplace/account/listings`
+7. `POST /api/marketplace/account/listings/{id}/publish`
+8. `GET /api/marketplace/account/listings/fee-lock-report`
+9. `GET /api/marketplace/account/listings/{id}/fee-history`
+
+Advanced seller inventory workflows may still call `GET /api/inventory/items` and `GET /api/marketplace/account/listing-inventory` before binding a Listing to a specific existing Inventory Item.
 
 Seller shipment printing:
 

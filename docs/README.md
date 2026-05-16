@@ -45,6 +45,8 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Marketplace Limited Offer Demand Signals](../bounded-contexts/marketplace/docs/limited-offer-demand-signals.md)
 - [Marketplace Seller Listing Availability](../bounded-contexts/marketplace/docs/seller-listing-availability.md)
 - [Auth Social Login Journey Policy](../bounded-contexts/auth/docs/social-login.md)
+- [Marketplace Standard Listing Inventory Disclosure](../bounded-contexts/marketplace/docs/standard-listing-inventory-disclosure.md)
+- [Inventory Automatic Listing Stock](../bounded-contexts/inventory/docs/automatic-listing-stock.md)
 - [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md)
 - [Settlement Account Money Navigation](../bounded-contexts/settlement/docs/account-money-navigation.md)
 

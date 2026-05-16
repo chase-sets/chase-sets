@@ -1,4 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { t } from "@chase-sets/localization";
 import {
   hasPermission as hasActorPermission,
   requireActorFromAuthApi,
@@ -46,7 +47,7 @@ type AuthActionError = Readonly<{ error: string }>;
 export type AuthActionNotice =
   | Readonly<{
       status: "magic-link-sent";
-      token: string;
+      tokenId: string;
       expiresAt: string;
     }>
   | Readonly<{
@@ -62,7 +63,7 @@ export type AuthActionNotice =
 type AuthActionResult = Response | AuthActionError | AuthActionNotice;
 
 type MagicLinkRequestResult = Readonly<{
-  token: string;
+  tokenId: string;
   expiresAt: string;
 }>;
 
@@ -70,6 +71,15 @@ type PhoneCodeRequestResult = Readonly<{
   phone: string;
   expiresAt: string;
 }>;
+
+export type SignInMethod = "password" | "phone-code" | "magic-link" | "passkey";
+
+export const DEFAULT_SIGN_IN_METHODS = [
+  "password",
+  "phone-code",
+  "magic-link",
+  "passkey",
+] as const satisfies readonly SignInMethod[];
 
 type PasskeyRegistrationResult = Readonly<{
   credentialId: string;
@@ -84,6 +94,8 @@ export type AuthHostConfig = Readonly<{
   accountSelectionPath: string;
   requiredPermission?: string;
   signedOutReturnTo: string;
+  signInMethods?: readonly SignInMethod[];
+  allowManualMagicLinkTokenEntry?: boolean;
 }>;
 
 export type AuthHost = Readonly<{
@@ -261,6 +273,9 @@ async function signOutActorViaAuthApi(
 }
 
 export function defineAuthHost(options: AuthHostConfig): AuthHost {
+  const allowManualMagicLinkTokenEntry =
+    options.allowManualMagicLinkTokenEntry ?? false;
+
   function buildCurrentPath(request: Request) {
     const url = new URL(request.url);
     return `${url.pathname}${url.search}`;
@@ -335,7 +350,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
 
             return {
               status: "magic-link-sent",
-              token: result.token,
+              tokenId: result.tokenId,
               expiresAt: result.expiresAt,
             };
           }
@@ -348,6 +363,15 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               status: "phone-code-sent",
               phone: result.phone,
               expiresAt: result.expiresAt,
+            };
+          }
+
+          if (
+            intent === "magic-link-consume" &&
+            !allowManualMagicLinkTokenEntry
+          ) {
+            return {
+              error: t("auth.support.routeSupport.authHost.magic.link.token.entry.is.not"),
             };
           }
 

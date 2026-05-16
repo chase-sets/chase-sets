@@ -16,6 +16,8 @@ export type {
   Dimension,
   DimensionDetail,
   Field,
+  BulkSourceObservationPromotionOutcome,
+  BulkSourceObservationPromotionResult,
   SourceObservationDetail,
   SourceObservationListItem,
 } from "./support/client-support/contracts";

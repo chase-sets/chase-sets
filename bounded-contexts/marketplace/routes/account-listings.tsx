@@ -33,6 +33,7 @@ import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topi
 
 const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
+const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const MARKETPLACE_DESCRIPTION =
   t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
 
@@ -68,6 +69,56 @@ function optionalLimit(value: FormDataEntryValue | null) {
   return text === "" ? null : Number(text);
 }
 
+function parseSelectedOptions(value: FormDataEntryValue | null) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return Array.isArray(parsed)
+      ? parsed
+          .map((entry) =>
+            entry && typeof entry === "object"
+              ? {
+                  dimensionId: String((entry as Record<string, unknown>).dimensionId ?? ""),
+                  optionId: String((entry as Record<string, unknown>).optionId ?? ""),
+                }
+              : null,
+          )
+          .filter((entry): entry is { dimensionId: string; optionId: string } =>
+            Boolean(entry?.dimensionId && entry.optionId),
+          )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function shipFromAddressFromForm(formData: FormData) {
+  const address = {
+    name: String(formData.get("shipFromName") ?? "").trim(),
+    line1: String(formData.get("shipFromLine1") ?? "").trim(),
+    city: String(formData.get("shipFromCity") ?? "").trim(),
+    state: String(formData.get("shipFromState") ?? "").trim(),
+    postalCode: String(formData.get("shipFromPostalCode") ?? "").trim(),
+    country: String(formData.get("shipFromCountry") ?? "US").trim() || "US",
+  };
+
+  if (
+    !address.name &&
+    !address.line1 &&
+    !address.city &&
+    !address.state &&
+    !address.postalCode
+  ) {
+    return null;
+  }
+
+  return address;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
@@ -77,10 +128,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const selectedCatalogItemId = searchParams.get("catalogItemId");
   const recommendedPrice = searchParams.get("recommendedPrice") ?? "";
 
-  const [listings, feeLockReport, items] = await Promise.all([
+  const [listings, feeLockReport, items, storageLocations] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
     marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
     inventoryApi.listItems(DEFAULT_ITEM_QUERY),
+    inventoryApi.listStorageLocations("limit=100&offset=0"),
   ]);
   const listingAvailability = await marketplaceApi.getSellerListingAvailability();
   const inventoryItems = (items.items as InventoryItemListItem[])
@@ -97,16 +149,32 @@ export async function loader({ request }: LoaderFunctionArgs) {
     feeLockReport,
     listingAvailability,
     inventoryItems,
+    hasListingStockLocation: storageLocations.items.some(
+      (location) => location.name === LISTING_STOCK_LOCATION_NAME,
+    ),
     createForm: selectedInventoryItem
       ? {
           inventoryItemId: selectedInventoryItem.item_id,
+          catalogItemId: selectedInventoryItem.catalog_catalog_item_id,
+          selectedOptions: selectedInventoryItem.selected_options,
           priceAmount: recommendedPrice,
           quantityCap: "1",
           maxUnitsPerOrder: "",
           maxUnitsPerDay: "",
           maxUnitsPerCustomerAccount: "",
         }
-      : null,
+      : selectedCatalogItemId
+        ? {
+            inventoryItemId: "",
+            catalogItemId: selectedCatalogItemId,
+            selectedOptions: [],
+            priceAmount: recommendedPrice,
+            quantityCap: "1",
+            maxUnitsPerOrder: "",
+            maxUnitsPerDay: "",
+            maxUnitsPerCustomerAccount: "",
+          }
+        : null,
   };
 }
 
@@ -115,8 +183,11 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createMarketplaceRequestApiClient(request);
+  const inventoryApi = createInventoryRequestApiClient(request);
   const createForm = {
     inventoryItemId: String(formData.get("inventoryItemId") ?? ""),
+    catalogItemId: String(formData.get("catalogItemId") ?? ""),
+    selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
     priceAmount: String(formData.get("priceAmount") ?? ""),
     quantityCap: String(formData.get("quantityCap") ?? ""),
     maxUnitsPerOrder: String(formData.get("maxUnitsPerOrder") ?? ""),
@@ -150,16 +221,34 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "create-listing" || intent === "create-and-publish-listing") {
-      const result = await api.createListing({
-        inventoryItemId: createForm.inventoryItemId,
-        priceAmount: createForm.priceAmount,
-        quantityCap: Number(createForm.quantityCap ?? 0),
-        purchaseLimits: {
-          maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
-          maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
-          maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
-        },
-      }) as { id: string; feeQuoteFingerprint?: string };
+      const purchaseLimits = {
+        maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
+        maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
+        maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
+      };
+      const quantityCap = Number(createForm.quantityCap ?? 0);
+      const listingBody = createForm.inventoryItemId
+        ? {
+            inventoryItemId: createForm.inventoryItemId,
+            priceAmount: createForm.priceAmount,
+            quantityCap,
+            purchaseLimits,
+          }
+        : {
+            inventoryItemId: "",
+            priceAmount: createForm.priceAmount,
+            quantityCap,
+            purchaseLimits,
+            inventorySnapshot: (
+              await inventoryApi.ensureListingStock({
+                catalogItemId: createForm.catalogItemId,
+                selectedOptions: createForm.selectedOptions,
+                quantity: quantityCap,
+                shipFromAddress: shipFromAddressFromForm(formData),
+              })
+            ).snapshot,
+          };
+      const result = await api.createListing(listingBody) as { id: string; feeQuoteFingerprint?: string };
 
       if (intent === "create-and-publish-listing") {
         await api.publishListing(result.id, {
@@ -263,6 +352,7 @@ function MarketplaceAccountListingsRealtimeView({
       feeLockReport={feeLockReport}
       listingAvailability={data.listingAvailability as MarketplaceSellerListingAvailability}
       inventoryItems={data.inventoryItems}
+      hasListingStockLocation={data.hasListingStockLocation}
       createForm={actionData?.createForm ?? data.createForm ?? undefined}
       createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}

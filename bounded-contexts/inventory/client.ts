@@ -22,12 +22,15 @@ export type {
 export type { ImportCsvRow } from "./features/import-batches/domain/csv";
 export type {
   InventoryItemDetail,
+  InventoryEnsuredListingStock,
   InventoryItemListItem,
+  InventoryListingStockSnapshot,
   InventoryHold,
 } from "./features/inventory-items/api/contracts";
 export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 
 import type {
+  InventoryEnsuredListingStock,
   InventoryItemDetail,
   InventoryItemListItem,
 } from "./features/inventory-items/api/contracts";
@@ -143,6 +146,14 @@ export function createInventoryApiClient({
     async createItem(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.items.$post({ json: body, header: headers }),
+      );
+    },
+    async ensureListingStock(body: Record<string, unknown>): Promise<InventoryEnsuredListingStock> {
+      return parseJsonResponse(
+        await client.items["listing-stock"].ensure.$post({
+          json: body,
+          header: headers,
+        }),
       );
     },
     async adjustItem(id: string, body: Record<string, unknown>) {

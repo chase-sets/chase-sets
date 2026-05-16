@@ -2,6 +2,7 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
+  BulkSourceObservationPromotionResult,
   SourceObservationDetail,
   SourceObservationListItem,
   TcgdexSetImportResult,
@@ -31,6 +32,12 @@ export function useSourceObservation(
 
 export function importTcgdexSet(body: { languageCode: string; setId: string }) {
   return api.importTcgdexSet<TcgdexSetImportResult>(body);
+}
+
+export function bulkPromoteSourceObservations(observationIds: string[]) {
+  return api.bulkPromoteSourceObservations<BulkSourceObservationPromotionResult>(
+    observationIds,
+  );
 }
 
 export function promoteSourceObservation(id: string) {
