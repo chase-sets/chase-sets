@@ -35,6 +35,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [MCP Contract](../contracts/mcp/README.md)
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
 - [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
+- [Catalog Bulk Catalog Item Publish](../bounded-contexts/catalog/docs/bulk-catalog-item-publish.md)
 - [Notifications](../bounded-contexts/notifications/README.md)
 - [Discovery Dynamic Search Filters](../bounded-contexts/discovery/docs/dynamic-search-filters.md)
 - [Discovery Product Alerts](../bounded-contexts/discovery/docs/product-alerts.md)

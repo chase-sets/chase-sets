@@ -1,0 +1,129 @@
+import { Hono } from "hono";
+import { describe, expect, it, vi } from "vitest";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { catalogItemRoutes } from "./route";
+import type { CatalogItemServices } from "./runtime";
+import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+
+const context: EventStoreContext = {
+  tenantId: "tnt_test" as never,
+  audit: {
+    performedByUserId: "usr_test" as never,
+    forAccountId: "acc_test" as never,
+  },
+};
+
+function buildApp(services: CatalogItemServices) {
+  const app = new Hono<CatalogAuthoringEnv>();
+  app.use("*", async (c, next) => {
+    c.set("context", context);
+    await next();
+  });
+  app.route("/items", catalogItemRoutes(services));
+  return app;
+}
+
+function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogItemServices {
+  return {
+    commandHandler: async () => {
+      throw new Error("command handler not expected");
+    },
+    listCatalogItems: async () => ({ items: [], total: 0 }),
+    getCatalogItemDetail: async () => null,
+    previewBulkPublish: async () => ({
+      mode: "ids",
+      item_ids: [],
+      total: 0,
+      ready_count: 0,
+      blocked_count: 0,
+      candidates: [],
+    }),
+    publishBulk: async () => ({
+      item_ids: [],
+      total: 0,
+      published_count: 0,
+      failed_count: 0,
+      skipped_count: 0,
+      candidates: [],
+    }),
+    projectors: [],
+    ...overrides,
+  };
+}
+
+describe("catalog item routes", () => {
+  it("passes source filters into the Catalog Item list query", async () => {
+    const listCatalogItems = vi.fn(async () => ({ items: [], total: 0 }));
+    const app = buildApp(createServices({ listCatalogItems }));
+
+    const response = await app.fetch(
+      new Request("http://catalog.test/items?status=draft&source=tcgplayer&language=en"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(listCatalogItems).toHaveBeenCalledWith(expect.objectContaining({
+      status: "draft",
+      source: "tcgplayer",
+      language: "en",
+    }));
+  });
+
+  it("previews filter-wide bulk publish as draft-only", async () => {
+    const previewBulkPublish = vi.fn(async () => ({
+      mode: "filter" as const,
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [],
+    }));
+    const app = buildApp(createServices({ previewBulkPublish }));
+
+    const response = await app.fetch(
+      new Request("http://catalog.test/items/bulk-publish/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          selection: {
+            mode: "filter",
+            query: { status: "active", source: "tcgplayer" },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(previewBulkPublish).toHaveBeenCalledWith({
+      mode: "filter",
+      query: {
+        search: undefined,
+        status: "draft",
+        blueprintId: undefined,
+        tag: undefined,
+        language: undefined,
+        source: "tcgplayer",
+      },
+    });
+  });
+
+  it("confirms bulk publish against explicit previewed IDs", async () => {
+    const publishBulk = vi.fn(async () => ({
+      item_ids: ["cat_1", "cat_2"],
+      total: 2,
+      published_count: 2,
+      failed_count: 0,
+      skipped_count: 0,
+      candidates: [],
+    }));
+    const app = buildApp(createServices({ publishBulk }));
+
+    const response = await app.fetch(
+      new Request("http://catalog.test/items/bulk-publish/confirm", {
+        method: "POST",
+        body: JSON.stringify({ itemIds: ["cat_1", "cat_2"] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(publishBulk).toHaveBeenCalledWith(["cat_1", "cat_2"], context);
+  });
+});

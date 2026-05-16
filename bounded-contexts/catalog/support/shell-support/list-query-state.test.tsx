@@ -41,6 +41,9 @@ function Harness({ query }: { query: CatalogListQuery }) {
       <button type="button" onClick={() => controls.setLanguage("ja")}>
         Japanese
       </button>
+      <button type="button" onClick={() => controls.setSource("tcgplayer")}>
+        Source
+      </button>
       <button type="button" onClick={() => controls.setPage(2)}>
         Page 3
       </button>
@@ -56,22 +59,23 @@ describe("catalog list query state", () => {
 
   it("reads URL params and builds the API query with limit and offset", () => {
     const query = readCatalogListQuery(
-      new Request("http://localhost/catalog-items?search=charizard&status=active&language=ja&page=3"),
+      new Request("http://localhost/catalog-items?search=charizard&status=active&language=ja&source=tcgplayer&page=3"),
     );
 
     expect(query).toEqual({
       search: "charizard",
       status: "active",
       language: "ja",
+      source: "tcgplayer",
       page: 2,
       pageSize: 50,
     });
     expect(buildCatalogListApiQuery(query)).toBe(
-      "search=charizard&status=active&language=ja&limit=50&offset=100",
+      "search=charizard&status=active&language=ja&source=tcgplayer&limit=50&offset=100",
     );
   });
 
-  it("applies search, status, language, and page updates to URL params", () => {
+  it("applies search, status, language, source, and page updates to URL params", () => {
     const searched = applyCatalogListQueryToSearchParams(
       new URLSearchParams("search=old&page=3"),
       { search: " new " },
@@ -95,6 +99,12 @@ describe("catalog list query state", () => {
       { page: 1 },
     );
     expect(paged.toString()).toBe("search=new&status=active&language=ja&page=2");
+
+    const sourceFiltered = applyCatalogListQueryToSearchParams(
+      new URLSearchParams("search=new&status=active&language=ja&page=2"),
+      { source: "tcgplayer" },
+    );
+    expect(sourceFiltered.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer");
   });
 
   it("loads route data through the derived API query", async () => {
@@ -152,5 +162,13 @@ describe("catalog list query state", () => {
       "search=charizard&language=ja",
     );
     expect(languageOptions).toMatchObject({ replace: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+    expect(setSearchParams).toHaveBeenCalledTimes(4);
+    const [sourceUpdater, sourceOptions] = setSearchParams.mock.calls[3];
+    expect(sourceUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe(
+      "search=charizard&source=tcgplayer",
+    );
+    expect(sourceOptions).toMatchObject({ replace: false });
   });
 });
