@@ -90,10 +90,12 @@ describe("CatalogItemListPage", () => {
 
     expect(screen.getAllByText("tcgplayer").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Preview Filtered Drafts" })).toBeTruthy();
+    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     expect(selectRow).toBeTruthy();
     fireEvent.click(selectRow!);
+    expect(screen.getAllByText("1 Catalog Items selected")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Preview Publish" }));
 
     await waitFor(() => {

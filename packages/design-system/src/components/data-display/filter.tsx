@@ -106,7 +106,7 @@ export function BulkActionBar({
       <div className="text-sm font-semibold text-foreground">
         {formatSelectedLabel(count)}
       </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="flex flex-wrap items-end gap-2">{actions}</div> : null}
     </motion.div>
   );
 }

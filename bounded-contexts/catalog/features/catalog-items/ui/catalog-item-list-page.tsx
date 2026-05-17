@@ -3,7 +3,6 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import { useRevalidator } from "react-router";
 import {
-  BulkActionBar,
   Button,
   DataTable,
   Dialog,
@@ -364,92 +363,73 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         selectedKeys={selectedKeys}
         onSelectionChange={setSelectedKeys}
         bulkActionBar={
-          <>
-            {selectedKeys.size > 0 && (
-                <BulkActionBar
-                  count={selectedKeys.size}
-                  formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count })}
-                  actions={
-                    <Inline gap={2}>
-                      <Button size="sm" onClick={handlePreviewSelected} disabled={bulkBusy}>
-                        {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.publish")}</Button>
-                      <Button size="sm" tone="secondary" onClick={() => setSelectedKeys(new Set())}>
-                        {t("catalog.features.catalogItems.ui.catalogItemListPage.clear.selection")}</Button>
-                    </Inline>
-                  }
-                />
-            )}
-            <BulkLifecycleActionBar
-              entityName="Catalog Items"
-              selectedKeys={selectedKeys}
-              filterSelection={{ mode: "filter", query }}
-              filterCount={data.total}
-              actions={lifecycleActions}
-              clearSelection={() => setSelectedKeys(new Set())}
-              preview={previewBulkCatalogItemLifecycle}
-              confirm={confirmBulkCatalogItemLifecycle}
-              onCompleted={revalidator.revalidate}
-            />
-            {(selectedKeys.size > 0 || data.total > 0) && (
-              <BulkActionBar
-                count={selectedKeys.size > 0 ? selectedKeys.size : data.total}
-                formatSelectedLabel={(count) =>
-                  selectedKeys.size > 0
-                    ? t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count })
-                    : t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count })
-                }
-                actions={
-                  <Inline gap={2}>
-                    <Select
-                      label={t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.action")}
-                      value={bulkEditAction}
-                      onValueChange={(value) => setBulkEditAction(value as BulkEditCatalogItemOperation["action"])}
-                      items={bulkEditActions}
+          <BulkLifecycleActionBar
+            entityName="Catalog Items"
+            selectedKeys={selectedKeys}
+            filterSelection={data.total > 0 ? { mode: "filter", query } : undefined}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkCatalogItemLifecycle}
+            confirm={confirmBulkCatalogItemLifecycle}
+            onCompleted={revalidator.revalidate}
+            extraActions={
+              selectedKeys.size > 0 || data.total > 0 ? (
+                <>
+                  {selectedKeys.size > 0 && (
+                    <Button size="sm" onClick={handlePreviewSelected} loading={bulkBusy} disabled={bulkBusy}>
+                      {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.publish")}
+                    </Button>
+                  )}
+                  <Select
+                    label={t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.action")}
+                    value={bulkEditAction}
+                    onValueChange={(value) => setBulkEditAction(value as BulkEditCatalogItemOperation["action"])}
+                    items={bulkEditActions}
+                  />
+                  {bulkEditAction === "assignBlueprint" && (
+                    <TextInput
+                      label={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id")}
+                      value={bulkEditBlueprintId}
+                      onChange={(event) => setBulkEditBlueprintId(event.target.value)}
                     />
-                    {bulkEditAction === "assignBlueprint" && (
-                      <TextInput
-                        label={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id")}
-                        value={bulkEditBlueprintId}
-                        onChange={(event) => setBulkEditBlueprintId(event.target.value)}
-                      />
-                    )}
-                    {(bulkEditAction === "assignCategory" || bulkEditAction === "removeCategory") && (
-                      <TextInput
-                        label={t("catalog.features.catalogItems.ui.catalogItemListPage.category.id")}
-                        value={bulkEditCategoryId}
-                        onChange={(event) => setBulkEditCategoryId(event.target.value)}
-                      />
-                    )}
-                    {(bulkEditAction === "setTags" || bulkEditAction === "mergeTags") && (
-                      <TextInput
-                        label={t("catalog.features.catalogItems.ui.catalogItemListPage.tags")}
-                        value={bulkEditTags}
-                        onChange={(event) => setBulkEditTags(event.target.value)}
-                        placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.tags.placeholder")}
-                      />
-                    )}
-                    <Button
-                      size="sm"
-                      onClick={() => handlePreviewBulkEdit({ mode: "ids", ids: [...selectedKeys] })}
-                      loading={bulkEditBusy}
-                      disabled={selectedKeys.size === 0 || !canPreviewBulkEdit}
-                    >
-                      {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      tone="secondary"
-                      onClick={() => handlePreviewBulkEdit({ mode: "filter", query })}
-                      loading={bulkEditBusy}
-                      disabled={data.total === 0 || !canPreviewBulkEdit}
-                    >
-                      {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.matching")}
-                    </Button>
-                  </Inline>
-                }
-              />
-            )}
-          </>
+                  )}
+                  {(bulkEditAction === "assignCategory" || bulkEditAction === "removeCategory") && (
+                    <TextInput
+                      label={t("catalog.features.catalogItems.ui.catalogItemListPage.category.id")}
+                      value={bulkEditCategoryId}
+                      onChange={(event) => setBulkEditCategoryId(event.target.value)}
+                    />
+                  )}
+                  {(bulkEditAction === "setTags" || bulkEditAction === "mergeTags") && (
+                    <TextInput
+                      label={t("catalog.features.catalogItems.ui.catalogItemListPage.tags")}
+                      value={bulkEditTags}
+                      onChange={(event) => setBulkEditTags(event.target.value)}
+                      placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.tags.placeholder")}
+                    />
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={() => handlePreviewBulkEdit({ mode: "ids", ids: [...selectedKeys] })}
+                    loading={bulkEditBusy}
+                    disabled={selectedKeys.size === 0 || !canPreviewBulkEdit}
+                  >
+                    {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    tone="secondary"
+                    onClick={() => handlePreviewBulkEdit({ mode: "filter", query })}
+                    loading={bulkEditBusy}
+                    disabled={data.total === 0 || !canPreviewBulkEdit}
+                  >
+                    {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.matching")}
+                  </Button>
+                </>
+              ) : null
+            }
+          />
         }
         page={listControls.page}
         pageSize={listControls.pageSize}
