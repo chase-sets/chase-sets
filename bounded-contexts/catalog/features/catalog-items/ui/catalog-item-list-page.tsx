@@ -3,6 +3,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import { useRevalidator } from "react-router";
 import {
+  AlertDialog,
   Button,
   DataTable,
   Dialog,
@@ -30,6 +31,7 @@ import {
   previewBulkCatalogItemEdit,
   previewBulkCatalogItemLifecycle,
   previewBulkPublishCatalogItems,
+  removeDraftCatalogItem,
 } from "./use-catalog-items";
 import type {
   BulkEditCatalogItemCandidate,
@@ -137,8 +139,18 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   const [bulkResult, setBulkResult] = useState<BulkPublishResult | null>(null);
   const [bulkScopeLabel, setBulkScopeLabel] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [showRemoveDrafts, setShowRemoveDrafts] = useState(false);
   const bulkColumns = useMemo(() => buildBulkPreviewColumns(), []);
   const bulkRows = (bulkResult?.candidates ?? bulkPreview?.candidates ?? []).slice(0, 20);
+  const selectedItems = useMemo(
+    () => data.items.filter((item) => selectedKeys.has(item.catalog_item_id)),
+    [data.items, selectedKeys],
+  );
+  const selectedDraftIds = selectedItems
+    .filter((item) => item.status === "draft")
+    .map((item) => item.catalog_item_id);
+  const canRemoveSelectedDrafts =
+    selectedKeys.size > 0 && selectedDraftIds.length === selectedKeys.size;
   const [bulkEditAction, setBulkEditAction] = useState<BulkEditCatalogItemOperation["action"]>("assignBlueprint");
   const [bulkEditBlueprintId, setBulkEditBlueprintId] = useState("");
   const [bulkEditCategoryId, setBulkEditCategoryId] = useState("");
@@ -235,6 +247,29 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
       setBulkResult(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.completed"), "success");
       setSelectedKeys(new Set());
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function handleRemoveSelectedDrafts() {
+    setBulkBusy(true);
+    try {
+      for (const itemId of selectedDraftIds) {
+        await removeDraftCatalogItem(itemId);
+      }
+
+      addToast(
+        t("catalog.features.catalogItems.ui.catalogItemListPage.draft.catalog.items.removed", {
+          count: selectedDraftIds.length,
+        }),
+        "success",
+      );
+      setSelectedKeys(new Set());
+      setShowRemoveDrafts(false);
       revalidator.revalidate();
     } catch (error) {
       addToast(error instanceof Error ? error.message : String(error), "danger");
@@ -395,6 +430,25 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
                     <Button size="sm" onClick={handlePreviewSelected} loading={bulkBusy} disabled={bulkBusy}>
                       {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.publish")}
                     </Button>
+                  )}
+                  {selectedKeys.size > 0 && (
+                    <AlertDialog
+                      open={showRemoveDrafts}
+                      onOpenChange={setShowRemoveDrafts}
+                      title={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items")}
+                      description={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items.description", {
+                        count: selectedDraftIds.length,
+                      })}
+                      confirmLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts")}
+                      cancelLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.cancel")}
+                      tone="danger"
+                      onConfirm={handleRemoveSelectedDrafts}
+                      trigger={
+                        <Button size="sm" tone="danger" disabled={bulkBusy || !canRemoveSelectedDrafts}>
+                          {t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts")}
+                        </Button>
+                      }
+                    />
                   )}
                   <Select
                     label={t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.action")}

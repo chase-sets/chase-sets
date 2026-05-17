@@ -308,6 +308,19 @@ describe("CatalogItem aggregate", () => {
       expect(state.status).toBe("archived");
     });
 
+    it("removes draft items", () => {
+      const events = decide(decideCatalogItem, createdState(), { type: "RemoveDraftCatalogItem" as const });
+
+      expect(events[0].type).toBe("catalog.catalog-item.draft-removed");
+    });
+
+    it("rejects removing active items", () => {
+      expectDomainError(
+        () => decide(decideCatalogItem, activeState(), { type: "RemoveDraftCatalogItem" as const }),
+        "Only draft items can be removed.",
+      );
+    });
+
     it("rejects modifications to archived items", () => {
       const archivedState = givenEvents(activeState(), evolveCatalogItem, [
         { type: "catalog.catalog-item.archived", data: {} },
@@ -359,6 +372,15 @@ describe("CatalogItem aggregate", () => {
       });
 
       expect(state.status).toBe("active");
+    });
+
+    it("evolves draft removed event", () => {
+      const state = evolveCatalogItem(createdState(), {
+        type: "catalog.catalog-item.draft-removed",
+        data: {},
+      });
+
+      expect(state.status).toBe("removed");
     });
   });
 });

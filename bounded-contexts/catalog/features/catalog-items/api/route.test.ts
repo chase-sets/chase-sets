@@ -329,4 +329,24 @@ describe("catalog item routes", () => {
       context,
     );
   });
+
+  it("removes a draft Catalog Item", async () => {
+    const commandHandler = vi.fn(async () => ({
+      version: 2,
+      state: { status: "removed" },
+    }));
+    const app = buildApp(createServices({ commandHandler } as Partial<CatalogItemServices>));
+
+    const response = await app.fetch(
+      new Request("http://catalog.test/items/cat_1", { method: "DELETE" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(commandHandler).toHaveBeenCalledWith({
+      streamId: "catalog.item-cat_1",
+      command: { type: "RemoveDraftCatalogItem" },
+      context,
+    });
+    await expect(response.json()).resolves.toMatchObject({ id: "cat_1", status: "removed" });
+  });
 });

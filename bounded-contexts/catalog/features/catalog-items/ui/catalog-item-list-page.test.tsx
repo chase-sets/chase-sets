@@ -7,12 +7,14 @@ import type { CatalogItemListItem } from "./contracts";
 const {
   mockPreviewBulkCatalogItemEdit,
   mockPreviewBulkPublishCatalogItems,
+  mockRemoveDraftCatalogItem,
   mockUseNavigation,
   mockUseRevalidator,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
   mockPreviewBulkCatalogItemEdit: vi.fn(),
   mockPreviewBulkPublishCatalogItems: vi.fn(),
+  mockRemoveDraftCatalogItem: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseRevalidator: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock("./use-catalog-items", () => ({
   previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
   previewBulkCatalogItemLifecycle: vi.fn(),
   previewBulkPublishCatalogItems: mockPreviewBulkPublishCatalogItems,
+  removeDraftCatalogItem: mockRemoveDraftCatalogItem,
 }));
 
 const catalogItem: CatalogItemListItem = {
@@ -173,5 +176,32 @@ describe("CatalogItemListPage", () => {
     expect(screen.getByLabelText("Action")).toBeTruthy();
     expect(screen.getByText("Archive")).toBeTruthy();
     expect(screen.queryByText("Retire")).toBeNull();
+  });
+
+  it("removes selected draft items from the grid", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    const revalidate = vi.fn();
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockRemoveDraftCatalogItem.mockResolvedValue({ id: "cat_1", version: 2, status: "removed" });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "draft", language: "", source: "", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    const [selectRow] = screen.getAllByLabelText("Select row cat_1");
+    fireEvent.click(selectRow!);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Drafts" }));
+
+    const confirmButtons = await screen.findAllByRole("button", { name: "Remove Drafts" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    await waitFor(() => {
+      expect(mockRemoveDraftCatalogItem).toHaveBeenCalledWith("cat_1");
+      expect(revalidate).toHaveBeenCalled();
+    });
   });
 });

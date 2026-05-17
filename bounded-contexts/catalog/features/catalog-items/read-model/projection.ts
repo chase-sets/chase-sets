@@ -292,6 +292,15 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
         [itemId, event.timing.recordedAt],
       );
     },
+
+    "catalog.catalog-item.draft-removed": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+
+      await db.query(
+        `DELETE FROM catalog_items WHERE catalog_item_id = $1`,
+        [itemId],
+      );
+    },
   };
 }
 

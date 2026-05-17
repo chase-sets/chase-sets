@@ -175,6 +175,10 @@ export type ArchiveCatalogItemCommand = Readonly<{
   type: "ArchiveCatalogItem";
 }>;
 
+export type RemoveDraftCatalogItemCommand = Readonly<{
+  type: "RemoveDraftCatalogItem";
+}>;
+
 export type CatalogItemCommand =
   | CreateCatalogItemCommand
   | AssignBlueprintToCatalogItemCommand
@@ -191,7 +195,8 @@ export type CatalogItemCommand =
   | ClearCatalogItemImageFallbackCommand
   | LinkExternalProductReferenceCommand
   | UnlinkExternalProductReferenceCommand
-  | ArchiveCatalogItemCommand;
+  | ArchiveCatalogItemCommand
+  | RemoveDraftCatalogItemCommand;
 
 type ItemMetadata = Readonly<{
   languageCode: string;
@@ -309,6 +314,11 @@ export type ItemArchivedEvent = DomainEvent<
   EmptyEventData
 >;
 
+export type ItemDraftRemovedEvent = DomainEvent<
+  "catalog.catalog-item.draft-removed",
+  EmptyEventData
+>;
+
 export type CatalogItemEvent =
   | ItemCreatedEvent
   | ItemBlueprintAssignedEvent
@@ -326,7 +336,8 @@ export type CatalogItemEvent =
   | ItemExternalProductReferenceLinkedEvent
   | ItemExternalProductReferenceUnlinkedEvent
   | ItemRetiredEvent
-  | ItemArchivedEvent;
+  | ItemArchivedEvent
+  | ItemDraftRemovedEvent;
 
 export const decideCatalogItem: AggregateDecider<
   CatalogItemState,
@@ -369,7 +380,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "SetCatalogItemFieldValue":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
 
       return [
         {
@@ -382,7 +393,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "ClearCatalogItemFieldValue":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
       assert(
         state.fieldValues.some((fieldValue) => fieldValue.fieldId === command.fieldId),
         "The item does not contain that field value.",
@@ -409,7 +420,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "AssignCatalogItemToCategory":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
       assert(
         !state.categoryIds.includes(command.categoryId),
         "Item already belongs to that category.",
@@ -425,7 +436,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "RemoveCatalogItemFromCategory":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
       assert(
         state.categoryIds.includes(command.categoryId),
         "Item does not belong to that category.",
@@ -471,7 +482,7 @@ export const decideCatalogItem: AggregateDecider<
     }
     case "ReviseCatalogItemMetadata":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be revised.");
+      assertCatalogItemCanBeRevised(state);
       assertLocalizedTitle(command.title);
 
       return [
@@ -491,7 +502,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "SetCatalogItemTags":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
 
       return [
         {
@@ -503,7 +514,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "SetCatalogItemImageUrls":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
 
       return [
         {
@@ -515,7 +526,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "SetCatalogItemProductAssetSets":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
 
       return [
         {
@@ -527,7 +538,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "SetCatalogItemImageFallback":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
 
       return [
         {
@@ -539,7 +550,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "ClearCatalogItemImageFallback":
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
       assert(state.imageFallback !== null, "Catalog item does not have an image fallback.");
 
       return [
@@ -550,7 +561,7 @@ export const decideCatalogItem: AggregateDecider<
       ];
     case "LinkExternalProductReference": {
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
       const reference = normalizeExternalProductReference({
         providerKey: command.providerKey,
         externalKey: command.externalKey,
@@ -566,7 +577,7 @@ export const decideCatalogItem: AggregateDecider<
     }
     case "UnlinkExternalProductReference": {
       requireCreatedItem(state);
-      assert(state.status !== "archived", "Archived items cannot be modified.");
+      assertCatalogItemCanBeModified(state);
       const providerKey = normalizeExternalKey(command.providerKey);
       const externalKey = normalizeExternalKey(command.externalKey);
       assert(providerKey.length > 0, "External product references require a provider.");
@@ -594,6 +605,16 @@ export const decideCatalogItem: AggregateDecider<
       return [
         {
           type: "catalog.catalog-item.archived",
+          data: EMPTY_EVENT_DATA,
+        },
+      ];
+    case "RemoveDraftCatalogItem":
+      requireCreatedItem(state);
+      assert(state.status === "draft", "Only draft items can be removed.");
+
+      return [
+        {
+          type: "catalog.catalog-item.draft-removed",
           data: EMPTY_EVENT_DATA,
         },
       ];
@@ -723,6 +744,11 @@ export const evolveCatalogItem: AggregateEvolver<
         ...state,
         status: "archived",
       };
+    case "catalog.catalog-item.draft-removed":
+      return {
+        ...state,
+        status: "removed",
+      };
     default:
       return assertNever(event);
   }
@@ -730,6 +756,16 @@ export const evolveCatalogItem: AggregateEvolver<
 
 function requireCreatedItem(state: CatalogItemState): void {
   assert(state.id !== null, "Catalog item must be created first.");
+}
+
+function assertCatalogItemCanBeModified(state: CatalogItemState): void {
+  assert(state.status !== "archived", "Archived items cannot be modified.");
+  assert(state.status !== "removed", "Removed draft items cannot be modified.");
+}
+
+function assertCatalogItemCanBeRevised(state: CatalogItemState): void {
+  assert(state.status !== "archived", "Archived items cannot be revised.");
+  assert(state.status !== "removed", "Removed draft items cannot be revised.");
 }
 
 export function resolveCatalogItemTitle(

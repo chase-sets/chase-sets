@@ -432,6 +432,14 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     "catalog.catalog-item.archived": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
+    "catalog.catalog-item.draft-removed": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+
+      await Promise.all([
+        db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1`, [itemId]),
+        db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`, [itemId]),
+      ]);
+    },
 
     "catalog.blueprint.revised": async (event) => {
       await refreshBlueprintDependents(extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX));
