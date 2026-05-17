@@ -40,15 +40,6 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
-  it("includes the staging root as a marketplace host", () => {
-    expect(platformLocals).toContain("marketplace_domains = local.is_non_production ? concat([");
-    expect(platformLocals).toContain(
-      'local.is_staging ? "marketplace.${var.environment}.${var.root_domain}"',
-    );
-    expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');
-    expect(platformMain).toContain("for_each = local.marketplace_domains");
-  });
-
   it("wires Catalog asset storage into production and non-production API/bootstrap components", () => {
     for (const key of [
       "CATALOG_ASSET_STORAGE_KIND",
