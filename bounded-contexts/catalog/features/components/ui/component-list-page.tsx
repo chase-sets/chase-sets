@@ -5,6 +5,7 @@ import { useRevalidator } from "react-router";
 import {
   Button,
   Dialog,
+  Select,
   Stack,
   StatusPill,
   TextInput,
@@ -12,11 +13,12 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
+import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createComponent } from "./use-components";
+import { confirmBulkComponentLifecycle, createComponent, previewBulkComponentLifecycle } from "./use-components";
 import type { Component } from "./contracts";
 
 const columns: DataColumn<Component>[] = [
@@ -31,6 +33,17 @@ const statusOptions = [
   { label: t("catalog.features.components.ui.componentListPage.deprecated"), value: "deprecated" },
   { label: t("catalog.features.components.ui.componentListPage.archived"), value: "archived" },
 ];
+const ALL_FLAGS = "__all__";
+const booleanOptions = [
+  { label: t("catalog.support.shellSupport.ui.entityListPage.all"), value: ALL_FLAGS },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.yes"), value: "true" },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.no"), value: "false" },
+];
+const lifecycleActions = [
+  { value: "activate", label: t("catalog.features.components.ui.componentDetailPage.activate") },
+  { value: "deprecate", label: t("catalog.features.components.ui.componentDetailPage.deprecate") },
+  { value: "archive", label: t("catalog.features.components.ui.componentDetailPage.archive") },
+];
 
 export function ComponentListPage({ data, query }: CatalogListRouteData<Component>) {
   const listControls = useCatalogListQueryControls(query);
@@ -40,6 +53,7 @@ export function ComponentListPage({ data, query }: CatalogListRouteData<Componen
   const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   async function handleCreate() {
     const componentId = createId("cmp");
@@ -74,6 +88,37 @@ export function ComponentListPage({ data, query }: CatalogListRouteData<Componen
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        extraFilters={
+          <>
+            <Select
+              label={t("catalog.features.components.ui.componentDetailPage.field.rules")}
+              value={listControls.hasFieldRules || ALL_FLAGS}
+              onValueChange={(value) => listControls.setHasFieldRules(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+            <Select
+              label={t("catalog.features.components.ui.componentDetailPage.dimension.rules")}
+              value={listControls.hasDimensionRules || ALL_FLAGS}
+              onValueChange={(value) => listControls.setHasDimensionRules(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+          </>
+        }
+        selectedKeys={selectedKeys}
+        onSelectionChange={setSelectedKeys}
+        bulkActionBar={
+          <BulkLifecycleActionBar
+            entityName="Components"
+            selectedKeys={selectedKeys}
+            filterSelection={{ mode: "filter", query }}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkComponentLifecycle}
+            confirm={confirmBulkComponentLifecycle}
+            onCompleted={revalidator.revalidate}
+          />
+        }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
@@ -96,6 +141,4 @@ export function ComponentListPage({ data, query }: CatalogListRouteData<Componen
     </>
   );
 }
-
-
 

@@ -1,8 +1,18 @@
 import { api } from "../../../support/shell-support/api/client";
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
-import type { BulkPublishPreview, BulkPublishResult, CatalogItemDetail, CatalogItemImageFallback, CatalogItemListItem } from "./contracts";
+import type {
+  BulkEditCatalogItemOperation,
+  BulkEditCatalogItemPreview,
+  BulkEditCatalogItemResult,
+  BulkPublishPreview,
+  BulkPublishResult,
+  CatalogItemDetail,
+  CatalogItemImageFallback,
+  CatalogItemListItem,
+} from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export type CatalogItemMetadataInput = {
   languageCode?: string;
@@ -76,6 +86,22 @@ export function archiveCatalogItem(id: string) {
   return api.archiveCatalogItem<CommandResponse>(id);
 }
 
+export function previewBulkCatalogItemLifecycle(action: string, selection: unknown) {
+  return api.previewBulkCatalogItemLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkCatalogItemLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkCatalogItemLifecycle<BulkLifecycleResult>(action, selection);
+}
+
+export function previewBulkCatalogItemEdit(operation: BulkEditCatalogItemOperation, selection: unknown) {
+  return api.previewBulkCatalogItemEdit<BulkEditCatalogItemPreview>(operation, selection);
+}
+
+export function confirmBulkCatalogItemEdit(operation: BulkEditCatalogItemOperation, selection: unknown) {
+  return api.confirmBulkCatalogItemEdit<BulkEditCatalogItemResult>(operation, selection);
+}
+
 export function setTags(id: string, tags: string[]) {
   return api.setTags<CommandResponse>(id, tags);
 }
@@ -117,4 +143,3 @@ export function unlinkExternalProductReference(
     externalKey,
   );
 }
-

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { BlueprintServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { BlueprintId, ComponentId } from "../../../ids";
+import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 
 export function blueprintRoutes(services: BlueprintServices) {
@@ -26,6 +27,27 @@ export function blueprintRoutes(services: BlueprintServices) {
     });
 
     return c.json({ id: blueprintId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, blueprintListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, blueprintListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
   });
 
   app.put("/:id", async (c) => {
@@ -170,8 +192,8 @@ export function blueprintRoutes(services: BlueprintServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset } = c.req.query();
-    const result = await services.listBlueprints({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const { search, status, limit, offset, hasComponents, hasFieldRules, hasDimensionRules } = c.req.query();
+    const result = await services.listBlueprints({ search, status, hasComponents, hasFieldRules, hasDimensionRules, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -189,6 +211,15 @@ export function blueprintRoutes(services: BlueprintServices) {
   return app;
 }
 
+function blueprintListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: toOptionalString(record.search),
+    status: toOptionalString(record.status),
+    hasComponents: toOptionalString(record.hasComponents),
+    hasFieldRules: toOptionalString(record.hasFieldRules),
+    hasDimensionRules: toOptionalString(record.hasDimensionRules),
+  };
+}
 
 
 

@@ -63,6 +63,7 @@ export interface SourceObservationPromotionPreview {
 
 export type BulkSourceObservationPromotionStatus =
   | "promoted"
+  | "rejected"
   | "skipped"
   | "failed";
 
@@ -76,6 +77,7 @@ export interface BulkSourceObservationPromotionOutcome {
 export interface BulkSourceObservationPromotionResult {
   requested: number;
   promoted: number;
+  rejected?: number;
   skipped: number;
   failed: number;
   outcomes: BulkSourceObservationPromotionOutcome[];

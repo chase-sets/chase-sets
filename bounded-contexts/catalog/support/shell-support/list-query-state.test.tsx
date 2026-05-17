@@ -50,6 +50,9 @@ function Harness({ query }: { query: CatalogListQuery }) {
       <button type="button" onClick={() => controls.setTypeKey("set")}>
         Type
       </button>
+      <button type="button" onClick={() => controls.setFilters({ blueprintId: "bp_1", tag: "foil" })}>
+        Item Workflow
+      </button>
       <button type="button" onClick={() => controls.setPage(2)}>
         Page 3
       </button>
@@ -75,6 +78,26 @@ describe("catalog list query state", () => {
       source: "tcgplayer",
       setId: "base1",
       typeKey: "set",
+      valueKind: "",
+      valueType: "",
+      filterable: "",
+      searchable: "",
+      sortable: "",
+      hasFieldRules: "",
+      hasDimensionRules: "",
+      hasComponents: "",
+      parentCategoryId: "",
+      hierarchy: "",
+      blueprintId: "",
+      blueprintState: "",
+      tag: "",
+      hasImages: "",
+      hasSourceReferences: "",
+      missingRequiredFields: "",
+      attributeKey: "",
+      attributeValue: "",
+      relationshipType: "",
+      relatedReferenceId: "",
       page: 2,
       pageSize: 50,
     });
@@ -144,6 +167,39 @@ describe("catalog list query state", () => {
     expect(result.data.items).toEqual([{ id: "item-1" }]);
   });
 
+  it("keeps specialized workflow filters in route and API query state", () => {
+    const query = readCatalogListQuery(
+      new Request("http://localhost/catalog-items?valueKind=numeric&valueType=money&filterable=true&searchable=false&sortable=true&hasFieldRules=true&hasDimensionRules=false&hasComponents=true&parentCategoryId=cat_parent&hierarchy=root&blueprintId=bp_1&blueprintState=assigned&tag=foil&hasImages=true&hasSourceReferences=false&missingRequiredFields=true&attributeKey=rarity&attributeValue=rare&relationshipType=part-of&relatedReferenceId=ref_1&page=4"),
+    );
+
+    expect(query).toMatchObject({
+      valueKind: "numeric",
+      valueType: "money",
+      filterable: "true",
+      searchable: "false",
+      sortable: "true",
+      hasFieldRules: "true",
+      hasDimensionRules: "false",
+      hasComponents: "true",
+      parentCategoryId: "cat_parent",
+      hierarchy: "root",
+      blueprintId: "bp_1",
+      blueprintState: "assigned",
+      tag: "foil",
+      hasImages: "true",
+      hasSourceReferences: "false",
+      missingRequiredFields: "true",
+      attributeKey: "rarity",
+      attributeValue: "rare",
+      relationshipType: "part-of",
+      relatedReferenceId: "ref_1",
+      page: 3,
+    });
+    expect(buildCatalogListApiQuery(query)).toBe(
+      "valueKind=numeric&valueType=money&filterable=true&searchable=false&sortable=true&hasFieldRules=true&hasDimensionRules=false&hasComponents=true&parentCategoryId=cat_parent&hierarchy=root&blueprintId=bp_1&blueprintState=assigned&tag=foil&hasImages=true&hasSourceReferences=false&missingRequiredFields=true&attributeKey=rarity&attributeValue=rare&relationshipType=part-of&relatedReferenceId=ref_1&limit=50&offset=150",
+    );
+  });
+
   it("debounces text search and commits filters immediately", () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
@@ -209,5 +265,13 @@ describe("catalog list query state", () => {
       "search=charizard&typeKey=set",
     );
     expect(typeOptions).toMatchObject({ replace: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Item Workflow" }));
+    expect(setSearchParams).toHaveBeenCalledTimes(7);
+    const [workflowUpdater, workflowOptions] = setSearchParams.mock.calls[6];
+    expect(workflowUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe(
+      "search=charizard&blueprintId=bp_1&tag=foil",
+    );
+    expect(workflowOptions).toMatchObject({ replace: false });
   });
 });

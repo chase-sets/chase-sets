@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { Icon, type IconName } from "../../icons";
 import { useDensity } from "../../theme/provider";
 import { cx } from "../../utils/cx";
@@ -75,6 +75,7 @@ export function DataTable<T>({
         .map((row) => row.id)
     : [];
   const allSelected = selectable && allIds.length > 0 && allIds.every((id) => selectedKeys.has(id));
+  const someSelected = selectable && allIds.some((id) => selectedKeys.has(id));
 
   function handleSortClick(column: DataColumn<T>) {
     if (!column.sortable || !onSortChange) return;
@@ -125,13 +126,11 @@ export function DataTable<T>({
           <tr className="border-b border-muted bg-surface-2">
             {selectable ? (
               <th className={cx("w-12", headPad)}>
-                <input
-                  type="checkbox"
+                <SelectAllCheckbox
                   checked={allSelected}
+                  indeterminate={!allSelected && someSelected}
                   disabled={allIds.length === 0}
                   onChange={handleSelectAll}
-                  aria-label="Select all rows"
-                  className="h-4 w-4 rounded border-border accent-accent"
                 />
               </th>
             ) : null}
@@ -301,5 +300,38 @@ export function DataTable<T>({
       {mobileMode === "stack" ? cards : null}
       <div className={mobileMode === "stack" ? "hidden md:block" : "block"}>{table}</div>
     </div>
+  );
+}
+
+function SelectAllCheckbox({
+  checked,
+  indeterminate,
+  disabled,
+  onChange,
+}: Readonly<{
+  checked: boolean;
+  indeterminate: boolean;
+  disabled: boolean;
+  onChange: () => void;
+}>) {
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      onChange={onChange}
+      aria-label="Select all rows"
+      aria-checked={indeterminate ? "mixed" : checked}
+      className="h-4 w-4 rounded border-border accent-accent"
+    />
   );
 }

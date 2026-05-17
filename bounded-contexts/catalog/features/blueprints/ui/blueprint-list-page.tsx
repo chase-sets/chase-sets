@@ -6,6 +6,7 @@ import { useRevalidator } from "react-router";
 import {
   Button,
   Dialog,
+  Select,
   Stack,
   StatusPill,
   TextInput,
@@ -13,11 +14,12 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
+import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createBlueprint } from "./use-blueprints";
+import { confirmBulkBlueprintLifecycle, createBlueprint, previewBulkBlueprintLifecycle } from "./use-blueprints";
 import type { Blueprint } from "./contracts";
 
 const columns: DataColumn<Blueprint>[] = [
@@ -32,6 +34,17 @@ const statusOptions = [
   { label: t("catalog.features.blueprints.ui.blueprintListPage.deprecated"), value: "deprecated" },
   { label: t("catalog.features.blueprints.ui.blueprintListPage.archived"), value: "archived" },
 ];
+const ALL_FLAGS = "__all__";
+const booleanOptions = [
+  { label: t("catalog.support.shellSupport.ui.entityListPage.all"), value: ALL_FLAGS },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.yes"), value: "true" },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.no"), value: "false" },
+];
+const lifecycleActions = [
+  { value: "publish", label: t("catalog.features.blueprints.ui.blueprintDetailPage.publish") },
+  { value: "deprecate", label: t("catalog.features.blueprints.ui.blueprintDetailPage.deprecate") },
+  { value: "archive", label: t("catalog.features.blueprints.ui.blueprintDetailPage.archive") },
+];
 
 export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprint>) {
   const listControls = useCatalogListQueryControls(query);
@@ -41,6 +54,7 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
   const [key, setKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   async function handleCreate() {
     const blueprintId = createId("bpr");
@@ -75,6 +89,43 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        extraFilters={
+          <>
+            <Select
+              label={t("catalog.features.blueprints.ui.blueprintDetailPage.components")}
+              value={listControls.hasComponents || ALL_FLAGS}
+              onValueChange={(value) => listControls.setHasComponents(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+            <Select
+              label={t("catalog.features.blueprints.ui.blueprintDetailPage.field.rules")}
+              value={listControls.hasFieldRules || ALL_FLAGS}
+              onValueChange={(value) => listControls.setHasFieldRules(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+            <Select
+              label={t("catalog.features.blueprints.ui.blueprintDetailPage.dimension.rules")}
+              value={listControls.hasDimensionRules || ALL_FLAGS}
+              onValueChange={(value) => listControls.setHasDimensionRules(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+          </>
+        }
+        selectedKeys={selectedKeys}
+        onSelectionChange={setSelectedKeys}
+        bulkActionBar={
+          <BulkLifecycleActionBar
+            entityName="Blueprints"
+            selectedKeys={selectedKeys}
+            filterSelection={{ mode: "filter", query }}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkBlueprintLifecycle}
+            confirm={confirmBulkBlueprintLifecycle}
+            onCompleted={revalidator.revalidate}
+          />
+        }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
@@ -97,6 +148,4 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
     </>
   );
 }
-
-
 

@@ -70,6 +70,23 @@ export function bulkPromoteSourceObservationsByScope(
   );
 }
 
+export function bulkRejectSourceObservations(observationIds: string[], reason: string) {
+  return api.bulkRejectSourceObservations<BulkSourceObservationPromotionResult>(
+    observationIds,
+    reason,
+  );
+}
+
+export function bulkRejectSourceObservationsByScope(
+  scope: SourceObservationPromotionScope,
+  reason: string,
+) {
+  return api.bulkRejectSourceObservationsByScope<BulkSourceObservationPromotionResult>(
+    scope,
+    reason,
+  );
+}
+
 export function promoteSourceObservation(id: string) {
   return api.promoteSourceObservation<CommandResponse>(id);
 }

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { FieldServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { FieldId } from "../../../ids";
+import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 
 export function fieldRoutes(services: FieldServices) {
@@ -28,6 +29,27 @@ export function fieldRoutes(services: FieldServices) {
     });
 
     return c.json({ id: fieldId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, fieldListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, fieldListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
   });
 
   app.put("/:id", async (c) => {
@@ -91,8 +113,8 @@ export function fieldRoutes(services: FieldServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset } = c.req.query();
-    const result = await services.listFields({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const { search, status, limit, offset, valueType, filterable, searchable, sortable } = c.req.query();
+    const result = await services.listFields({ search, status, valueType, filterable, searchable, sortable, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -110,6 +132,16 @@ export function fieldRoutes(services: FieldServices) {
   return app;
 }
 
+function fieldListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: toOptionalString(record.search),
+    status: toOptionalString(record.status),
+    valueType: toOptionalString(record.valueType),
+    filterable: toOptionalString(record.filterable),
+    searchable: toOptionalString(record.searchable),
+    sortable: toOptionalString(record.sortable),
+  };
+}
 
 
 

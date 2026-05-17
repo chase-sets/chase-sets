@@ -7,6 +7,11 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
+  createBulkLifecycleOperations,
+  type BulkLifecycleOperations,
+  type BulkSelection,
+} from "../../../support/runtime-support/bulk-lifecycle";
+import {
   type BlueprintState,
   type BlueprintCommand,
   type BlueprintEvent,
@@ -14,7 +19,13 @@ import {
   decideBlueprint,
   evolveBlueprint,
 } from "../domain/domain";
-import { getBlueprintDetail, listBlueprints } from "../read-model/queries";
+import {
+  getBlueprintDetail,
+  listBlueprintBulkRows,
+  listBlueprintIds,
+  listBlueprints,
+  type BlueprintListParams,
+} from "../read-model/queries";
 import { buildCatalogAdminBlueprintProjectionHandlers } from "../read-model/admin-projection";
 import { buildBlueprintProjectionHandlers } from "../read-model/projection";
 
@@ -26,6 +37,7 @@ export type BlueprintServices = Readonly<{
   getBlueprintDetail: (
     blueprintId: string,
   ) => ReturnType<typeof getBlueprintDetail>;
+  bulkLifecycle: BulkLifecycleOperations<BlueprintListParams, BlueprintCommand, BlueprintState, BlueprintEvent>;
   projectors: readonly Projector[];
 }>;
 
@@ -43,23 +55,56 @@ export function createBlueprintRuntime(
     decide: decideBlueprint,
   });
 
+  const projectors = [
+    createProjector({
+      projectorName: "catalog-blueprint-projection",
+      eventStore: deps.eventStore,
+      checkpointStore: deps.checkpointStore,
+      handlers: buildBlueprintProjectionHandlers(deps.db),
+    }),
+    createProjector({
+      projectorName: "catalog-admin-blueprint-detail-projection",
+      eventStore: deps.eventStore,
+      checkpointStore: deps.checkpointStore,
+      handlers: buildCatalogAdminBlueprintProjectionHandlers(deps.db),
+    }),
+  ];
+  const bulkLifecycle = createBulkLifecycleOperations<BlueprintListParams, BlueprintCommand, BlueprintState, BlueprintEvent>({
+    actions: [
+      {
+        action: "publish",
+        readyStatus: "draft",
+        command: { type: "PublishBlueprint" },
+        streamId: (id) => `catalog.blueprint-${id}`,
+        blockedReason: (status) => `Only draft Blueprints can be published. Current status: ${status}.`,
+      },
+      {
+        action: "deprecate",
+        readyStatus: "active",
+        command: { type: "DeprecateBlueprint" },
+        streamId: (id) => `catalog.blueprint-${id}`,
+        blockedReason: (status) => `Only active Blueprints can be deprecated. Current status: ${status}.`,
+      },
+      {
+        action: "archive",
+        readyStatus: "deprecated",
+        command: { type: "ArchiveBlueprint" },
+        streamId: (id) => `catalog.blueprint-${id}`,
+        blockedReason: (status) => `Only deprecated Blueprints can be archived. Current status: ${status}.`,
+      },
+    ],
+    commandHandler,
+    resolveIds: (selection: BulkSelection<BlueprintListParams>) =>
+      selection.mode === "ids" ? Promise.resolve(selection.ids) : listBlueprintIds(deps.db, selection.query),
+    loadRows: (ids) => listBlueprintBulkRows(deps.db, ids),
+    projectors,
+  });
+
   return {
     commandHandler,
     listBlueprints: (params) => listBlueprints(deps.db, params),
     getBlueprintDetail: (blueprintId) => getBlueprintDetail(deps.db, blueprintId),
-    projectors: [
-      createProjector({
-        projectorName: "catalog-blueprint-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildBlueprintProjectionHandlers(deps.db),
-      }),
-      createProjector({
-        projectorName: "catalog-admin-blueprint-detail-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildCatalogAdminBlueprintProjectionHandlers(deps.db),
-      }),
-    ],
+    bulkLifecycle,
+    projectors,
   };
 }

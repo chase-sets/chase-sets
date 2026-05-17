@@ -13,11 +13,12 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
+import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createDimension } from "./use-dimensions";
+import { confirmBulkDimensionLifecycle, createDimension, previewBulkDimensionLifecycle } from "./use-dimensions";
 import type { Dimension } from "./contracts";
 
 const columns: DataColumn<Dimension>[] = [
@@ -39,6 +40,12 @@ const valueKindOptions = [
   { label: t("catalog.features.dimensions.ui.dimensionListPage.ordered"), value: "ordered" },
   { label: t("catalog.features.dimensions.ui.dimensionListPage.numeric"), value: "numeric" },
 ];
+const ALL_VALUE_KINDS = "__all__";
+const lifecycleActions = [
+  { value: "activate", label: t("catalog.features.dimensions.ui.dimensionDetailPage.activate") },
+  { value: "deprecate", label: t("catalog.features.dimensions.ui.dimensionDetailPage.deprecate") },
+  { value: "archive", label: t("catalog.features.dimensions.ui.dimensionDetailPage.archive") },
+];
 
 export function DimensionListPage({ data, query }: CatalogListRouteData<Dimension>) {
   const listControls = useCatalogListQueryControls(query);
@@ -49,6 +56,7 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [valueKind, setValueKind] = useState("unordered");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   async function handleCreate() {
     const dimensionId = createId("dim");
@@ -85,6 +93,32 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        extraFilters={
+          <Select
+            label={t("catalog.features.dimensions.ui.dimensionListPage.value.kind.2")}
+            value={listControls.valueKind || ALL_VALUE_KINDS}
+            onValueChange={(value) => listControls.setValueKind(value === ALL_VALUE_KINDS ? "" : value)}
+            items={[
+              { label: t("catalog.support.shellSupport.ui.entityListPage.all.value.kinds"), value: ALL_VALUE_KINDS },
+              ...valueKindOptions,
+            ]}
+          />
+        }
+        selectedKeys={selectedKeys}
+        onSelectionChange={setSelectedKeys}
+        bulkActionBar={
+          <BulkLifecycleActionBar
+            entityName="Dimensions"
+            selectedKeys={selectedKeys}
+            filterSelection={{ mode: "filter", query }}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkDimensionLifecycle}
+            confirm={confirmBulkDimensionLifecycle}
+            onCompleted={revalidator.revalidate}
+          />
+        }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
@@ -113,5 +147,3 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
     </>
   );
 }
-
-

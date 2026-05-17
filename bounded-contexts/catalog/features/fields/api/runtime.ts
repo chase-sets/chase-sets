@@ -7,6 +7,11 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
+  createBulkLifecycleOperations,
+  type BulkLifecycleOperations,
+  type BulkSelection,
+} from "../../../support/runtime-support/bulk-lifecycle";
+import {
   type FieldState,
   type FieldCommand,
   type FieldEvent,
@@ -14,7 +19,13 @@ import {
   decideField,
   evolveField,
 } from "../domain/domain";
-import { getField, listFields } from "../read-model/queries";
+import {
+  getField,
+  listFieldBulkRows,
+  listFieldIds,
+  listFields,
+  type FieldListParams,
+} from "../read-model/queries";
 import { buildFieldProjectionHandlers } from "../read-model/projection";
 
 export type FieldServices = Readonly<{
@@ -23,6 +34,7 @@ export type FieldServices = Readonly<{
     params?: Parameters<typeof listFields>[1],
   ) => ReturnType<typeof listFields>;
   getField: (fieldId: string) => ReturnType<typeof getField>;
+  bulkLifecycle: BulkLifecycleOperations<FieldListParams, FieldCommand, FieldState, FieldEvent>;
   projectors: readonly Projector[];
 }>;
 
@@ -38,17 +50,50 @@ export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldServices {
     decide: decideField,
   });
 
+  const projectors = [
+    createProjector({
+      projectorName: "catalog-field-projection",
+      eventStore: deps.eventStore,
+      checkpointStore: deps.checkpointStore,
+      handlers: buildFieldProjectionHandlers(deps.db),
+    }),
+  ];
+  const bulkLifecycle = createBulkLifecycleOperations<FieldListParams, FieldCommand, FieldState, FieldEvent>({
+    actions: [
+      {
+        action: "activate",
+        readyStatus: "draft",
+        command: { type: "ActivateField" },
+        streamId: (id) => `catalog.field-${id}`,
+        blockedReason: (status) => `Only draft Fields can be activated. Current status: ${status}.`,
+      },
+      {
+        action: "deprecate",
+        readyStatus: "active",
+        command: { type: "DeprecateField" },
+        streamId: (id) => `catalog.field-${id}`,
+        blockedReason: (status) => `Only active Fields can be deprecated. Current status: ${status}.`,
+      },
+      {
+        action: "archive",
+        readyStatus: "deprecated",
+        command: { type: "ArchiveField" },
+        streamId: (id) => `catalog.field-${id}`,
+        blockedReason: (status) => `Only deprecated Fields can be archived. Current status: ${status}.`,
+      },
+    ],
+    commandHandler,
+    resolveIds: (selection: BulkSelection<FieldListParams>) =>
+      selection.mode === "ids" ? Promise.resolve(selection.ids) : listFieldIds(deps.db, selection.query),
+    loadRows: (ids) => listFieldBulkRows(deps.db, ids),
+    projectors,
+  });
+
   return {
     commandHandler,
     listFields: (params) => listFields(deps.db, params),
     getField: (fieldId) => getField(deps.db, fieldId),
-    projectors: [
-      createProjector({
-        projectorName: "catalog-field-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildFieldProjectionHandlers(deps.db),
-      }),
-    ],
+    bulkLifecycle,
+    projectors,
   };
 }
