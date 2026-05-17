@@ -73,6 +73,10 @@ export function resolvePlatformSmokeUrls({ cliArgs, env, sandboxEnv }) {
       ),
       "marketplace URL",
     ),
+    marketplaceRootUrl: validateHttpUrl(
+      trimTrailingSlash(getConfiguredUrl("MARKETPLACE_ROOT_WEB_URL", "")),
+      "marketplace root URL",
+    ),
     redirectUrl: validateHttpUrl(
       trimTrailingSlash(
         getConfiguredUrl("LEGACY_PUBLIC_URL", cliArgs[3] || "", undefined, {
