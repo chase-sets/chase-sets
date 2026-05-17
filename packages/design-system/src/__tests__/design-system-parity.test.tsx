@@ -1064,6 +1064,8 @@ describe("design system", () => {
 
     expect(facetMarkup).toContain("Browse Categories");
     expect(facetMarkup).toContain("Pokemon TCG (7)");
+    expect(facetMarkup).toContain("<section");
+    expect(facetMarkup).not.toContain("glass-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2");
     expect(facetStripMarkup).toContain("Condition");
     expect(facetStripMarkup).toContain("Near Mint (3)");
     expect(heroMarkup).toContain("Find collectibles worth chasing.");

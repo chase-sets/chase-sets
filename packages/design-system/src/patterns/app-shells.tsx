@@ -835,60 +835,57 @@ export function MarketplaceFacetRail({
   const visibleItems = [...selectedItemsOutsideSearch, ...matchedItems];
 
   return (
-    <Card variant="feature">
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <div className="font-heading text-base font-semibold text-foreground">{title}</div>
-          {description ? <div className="text-sm text-secondary">{description}</div> : null}
-        </div>
-        <div className="h-px bg-border" />
-        {searchable ? (
-          <SearchInput
-            label={searchLabel}
-            hideLabel
-            placeholder={searchPlaceholder ?? searchLabel}
-            value={search}
-            onChange={(event) => setSearch(event.currentTarget.value)}
-          />
-        ) : null}
-        <div className="space-y-2">
-          <Button
-            tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
-            size="sm"
-            onClick={() => onSelect("")}
-            leadingIcon="grid"
-            aria-pressed={!selectedId && (!selectedValues || selectedValues.size === 0)}
-            block
-          >
-            {allLabel}
-          </Button>
-        </div>
-        <div className={cx("space-y-2", searchable && "max-h-72 overflow-y-auto pr-1")}>
-          {visibleItems.map((item) => {
-            const selected = selectedValues?.has(item.id) ?? selectedId === item.id;
-
-            return (
-              <Button
-                key={item.id}
-                tone={selected ? "primary" : "ghost"}
-                size="sm"
-                onClick={() => onSelect(item.id)}
-                leadingIcon={multiple && selected ? "check" : "tag"}
-                aria-pressed={selected}
-                block
-              >
-                {item.count == null ? item.label : `${item.label} (${item.count})`}
-              </Button>
-            );
-          })}
-          {normalizedSearch && matchedItems.length === 0 ? (
-            <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
-              {searchEmptyLabel}
-            </div>
-          ) : null}
-        </div>
+    <section className="min-w-0 space-y-3 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
+      <div className="space-y-1 px-1">
+        <h2 className="font-heading text-base font-semibold text-foreground">{title}</h2>
+        {description ? <div className="text-sm text-secondary">{description}</div> : null}
       </div>
-    </Card>
+      {searchable ? (
+        <SearchInput
+          label={searchLabel}
+          hideLabel
+          placeholder={searchPlaceholder ?? searchLabel}
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+        />
+      ) : null}
+      <div className="space-y-2">
+        <Button
+          tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
+          size="sm"
+          onClick={() => onSelect("")}
+          leadingIcon="grid"
+          aria-pressed={!selectedId && (!selectedValues || selectedValues.size === 0)}
+          block
+        >
+          {allLabel}
+        </Button>
+      </div>
+      <div className={cx("space-y-2", searchable && "max-h-72 overflow-y-auto pr-1")}>
+        {visibleItems.map((item) => {
+          const selected = selectedValues?.has(item.id) ?? selectedId === item.id;
+
+          return (
+            <Button
+              key={item.id}
+              tone={selected ? "primary" : "ghost"}
+              size="sm"
+              onClick={() => onSelect(item.id)}
+              leadingIcon={multiple && selected ? "check" : "tag"}
+              aria-pressed={selected}
+              block
+            >
+              {item.count == null ? item.label : `${item.label} (${item.count})`}
+            </Button>
+          );
+        })}
+        {normalizedSearch && matchedItems.length === 0 ? (
+          <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
+            {searchEmptyLabel}
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
