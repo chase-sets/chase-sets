@@ -21,6 +21,17 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
+  app.get("/integration-scopes", async (c) => {
+    const { provider, source, language, setId, expansionId } = c.req.query();
+    const items = await services.listIntegrationScopes({
+      provider: provider ?? source,
+      language,
+      setId: expansionId ?? setId,
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
   app.post("/imports/tcgdex-set", async (c) => {
     const body = await c.req.json();
     const result = await services.importTcgdexSet({

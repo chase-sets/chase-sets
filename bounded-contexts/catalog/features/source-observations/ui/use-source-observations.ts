@@ -3,6 +3,7 @@ import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
   BulkSourceObservationPromotionResult,
+  SourceObservationIntegrationScope,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationDetail,
@@ -16,6 +17,17 @@ export function useSourceObservationList(
 ) {
   return useFetch(
     () => api.listSourceObservations<ListResponse<SourceObservationListItem>>(query),
+    [query],
+    initialData,
+  );
+}
+
+export function useSourceObservationIntegrationScopes(
+  query: string,
+  initialData?: ListResponse<SourceObservationIntegrationScope> | null,
+) {
+  return useFetch(
+    () => api.listSourceObservationIntegrationScopes<ListResponse<SourceObservationIntegrationScope>>(query),
     [query],
     initialData,
   );

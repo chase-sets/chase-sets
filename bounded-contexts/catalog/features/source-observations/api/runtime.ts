@@ -35,10 +35,12 @@ import { buildSourceObservationProjectionHandlers } from "../read-model/projecti
 import {
   getSourceObservationDetail,
   listSourceObservationIdsForPromotion,
+  listSourceObservationIntegrationScopes,
   listSourceObservations,
   previewSourceObservationPromotionScope,
   type SourceObservationDetailRow,
   type SourceObservationFilterScope,
+  type SourceObservationIntegrationScopeRow,
   type SourceObservationPromotionPreview,
 } from "../read-model/queries";
 import { fetchTcgdexSetObservations, type TcgdexSetImportResult } from "./tcgdex-client";
@@ -92,6 +94,11 @@ export type SourceObservationServices = Readonly<{
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
+  listIntegrationScopes: (params?: {
+    provider?: string;
+    language?: string;
+    setId?: string;
+  }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
   getSourceObservationDetail: (
     observationId: string,
   ) => ReturnType<typeof getSourceObservationDetail>;
@@ -286,6 +293,8 @@ export function createSourceObservationRuntime(
       return { observationId, status: "rejected" };
     },
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
+    listIntegrationScopes: (params) =>
+      listSourceObservationIntegrationScopes(deps.db, params),
     getSourceObservationDetail: (observationId) =>
       getSourceObservationDetail(deps.db, observationId),
     projectors,
