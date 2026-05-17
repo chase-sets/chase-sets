@@ -720,8 +720,10 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
-          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          SMOKE_REGISTER_SELLER: "true"
+          SMOKE_SELLER_EMAIL: stripe-preview+pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
+          SMOKE_SELLER_PASSWORD: preview-stripe-${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_SELLER_DISPLAY_NAME: Stripe Preview Smoke Seller
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
@@ -737,7 +739,7 @@ jobs:
           fi
           cd ../../..
           PLATFORM_API_BASE_URL="https://${marketplace_domain}" \
-            PLATFORM_AUTH_BASE_URL="https://${admin_domain}" \
+            PLATFORM_AUTH_BASE_URL="https://${marketplace_domain}" \
             pnpm run stripe:money-smoke -- --edge-check --seller-flow
 
   pr-required:

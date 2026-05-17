@@ -80,11 +80,19 @@ For authenticated seller-flow checks, set one of:
 - `PLATFORM_API_COOKIE`
 
 If a bearer token or cookie is not already available, the smoke test can sign in
-with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, and
-`PLATFORM_AUTH_BASE_URL`.
+with `SMOKE_SELLER_EMAIL`, `SMOKE_SELLER_PASSWORD`, and
+`PLATFORM_AUTH_BASE_URL`. In disposable preview environments, set
+`SMOKE_REGISTER_SELLER=true` with those seller credentials to create a
+throwaway owner account before running seller money checks. The legacy
+`PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_PASSWORD` fallback is only useful
+when that account has seller money permissions.
 
 Optional authenticated preview checks:
 
+- `SMOKE_REGISTER_SELLER=true`: registers the smoke seller as a new owner account before checking seller flows.
+- `SMOKE_SELLER_EMAIL`: preview seller email for sign-in or registration.
+- `SMOKE_SELLER_PASSWORD`: preview seller password for sign-in or registration.
+- `SMOKE_SELLER_ACCOUNT_ID`: account to select when the seller user has multiple memberships.
 - `SMOKE_ORDER_IDS`: comma-separated pending-payment order ids to probe checkout payment status.
 - `SMOKE_BALANCE_CREDIT_AMOUNT`: wallet credit amount to apply in checkout status and optional payment creation.
 - `SMOKE_PAYMENT_METHOD_CATEGORY`: `card`, `bank-account`, or `platform-credit`.

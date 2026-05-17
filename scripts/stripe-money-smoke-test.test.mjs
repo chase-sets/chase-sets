@@ -23,6 +23,13 @@ function createSmokeFetch(calls) {
     if (path === "/api/auth/password-sign-in") {
       return jsonResponse({ type: "session-started", sessionToken: "session_admin" });
     }
+    if (path === "/api/auth/register") {
+      return jsonResponse({
+        type: "session-started",
+        sessionToken: "session_seller",
+        accountId: "acc_smoke_seller",
+      }, 201);
+    }
     if (path === "/api/payments/provider/webhooks") {
       return jsonResponse({ error: { code: "validation_failed" } }, 400);
     }
@@ -200,6 +207,43 @@ describe("stripe money smoke test", () => {
     );
     expect(accountStatusCall.init.headers.get("Authorization")).toBe(
       "Bearer session_admin",
+    );
+  });
+
+  it("can register a throwaway preview seller before running the seller flow", async () => {
+    const calls = [];
+    const result = await runSellerFlow("https://marketplace.preview.test", {
+      fetchImpl: createSmokeFetch(calls),
+      env: {
+        PLATFORM_AUTH_BASE_URL: "https://marketplace.preview.test",
+        SMOKE_REGISTER_SELLER: "true",
+        SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
+        SMOKE_SELLER_PASSWORD: "preview smoke password",
+        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
+        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
+      },
+    });
+
+    expect(result.accountStatus).toBe("ok");
+    expect(calls[0]).toMatchObject({
+      url: "https://marketplace.preview.test/api/auth/register",
+    });
+    const registrationBody = JSON.parse(calls[0].init.body);
+    expect(registrationBody).toMatchObject({
+      email: "stripe-smoke@example.test",
+      displayName: "Stripe Preview Smoke Seller",
+      consents: [
+        {
+          policyKey: "terms-of-service",
+          policyVersion: "v1",
+        },
+      ],
+    });
+    const accountStatusCall = calls.find((call) =>
+      call.url === "https://marketplace.preview.test/api/settlement/account-status"
+    );
+    expect(accountStatusCall.init.headers.get("Authorization")).toBe(
+      "Bearer session_seller",
     );
   });
 });

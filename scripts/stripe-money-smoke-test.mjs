@@ -39,37 +39,111 @@ async function resolveAuthHeaders(env = process.env, fetchImpl = fetch) {
     return headers;
   }
 
-  const adminEmail = readEnv("PLATFORM_ADMIN_EMAIL", env);
-  const adminPassword = readEnv("PLATFORM_ADMIN_PASSWORD", env);
+  const sellerEmail = readEnv("SMOKE_SELLER_EMAIL", env);
+  const sellerPassword = readEnv("SMOKE_SELLER_PASSWORD", env);
   const authBaseUrl =
     readEnv("PLATFORM_AUTH_BASE_URL", env) ??
     readEnv("PLATFORM_ADMIN_BASE_URL", env) ??
     readEnv("PLATFORM_API_BASE_URL", env);
+  if (sellerEmail && sellerPassword && authBaseUrl) {
+    if (readEnv("SMOKE_REGISTER_SELLER", env) === "true") {
+      const sessionToken = await registerSellerAccount({
+        authBaseUrl,
+        email: sellerEmail,
+        password: sellerPassword,
+        displayName: readEnv("SMOKE_SELLER_DISPLAY_NAME", env) ??
+          "Stripe Preview Smoke Seller",
+      }, fetchImpl);
+      headers.set("Authorization", `Bearer ${sessionToken}`);
+      return headers;
+    }
+
+    const sessionToken = await signInWithPassword({
+      authBaseUrl,
+      email: sellerEmail,
+      password: sellerPassword,
+      accountId: readEnv("SMOKE_SELLER_ACCOUNT_ID", env),
+      label: "seller password sign-in",
+    }, fetchImpl);
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+    return headers;
+  }
+
+  const adminEmail = readEnv("PLATFORM_ADMIN_EMAIL", env);
+  const adminPassword = readEnv("PLATFORM_ADMIN_PASSWORD", env);
   if (!adminEmail || !adminPassword || !authBaseUrl) {
     return headers;
   }
 
+  const sessionToken = await signInWithPassword({
+    authBaseUrl,
+    email: adminEmail,
+    password: adminPassword,
+    accountId: readEnv("PLATFORM_ADMIN_ACCOUNT_ID", env),
+    label: "admin password sign-in",
+  }, fetchImpl);
+
+  headers.set("Authorization", `Bearer ${sessionToken}`);
+  return headers;
+}
+
+async function signInWithPassword(params, fetchImpl) {
   const signIn = await requestJson(
-    `${stripTrailingSlash(authBaseUrl)}/api/auth/password-sign-in`,
+    `${stripTrailingSlash(params.authBaseUrl)}/api/auth/password-sign-in`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+      body: JSON.stringify({
+        email: params.email,
+        password: params.password,
+        ...(params.accountId ? { accountId: params.accountId } : {}),
+      }),
     },
     fetchImpl,
   );
   assert(
     signIn.response.status === 200,
-    `Expected admin password sign-in to return 200, got ${signIn.response.status}.`,
+    `Expected ${params.label} to return 200, got ${signIn.response.status}.`,
   );
-  const sessionToken =
-    typeof signIn.body?.sessionToken === "string"
-      ? signIn.body.sessionToken.trim()
-      : "";
-  assert(sessionToken, "Admin password sign-in did not return a session token.");
+  return readSessionToken(signIn.body, params.label);
+}
 
-  headers.set("Authorization", `Bearer ${sessionToken}`);
-  return headers;
+async function registerSellerAccount(params, fetchImpl) {
+  const registration = await requestJson(
+    `${stripTrailingSlash(params.authBaseUrl)}/api/auth/register`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: params.email,
+        password: params.password,
+        displayName: params.displayName,
+        givenName: "Stripe",
+        familyName: "Smoke",
+        consents: [
+          {
+            policyKey: "terms-of-service",
+            policyVersion: "v1",
+          },
+        ],
+      }),
+    },
+    fetchImpl,
+  );
+  assert(
+    registration.response.status === 201,
+    `Expected seller registration to return 201, got ${registration.response.status}.`,
+  );
+  return readSessionToken(registration.body, "seller registration");
+}
+
+function readSessionToken(body, label) {
+  const sessionToken =
+    typeof body?.sessionToken === "string"
+      ? body.sessionToken.trim()
+      : "";
+  assert(sessionToken, `${label} did not return a session token.`);
+  return sessionToken;
 }
 
 async function requestJson(url, init = {}, fetchImpl = fetch) {
@@ -112,6 +186,11 @@ export function envReport(env = process.env) {
     "PLATFORM_ADMIN_BASE_URL",
     "PLATFORM_ADMIN_EMAIL",
     "PLATFORM_ADMIN_PASSWORD",
+    "SMOKE_REGISTER_SELLER",
+    "SMOKE_SELLER_ACCOUNT_ID",
+    "SMOKE_SELLER_DISPLAY_NAME",
+    "SMOKE_SELLER_EMAIL",
+    "SMOKE_SELLER_PASSWORD",
     "SMOKE_BALANCE_CREDIT_AMOUNT",
     "SMOKE_CREATE_PAYMENT",
     "SMOKE_ORDER_IDS",
@@ -195,7 +274,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
   const headers = await resolveAuthHeaders(env, fetchImpl);
   assert(
     headers.has("Authorization") || headers.has("Cookie"),
-    "Set PLATFORM_API_AUTHORIZATION or PLATFORM_API_COOKIE, or set PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD with PLATFORM_AUTH_BASE_URL, before running --seller-flow.",
+    "Set PLATFORM_API_AUTHORIZATION or PLATFORM_API_COOKIE; set SMOKE_SELLER_EMAIL and SMOKE_SELLER_PASSWORD; or set SMOKE_REGISTER_SELLER=true with SMOKE_SELLER_EMAIL, SMOKE_SELLER_PASSWORD, and PLATFORM_AUTH_BASE_URL before running --seller-flow.",
   );
 
   const accountStatus = await getJsonOk(

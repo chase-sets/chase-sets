@@ -11,7 +11,7 @@ Harden the Stripe integration before go-live by extending automated and preview 
 - Sandbox id: `fbdf3833`
 - Dependency setup status: complete via `pnpm run deps:install`
 - pnpm store path: `.codex/worktrees/.chase-sets-pnpm-store`
-- Setup blockers: preview deployment and live Stripe test-mode smoke tests require authenticated platform credentials, Stripe test keys, webhook secret, and preview seller authentication.
+- Setup blockers: full payment creation and payout request still require suitable pending-payment order ids and a seller wallet with available balance; baseline preview smoke can now self-register a throwaway seller account.
 
 ## Owning Contexts
 
@@ -32,13 +32,7 @@ Harden the Stripe integration before go-live by extending automated and preview 
 
 ## Open Questions
 
-- Blocking for preview execution: which preview URL and authenticated seller credentials/token should be used for the Stripe test-mode smoke run?
-
-Recommended answer: provide `PLATFORM_API_BASE_URL`, either `PLATFORM_API_AUTHORIZATION` or `PLATFORM_API_COOKIE`, and confirm the preview environment has `STRIPE_SECRET_KEY=sk_test...`, `STRIPE_PUBLISHABLE_KEY=pk_test...`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_RETURN_URL`, and `STRIPE_CONNECT_REFRESH_URL`.
-
-Repo evidence: `scripts/stripe-money-smoke-test.mjs` already requires those environment values for seller-flow checks; `docs/runbooks/money-operations.md` defines the same preview/test-mode requirements.
-
-Consequence of choosing differently: without authenticated preview access, I can harden local automated coverage and open the PR, but I cannot truthfully confirm preview Connect onboarding, real Stripe requests, transfers, or payouts end to end.
+- Full end-to-end payment creation and payout request need preview test data: pending-payment order ids, desired balance-credit amount, and a seller with available wallet balance. The baseline preview workflow intentionally does not force `SMOKE_CREATE_PAYMENT=true` or `SMOKE_REQUEST_PAYOUT=true` until that data exists.
 
 ## Implementation Checklist
 
@@ -46,12 +40,12 @@ Consequence of choosing differently: without authenticated preview access, I can
 - [x] Extend Stripe money smoke coverage for both payment and settlement provider webhook edge rejection.
 - [x] Extend smoke coverage for payment provider health, settlement provider health, account status wallet flags, checkout fee policy, provider idempotency surfaces, platform balance forecast, optional balance-credit payment creation, and payout preview/request safety.
 - [x] Add focused tests for the smoke script so preview coverage cannot regress silently.
-- [x] Add Stripe money smoke to the label-gated PR preview workflow using preview admin sign-in.
+- [x] Add Stripe money smoke to the label-gated PR preview workflow using disposable preview seller registration.
 - [x] Review Stripe adapter unit coverage for Accounts v2, payment sessions, balance/transfer/payout calls, webhook mapping, idempotency, and signature failures.
 - [x] Run targeted tests for Stripe adapters, money movement, payment processing, platform config, smoke script, and money contexts.
 - [x] Run broader verification: metadata, static checks, typecheck, non-DB tests, DB-profile tests, and build.
-- Commit changes, push the branch, and open a PR.
-- Deploy or push the PR branch to preview using the repo-supported preview workflow.
+- [x] Commit changes, push the branch, and open a PR.
+- [x] Deploy or push the PR branch to preview using the repo-supported preview workflow.
 - Run `pnpm run stripe:money-smoke -- --check-env`, `--edge-check`, and `--seller-flow` against preview with Stripe test-mode credentials.
 - Record preview smoke results and any Stripe Dashboard confirmations in the PR.
 
