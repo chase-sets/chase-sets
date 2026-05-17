@@ -5,9 +5,66 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignInPage } from "./sign-in-page";
 import { defineAuthHost } from "../../../support/route-support/auth-host";
 
+function continueWithIdentifier(identifier: string) {
+  fireEvent.change(screen.getByLabelText(/Email or phone/), {
+    target: { value: identifier },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+describe("sign-in page two-step journey", () => {
+  it("starts with social login and one sign-in identifier field", () => {
+    render(<SignInPage />);
+
+    expect(screen.getByRole("link", { name: "Continue with Google" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Continue with Facebook" })).toBeTruthy();
+    expect(screen.getByLabelText(/Email or phone/)).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Passkey" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
+  });
+
+  it("recommends passkey first after an email identifier", () => {
+    render(<SignInPage />);
+
+    continueWithIdentifier("buyer@example.com");
+
+    expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use Passkey" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Passkey" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Magic Link" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Password" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Continue with Google" })).toBeNull();
+  });
+
+  it("uses phone code after a phone identifier", () => {
+    render(<SignInPage />);
+
+    continueWithIdentifier("3125550100");
+
+    expect(screen.getByText("Signing in with 3125550100")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send Phone Code" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue With Code" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Passkey" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
+  });
+
+  it("keeps secondary options behind the identifier step", () => {
+    render(<SignInPage />);
+
+    expect(screen.queryByRole("tab", { name: "Magic Link" })).toBeNull();
+
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.click(screen.getByRole("tab", { name: "Magic Link" }));
+
+    expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
+  });
 });
 
 describe("sign-in page magic link recovery", () => {
@@ -24,7 +81,6 @@ describe("sign-in page magic link recovery", () => {
 
     expect(screen.getByText("Magic link sent")).toBeTruthy();
     expect(screen.getByText("Magic link ready. Check your email to continue.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue With Token" })).toBeNull();
     expect(
       document.querySelector('input[name="intent"][value="magic-link-consume"]'),
@@ -34,6 +90,7 @@ describe("sign-in page magic link recovery", () => {
   it("does not render manual token entry when host config disables it", () => {
     render(<SignInPage allowManualMagicLinkTokenEntry={false} />);
 
+    continueWithIdentifier("buyer@example.com");
     fireEvent.click(screen.getByRole("tab", { name: /Magic Link/ }));
 
     expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();

@@ -49,6 +49,7 @@ export type AuthActionNotice =
       status: "magic-link-sent";
       tokenId: string;
       expiresAt: string;
+      email?: string;
     }>
   | Readonly<{
       status: "phone-code-sent";
@@ -352,6 +353,10 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               status: "magic-link-sent",
               tokenId: result.tokenId,
               expiresAt: result.expiresAt,
+              email:
+                typeof formData.get("email") === "string"
+                  ? String(formData.get("email"))
+                  : undefined,
             };
           }
           if (intent === "phone-code-request") {

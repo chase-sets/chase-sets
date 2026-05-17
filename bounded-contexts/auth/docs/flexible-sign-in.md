@@ -2,6 +2,20 @@
 
 Auth owns the interactive registration and sign-in journeys. Identity owns the durable User, Contact Method, Verification, Authentication Method, Account, and Membership facts those journeys use.
 
+## Two-Step Sign-In
+
+Sign-in uses progressive disclosure so the first screen does not present every authentication method at once.
+
+1. The user either starts Social Login or enters one Sign-In Identifier.
+2. Auth infers only the identifier kind and presents the strongest compatible host-enabled method first, with secondary methods available after that step.
+
+Auth must not reveal account-specific Authentication Method enrollment before authentication succeeds. Step two uses a fixed, non-enumerating method ladder:
+
+- Email identifier: Passkey, then magic link, then password.
+- Phone identifier: Phone Code.
+
+This keeps Passkey as the strongest default for email-backed users while avoiding pre-authentication disclosure of whether a user exists, whether a passkey is enrolled, or which fallback methods are configured for that user.
+
 ## Supported Methods
 
 - Passkey
