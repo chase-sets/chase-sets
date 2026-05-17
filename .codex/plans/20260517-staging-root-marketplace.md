@@ -22,20 +22,27 @@ Make `https://staging.chasesets.com/` behave like the launch-facing marketplace 
 
 ## Resolved Decisions
 
-- Route `staging.chasesets.com` to the marketplace deployable in staging only, instead of moving Public Presence route modules or adding Marketplace UI to Public Presence.
+- Do not route `staging.chasesets.com` through DigitalOcean App Platform while the root carries mail identity DNS. The direct App Platform attachment was attempted, merged, and then blocked staging deployment with the domain stuck in `CONFIGURING`.
 - Keep `marketplace.staging.chasesets.com` as an explicit marketplace host for existing links and operations.
 - Keep `www.staging.chasesets.com` as the staging landing host so waitlist and public policy smoke checks remain stable.
-- Include the staging root marketplace host in same-origin `/api` routing and UCP ingress routing so the root host is a complete marketplace surface, not only a static page alias.
-- Update documentation that previously reserved `staging.chasesets.com` only for environment-level DNS. Live DNS already has A, MX, and SPF records, while HTTPS currently fails before app routing, so the repository should now describe the root as a staging marketplace alias that coexists with mail identity DNS.
+- Preserve the staging legacy landing redirect smoke requirement; it is already represented by App Platform child/legacy hosts.
+- Document that `https://staging.chasesets.com/` needs an external HTTPS edge or DNS-layer redirect to `https://marketplace.staging.chasesets.com/`, or a future DNS/mail-identity migration before App Platform can own the root directly.
 
 ## Implementation Checklist
 
-- Completed: Add a staging-only marketplace root domain in DigitalOcean platform Terraform locals.
-- Completed: Include the root marketplace domain in App Platform domain declarations, marketplace ingress routing, and UCP ingress routing.
-- Completed: Add smoke configuration and checks for `staging.chasesets.com` as a marketplace root host.
+- Reverted: Remove the staging root marketplace domain from DigitalOcean platform Terraform locals because staging deployment could not activate it.
+- Reverted: Remove direct root marketplace smoke checks from CI because the root is not an App Platform-owned host.
 - Completed: Align staging smoke with the existing legacy landing redirect requirement while waiting on all staging web domains.
-- Completed: Update environment domain architecture docs and the DigitalOcean deployment runbook.
+- Completed: Update environment domain architecture docs and the DigitalOcean deployment runbook with the root-domain blocker and external redirect path.
 - Completed: Run focused Terraform/static tests and smoke URL tests.
+
+## Deployment Finding
+
+- PR #164 merged on May 17, 2026 and triggered staging deployment for merge commit `400d5e61`.
+- Staging deployment applied the App Platform spec, then waited on `staging.chasesets.com`.
+- DigitalOcean reported `staging.chasesets.com: CONFIGURING` until the run was canceled before smoke checks.
+- Live checks after cancellation still showed HTTPS failure for `https://staging.chasesets.com/` and HTTP `409`, confirming the root was not serving marketplace traffic.
+- Corrective PR scope: remove direct App Platform ownership of the root so staging/prod deployment can resume, and document the out-of-band redirect needed to satisfy the user-visible root behavior.
 
 ## Verification
 

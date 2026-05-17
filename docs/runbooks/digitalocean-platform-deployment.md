@@ -45,12 +45,13 @@ Preview environments are disposable and intentionally `noindex,nofollow` for lan
 The long-lived staging environment uses the same full-platform shape as PR previews, but keeps stable hostnames and state across merges:
 
 - `www.staging.chasesets.com`: canonical staging landing `public-web`.
-- `staging.chasesets.com`: staging marketplace root.
 - `marketplace.staging.chasesets.com`: marketplace web.
 - `admin.staging.chasesets.com`: admin web.
 - Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-The staging environment root, `staging.chasesets.com`, is also a marketplace web domain so staging can mirror the launch-facing marketplace root before production moves to that posture. Keep Workspace mail, SPF, and SES identity records documented when they share the root name, and verify web certificate activation in staging smoke instead of assuming the root is DNS-only.
+The staging environment root, `staging.chasesets.com`, is reserved for environment-level DNS records such as Workspace mail, SPF, and SES identity records. A May 17, 2026 attempt to attach it directly to the App Platform marketplace component left the domain in `CONFIGURING` until the staging deployment was canceled. Keep App Platform web domains on child hosts such as `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com` unless the root DNS ownership and mail identity records are changed first.
+
+If `https://staging.chasesets.com/` must take users to the marketplace before that DNS change, configure the redirect outside this Terraform root at the DNS or edge layer so it sends HTTPS traffic to `https://marketplace.staging.chasesets.com/`.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
@@ -206,7 +207,7 @@ The staging job:
 11. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 12. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
 13. Waits for landing, admin, and marketplace domains.
-14. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the staging marketplace root with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
+14. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
 
 Production starts automatically after this staging job succeeds. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.
 
@@ -247,7 +248,6 @@ The platform smoke script checks:
 - admin home page loads
 - admin API readiness passes through the deployed API component
 - marketplace home and search pages load when a marketplace URL is supplied
-- staging marketplace root home, search, same-origin API health, and UCP endpoints load when a marketplace root URL is supplied
 - legacy dash-based staging URLs return temporary HTTPS `302` redirects to their nested equivalents when supplied, including `landing-staging.chasesets.com` to `www.staging.chasesets.com`
 - waitlist signup accepts a tagged synthetic lead
 - admin password sign-in works when admin credentials are supplied
@@ -255,7 +255,7 @@ The platform smoke script checks:
 
 Catalog asset CDN smoke should verify that each environment's `CATALOG_ASSET_PUBLIC_BASE_URL` resolves over HTTPS after the `catalog-assets` Terraform root applies. A full asset write smoke is covered by importing a provider Source Observation that has an image and confirming the stored URL starts with the environment CDN base URL.
 
-Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_REQUIRE_MARKETPLACE_ROOT=true`, `MARKETPLACE_ROOT_WEB_URL=https://staging.chasesets.com`, `SMOKE_REQUIRE_LEGACY_REDIRECT=true`, and `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
+Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_REQUIRE_LEGACY_REDIRECT=true` and `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
 
 Production secrets are scoped to validation, Terraform, smoke, and Git release-marker steps. The production workflow must not run dependency installation, workspace builds, or Docker builds with production provider/admin secrets in scope.
 
