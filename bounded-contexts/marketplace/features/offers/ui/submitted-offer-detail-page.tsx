@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  AccountReputationSummary,
   Badge,
   BuyerProtectionModule,
   LinkButton,
@@ -12,7 +13,6 @@ import {
   PageSection,
   PriceBreakdown,
   ProductSelectionSummary,
-  RatingSummary,
   Stack,
   Text,
   productSelectionDetailsFromSummary,
@@ -30,15 +30,6 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
-}
-
-function parseRating(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-
-  const rating = Number(value);
-  return Number.isFinite(rating) ? rating : null;
 }
 
 function ProductSummaryChips({ summary }: { summary: string }) {
@@ -60,8 +51,6 @@ export function MarketplaceSubmittedOfferDetailPage({
   errorMessage?: string | null;
   feedbackPrompt?: ReactNode;
 }) {
-  const acceptedSellerRating = parseRating(offer.accepted_seller_average_rating);
-  const acceptedSellerReviewCount = offer.accepted_seller_review_count ?? 0;
   const showAcceptedSellerReputation =
     offer.accepted_seller_account_id !== null && offer.status === "accepted";
 
@@ -98,22 +87,13 @@ export function MarketplaceSubmittedOfferDetailPage({
                 <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
                 <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide")}</Text>
                 {showAcceptedSellerReputation ? (
-                  <Stack gap={1}>
-                    <Text size="sm" weight="semibold">
-                      {t("marketplace.features.offers.ui.submittedOfferDetailPage.seller.reputation")}
-                    </Text>
-                    {acceptedSellerRating !== null && acceptedSellerReviewCount > 0 ? (
-                      <RatingSummary
-                        value={acceptedSellerRating}
-                        count={acceptedSellerReviewCount}
-                        compact
-                      />
-                    ) : (
-                      <Text size="sm" tone="secondary">
-                        {t("marketplace.features.offers.ui.submittedOfferDetailPage.no.seller.feedback.yet")}
-                      </Text>
-                    )}
-                  </Stack>
+                  <AccountReputationSummary
+                    accountName={offer.accepted_seller_account_id}
+                    averageRating={offer.accepted_seller_average_rating}
+                    reviewCount={offer.accepted_seller_review_count ?? 0}
+                    emptyLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.no.seller.feedback.yet")}
+                    ratingLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.seller.reputation")}
+                  />
                 ) : null}
               </Stack>
             }

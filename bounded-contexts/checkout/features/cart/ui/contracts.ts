@@ -19,7 +19,11 @@ export interface CheckoutCartLine {
   availability_state: "available" | "unavailable" | "changed" | "waiting-for-supply";
   seller_options: readonly {
     listing_id: string;
+    seller_account_id?: string | null;
+    seller_slug?: string | null;
     seller_display_name: string | null;
+    seller_average_rating?: string | null;
+    seller_review_count?: number;
     price_amount: string;
     available_quantity: number;
     product_summary: string | null;

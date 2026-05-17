@@ -558,10 +558,10 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByText("Seller reputation")).toBeTruthy();
+    expect(screen.getByText("Chase Sets")).toBeTruthy();
     expect(screen.getByText("4.8")).toBeTruthy();
     expect(screen.getByText("(12)")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View feedback" }).getAttribute("href"))
+    expect(screen.getByRole("link", { name: /Chase Sets/ }).getAttribute("href"))
       .toBe("/sellers/chase-sets-seller#feedback");
 
     fireEvent.click(
@@ -570,10 +570,10 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    expect(screen.getByText("Buyer reputation")).toBeTruthy();
+    expect(screen.getByText("Ash Ketchum")).toBeTruthy();
     expect(screen.getByText("4.2")).toBeTruthy();
     expect(screen.getByText("(5)")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View feedback" }).getAttribute("href"))
+    expect(screen.getByRole("link", { name: /Ash Ketchum/ }).getAttribute("href"))
       .toBe("/sellers/ash-ketchum#feedback");
   });
 

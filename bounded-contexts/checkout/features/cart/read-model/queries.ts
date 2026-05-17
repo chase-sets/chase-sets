@@ -27,7 +27,11 @@ export type CheckoutCartLineRow = Readonly<{
 
 export type CheckoutCartSellerOptionRow = Readonly<{
   listing_id: string;
+  seller_account_id: string | null;
+  seller_slug: string | null;
   seller_display_name: string | null;
+  seller_average_rating: string | null;
+  seller_review_count: number;
   price_amount: string;
   available_quantity: number;
   product_summary: string | null;
@@ -73,10 +77,25 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
 
   return {
     listing_id: listingId,
+    seller_account_id:
+      source.seller_account_id === null || source.seller_account_id === undefined
+        ? null
+        : String(source.seller_account_id).trim() || null,
+    seller_slug:
+      source.seller_slug === null || source.seller_slug === undefined
+        ? null
+        : String(source.seller_slug).trim() || null,
     seller_display_name:
       source.seller_display_name === null || source.seller_display_name === undefined
         ? null
         : String(source.seller_display_name).trim() || null,
+    seller_average_rating:
+      source.seller_average_rating === null || source.seller_average_rating === undefined
+        ? null
+        : String(source.seller_average_rating).trim() || null,
+    seller_review_count: Number.isFinite(Number(source.seller_review_count))
+      ? Number(source.seller_review_count)
+      : 0,
     price_amount: priceAmount,
     available_quantity: availableQuantity,
     product_summary:

@@ -19,6 +19,7 @@ import {
   UiDialog as Dialog,
   Input,
   NavigationHeader,
+  AccountReputationSummary,
   TopNav,
   ThemeToggle,
   ListingCard,
@@ -197,6 +198,27 @@ describe("design-system", () => {
     expect(markup).toContain("Verified seller");
     expect(markup).toContain("Buyer protected");
     expect(markup).toContain("Arrives May 9-11");
+  });
+
+  it("renders linked account reputation summaries", () => {
+    const markup = renderToString(
+      <div>
+        <AccountReputationSummary
+          accountName="Card Vault"
+          href="/sellers/card-vault#feedback"
+          averageRating="4.95"
+          reviewCount={18}
+          ratingLabel="Card Vault reputation"
+        />
+        <AccountReputationSummary accountName="New Account" />
+      </div>,
+    );
+
+    expect(markup).toContain('href="/sellers/card-vault#feedback"');
+    expect(markup).toContain("Card Vault");
+    expect(markup).toContain("5.0");
+    expect(markup).toContain("18");
+    expect(markup).toContain("No feedback yet");
   });
 
   it("keeps listing cards to one dominant primary action", () => {

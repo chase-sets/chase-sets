@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type MouseEventHandler, type ReactNode } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -398,6 +398,93 @@ export function RatingSummary({ value, count, label, compact = false }: RatingSu
       {count ? <span className="tabular-nums">({count})</span> : null}
     </span>
   );
+}
+
+export interface AccountReputationSummaryProps {
+  accountName: ReactNode;
+  href?: string | null;
+  averageRating?: number | string | null;
+  reviewCount?: number | string | null;
+  emptyLabel?: ReactNode;
+  ratingLabel?: string;
+  onLinkClick?: MouseEventHandler<HTMLAnchorElement>;
+  className?: string;
+}
+
+function normalizeRatingValue(value: number | string | null | undefined): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function hasReviewCount(value: number | string | null | undefined): value is number | string {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0;
+  }
+
+  return false;
+}
+
+export function AccountReputationSummary({
+  accountName,
+  href,
+  averageRating,
+  reviewCount,
+  emptyLabel = "No feedback yet",
+  ratingLabel,
+  onLinkClick,
+  className,
+}: AccountReputationSummaryProps) {
+  const rating = normalizeRatingValue(averageRating);
+  const hasReputation = rating !== null && hasReviewCount(reviewCount);
+  const content = (
+    <>
+      <span className="font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
+      {hasReputation ? (
+        <RatingSummary
+          value={rating}
+          count={reviewCount}
+          label={ratingLabel}
+          compact
+        />
+      ) : (
+        <span className="text-xs leading-4 text-[var(--muted-foreground)]">{emptyLabel}</span>
+      )}
+    </>
+  );
+  const classes = cn(
+    "inline-grid min-w-0 max-w-full justify-items-start gap-1 text-left",
+    className,
+  );
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        onClick={onLinkClick}
+        className={cn(
+          classes,
+          "ds-focus rounded-[var(--radius-sm)] hover:text-[var(--foreground)]",
+        )}
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return <span className={classes}>{content}</span>;
 }
 
 export interface ListingCardProps {
