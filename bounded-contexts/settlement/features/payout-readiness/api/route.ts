@@ -169,10 +169,13 @@ export function createPayoutReadinessRoutes(
       return c.json({ error: { code: "authentication_required", message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing.3") } }, 401);
     }
 
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+
     try {
       const readiness = await services.refreshProviderReadiness(
         {
           accountId: access.actor.accountId as never,
+          contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
         },
         context,
       );

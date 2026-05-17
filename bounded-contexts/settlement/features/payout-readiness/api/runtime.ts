@@ -71,7 +71,7 @@ export type PayoutReadinessServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ url: string; providerReference: string; expiresAt: string | null }>;
   refreshProviderReadiness: (
-    params: Readonly<{ accountId: AccountId }>,
+    params: Readonly<{ accountId: AccountId; contactEmail?: string | null }>,
     context: EventStoreContext,
   ) => Promise<SettlementPayoutReadinessRow>;
   recordProviderReadinessFromWebhook: (
@@ -269,6 +269,7 @@ export function createPayoutReadinessRuntime(
         : await deps.moneyMovementGateway.ensurePayoutAccount({
             accountId: params.accountId,
             currencyCode: normalizeCurrencyCode("usd"),
+            contactEmail: params.contactEmail,
             countryCode: "US",
             idempotencyKey: `settlement:payout-account:${params.accountId}`,
           });

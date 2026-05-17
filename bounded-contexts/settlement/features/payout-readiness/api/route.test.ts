@@ -208,13 +208,16 @@ describe("settlement payout setup routes", () => {
 
     const response = await app.request("/payout-setup/refresh", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ contactEmail: "seller@example.test" }),
       headers: { "Content-Type": "application/json" },
     });
 
     expect(response.status).toBe(200);
     expect(refreshProviderReadiness).toHaveBeenCalledWith(
-      { accountId: "acc_seller" },
+      expect.objectContaining({
+        accountId: "acc_seller",
+        contactEmail: "seller@example.test",
+      }),
       context,
     );
   });

@@ -421,7 +421,10 @@ export async function runSellerFlow(baseUrl, options = {}) {
 
   const refresh = await requestJson(`${baseUrl}/api/settlement/payout-setup/refresh`, {
     method: "POST",
-    headers,
+    headers: onboardingHeaders,
+    body: JSON.stringify({
+      contactEmail: readEnv("SMOKE_SELLER_EMAIL", env),
+    }),
   }, fetchImpl);
   assert(
     refresh.response.status === 200,
