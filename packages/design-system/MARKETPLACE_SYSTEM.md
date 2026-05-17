@@ -90,20 +90,20 @@ Use progressive disclosure for advanced marketplace depth, not for required buye
 
 Good disclosure candidates:
 
-- advanced search filters, saved-search recovery, and dense comparison controls
+- optional search depth, saved-search recovery, and dense comparison controls
 - seller listing limits, offer matching thresholds, fulfillment exceptions, and publishing recovery detail
 - product specification depth, grading population context, certification extras, and market-history detail
 - checkout support diagnostics and provider-safe payment explanations after the final total is visible
 - payout verification reason detail, ledger context, and provider-safe settlement explanations
 
-Do not disclose the current price, final total, seller trust, availability, fulfillment expectation, buyer-protection summary, blocking error, or primary action. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
+Do not disclose the current price, final total, seller trust, availability, fulfillment expectation, buyer-protection summary, blocking error, primary action, or result-shaping search facets. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
 
 Recommended first flows:
 
 1. Marketplace seller listing creation and listing management.
    Keep inventory identity, price, quantity cap, fee preview, status, and publish controls visible. Move optional seller limits, fee-lock history, stale quote recovery detail, grading population depth, and certification extras into disclosure.
 2. Discovery search and item detail.
-   Keep primary filters, applied filter chips, result count, item identity, listing/offer comparison, and commerce actions visible. Move dynamic advanced facets, specification depth, policy explanation, market-history detail, and saved-search recovery into disclosure.
+   Keep primary filters, ranked dynamic facets, applied filter chips, result count, item identity, listing/offer comparison, and commerce actions visible. Move optional specification depth, policy explanation, market-history detail, and saved-search recovery into disclosure.
 3. Checkout session and payment recovery.
    Keep fulfillment state, final cost, wallet credit, selected destination, payment method, secure payment cue, blocking failure copy, and the payment or recovery action visible. Checkout owns session/fulfillment disclosure; Payments owns payment fee quote, confirmation, provider event, support detail, claim-token fallback, and recovery diagnostic disclosure.
 4. Settlement payout readiness and payout requests.
