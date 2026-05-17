@@ -12,7 +12,7 @@ import {
   Button,
   Card,
   CommerceActionBar,
-  CommerceDrawer,
+  CommerceBottomSheet,
   Container,
   Grid,
   Heading,
@@ -1124,8 +1124,8 @@ function LoadedItemDetailPage({
       secondaryAction={marketIntent === "sell" ? mobileListAction : mobileOfferAction}
     />
   ) : null;
-  const mobileCommerceDrawer = commerce ? (
-    <CommerceDrawer
+  const mobileCommerceBottomSheet = commerce ? (
+    <CommerceBottomSheet
       open={Boolean(activeMobileCommerce && activeMobileCommerceContent)}
       onOpenChange={(open) => {
         if (!open) {
@@ -1137,7 +1137,7 @@ function LoadedItemDetailPage({
       footer={activeMobileCommerceSection?.footer}
     >
       {activeMobileCommerceContent}
-    </CommerceDrawer>
+    </CommerceBottomSheet>
   ) : null;
   const productOptionSelector =
     data.product_schema && data.product_schema.dimensions.length > 0 ? (
@@ -1511,7 +1511,7 @@ function LoadedItemDetailPage({
               )}
             </Stack>
           </MarketplaceProductDetailLayout>
-          {mobileCommerceDrawer}
+          {mobileCommerceBottomSheet}
       </Container>
     </>
   );

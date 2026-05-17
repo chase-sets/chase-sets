@@ -4,7 +4,7 @@
 
 Notifications should be a dedicated bounded context that owns the account notification center, notification settings, centralized feed read model, read/unread state, and delivery-policy decisions.
 
-The marketplace shell should expose Notifications as a bell-triggered drawer or side sheet, not as a primary full-page account destination. The sheet should support simple notification actions, mark-read behavior, and a settings view.
+The marketplace shell should expose Notifications as a bell-triggered side sheet on desktop and a bottom sheet on mobile, not as a primary full-page account destination. The sheet should support simple notification actions, mark-read behavior, and a settings view.
 
 Product Alerts should remain the canonical Discovery term for account-owned watches on resolved Catalog Products. They should move out of primary account navigation and appear as `Product alerts` inside notification settings.
 
@@ -17,7 +17,7 @@ Notifications owns:
 - read and unread state
 - notification settings and channel preferences
 - delivery policy, channel eligibility, suppression, and provider decisions
-- shell notification drawer contribution and settings surface
+- shell notification side sheet contribution and settings surface
 
 Source contexts own the facts that may lead to notifications:
 
@@ -40,17 +40,17 @@ Creating a Product Alert remains a Discovery item-detail workflow because Discov
 
 ## Routes And Shell
 
-The notification bell should open the notification drawer. Retired full-page routes should redirect to a normal marketplace route carrying drawer state in the URL rather than preserving separate full-page notification experiences.
+The notification bell should open the notification side sheet or bottom sheet. Retired full-page routes should redirect to a normal marketplace route carrying sheet state in the URL rather than preserving separate full-page notification experiences.
 
 Recommended compatibility behavior:
 
-- `/account/notifications` redirects to a route that opens the notification drawer.
+- `/account/notifications` redirects to a route that opens the notification sheet.
 - `/account/product-alerts` redirects to a route that opens notification settings focused on `Product alerts`.
 - Primary account navigation removes `Product Alerts` as a peer destination beside `Notifications`.
 
 ## Design System
 
-The design system should provide the canonical notification-center drawer/sheet pattern. Application contexts should consume that pattern instead of inventing custom notification drawers.
+The design system should provide the canonical notification-center side-sheet and bottom-sheet pattern. Application contexts should consume that pattern instead of inventing custom notification panels.
 
 The pattern should cover:
 

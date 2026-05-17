@@ -6,6 +6,7 @@ import {
   Inline,
   LinkButton,
   MarketplaceEmptyState,
+  ModalDialog,
   NativeSelect,
   Page,
   PageHeader,
@@ -195,13 +196,25 @@ export function ShippingAddressPage({
                         </Button>
                       </form>
                     ) : null}
-                    <form method="post">
-                      <input type="hidden" name="intent" value="archive" />
-                      <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
-                      <Button type="submit" tone="danger">
-                        {t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
-                      </Button>
-                    </form>
+                    <ModalDialog
+                      title={t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
+                      description={t("identity.features.shippingAddresses.ui.shippingAddressPage.archive.confirm.description")}
+                      trigger={
+                        <Button type="button" tone="danger">
+                          {t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
+                        </Button>
+                      }
+                    >
+                      <form method="post">
+                        <Stack gap={3}>
+                          <input type="hidden" name="intent" value="archive" />
+                          <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                          <Button type="submit" tone="danger">
+                            {t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
+                          </Button>
+                        </Stack>
+                      </form>
+                    </ModalDialog>
                   </Inline>
                 </Stack>
               </Surface>

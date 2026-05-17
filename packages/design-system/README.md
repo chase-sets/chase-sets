@@ -28,7 +28,8 @@ Application code should not introduce:
 - `ChaseRoot` owns reduced-motion policy through `reducedMotion="user" | "always" | "never"` and all component motion should flow through that root contract.
 - Layout should be built from primitives such as `Page`, `Grid`, `Stack`, `SplitPane`, `Surface`, and shell components.
 - Form screens should use `Field`, `FormSection`, and field controls rather than direct inputs.
-- Overlays should use `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, and `AlertDialog`.
+- Panel interactions should use the canonical pattern taxonomy from [Panel Interaction Patterns](./PANEL_INTERACTIONS.md): `NavigationDrawer`, `Sidebar`, `SideSheet`, `BottomSheet`, `ModalDialog`, `Popover`/`Menu`, and `FullPage`. Existing low-level `Drawer` exports remain for compatibility and specialized composition, not as a generic product pattern name.
+- Overlays should use design-system Dialog, Sheet, Popover, Tooltip, Menu, and AlertDialog primitives instead of route-local overlay CSS.
 - Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionBar`, and `MetricStrip`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
@@ -38,6 +39,18 @@ Application code should not introduce:
 Progressive disclosure is the package-wide default for advanced use cases. Keep required decision facts and the current primary action visible, then disclose supporting controls or deeper explanation through the exported disclosure primitives.
 
 Use [Progressive Disclosure](./PROGRESSIVE_DISCLOSURE.md) for the full component contract, accessibility rules, and first-flow recommendations.
+
+## Panel Interactions
+
+Use [Panel Interaction Patterns](./PANEL_INTERACTIONS.md) to choose between navigation drawers, persistent sidebars, side sheets, bottom sheets, modal dialogs, popovers/menus, and full-page flows across desktop, tablet, mobile, and small mobile breakpoints.
+
+The core rule is:
+
+- Navigation helps users go somewhere.
+- Sheets help users inspect, configure, or act while staying in context.
+- Modal dialogs block until a decision is made.
+- Popovers and menus are brief, lightweight, and anchored.
+- Full pages are for complex, long, sequential, or focus-heavy tasks.
 
 ## Responsive Defaults
 

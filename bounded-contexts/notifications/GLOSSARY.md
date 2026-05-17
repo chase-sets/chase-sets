@@ -9,7 +9,7 @@ A **Notification Center** is the account-level surface for reviewing recent mark
 Notes:
 
 - Notification Center is owned by Notifications.
-- The marketplace Notification Center is presented as a drawer or side sheet from the shell.
+- The marketplace Notification Center is presented as a side sheet on desktop and a bottom sheet on mobile from the shell.
 - It owns feed read state, unread counts, and mark-read actions.
 
 ## Notification Feed Item

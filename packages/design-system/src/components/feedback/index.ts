@@ -6,7 +6,26 @@ export { Banner } from "./banner";
 export type { BannerProps } from "./banner";
 
 export { Dialog, Drawer } from "./dialog";
-export type { DialogProps, DrawerProps } from "./dialog";
+export type { DialogProps, DrawerPlacement, DrawerProps } from "./dialog";
+
+export {
+  BottomSheet,
+  FullPage,
+  ModalDialog,
+  NavigationDrawer,
+  Sidebar,
+  SideSheet
+} from "./panel-interactions";
+export type {
+  BottomSheetHeight,
+  BottomSheetProps,
+  FullPageProps,
+  ModalDialogProps,
+  NavigationDrawerProps,
+  PanelWidth,
+  SidebarProps,
+  SideSheetProps
+} from "./panel-interactions";
 
 export { AlertDialog } from "./alert-dialog";
 export type { AlertDialogProps } from "./alert-dialog";

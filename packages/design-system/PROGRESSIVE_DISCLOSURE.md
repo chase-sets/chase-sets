@@ -55,7 +55,7 @@ Adopt the pattern in code-backed slices first. Each slice stays in its owning bo
    - Disclose first: optional per-order/per-day/per-customer limits, fee-lock history, stale quote recovery detail, grading population detail, and certification extras when present.
    - Summary rule: if a disclosed limit changes buyer commitment or low-value card margin, show the active limit in the collapsed summary.
 2. Discovery search and item detail.
-   - Owners: Discovery search, mobile filter drawer, facet rail, and item detail routes.
+   - Owners: Discovery search, mobile filter bottom sheet, facet rail, and item detail routes.
    - Keep visible: category and language filters, applied filter chips, result count, listing/offer comparison, buy/sell actions, and item identity.
    - Disclose first: dynamic advanced facets after the primary filters, specification depth, policy explanation, market-history detail, and saved-search recovery.
    - Summary rule: collapsed advanced filters must state whether none, some, or a named set of advanced filters is active.
@@ -79,7 +79,7 @@ Pressure-test each migration against mobile scanning, stale read models, replaye
 
 ## First-Pass Implementation Notes
 
-The first adoption pass validated that disclosure works best when the trigger owns the advanced-section label and nested controls avoid repeating the same heading. This matters most in mobile drawers where both the collapsed trigger and expanded content remain mounted for accessibility.
+The first adoption pass validated that disclosure works best when the trigger owns the advanced-section label and nested controls avoid repeating the same heading. This matters most in mobile bottom sheets where both the collapsed trigger and expanded content remain mounted for accessibility.
 
 When a disclosed section is expanded by default because it blocks progress, keep the warning summary specific enough to explain the block without requiring expansion.
 

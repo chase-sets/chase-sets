@@ -15,6 +15,7 @@ function renderDialogFrame({
   onDismiss,
   kind,
   drawerPlacement = "side",
+  surfaceClassName,
   reducedMotion,
   durations,
   easing,
@@ -28,6 +29,7 @@ function renderDialogFrame({
   onDismiss?: () => void;
   kind: "dialog" | "drawer";
   drawerPlacement?: DrawerPlacement;
+  surfaceClassName?: string;
   reducedMotion: boolean;
   durations: { base: number; slow: number };
   easing: [number, number, number, number];
@@ -90,8 +92,11 @@ function renderDialogFrame({
               kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
               kind === "drawer" && drawerPlacement === "side" &&
                 "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]",
+              kind === "drawer" && drawerPlacement === "sideLeft" &&
+                "inset-x-4 bottom-4 md:inset-y-4 md:left-4 md:right-auto md:w-[28rem]",
               kind === "drawer" && drawerPlacement === "bottomSheet" &&
                 "inset-x-3 bottom-3 w-auto max-h-[88vh] rounded-tokenXl md:inset-x-6 md:bottom-6 lg:hidden",
+              surfaceClassName,
               baseClassName
             )
         })}
@@ -133,6 +138,7 @@ export interface DialogProps {
   children?: ReactNode;
   footer?: ReactNode;
   closeLabel?: string;
+  surfaceClassName?: string;
 }
 
 export function Dialog({
@@ -144,7 +150,8 @@ export function Dialog({
   trigger,
   children,
   footer,
-  closeLabel
+  closeLabel,
+  surfaceClassName
 }: DialogProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
@@ -164,6 +171,7 @@ export function Dialog({
           footer,
           kind: "dialog",
           children,
+          surfaceClassName,
           reducedMotion: motionSettings.reducedMotion,
           durations: motionSettings.durations,
           easing: motionSettings.easing,
@@ -174,7 +182,7 @@ export function Dialog({
   );
 }
 
-export type DrawerPlacement = "side" | "bottomSheet";
+export type DrawerPlacement = "side" | "sideLeft" | "bottomSheet";
 
 export interface DrawerProps extends DialogProps {
   placement?: DrawerPlacement;
@@ -190,6 +198,7 @@ export function Drawer({
   children,
   footer,
   closeLabel,
+  surfaceClassName,
   placement = "side"
 }: DrawerProps) {
   const { overlayNode } = usePortalRoots();
@@ -211,6 +220,7 @@ export function Drawer({
           kind: "drawer",
           drawerPlacement: placement,
           children,
+          surfaceClassName,
           reducedMotion: motionSettings.reducedMotion,
           durations: motionSettings.durations,
           easing: motionSettings.easing,

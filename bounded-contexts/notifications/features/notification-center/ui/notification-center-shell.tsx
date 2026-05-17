@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  NotificationCenterDrawer,
+  NotificationCenterSheet,
   type NotificationCenterItem,
   type NotificationCenterPreference,
   type NotificationCenterProductAlert,
@@ -159,7 +159,7 @@ export function NotificationCenterShell({
   }, [loadSettings]);
 
   return (
-    <NotificationCenterDrawer
+    <NotificationCenterSheet
       open={open}
       view={view}
       unreadCount={feed.unread}

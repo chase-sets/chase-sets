@@ -10,6 +10,7 @@ import {
   LinkButton,
   MarketplaceNotice,
   MarketplaceStatusTimeline,
+  ModalDialog,
   Page,
   PageHeader,
   PageSection,
@@ -499,11 +500,24 @@ export function MarketplaceListingDetailPage({
                 <Button type="submit" tone="secondary" disabled={listing.status !== "active"}>
                   {t("marketplace.features.listings.ui.listingDetailPage.pause.listing")}</Button>
               </form>
-              <form method="post">
-                <input type="hidden" name="intent" value="withdraw" />
-                <Button type="submit" tone="danger" disabled={listing.status === "withdrawn"}>
-                  {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}</Button>
-              </form>
+              <ModalDialog
+                title={t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
+                description={t("marketplace.features.listings.ui.listingDetailPage.withdraw.confirm.description")}
+                trigger={
+                  <Button type="button" tone="danger" disabled={listing.status === "withdrawn"}>
+                    {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
+                  </Button>
+                }
+              >
+                <form method="post">
+                  <Stack gap={3}>
+                    <input type="hidden" name="intent" value="withdraw" />
+                    <Button type="submit" tone="danger">
+                      {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
+                    </Button>
+                  </Stack>
+                </form>
+              </ModalDialog>
             </Stack>
           </Card>
         </Stack>

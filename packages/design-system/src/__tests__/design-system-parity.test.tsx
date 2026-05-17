@@ -45,7 +45,7 @@ import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import {
   AdminShell,
   CommerceActionBar,
-  CommerceDrawer,
+  CommerceBottomSheet,
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceFacetStrip,
@@ -53,7 +53,7 @@ import {
   MarketplaceMarketSummary,
   MarketplaceProductCard,
   MarketplaceShell,
-  NotificationCenterDrawer,
+  NotificationCenterSheet,
   OrderSummary,
   ProductCard,
   SellerBadge,
@@ -620,32 +620,32 @@ describe("design system", () => {
     expect(markup).toContain("Make offer");
   });
 
-  it("renders commerce drawers with form footer actions", () => {
+  it("renders commerce bottom sheets with form footer actions", () => {
     render(
       <ChaseRoot>
-        <CommerceDrawer
+        <CommerceBottomSheet
           open
           title="Buy selected product"
           description="Raw / Near Mint"
           footer={<Button form="commerce-form" type="submit">Buy now</Button>}
         >
           <form id="commerce-form">Quantity</form>
-        </CommerceDrawer>
+        </CommerceBottomSheet>
       </ChaseRoot>
     );
 
-    const drawer = screen.getByRole("dialog", { name: "Buy selected product" });
-    expect(within(drawer).getByText("Quantity")).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Buy now" })).toBeTruthy();
+    const bottomSheet = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(within(bottomSheet).getByText("Quantity")).toBeTruthy();
+    expect(within(bottomSheet).getByRole("button", { name: "Buy now" })).toBeTruthy();
   });
 
-  it("renders notification center drawers with feed and settings actions", () => {
+  it("renders notification center sheets with feed and settings actions", () => {
     const onViewChange = vi.fn();
     const onMarkRead = vi.fn();
 
     render(
       <ChaseRoot>
-        <NotificationCenterDrawer
+        <NotificationCenterSheet
           open
           view="feed"
           unreadCount={1}
@@ -676,11 +676,11 @@ describe("design system", () => {
       </ChaseRoot>
     );
 
-    const drawer = screen.getByRole("dialog", { name: "Notifications" });
-    expect(within(drawer).getByText("Shipment updated")).toBeTruthy();
-    fireEvent.click(within(drawer).getByRole("button", { name: "Mark read" }));
+    const sheet = screen.getByRole("dialog", { name: "Notifications" });
+    expect(within(sheet).getByText("Shipment updated")).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Mark read" }));
     expect(onMarkRead).toHaveBeenCalledWith("del_1");
-    fireEvent.click(within(drawer).getByRole("button", { name: "Settings" }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Settings" }));
     expect(onViewChange).toHaveBeenCalledWith("settings");
   });
 
