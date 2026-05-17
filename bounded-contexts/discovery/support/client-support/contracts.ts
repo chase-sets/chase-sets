@@ -213,7 +213,19 @@ export interface DiscoveryPublicSeller {
   review_count?: number;
   active_listing_count: number;
   updated_at: string;
+  recent_reviews: DiscoveryPublicSellerReview[];
   listings: DiscoveryPublicListing[];
+}
+
+export interface DiscoveryPublicSellerReview {
+  review_id: string;
+  author_account_id: string;
+  author_display_name: string | null;
+  author_role: string;
+  rating: number;
+  feedback: string | null;
+  submitted_at: string | null;
+  updated_at: string;
 }
 
 export interface DiscoverySitemapUrl {

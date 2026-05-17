@@ -29,11 +29,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS discovery_market_accounts_seller_slug_idx
 
 CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
   review_id text PRIMARY KEY,
+  author_account_id text NOT NULL DEFAULT '',
   subject_account_id text NOT NULL,
+  author_role text NOT NULL DEFAULT '',
   rating integer NOT NULL,
+  feedback text NULL,
   status text NOT NULL,
+  submitted_at timestamptz NULL,
   updated_at timestamptz NOT NULL
 );
+
+ALTER TABLE discovery_market_account_reviews
+  ADD COLUMN IF NOT EXISTS author_account_id text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS author_role text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS feedback text NULL,
+  ADD COLUMN IF NOT EXISTS submitted_at timestamptz NULL;
 
 CREATE INDEX IF NOT EXISTS discovery_market_account_reviews_subject_idx
   ON discovery_market_account_reviews (subject_account_id, status);
