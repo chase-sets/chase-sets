@@ -93,6 +93,35 @@ jobs:
       - name: Run DB-profile fast tests
         run: pnpm run verify:test-db
 
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run marketplace e2e tests
+        run: pnpm run test:e2e
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-artifacts
+          path: |
+            artifacts/playwright/report
+            artifacts/playwright/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -387,6 +416,7 @@ jobs:
       - typecheck
       - unit-tests
       - db-tests
+      - e2e-tests
       - build
       - docker-image
       - workflow-lint
@@ -695,6 +725,7 @@ jobs:
       - typecheck
       - unit-tests
       - db-tests
+      - e2e-tests
       - build
       - docker-image
       - workflow-lint
@@ -712,6 +743,7 @@ jobs:
             "${{ needs.typecheck.result }}" \
             "${{ needs['unit-tests'].result }}" \
             "${{ needs['db-tests'].result }}" \
+            "${{ needs['e2e-tests'].result }}" \
             "${{ needs.build.result }}" \
             "${{ needs['docker-image'].result }}" \
             "${{ needs['workflow-lint'].result }}" \

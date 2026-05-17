@@ -6,7 +6,10 @@ const demoOwner = {
 };
 
 async function signInWithPassword(page: Page, credentials = demoOwner) {
-  await page.getByLabel("Email").fill(credentials.email);
+  await page.getByLabel(/Email or phone/).fill(credentials.email);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText(`Signing in with ${credentials.email}`)).toBeVisible();
+  await page.getByRole("tab", { name: "Password" }).click();
   await page.getByRole("textbox", { name: /Password/ }).fill(credentials.password);
   await page.getByRole("button", { name: /^Sign in$/i }).click();
 }
@@ -28,8 +31,8 @@ test.describe("marketplace critical flows", () => {
     await page.getByRole("link", { name: "Sign In" }).first().click();
     await expect(page).toHaveURL(/\/sign-in/);
     await expect(page.getByText(/^Sign in$/i).first()).toBeVisible();
-    await expect(page.getByLabel("Email")).toBeVisible();
-    await expect(page.getByRole("textbox", { name: /Password/ })).toBeVisible();
+    await expect(page.getByLabel(/Email or phone/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
 
     await page.getByRole("link", { name: "Register" }).first().click();
     await expect(page).toHaveURL(/\/register/);
