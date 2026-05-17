@@ -327,6 +327,8 @@ describe("platform api app", () => {
           category_slugs: [],
           tags: [],
           image_urls: [],
+          product_asset_sets: [],
+          image_fallback: null,
           market_summary: null,
           updated_at: "2026-05-16T00:00:00.000Z",
         },

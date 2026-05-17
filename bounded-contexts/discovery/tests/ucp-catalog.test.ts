@@ -25,6 +25,8 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
             category_slugs: ["pokemon"],
             tags: ["fire"],
             image_urls: ["https://images.example/charizard.jpg"],
+            product_asset_sets: [],
+            image_fallback: null,
             market_summary: {
               lowest_price_amount: "12.34",
               active_listing_count: 2,
@@ -74,6 +76,8 @@ describe("Discovery UCP catalog handlers", () => {
         {
           id: "cat_1",
           title: "Charizard",
+          url: "https://marketplace.example/items/charizard-cat_1",
+          image_urls: ["https://images.example/charizard.jpg"],
           price: { currency: "USD", amount: "1234" },
           availability: {
             status: "available",
@@ -83,10 +87,28 @@ describe("Discovery UCP catalog handlers", () => {
             chase_sets: {
               catalog_item_id: "cat_1",
               blueprint_id: "blueprint_card",
+              primary_image_url: "https://images.example/charizard.jpg",
+              price_display: "$12.34",
+              availability_display: "3 available",
+              marketplace: {
+                active_listing_count: 2,
+                total_visible_quantity: 3,
+              },
+              actions: {
+                view_product: {
+                  url: "https://marketplace.example/items/charizard-cat_1",
+                },
+                create_checkout: {
+                  tool: "create_checkout",
+                },
+              },
             },
           },
         },
       ],
+      result_presentation: {
+        component: "marketplace-results",
+      },
     });
   });
 

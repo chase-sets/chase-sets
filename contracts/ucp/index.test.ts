@@ -4,6 +4,8 @@ import {
   createUcpEnvelope,
   UCP_CAPABILITIES,
   UCP_MCP_ENDPOINT_PATH,
+  UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+  UCP_MCP_RESOURCES,
   UCP_MCP_TOOLS,
   UCP_REST_ENDPOINT_PATH,
   UCP_VERSION,
@@ -73,6 +75,24 @@ describe("UCP MCP tools", () => {
       securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
       annotations: { destructiveHint: true, openWorldHint: true },
     });
+  });
+
+  it("advertises a reusable marketplace result component for catalog tools", () => {
+    expect(UCP_MCP_RESOURCES).toEqual([
+      expect.objectContaining({
+        uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+        mimeType: "text/html;profile=mcp-app",
+      }),
+    ]);
+    expect(
+      UCP_MCP_TOOLS
+        .filter((tool) => tool.capability === UCP_CAPABILITIES.catalogSearch || tool.capability === UCP_CAPABILITIES.catalogLookup)
+        .map((tool) => [tool.name, tool.resultResourceUri]),
+    ).toEqual([
+      ["search_catalog", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],
+      ["lookup_catalog", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],
+      ["get_product", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],
+    ]);
   });
 });
 
