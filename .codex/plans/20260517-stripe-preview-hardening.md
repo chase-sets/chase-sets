@@ -46,8 +46,16 @@ Harden the Stripe integration before go-live by extending automated and preview 
 - [x] Run broader verification: metadata, static checks, typecheck, non-DB tests, DB-profile tests, and build.
 - [x] Commit changes, push the branch, and open a PR.
 - [x] Deploy or push the PR branch to preview using the repo-supported preview workflow.
-- Run `pnpm run stripe:money-smoke -- --check-env`, `--edge-check`, and `--seller-flow` against preview with Stripe test-mode credentials.
-- Record preview smoke results and any Stripe Dashboard confirmations in the PR.
+- [x] Run `pnpm run stripe:money-smoke -- --check-env`, `--edge-check`, and `--seller-flow` against preview with Stripe test-mode credentials.
+- [x] Record preview smoke results and any Stripe Dashboard confirmations in the PR.
+
+## Preview Result
+
+- PR: https://github.com/todd-skelton/chase-sets/pull/155
+- Latest preview run: https://github.com/todd-skelton/chase-sets/actions/runs/25996222270
+- Result on 2026-05-17: all Platform PR checks passed, including label-gated Deploy Preview and Smoke.
+- Preview smoke coverage exercised unsigned provider webhook rejection, disposable seller registration/sign-in, payout setup onboarding session creation, payout readiness refresh, payment and settlement provider health, account wallet balance-credit flag, checkout fee policy/status probe, provider idempotency surfaces, platform balance forecast, and payout preview safety.
+- Optional full payment creation and payout request remain gated behind explicit preview test data (`SMOKE_ORDER_IDS`, available seller wallet balance, and opt-in create/request flags).
 
 ## Documentation To Promote
 
