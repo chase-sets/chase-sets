@@ -65,6 +65,9 @@ import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 const MARKETPLACE_DESCRIPTION =
   t("discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with");
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
+const LISTING_STOCK_LOCATION_DESCRIPTION =
+  "Auto-managed stock backing standard marketplace listings.";
+const LISTING_STOCK_SHIP_FROM_CODE = "LISTING-STOCK";
 
 const EMPTY_ITEM_DETAIL_RESULT = {
   item: null,
@@ -1229,7 +1232,44 @@ export function MarketplaceSellerRegistrationSection({
   );
 }
 
-function MarketplaceListingSubmissionSection({
+export function ListingStockShipFromSetupSection({
+  formId,
+  errorMessage,
+}: {
+  formId: string;
+  errorMessage?: string | null;
+}) {
+  return (
+    <FormPanel variant="card">
+      <form id={formId} method="post">
+        <Stack gap={3}>
+          <input type="hidden" name="intent" value="create-listing-stock-location" />
+          <Stack gap={1}>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.ship.from.setup")}</Text>
+            <Text size="sm" tone="secondary">
+              {t("discovery.routes.itemDetail.ship.from.setup.description")}
+            </Text>
+          </Stack>
+          <TextInput label={t("discovery.routes.itemDetail.ship.from.name")} name="shipFromName" required />
+          <TextInput label={t("discovery.routes.itemDetail.ship.from.line1")} name="shipFromLine1" required />
+          <Inline>
+            <TextInput label={t("discovery.routes.itemDetail.ship.from.city")} name="shipFromCity" required />
+            <TextInput label={t("discovery.routes.itemDetail.ship.from.state")} name="shipFromState" required />
+          </Inline>
+          <Inline>
+            <TextInput label={t("discovery.routes.itemDetail.ship.from.postal.code")} name="shipFromPostalCode" required />
+            <TextInput label={t("discovery.routes.itemDetail.ship.from.country")} name="shipFromCountry" defaultValue="US" required />
+          </Inline>
+          {errorMessage ? <Text>{errorMessage}</Text> : null}
+          <Button type="submit" block>
+            {t("discovery.routes.itemDetail.save.ship.from.setup")}</Button>
+        </Stack>
+      </form>
+    </FormPanel>
+  );
+}
+
+export function MarketplaceListingSubmissionSection({
   formId = "list-box",
   panelVariant = "card",
   showSummary = panelVariant === "card",
@@ -1240,7 +1280,6 @@ function MarketplaceListingSubmissionSection({
   productSelectionDetails = [],
   bestListing,
   ownListing,
-  inventoryItems,
   hasListingStockLocation,
   errorMessage,
 }: {
@@ -1261,27 +1300,29 @@ function MarketplaceListingSubmissionSection({
     status: string;
   } | null;
   ownListing: DiscoveryMarketListing | null;
-  inventoryItems: readonly DiscoverySellerInventoryItem[];
   hasListingStockLocation: boolean;
   errorMessage?: string | null;
 }) {
-  const matchingInventory = productId
-    ? inventoryItems.filter((inventoryItem) => inventoryItem.product_id === productId)
-    : [];
-  const selectedInventory = matchingInventory[0] ?? null;
   const listing = ownListing ?? null;
-  const availableQuantity = listing?.quantity_cap ?? selectedInventory?.available_quantity ?? 0;
-  const defaultQuantity = Math.max(1, Math.min(availableQuantity, 1));
+  const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
+  const defaultQuantity = listing?.quantity_cap ?? 1;
+  const requiresShipFromSetup = !listing && !hasListingStockLocation;
+  const canUseListAction = Boolean(productId && listPrice && !requiresShipFromSetup);
   const defaultActions = (
-    <Button
-      type="submit"
-      name="intent"
-      value="list-at-price"
-      disabled={!productId}
-      block
-    >
-      {listing ? t("discovery.routes.itemDetail.update.listing") : t("discovery.routes.itemDetail.list.at.price")}
-    </Button>
+    listing ? (
+      <LinkButton href={`/account/listings/${listing.listing_id}`} block>
+        {t("discovery.routes.itemDetail.manage.listing")}</LinkButton>
+    ) : (
+      <Button
+        type="submit"
+        name="intent"
+        value="list-at-price"
+        disabled={!canUseListAction}
+        block
+      >
+        {t("discovery.routes.itemDetail.list.at.price")}
+      </Button>
+    )
   );
 
   const form = (
@@ -1290,6 +1331,8 @@ function MarketplaceListingSubmissionSection({
         <input type="hidden" name="productId" value={productId ?? ""} />
         <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <input type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
+        <input type="hidden" name="priceAmount" value={listPrice} />
+        <input type="hidden" name="quantityCap" value={String(defaultQuantity)} />
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">
@@ -1329,58 +1372,13 @@ function MarketplaceListingSubmissionSection({
             name="inventoryItemId"
             value={listing.inventory_item_id}
           />
-        ) : (
-          <Stack gap={2}>
-            <Text size="sm" tone="secondary">
-              {t("discovery.routes.itemDetail.listing.stock.created.automatically")}
-            </Text>
-            {matchingInventory.length > 0 ? (
-              <NativeSelect
-                label={t("discovery.routes.itemDetail.advanced.inventory")}
-                name="inventoryItemId"
-                defaultValue=""
-                items={[
-                  { value: "", label: t("discovery.routes.itemDetail.automatic.listing.stock") },
-                  ...matchingInventory.map((inventoryItem) => ({
-                    value: inventoryItem.item_id,
-                    label: t("discovery.routes.itemDetail.inventory.option.label", {
-                      productSummary: inventoryItem.product_summary ?? t("discovery.routes.itemDetail.selected.product"),
-                      availableQuantity: inventoryItem.available_quantity,
-                    }),
-                  })),
-                ]}
-              />
-            ) : null}
-          </Stack>
-        )}
-        <CurrencyInput
-          label={t("discovery.routes.itemDetail.listing.price")}
-          name="priceAmount"
-          defaultValue={listing?.price_amount ?? bestListing?.price_amount ?? ""}
-          required
-        />
-        <NumberInput
-          label={t("discovery.routes.itemDetail.quantity.to.list")}
-          name="quantityCap"
-          min={1}
-          max={Math.max(availableQuantity, 1)}
-          defaultValue={String(listing?.quantity_cap ?? defaultQuantity)}
-          required
-        />
-        {!listing && !hasListingStockLocation ? (
-          <Stack gap={2}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.ship.from")}</Text>
-            <TextInput label={t("discovery.routes.itemDetail.ship.from.name")} name="shipFromName" />
-            <TextInput label={t("discovery.routes.itemDetail.ship.from.line1")} name="shipFromLine1" />
-            <Inline>
-              <TextInput label={t("discovery.routes.itemDetail.ship.from.city")} name="shipFromCity" />
-              <TextInput label={t("discovery.routes.itemDetail.ship.from.state")} name="shipFromState" />
-            </Inline>
-            <Inline>
-              <TextInput label={t("discovery.routes.itemDetail.ship.from.postal.code")} name="shipFromPostalCode" />
-              <TextInput label={t("discovery.routes.itemDetail.ship.from.country")} name="shipFromCountry" defaultValue="US" />
-            </Inline>
-          </Stack>
+        ) : null}
+        {!listing ? (
+          <Text size="sm" tone="secondary">
+            {requiresShipFromSetup
+              ? t("discovery.routes.itemDetail.ship.from.setup.required")
+              : t("discovery.routes.itemDetail.listing.stock.created.automatically")}
+          </Text>
         ) : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}
         {actions !== undefined ? actions : defaultActions}
@@ -1388,7 +1386,17 @@ function MarketplaceListingSubmissionSection({
     </form>
   );
 
-  return <FormPanel variant={panelVariant} glow={Boolean(listing)}>{form}</FormPanel>;
+  return (
+    <Stack gap={3}>
+      <FormPanel variant={panelVariant} glow={Boolean(listing)}>{form}</FormPanel>
+      {requiresShipFromSetup ? (
+        <ListingStockShipFromSetupSection
+          formId={`${formId}-ship-from-setup`}
+          errorMessage={errorMessage}
+        />
+      ) : null}
+    </Stack>
+  );
 }
 
 export function ItemCommercePanel({
@@ -1730,6 +1738,28 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return redirect("/account/offers/matches");
     }
 
+    if (intent === "create-listing-stock-location") {
+      await requireActorFromAuthApi({
+        request,
+        permission: "listings.manage",
+      });
+      const item = await discoveryApi.getItemDetail(params.id!);
+      const shipFromAddress = shipFromAddressFromForm(formData);
+
+      if (!shipFromAddress) {
+        throw new Error(t("discovery.routes.itemDetail.ship.from.setup.required"));
+      }
+
+      await inventoryApi.createStorageLocation({
+        name: LISTING_STOCK_LOCATION_NAME,
+        description: LISTING_STOCK_LOCATION_DESCRIPTION,
+        shipFromCode: LISTING_STOCK_SHIP_FROM_CODE,
+        shipFromAddress,
+      });
+
+      return redirect(`/items/${item.slug || item.catalog_item_id}?market=sell`);
+    }
+
     if (intent === "list-at-price") {
       await requireActorFromAuthApi({
         request,
@@ -1770,7 +1800,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
                 catalogItemId: item.catalog_item_id,
                 selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
                 quantity: quantityCap,
-                shipFromAddress: shipFromAddressFromForm(formData),
               })
             ).snapshot,
           };
@@ -1968,7 +1997,6 @@ function DiscoveryItemDetailRealtimeView({
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   bestListing={context.bestListing}
                   ownListing={ownListing}
-                  inventoryItems={data.sellerInventoryItems}
                   hasListingStockLocation={data.hasListingStockLocation}
                   errorMessage={actionErrorMessage}
                 />
