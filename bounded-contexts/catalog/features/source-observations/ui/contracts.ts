@@ -61,6 +61,13 @@ export interface SourceObservationPromotionPreview {
   scope: Required<SourceObservationPromotionScope>;
 }
 
+export interface SourceObservationExpansionReference {
+  reference_record_id: string;
+  key: string;
+  name: string;
+  attributes: Record<string, unknown>;
+}
+
 export type BulkSourceObservationPromotionStatus =
   | "promoted"
   | "rejected"
