@@ -124,7 +124,7 @@ async function signInWithPassword(params, fetchImpl) {
   );
   assert(
     signIn.response.status === 200,
-    `Expected ${params.label} to return 200, got ${signIn.response.status}.`,
+    statusFailureMessage(params.label, signIn, "200"),
   );
   return readSessionToken(signIn.body, params.label);
 }
@@ -175,7 +175,7 @@ async function registerSellerAccount(params, fetchImpl) {
   );
   assert(
     registration.response.status === 201,
-    `Expected seller registration to return 201, got ${registration.response.status}.`,
+    statusFailureMessage("seller registration", registration, "201"),
   );
   const sessionToken = readSessionToken(registration.body, "seller registration");
   const accountId =
@@ -213,6 +213,40 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function resultDetail(result) {
+  if (
+    typeof result.body === "object" &&
+    result.body !== null &&
+    "error" in result.body
+  ) {
+    const error = result.body.error;
+    if (typeof error === "object" && error !== null) {
+      const code = typeof error.code === "string" ? error.code : null;
+      const message = typeof error.message === "string" ? error.message : null;
+      return [code, message].filter(Boolean).join(": ");
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+  }
+
+  if (typeof result.body === "string") {
+    return result.body.slice(0, 500);
+  }
+
+  if (result.body !== null && result.body !== undefined) {
+    return JSON.stringify(result.body).slice(0, 500);
+  }
+
+  return "";
+}
+
+function statusFailureMessage(label, result, expected) {
+  const detail = resultDetail(result);
+  return `Expected ${label} to return ${expected}, got ${result.response.status}.` +
+    (detail ? ` Response: ${detail}` : "");
 }
 
 function assertObject(value, message) {
@@ -315,7 +349,7 @@ async function getJsonOk(fetchImpl, url, headers, label) {
   const result = await requestJson(url, { headers }, fetchImpl);
   assert(
     result.response.status === 200,
-    `Expected ${label} to return 200, got ${result.response.status}.`,
+    statusFailureMessage(label, result, "200"),
   );
   return assertObject(result.body, `Expected ${label} to return a JSON object.`);
 }
@@ -376,7 +410,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
   );
   assert(
     onboarding.response.status === 201,
-    `Expected onboarding session to return 201, got ${onboarding.response.status}.`,
+    statusFailureMessage("onboarding session", onboarding, "201"),
   );
   assert(
     typeof onboarding.body?.url === "string" &&
@@ -390,7 +424,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
   }, fetchImpl);
   assert(
     refresh.response.status === 200,
-    `Expected payout setup refresh to return 200, got ${refresh.response.status}.`,
+    statusFailureMessage("payout setup refresh", refresh, "200"),
   );
 
   const previewHeaders = new Headers(headers);
@@ -402,7 +436,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
   }, fetchImpl);
   assert(
     preview.response.status === 200 || preview.response.status === 400,
-    `Expected payout preview to return 200 or validation 400, got ${preview.response.status}.`,
+    statusFailureMessage("payout preview", preview, "200 or validation 400"),
   );
 
   const payoutRequest = await maybeRequestPayout(baseUrl, {
