@@ -611,6 +611,44 @@ describe("design-system", () => {
     expect(screen.getByText("No matching Condition options")).toBeTruthy();
   });
 
+  it("uses progressive disclosure for long marketplace facet choices without nested scrolling", async () => {
+    const user = userEvent.setup();
+
+    const { container } = render(
+      <MarketplaceFacetChoiceGroup
+        title="Condition"
+        allLabel="Any Condition"
+        items={Array.from({ length: 9 }, (_, index) => ({
+          id: `condition-${index + 1}`,
+          label: `Condition ${index + 1}`,
+          count: 9 - index,
+        }))}
+        selectedIds={["condition-9"]}
+        selectionMode="multiple"
+        onSelect={vi.fn()}
+        searchable
+        searchLabel="Search Condition options"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Condition 1 (9)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Condition 6 (4)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Condition 9 (1)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Condition 7 (3)" })).toBeNull();
+    expect(container.innerHTML).not.toContain("max-h-72");
+    expect(container.innerHTML).not.toContain("overflow-y-auto");
+
+    await user.click(screen.getByRole("button", { name: "Show more" }));
+
+    expect(screen.getByRole("button", { name: "Condition 7 (3)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Condition 8 (2)" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+
+    expect(screen.queryByRole("button", { name: "Condition 7 (3)" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Condition 9 (1)" })).toBeTruthy();
+  });
+
   it("filters searchable marketplace facet rails", async () => {
     const user = userEvent.setup();
 
@@ -633,6 +671,43 @@ describe("design-system", () => {
 
     expect(screen.getByRole("button", { name: "Fossil (3)" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Jungle (4)" })).toBeNull();
+  });
+
+  it("uses progressive disclosure for long marketplace facet rails without nested scrolling", async () => {
+    const user = userEvent.setup();
+
+    const { container } = render(
+      <MarketplaceFacetRail
+        title="Expansion"
+        allLabel="Any Expansion"
+        items={Array.from({ length: 9 }, (_, index) => ({
+          id: `set-${index + 1}`,
+          label: `Set ${index + 1}`,
+          count: 9 - index,
+        }))}
+        selectedId="set-9"
+        onSelect={vi.fn()}
+        searchable
+        searchLabel="Search Expansion options"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Set 1 (9)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set 6 (4)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set 9 (1)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Set 7 (3)" })).toBeNull();
+    expect(container.innerHTML).not.toContain("max-h-72");
+    expect(container.innerHTML).not.toContain("overflow-y-auto");
+
+    await user.click(screen.getByRole("button", { name: "Show more" }));
+
+    expect(screen.getByRole("button", { name: "Set 7 (3)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set 8 (2)" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+
+    expect(screen.queryByRole("button", { name: "Set 7 (3)" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Set 9 (1)" })).toBeTruthy();
   });
 
   it("renders canonical panel interaction components", async () => {

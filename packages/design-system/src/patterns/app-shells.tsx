@@ -788,6 +788,75 @@ export interface MarketplaceFacetItem {
 
 export type MarketplaceFacetSelectionMode = "single" | "multiple";
 
+const DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS = 6;
+
+function isMarketplaceFacetItemSelected(
+  item: MarketplaceFacetItem,
+  selectedValues: ReadonlySet<string> | null,
+  selectedId: string
+) {
+  return selectedValues?.has(item.id) ?? selectedId === item.id;
+}
+
+function getProgressiveMarketplaceFacetItems({
+  items,
+  normalizedSearch,
+  selectedValues,
+  selectedId,
+  expanded,
+  visibleOptionCount
+}: {
+  items: MarketplaceFacetItem[];
+  normalizedSearch: string;
+  selectedValues: ReadonlySet<string> | null;
+  selectedId: string;
+  expanded: boolean;
+  visibleOptionCount: number;
+}) {
+  const matchesSearch = (item: MarketplaceFacetItem) =>
+    !normalizedSearch ||
+    item.label.toLocaleLowerCase("en-US").includes(normalizedSearch) ||
+    item.id.toLocaleLowerCase("en-US").includes(normalizedSearch);
+  const matchedItems = items.filter(matchesSearch);
+
+  if (normalizedSearch) {
+    const matchedIds = new Set(matchedItems.map((item) => item.id));
+    const selectedItemsOutsideSearch = items.filter((item) =>
+      isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !matchedIds.has(item.id)
+    );
+
+    return {
+      matchedItems,
+      visibleItems: [...selectedItemsOutsideSearch, ...matchedItems],
+      canToggle: false
+    };
+  }
+
+  const limitedCount = Math.max(1, visibleOptionCount);
+
+  if (expanded || items.length <= limitedCount) {
+    return {
+      matchedItems,
+      visibleItems: matchedItems,
+      canToggle: items.length > limitedCount
+    };
+  }
+
+  const defaultItems = items.slice(0, limitedCount);
+  const defaultIds = new Set(defaultItems.map((item) => item.id));
+  const selectedItemsOutsideDefault = items.filter((item) =>
+    isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !defaultIds.has(item.id)
+  );
+  const visibleItems = [...defaultItems, ...selectedItemsOutsideDefault];
+  const visibleIds = new Set(visibleItems.map((item) => item.id));
+
+  return {
+    matchedItems,
+    visibleItems,
+    canToggle: items.some((item) => !visibleIds.has(item.id))
+  };
+}
+
 export interface MarketplaceFacetRailProps {
   title?: ReactNode;
   description?: ReactNode;
@@ -801,6 +870,9 @@ export interface MarketplaceFacetRailProps {
   searchLabel?: string;
   searchPlaceholder?: string;
   searchEmptyLabel?: ReactNode;
+  showMoreLabel?: ReactNode;
+  showLessLabel?: ReactNode;
+  visibleOptionCount?: number;
 }
 
 export function MarketplaceFacetRail({
@@ -815,24 +887,24 @@ export function MarketplaceFacetRail({
   searchable = false,
   searchLabel = "Search options",
   searchPlaceholder,
-  searchEmptyLabel = "No matching options"
+  searchEmptyLabel = "No matching options",
+  showMoreLabel = "Show more",
+  showLessLabel = "Show less",
+  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS
 }: MarketplaceFacetRailProps) {
   const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const multiple = selectionMode === "multiple";
   const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
-  const matchesSearch = (item: MarketplaceFacetItem) =>
-    !normalizedSearch ||
-    item.label.toLocaleLowerCase("en-US").includes(normalizedSearch) ||
-    item.id.toLocaleLowerCase("en-US").includes(normalizedSearch);
-  const matchedItems = items.filter(matchesSearch);
-  const matchedIds = new Set(matchedItems.map((item) => item.id));
-  const selectedItemsOutsideSearch = normalizedSearch
-    ? items.filter((item) =>
-        (selectedValues?.has(item.id) ?? selectedId === item.id) && !matchedIds.has(item.id)
-      )
-    : [];
-  const visibleItems = [...selectedItemsOutsideSearch, ...matchedItems];
+  const { matchedItems, visibleItems, canToggle } = getProgressiveMarketplaceFacetItems({
+    items,
+    normalizedSearch,
+    selectedValues,
+    selectedId: selectedId ?? "",
+    expanded,
+    visibleOptionCount
+  });
 
   return (
     <section className="min-w-0 space-y-3 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
@@ -861,9 +933,9 @@ export function MarketplaceFacetRail({
           {allLabel}
         </Button>
       </div>
-      <div className={cx("space-y-2", searchable && "max-h-72 overflow-y-auto pr-1")}>
+      <div className="space-y-2">
         {visibleItems.map((item) => {
-          const selected = selectedValues?.has(item.id) ?? selectedId === item.id;
+          const selected = isMarketplaceFacetItemSelected(item, selectedValues, selectedId ?? "");
 
           return (
             <Button
@@ -883,6 +955,18 @@ export function MarketplaceFacetRail({
           <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
             {searchEmptyLabel}
           </div>
+        ) : null}
+        {canToggle ? (
+          <Button
+            tone="ghost"
+            size="sm"
+            onClick={() => setExpanded((current) => !current)}
+            leadingIcon={expanded ? "chevronUp" : "chevronDown"}
+            aria-expanded={expanded}
+            block
+          >
+            {expanded ? showLessLabel : showMoreLabel}
+          </Button>
         ) : null}
       </div>
     </section>
@@ -973,6 +1057,9 @@ export interface MarketplaceFacetChoiceGroupProps {
   searchLabel?: string;
   searchPlaceholder?: string;
   searchEmptyLabel?: ReactNode;
+  showMoreLabel?: ReactNode;
+  showLessLabel?: ReactNode;
+  visibleOptionCount?: number;
 }
 
 export function MarketplaceFacetChoiceGroup({
@@ -989,25 +1076,25 @@ export function MarketplaceFacetChoiceGroup({
   searchable = false,
   searchLabel = "Search options",
   searchPlaceholder,
-  searchEmptyLabel = "No matching options"
+  searchEmptyLabel = "No matching options",
+  showMoreLabel = "Show more",
+  showLessLabel = "Show less",
+  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS
 }: MarketplaceFacetChoiceGroupProps) {
   const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const anySelected = selectedValues ? selectedValues.size > 0 : Boolean(selectedId);
   const multiple = selectionMode === "multiple";
   const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
-  const matchesSearch = (item: MarketplaceFacetItem) =>
-    !normalizedSearch ||
-    item.label.toLocaleLowerCase("en-US").includes(normalizedSearch) ||
-    item.id.toLocaleLowerCase("en-US").includes(normalizedSearch);
-  const matchedItems = items.filter(matchesSearch);
-  const matchedIds = new Set(matchedItems.map((item) => item.id));
-  const selectedItemsOutsideSearch = normalizedSearch
-    ? items.filter((item) =>
-        (selectedValues?.has(item.id) ?? selectedId === item.id) && !matchedIds.has(item.id)
-      )
-    : [];
-  const visibleItems = [...selectedItemsOutsideSearch, ...matchedItems];
+  const { matchedItems, visibleItems, canToggle } = getProgressiveMarketplaceFacetItems({
+    items,
+    normalizedSearch,
+    selectedValues,
+    selectedId,
+    expanded,
+    visibleOptionCount
+  });
 
   const renderChoice = (
     id: string,
@@ -1076,13 +1163,13 @@ export function MarketplaceFacetChoiceGroup({
       <div className="grid gap-2">
         {renderChoice("", allLabel, undefined, !anySelected, allLeadingIcon)}
       </div>
-      <div className={cx("grid gap-2", searchable && "max-h-72 overflow-y-auto pr-1")}>
+      <div className="grid gap-2">
         {visibleItems.map((item) =>
           renderChoice(
             item.id,
             item.label,
             item.count,
-            selectedValues?.has(item.id) ?? selectedId === item.id,
+            isMarketplaceFacetItemSelected(item, selectedValues, selectedId),
             itemLeadingIcon
           )
         )}
@@ -1090,6 +1177,18 @@ export function MarketplaceFacetChoiceGroup({
           <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
             {searchEmptyLabel}
           </div>
+        ) : null}
+        {canToggle ? (
+          <Button
+            tone="ghost"
+            size="sm"
+            onClick={() => setExpanded((current) => !current)}
+            leadingIcon={expanded ? "chevronUp" : "chevronDown"}
+            aria-expanded={expanded}
+            block
+          >
+            {expanded ? showLessLabel : showMoreLabel}
+          </Button>
         ) : null}
       </div>
     </section>
