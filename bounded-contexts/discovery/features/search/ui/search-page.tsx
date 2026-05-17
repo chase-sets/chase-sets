@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AppliedFilterChips,
   Button,
-  CommerceBottomSheet,
+  CommerceSheet,
   SearchInput,
   Select,
   LoadingSpinner,
@@ -257,7 +257,7 @@ export function SearchPage({
 }: SearchPageProps) {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const [bulkDrawerOpen, setBulkDrawerOpen] = useState(false);
+  const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
   const exactTotal = data?.total ?? data?.items.length ?? 0;
   const featuredCategories = categories.slice(0, 5);
   const liveListingItems =
@@ -396,7 +396,7 @@ export function SearchPage({
 
   useEffect(() => {
     if (bulkActionData) {
-      setBulkDrawerOpen(true);
+      setBulkSheetOpen(true);
     }
     if (bulkActionData?.status === "bulk-added") {
       notifyCartCountChanged(bulkActionData.addedLineCount + bulkActionData.mergedLineCount);
@@ -787,9 +787,9 @@ export function SearchPage({
         ) : null}
       </Stack>
       {bulkAdd && bulkPreview ? (
-        <CommerceBottomSheet
-          open={bulkDrawerOpen}
-          onOpenChange={setBulkDrawerOpen}
+        <CommerceSheet
+          open={bulkSheetOpen}
+          onOpenChange={setBulkSheetOpen}
           title={
             bulkActionData?.status === "bulk-added"
               ? t("discovery.features.search.ui.searchPage.bulk.added.title")
@@ -804,7 +804,7 @@ export function SearchPage({
               <Button
                 type="button"
                 tone="ghost"
-                onClick={() => setBulkDrawerOpen(false)}
+                onClick={() => setBulkSheetOpen(false)}
               >
                 {t("discovery.features.search.ui.searchPage.close")}
               </Button>
@@ -869,7 +869,7 @@ export function SearchPage({
               />
             ) : null}
           </Stack>
-        </CommerceBottomSheet>
+        </CommerceSheet>
       ) : null}
     </SearchResultsLayout>
   );

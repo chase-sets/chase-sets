@@ -1101,6 +1101,10 @@ export interface MarketplaceUiFilterBottomSheetProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+/**
+ * @deprecated Use `MarketplaceFilterBottomSheet` from `patterns/app-shells` for
+ * marketplace filter experiences so filters follow the canonical panel taxonomy.
+ */
 export function MarketplaceUiFilterBottomSheet({
   title,
   open,
@@ -1123,14 +1127,6 @@ export function MarketplaceUiFilterBottomSheet({
       <div className="grid gap-4">{children}</div>
     </BottomSheet>
   );
-}
-
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export interface MarketplaceFilterDrawerProps extends MarketplaceUiFilterBottomSheetProps {}
-
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export function MarketplaceFilterDrawer(props: MarketplaceFilterDrawerProps) {
-  return <MarketplaceUiFilterBottomSheet {...props} />;
 }
 
 export interface NoResultsRecoveryProps {

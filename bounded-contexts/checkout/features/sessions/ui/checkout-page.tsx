@@ -222,7 +222,7 @@ export function CheckoutSessionPage({
           recoveryActions={<LinkButton href="/search">{t("checkout.features.sessions.ui.checkoutPage.browse.marketplace")}</LinkButton>}
         />
       ) : (
-        <CheckoutLayout summary={summary}>
+        <CheckoutLayout summary={summary} summaryLabel="Checkout summary">
           <Stack gap={4}>
             {errorMessage ? (
               <Surface tone="subtle" elevated>

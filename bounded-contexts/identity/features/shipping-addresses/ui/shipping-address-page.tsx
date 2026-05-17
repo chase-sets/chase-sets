@@ -11,6 +11,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  ResponsiveEditSheet,
   Stack,
   Surface,
   Text,
@@ -176,17 +177,27 @@ export function ShippingAddressPage({
                       <Text key={line} size="sm" tone="secondary">{line}</Text>
                     ))}
                   </Stack>
-                  <form method="post">
-                    <Stack gap={3}>
-                      <input type="hidden" name="intent" value="update" />
-                      <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
-                      <AddressFields address={address} />
-                      <Button type="submit" tone="secondary">
-                        {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
-                      </Button>
-                    </Stack>
-                  </form>
                   <Inline gap={2}>
+                    <ResponsiveEditSheet
+                      title={t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
+                      description={t("identity.features.shippingAddresses.ui.shippingAddressPage.saved.description")}
+                      trigger={
+                        <Button type="button" tone="secondary">
+                          {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
+                        </Button>
+                      }
+                    >
+                      <form method="post">
+                        <Stack gap={3}>
+                          <input type="hidden" name="intent" value="update" />
+                          <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                          <AddressFields address={address} />
+                          <Button type="submit" tone="secondary">
+                            {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
+                          </Button>
+                        </Stack>
+                      </form>
+                    </ResponsiveEditSheet>
                     {!address.is_default ? (
                       <form method="post">
                         <input type="hidden" name="intent" value="default" />

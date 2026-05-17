@@ -46,6 +46,7 @@ import {
   AdminShell,
   CommerceActionBar,
   CommerceBottomSheet,
+  CommerceSheet,
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceFacetStrip,
@@ -56,6 +57,7 @@ import {
   NotificationCenterSheet,
   OrderSummary,
   ProductCard,
+  ResponsiveEditSheet,
   SellerBadge,
   TokenSwatch,
   Wizard
@@ -637,6 +639,40 @@ describe("design system", () => {
     const bottomSheet = screen.getByRole("dialog", { name: "Buy selected product" });
     expect(within(bottomSheet).getByText("Quantity")).toBeTruthy();
     expect(within(bottomSheet).getByRole("button", { name: "Buy now" })).toBeTruthy();
+  });
+
+  it("renders responsive commerce and edit sheets", () => {
+    const { unmount } = render(
+      <ChaseRoot>
+        <CommerceSheet
+          open
+          title="Bulk add preview"
+          description="Inspect matching products."
+        >
+          Matching products
+        </CommerceSheet>
+      </ChaseRoot>
+    );
+
+    expect(screen.getByRole("dialog", { name: "Bulk add preview" })).toBeTruthy();
+    expect(screen.getByText("Matching products")).toBeTruthy();
+
+    unmount();
+
+    render(
+      <ChaseRoot>
+        <ResponsiveEditSheet
+          open
+          title="Edit saved address"
+          description="Update destination details."
+        >
+          Address fields
+        </ResponsiveEditSheet>
+      </ChaseRoot>
+    );
+
+    expect(screen.getByRole("dialog", { name: "Edit saved address" })).toBeTruthy();
+    expect(screen.getByText("Address fields")).toBeTruthy();
   });
 
   it("renders notification center sheets with feed and settings actions", () => {

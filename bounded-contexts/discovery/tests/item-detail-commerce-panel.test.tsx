@@ -268,7 +268,7 @@ describe("item detail commerce panel", () => {
     expect(imageFrame?.className).toContain("[--gallery-max-height:32rem]");
   });
 
-  it("opens the selected mobile commerce section in a drawer", () => {
+  it("opens the selected mobile commerce section in a bottom sheet", () => {
     render(
       <ItemDetailPage
         data={createItem()}
@@ -291,14 +291,14 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
-    expect(buyDrawer).toBeTruthy();
-    expect(within(buyDrawer).getByText("Mobile buy action")).toBeTruthy();
-    expect(within(buyDrawer).getByRole("button", { name: "Mobile footer buy" })).toBeTruthy();
-    expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
+    const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(buySheet).toBeTruthy();
+    expect(within(buySheet).getByText("Mobile buy action")).toBeTruthy();
+    expect(within(buySheet).getByRole("button", { name: "Mobile footer buy" })).toBeTruthy();
+    expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
-  it("keeps checkout purchase actions available in the mobile buy drawer", () => {
+  it("keeps checkout purchase actions available in the mobile buy sheet", () => {
     renderWithDataRouter(
       <ItemDetailPage
         data={createItem()}
@@ -330,14 +330,14 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
-    expect(within(buyDrawer).getByRole("spinbutton", { name: /Quantity/ }))
+    const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(within(buySheet).getByRole("spinbutton", { name: /Quantity/ }))
       .toBeTruthy();
-    expect(within(buyDrawer).getByRole("button", { name: "Buy optimized" }))
+    expect(within(buySheet).getByRole("button", { name: "Buy optimized" }))
       .not.toHaveProperty("disabled", true);
-    expect(within(buyDrawer).getByRole("button", { name: "Add product to cart" }))
+    expect(within(buySheet).getByRole("button", { name: "Add product to cart" }))
       .not.toHaveProperty("disabled", true);
-    expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
+    expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
   it("changes mobile commerce actions with the selected market intent", () => {

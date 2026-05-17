@@ -297,6 +297,20 @@ Canonical design-system names:
 
 The package exposes canonical pattern wrappers for the taxonomy. Existing `Drawer` exports remain as low-level primitives for backward compatibility and specialized composition; new product code should import the canonical wrapper that matches the user interaction.
 
+Marketplace-specific wrappers:
+
+- `MarketplaceFilterBottomSheet`: mobile search and table filters with result context and sticky apply actions.
+- `CommerceSheet`: contextual marketplace commerce inspection or action; desktop Side Sheet and mobile Bottom Sheet.
+- `MarketplaceActionSheet`: marketplace action groups that should stay in context; desktop Side Sheet and mobile Bottom Sheet.
+- `ResponsiveEditSheet`: short contextual edit forms; desktop Side Sheet and mobile full-height Bottom Sheet by default.
+- `NotificationCenterSheet`: notification feed/settings; desktop Side Sheet and mobile Bottom Sheet.
+- `ResponsiveActionMenu`: desktop anchored `Menu` that promotes to mobile Bottom Sheet when the action list is too long for touch-friendly anchoring.
+- `ActivitySheet`, `CommentsSheet`, `AssistantSheet`, and `HelpSheet`: named support panels for non-primary supporting content; desktop right Side Sheet and mobile Bottom Sheet.
+
+Deprecated compatibility wrappers:
+
+- `MarketplaceUiFilterBottomSheet` is retained for older UI imports only. New marketplace filters use `MarketplaceFilterBottomSheet`.
+
 Recommended prop shape:
 
 | Prop | Applies To | Requirement |
@@ -321,6 +335,8 @@ Implementation rules:
 - Bounded contexts pass titles, descriptions, actions, validation state, loading state, empty state, and domain content.
 - Do not create route-local overlay CSS or custom panel widths. Add missing variants to the design system.
 - Avoid component names such as `GenericDrawer`, `PanelDrawer`, `CustomModal`, or `MobileModal`. Add a canonical wrapper or use the existing canonical one.
+- For More actions, share options, and grouped contextual commands, use `ResponsiveActionMenu` before building a route-local menu. Keep desktop anchored unless the action set becomes too dense; mobile promotes to Bottom Sheet when the item count exceeds the documented threshold.
+- For activity, comments, assistant, or help panels, use the named support wrapper. If the content becomes threaded, long, or route-worthy, promote the mobile experience to Full Page instead of increasing the Bottom Sheet indefinitely.
 
 ## Do / Don't Examples
 
@@ -357,12 +373,12 @@ Misuse prevention rules:
 | Create report | Full Page flow with stepper or sections. | Full Page flow. | Report creation is sequential and often needs validation, preview, and save state. |
 | Confirmation before deleting | Modal Dialog or AlertDialog. | Modal Dialog if short; Full Page only for unusually detailed consequences. | Blocking confirmation prevents accidental irreversible action. |
 | Share options | Popover/Menu for a short list. | Bottom Sheet for touch-friendly share targets. | Mobile share choices need more spacing and platform-like behavior. |
-| More actions menu | Popover/Menu. | Popover/Menu for very short anchored actions; Bottom Sheet for longer lists. | Keep common desktop actions fast; promote when mobile space is tight. |
+| More actions menu | `ResponsiveActionMenu` rendered as an anchored Menu. | `ResponsiveActionMenu` rendered as a Bottom Sheet when options exceed available space. | Keep common desktop actions fast; promote when mobile space is tight. |
 | Mobile filter experience | Side Sheet or FilterRail on desktop source route. | Bottom Sheet. | Filters are contextual controls, not navigation. |
 | Mobile edit form | Side Sheet on desktop for short form. | Bottom Sheet for short form; Full Page for complex form. | Avoid expanded sheets becoming poor pages. |
 | Mobile item details | Side Sheet or Full Page based on detail richness. | Bottom Sheet for summary; Full Page for full detail. | Lightweight details can preserve list context; rich content needs a route. |
-| AI assistant/help panel | Non-modal right Side Sheet. | Bottom Sheet for quick help; Full Page for conversation history or complex tasking. | Non-modal assistance should not block core work unless the user starts a focused flow. |
-| Activity/comments panel | Right Side Sheet or persistent Sidebar for active records. | Bottom Sheet for short activity; Full Page for long threaded conversation. | Comments often need reading depth on mobile. |
+| AI assistant/help panel | `AssistantSheet` or `HelpSheet` as non-modal right Side Sheet. | Bottom Sheet for quick help; Full Page for conversation history or complex tasking. | Non-modal assistance should not block core work unless the user starts a focused flow. |
+| Activity/comments panel | `ActivitySheet` or `CommentsSheet`, or persistent Sidebar for active records. | Bottom Sheet for short activity; Full Page for long threaded conversation. | Comments often need reading depth on mobile. |
 
 ## Governance Rules
 
@@ -370,6 +386,7 @@ Misuse prevention rules:
 - Bounded contexts own the reason a surface opens, the data inside it, validation, commands, events, read models, and workflow outcomes.
 - Deployables compose route shells and must not introduce custom panel primitives.
 - New overlay or panel variants require design-system review when they add a new name, breakpoint behavior, focus behavior, scroll model, or stacking model.
+- Bounded-context routes must import the named wrapper that matches the interaction; they must not compose low-level `Drawer`, `BottomSheet`, or `SideSheet` directly when a marketplace wrapper exists for the scenario.
 - A pull request that adds a panel must identify the chosen pattern in its description or code comments when the choice is not obvious.
 - Stacked temporary surfaces require explicit design-system approval. The default alternatives are replace-in-place, Full Page, or one Modal Dialog for a blocking confirmation.
 - Any surface that reaches full-height on mobile by default must be reviewed as a Full Page candidate.

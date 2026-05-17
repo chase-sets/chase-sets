@@ -4,6 +4,9 @@ export type { ButtonProps, IconButtonProps, LinkButtonProps, ButtonGroupProps } 
 export { AccountMenu } from "./account-menu";
 export type { AccountMenuItem, AccountMenuProps } from "./account-menu";
 
+export { ResponsiveActionMenu } from "./responsive-action-menu";
+export type { ResponsiveActionMenuProps } from "./responsive-action-menu";
+
 export { Tabs } from "./tabs";
 export type { TabItem, TabsProps } from "./tabs";
 
