@@ -191,6 +191,7 @@ export function createPayoutReadinessRuntime(
             accountId: params.accountId,
             currencyCode: normalizeCurrencyCode("usd"),
             contactEmail: params.contactEmail,
+            countryCode: "US",
             idempotencyKey: `settlement:payout-account:${params.accountId}`,
           });
 
@@ -268,6 +269,7 @@ export function createPayoutReadinessRuntime(
         : await deps.moneyMovementGateway.ensurePayoutAccount({
             accountId: params.accountId,
             currencyCode: normalizeCurrencyCode("usd"),
+            countryCode: "US",
             idempotencyKey: `settlement:payout-account:${params.accountId}`,
           });
 

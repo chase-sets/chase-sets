@@ -1,6 +1,7 @@
 import type { AccountId, PayoutId } from "@chase-sets/primitives/typed-ids";
 
 export type CurrencyCode = "usd";
+export type PayoutAccountCountryCode = "US";
 export type ProviderSetupStatus = "not-started" | "pending" | "complete";
 export type ProviderCapabilityStatus = "inactive" | "pending" | "active";
 export type ProviderPayoutDestinationStatus = "missing" | "pending" | "ready";
@@ -81,6 +82,7 @@ export type MoneyMovementGateway = Readonly<{
       accountId: AccountId;
       currencyCode: CurrencyCode;
       contactEmail?: string | null;
+      countryCode?: PayoutAccountCountryCode | null;
       idempotencyKey: string;
     }>,
   ) => Promise<ProviderPayoutReadiness>;
