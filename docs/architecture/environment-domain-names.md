@@ -41,14 +41,13 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 `www.staging.chasesets.com` is the canonical staging public-web host.
 
-The environment root, `staging.chasesets.com`, is the launch-facing staging marketplace entry point. It keeps self-managed DNS records because it also carries environment-level mail identity records.
+The environment root, `staging.chasesets.com`, is reserved for environment-level DNS such as mail identity records. Do not attach it as a DigitalOcean App Platform web domain while it carries MX or root TXT records.
 
-On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A follow-up attempt to make it the staging App Platform primary domain also left `staging.chasesets.com` in `CONFIGURING` with no certificate. The staging root therefore uses App Platform routing without a `zone` field; DNS remains self-managed with A/AAAA records at `staging.chasesets.com`, and App Platform only owns certificate/routing for the hostname.
+On May 17, 2026, attaching `staging.chasesets.com` directly to the staging App Platform marketplace component as an alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A follow-up attempt to make it the staging App Platform primary domain also left `staging.chasesets.com` in `CONFIGURING` with no certificate. A third attempt attached it as a self-managed App Platform alias without a DNS `zone`, but DigitalOcean still stopped at `DomainCNAMEMismatch` because the hostname must CNAME to the app ingress while the current staging root also has exact-name MX and TXT mail records. To make `https://staging.chasesets.com/` take users to the marketplace, configure an external HTTPS edge redirect to `https://marketplace.staging.chasesets.com/`, or first move mail identity DNS away from the root and then re-plan App Platform ownership.
 
 Staging application hosts are:
 
 - `www.staging.chasesets.com`
-- `staging.chasesets.com`
 - `marketplace.staging.chasesets.com`
 - `admin.staging.chasesets.com`
 - `api.staging.chasesets.com`, only if a public staging API host is needed later

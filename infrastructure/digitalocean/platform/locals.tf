@@ -21,11 +21,6 @@ locals {
     local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 
-  staging_root_marketplace_domains = local.is_staging ? [
-    "${var.environment}.${var.root_domain}",
-  ] : []
-  all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)
-
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]
   marketplace_domain = length(local.marketplace_domains) > 0 ? local.marketplace_domains[0] : null
@@ -123,9 +118,9 @@ locals {
     if context_name != "control"
   }
 
-  all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
+  all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
-  ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.marketplace_domains) : []
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {
