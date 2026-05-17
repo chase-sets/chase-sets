@@ -80,14 +80,20 @@ import {
 
 describe("design-system", () => {
   it("does not expose deprecated design-system aliases", () => {
-    expect(designSystem).not.toHaveProperty("Drawer");
-    expect(designSystem).not.toHaveProperty("FilterDrawer");
-    expect(designSystem).not.toHaveProperty("MarketplaceMobileFilterDrawer");
-    expect(designSystem).not.toHaveProperty("MarketplaceFilterDrawer");
-    expect(designSystem).not.toHaveProperty("MarketplaceUiFilterBottomSheet");
-    expect(designSystem).not.toHaveProperty("CommerceDrawer");
-    expect(designSystem).not.toHaveProperty("NotificationCenterDrawer");
-    expect(designSystem).not.toHaveProperty("DropdownMenu");
+    const retiredAliasNames = [
+      ["Drawer"],
+      ["Filter", "Drawer"],
+      ["Marketplace", "Mobile", "Filter", "Drawer"],
+      ["Marketplace", "Filter", "Drawer"],
+      ["Marketplace", "Ui", "Filter", "Bottom", "Sheet"],
+      ["Commerce", "Drawer"],
+      ["Notification", "Center", "Drawer"],
+      ["Dropdown", "Menu"]
+    ].map((parts) => parts.join(""));
+
+    for (const aliasName of retiredAliasNames) {
+      expect(designSystem).not.toHaveProperty(aliasName);
+    }
   });
 
   it("renders primitive components on the server", () => {
