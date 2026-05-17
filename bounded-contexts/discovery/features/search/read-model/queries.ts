@@ -1,6 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
+import {
+  dimensionFacetValueOrderSql,
+  fieldFacetValueOrderSql,
+} from "./facet-ordering";
 
 export type DiscoverySearchParams = {
   search?: string;
@@ -413,6 +417,7 @@ export async function searchDiscoveryItems(
 type ProductSchemaRow = Readonly<{
   dimension_id: string;
   dimension_name: string;
+  value_kind: "unordered" | "ordered" | "numeric";
   required: boolean;
   allowed_option_ids: unknown;
   applies_when: unknown;
@@ -448,6 +453,7 @@ async function loadProductSchemasForBlueprints(
        rule.blueprint_id,
        rule.dimension_id,
        dimension.name AS dimension_name,
+       dimension.value_kind,
        rule.required,
        rule.allowed_option_ids,
        rule.applies_when,
@@ -493,7 +499,7 @@ async function loadProductSchemasForBlueprints(
       byDimension.set(row.dimension_id, {
         dimensionId: row.dimension_id,
         dimensionName: row.dimension_name,
-        valueKind: "unordered",
+        valueKind: row.value_kind,
         required: row.required,
         appliesWhen: jsonArray<{ dimensionId: string; optionIds: string[] }>(row.applies_when),
         allowedOptions: [
@@ -762,23 +768,43 @@ async function loadFieldFacetValues(
   selectedValues: readonly string[],
 ): Promise<DiscoveryFacetValue[]> {
   const filter = buildSearchFilter(params, { excludeFacet: { kind: "field", id: fieldId } });
+  const orderBy = fieldFacetValueOrderSql({
+    sortKind: "sort_kind",
+    sortValue: "sort_value",
+    sortNumber: "sort_number",
+    count: "count",
+    label: "label",
+    id: "value",
+  });
   const result = await db.query<{
     value: string;
     label: string;
     count: number;
   }>(
-    `SELECT
-       facet.value->>'value' AS value,
-       MAX(facet.value->>'valueLabel') AS label,
-       COUNT(DISTINCT item.catalog_item_id)::integer AS count
-     FROM discovery_search_items AS item
-     CROSS JOIN LATERAL jsonb_array_elements(item.field_filter_values) AS facet(value)
-     ${filter.where}
-       AND facet.value->>'fieldId' = $${filter.nextParamIndex}
-     GROUP BY facet.value->>'value'
-     ORDER BY count DESC, label ASC, value ASC
-     LIMIT 8`,
-    [...filter.values, fieldId],
+    `WITH facet_values AS (
+       SELECT
+         facet.value->>'value' AS value,
+         MAX(facet.value->>'valueLabel') AS label,
+         COUNT(DISTINCT item.catalog_item_id)::integer AS count,
+         MAX(facet.value->>'sortKind') AS sort_kind,
+         MAX(facet.value->>'sortValue') AS sort_value,
+         MAX(NULLIF(facet.value->>'sortValue', '')::numeric) FILTER (WHERE facet.value->>'sortKind' = 'number-desc') AS sort_number,
+         BOOL_OR(facet.value->>'value' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
+       FROM discovery_search_items AS item
+       CROSS JOIN LATERAL jsonb_array_elements(item.field_filter_values) AS facet(value)
+       ${filter.where}
+         AND facet.value->>'fieldId' = $${filter.nextParamIndex}
+       GROUP BY facet.value->>'value'
+     ),
+     ranked AS (
+       SELECT *, ROW_NUMBER() OVER (ORDER BY ${orderBy}) AS facet_rank
+       FROM facet_values
+     )
+     SELECT value, label, count
+     FROM ranked
+     WHERE selected OR facet_rank <= 8
+     ORDER BY ${orderBy}`,
+    [...filter.values, fieldId, selectedValues],
   );
 
   return result.rows.map((row) => ({
@@ -796,23 +822,43 @@ async function loadDimensionFacetValues(
   selectedOptionIds: readonly string[],
 ): Promise<DiscoveryFacetValue[]> {
   const filter = buildSearchFilter(params, { excludeFacet: { kind: "dimension", id: dimensionId } });
+  const orderBy = dimensionFacetValueOrderSql({
+    valueKind: "value_kind",
+    numericValue: "numeric_value",
+    displayOrder: "display_order",
+    count: "count",
+    label: "label",
+    id: "option_id",
+  });
   const result = await db.query<{
     option_id: string;
     label: string;
     count: number;
   }>(
-    `SELECT
-       facet.value->>'optionId' AS option_id,
-       MAX(facet.value->>'optionLabel') AS label,
-       COUNT(DISTINCT item.catalog_item_id)::integer AS count
-     FROM discovery_search_items AS item
-     CROSS JOIN LATERAL jsonb_array_elements(item.dimension_filter_values) AS facet(value)
-     ${filter.where}
-       AND facet.value->>'dimensionId' = $${filter.nextParamIndex}
-     GROUP BY facet.value->>'optionId'
-     ORDER BY count DESC, label ASC, option_id ASC
-     LIMIT 8`,
-    [...filter.values, dimensionId],
+    `WITH facet_values AS (
+       SELECT
+         facet.value->>'optionId' AS option_id,
+         MAX(facet.value->>'optionLabel') AS label,
+         COUNT(DISTINCT item.catalog_item_id)::integer AS count,
+         MAX(facet.value->>'valueKind') AS value_kind,
+         MIN(NULLIF(facet.value->>'displayOrder', '')::integer) AS display_order,
+         MAX(NULLIF(facet.value->>'numericValue', '')::numeric) AS numeric_value,
+         BOOL_OR(facet.value->>'optionId' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
+       FROM discovery_search_items AS item
+       CROSS JOIN LATERAL jsonb_array_elements(item.dimension_filter_values) AS facet(value)
+       ${filter.where}
+         AND facet.value->>'dimensionId' = $${filter.nextParamIndex}
+       GROUP BY facet.value->>'optionId'
+     ),
+     ranked AS (
+       SELECT *, ROW_NUMBER() OVER (ORDER BY ${orderBy}) AS facet_rank
+       FROM facet_values
+     )
+     SELECT option_id, label, count
+     FROM ranked
+     WHERE selected OR facet_rank <= 8
+     ORDER BY ${orderBy}`,
+    [...filter.values, dimensionId, selectedOptionIds],
   );
 
   return result.rows.map((row) => ({
