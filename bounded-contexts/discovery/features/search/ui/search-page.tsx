@@ -17,7 +17,6 @@ import {
   NoResultsRecovery,
   PlatformCredibilityCue,
   PromoStrip,
-  ProgressiveDisclosureGroup,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
@@ -599,50 +598,32 @@ export function SearchPage({
                 allLeadingIcon="book"
                 itemLeadingIcon="book"
               />
-              {dynamicFacets.length > 0 ? (
-                <ProgressiveDisclosureGroup
-                  title={t("discovery.features.search.ui.searchPage.advanced.filters")}
-                  description={t("discovery.features.search.ui.searchPage.mobile.filters.description")}
-                  defaultValue={dynamicFacets
-                    .filter((facet) => selectedFacetValues(facet).length > 0)
-                    .map((facet) => `${facet.kind}:${facet.id}`)}
-                  items={dynamicFacets.map((facet) => {
-                    const selectedValues = selectedFacetValues(facet).map((value) => value.id);
+              {dynamicFacets.map((facet) => {
+                const selectedValues = selectedFacetValues(facet).map((value) => value.id);
 
-                    return {
-                      value: `${facet.kind}:${facet.id}`,
-                      title: facet.label,
-                      description: formatFacetDescription(facet),
-                      summary: selectedValues.length > 0
-                        ? t("discovery.features.search.ui.searchPage.selected.facet.values", {
-                            count: selectedValues.length,
-                          })
-                        : undefined,
-                      content: (
-                        <MarketplaceFacetChoiceGroup
-                          title={t("discovery.features.search.ui.searchPage.facet.choices", { facet: facet.label })}
-                          description={formatFacetDescription(facet)}
-                          allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-                          items={facet.values.map((value) => ({
-                            id: value.id,
-                            label: value.label,
-                            count: value.count,
-                          }))}
-                          selectedIds={selectedValues}
-                          selectionMode="multiple"
-                          onSelect={(value) => {
-                            if (value) {
-                              onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-                            } else {
-                              onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-                            }
-                          }}
-                        />
-                      ),
-                    };
-                  })}
-                />
-              ) : null}
+                return (
+                  <MarketplaceFacetChoiceGroup
+                    key={`${facet.kind}:${facet.id}`}
+                    title={facet.label}
+                    description={formatFacetDescription(facet)}
+                    allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+                    items={facet.values.map((value) => ({
+                      id: value.id,
+                      label: value.label,
+                      count: value.count,
+                    }))}
+                    selectedIds={selectedValues}
+                    selectionMode="multiple"
+                    onSelect={(value) => {
+                      if (value) {
+                        onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+                      } else {
+                        onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+                      }
+                    }}
+                  />
+                );
+              })}
             </MarketplaceFilterBottomSheet>
           </>
         ) : null}

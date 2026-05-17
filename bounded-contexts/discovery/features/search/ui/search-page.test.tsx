@@ -228,6 +228,7 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
     const filterSheet = screen.getByRole("dialog", { name: "Filters" });
+    expect(within(filterSheet).queryByText("Advanced filters")).toBeNull();
     expect(within(filterSheet).getByText("Condition")).toBeTruthy();
     expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
     expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
