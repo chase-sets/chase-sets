@@ -353,9 +353,6 @@ export function createStripeConnectMoneyMovementGateway(
                     stripe_transfers: {
                       requested: true,
                     },
-                    payouts: {
-                      requested: true,
-                    },
                   },
                 },
               },
@@ -366,9 +363,7 @@ export function createStripeConnectMoneyMovementGateway(
                 fees_collector: "application",
               },
             },
-            dashboard: {
-              type: "express",
-            },
+            dashboard: "express",
           }),
           idempotencyKey: input.idempotencyKey,
         },

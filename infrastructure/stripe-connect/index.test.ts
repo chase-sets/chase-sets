@@ -53,7 +53,6 @@ describe("money movement adapters", () => {
             capabilities: {
               stripe_balance: {
                 stripe_transfers: { requested: true },
-                payouts: { requested: true },
               },
             },
           },
@@ -64,9 +63,7 @@ describe("money movement adapters", () => {
             losses_collector: "application",
           },
         },
-        dashboard: {
-          type: "express",
-        },
+        dashboard: "express",
       });
 
       return new Response(
