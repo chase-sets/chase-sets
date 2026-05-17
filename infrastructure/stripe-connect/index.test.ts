@@ -45,6 +45,7 @@ describe("money movement adapters", () => {
       expect(headers.get("Content-Type")).toBe("application/json");
       expect(headers.get("Idempotency-Key")).toBe("account-key");
       expect(JSON.parse(String(init?.body))).toMatchObject({
+        contact_email: "seller@example.test",
         metadata: {
           chase_sets_account_id: "acc_seller",
         },
@@ -95,6 +96,7 @@ describe("money movement adapters", () => {
       adapter.ensurePayoutAccount({
         accountId: "acc_seller" as never,
         currencyCode: "usd",
+        contactEmail: "seller@example.test",
         idempotencyKey: "account-key",
       }),
     ).resolves.toMatchObject({

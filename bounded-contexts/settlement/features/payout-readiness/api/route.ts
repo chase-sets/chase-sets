@@ -117,6 +117,7 @@ export function createPayoutReadinessRoutes(
       const result = await services.createOnboardingSession(
         {
           accountId: access.actor.accountId as never,
+          contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
           returnUrl,
           refreshUrl,
         },

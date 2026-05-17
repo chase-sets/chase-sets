@@ -402,6 +402,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
       method: "POST",
       headers: onboardingHeaders,
       body: JSON.stringify({
+        contactEmail: readEnv("SMOKE_SELLER_EMAIL", env),
         returnUrl: readEnv("STRIPE_CONNECT_RETURN_URL", env),
         refreshUrl: readEnv("STRIPE_CONNECT_REFRESH_URL", env),
       }),

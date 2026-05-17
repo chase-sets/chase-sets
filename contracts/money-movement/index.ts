@@ -80,6 +80,7 @@ export type MoneyMovementGateway = Readonly<{
     input: Readonly<{
       accountId: AccountId;
       currencyCode: CurrencyCode;
+      contactEmail?: string | null;
       idempotencyKey: string;
     }>,
   ) => Promise<ProviderPayoutReadiness>;

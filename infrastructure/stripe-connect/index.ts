@@ -343,6 +343,7 @@ export function createStripeConnectMoneyMovementGateway(
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            ...(input.contactEmail ? { contact_email: input.contactEmail } : {}),
             metadata: {
               chase_sets_account_id: input.accountId,
             },

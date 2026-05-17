@@ -57,6 +57,7 @@ export type PayoutReadinessServices = Readonly<{
   createOnboardingSession: (
     params: Readonly<{
       accountId: AccountId;
+      contactEmail?: string | null;
       returnUrl?: string | null;
       refreshUrl?: string | null;
     }>,
@@ -189,6 +190,7 @@ export function createPayoutReadinessRuntime(
         : await deps.moneyMovementGateway.ensurePayoutAccount({
             accountId: params.accountId,
             currencyCode: normalizeCurrencyCode("usd"),
+            contactEmail: params.contactEmail,
             idempotencyKey: `settlement:payout-account:${params.accountId}`,
           });
 
