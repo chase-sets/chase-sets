@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   listSourceObservationIdsForPromotion,
+  listSourceObservationIntegrationScopes,
   previewSourceObservationPromotionScope,
 } from "./queries";
 
@@ -54,6 +55,46 @@ describe("source observation read-model queries", () => {
       listSourceObservationIdsForPromotion(db, { status: "rejected" }),
     ).resolves.toEqual([]);
     expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("summarizes pulled provider scopes by language expansion and series", async () => {
+    const db = queryable([
+      {
+        provider_key: "tcgdex",
+        language_code: "en",
+        expansion_id: "base1",
+        expansion_name: "Base Set",
+        series_id: "base",
+        series_name: "Base",
+        total_observations: 102,
+        observed_observations: 100,
+        promoted_observations: 1,
+        rejected_observations: 1,
+        first_observed_at: "2026-05-16T00:00:00.000Z",
+        latest_observed_at: "2026-05-16T00:01:00.000Z",
+        latest_source_updated_at: null,
+      },
+    ]);
+
+    const scopes = await listSourceObservationIntegrationScopes(db, {
+      provider: "tcgdex",
+      language: "en",
+      setId: "base1",
+    });
+
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]).toMatchObject({
+      provider_key: "tcgdex",
+      language_code: "en",
+      expansion_id: "base1",
+      series_name: "Base",
+      total_observations: 102,
+      observed_observations: 100,
+    });
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("GROUP BY"),
+      ["tcgdex", "en", "base1"],
+    );
   });
 });
 

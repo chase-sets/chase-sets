@@ -27,6 +27,7 @@ export type {
   ReferenceType,
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,
+  SourceObservationIntegrationScope,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
 } from "../../client";
