@@ -165,10 +165,10 @@ describe("SearchPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
-    const drawer = screen.getByRole("dialog", { name: "Filters" });
-    expect(within(drawer).getByText("Browse categories")).toBeTruthy();
+    const filterSheet = screen.getByRole("dialog", { name: "Filters" });
+    expect(within(filterSheet).getByText("Browse categories")).toBeTruthy();
 
-    fireEvent.click(within(drawer).getByRole("button", { name: "Singles (7)" }));
+    fireEvent.click(within(filterSheet).getByRole("button", { name: "Singles (7)" }));
 
     expect(props.onCategoryChange).toHaveBeenCalledWith("singles");
   });
@@ -227,14 +227,14 @@ describe("SearchPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
-    const drawer = screen.getByRole("dialog", { name: "Filters" });
-    expect(within(drawer).getByText("Condition")).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Any Condition" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Near Mint (3)" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(drawer).getByRole("button", { name: "Lightly Played (2)" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(within(drawer).getByRole("button", { name: "Excellent (1)" }));
+    const filterSheet = screen.getByRole("dialog", { name: "Filters" });
+    expect(within(filterSheet).getByText("Condition")).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Any Condition" })).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(filterSheet).getByRole("button", { name: "Excellent (1)" }));
 
     expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
       kind: "dimension",

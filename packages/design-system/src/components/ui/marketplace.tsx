@@ -1125,14 +1125,6 @@ export function MarketplaceUiFilterBottomSheet({
   );
 }
 
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export interface MarketplaceFilterDrawerProps extends MarketplaceUiFilterBottomSheetProps {}
-
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export function MarketplaceFilterDrawer(props: MarketplaceFilterDrawerProps) {
-  return <MarketplaceUiFilterBottomSheet {...props} />;
-}
-
 export interface NoResultsRecoveryProps {
   title: ReactNode;
   description: ReactNode;

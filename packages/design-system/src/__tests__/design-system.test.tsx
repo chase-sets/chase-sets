@@ -10,6 +10,7 @@ import {
   BottomSheet,
   BottomNav,
   BuyerProtectionBadge,
+  CommerceSheet,
   UiBadge as Badge,
   UiButton as Button,
   UiCard as Card,
@@ -54,6 +55,7 @@ import {
   PaymentRecoveryPanel,
   ProductSelectionSummary,
   ProductMediaModule,
+  ResponsiveEditSheet,
   ReviewCard,
   SearchControlBar,
   SellerProfileHeader,
@@ -608,6 +610,38 @@ describe("design-system", () => {
     await user.click(screen.getByRole("button", { name: "Delete report" }));
     expect(await screen.findByRole("dialog", { name: "Delete report" })).toBeTruthy();
     expect(screen.getByText("Confirm delete")).toBeTruthy();
+  });
+
+  it("renders responsive marketplace sheet wrappers", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <div>
+        <CommerceSheet
+          trigger={<Button>Preview cart action</Button>}
+          title="Add matching products"
+          description="Review eligible products without leaving search."
+        >
+          Bulk add preview
+        </CommerceSheet>
+        <ResponsiveEditSheet
+          trigger={<Button>Edit shipping address</Button>}
+          title="Update address"
+          description="Edit the saved destination."
+        >
+          Address form
+        </ResponsiveEditSheet>
+      </div>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Preview cart action" }));
+    expect(await screen.findByRole("dialog", { name: "Add matching products" })).toBeTruthy();
+    expect(screen.getByText("Bulk add preview")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Edit shipping address" }));
+    expect(await screen.findByRole("dialog", { name: "Update address" })).toBeTruthy();
+    expect(screen.getByText("Address form")).toBeTruthy();
   });
 
   it("renders non-modal panel regions and full-page flows on the server", () => {
