@@ -32,6 +32,7 @@ Application code should not introduce:
 - Overlays should use design-system Dialog, Sheet, Popover, Tooltip, Menu, and AlertDialog primitives instead of route-local overlay CSS.
 - Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionBar`, and `MetricStrip`.
+- `BulkActionBar` should keep the selected-count fact visible, place the most likely safe action in `primaryActions`, place supporting actions such as clearing selection in `secondaryActions`, and move advanced, rare, or risky choices into `overflowActions`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
 
 ## Progressive Disclosure

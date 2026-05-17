@@ -11,6 +11,7 @@ import {
   BottomSheet,
   BottomNav,
   BuyerProtectionBadge,
+  BulkActionBar,
   CommerceSheet,
   UiBadge as Badge,
   UiButton as Button,
@@ -34,7 +35,6 @@ import {
   ActivitySheet,
   AssistantSheet,
   BuyerProtectionModule,
-  BulkActionBar,
   ComparisonModule,
   FilterArea,
   FilterBar,
@@ -459,6 +459,29 @@ describe("design-system", () => {
     expect(markup).toContain("169 matching Catalog Items");
     expect(markup).toContain("flex flex-wrap items-end gap-2");
     expect(markup).toContain("Preview matching");
+  });
+
+  it("renders bulk action bars with a clear action hierarchy", () => {
+    const markup = renderToString(
+      <BulkActionBar
+        count={25}
+        formatSelectedLabel={(count) => `${count} Catalog Items selected`}
+        primaryActions={<Button>Preview Publish</Button>}
+        secondaryActions={<Button variant="secondary">Clear Selection</Button>}
+        overflowActions={[
+          { key: "archive", label: "Archive" },
+          { key: "remove-drafts", label: "Remove Drafts", destructive: true },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("25 Catalog Items selected");
+    expect(markup).toContain('data-bulk-action-region="primary"');
+    expect(markup).toContain("Preview Publish");
+    expect(markup).toContain('data-bulk-action-region="secondary"');
+    expect(markup).toContain("Clear Selection");
+    expect(markup).toContain('data-bulk-action-region="overflow"');
+    expect(markup).toContain("More actions");
   });
 
   it("moves overflow filters into an accessible filter panel", async () => {

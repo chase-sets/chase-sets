@@ -4,7 +4,13 @@ import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
 import { Button } from "../actions";
-import { BottomSheet, SideSheet, type BottomSheetProps } from "../feedback";
+import {
+  BottomSheet,
+  Menu,
+  SideSheet,
+  type BottomSheetProps,
+  type MenuItem,
+} from "../feedback";
 
 export interface FilterBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -196,18 +202,35 @@ export function FilterBottomSheet({
 export interface BulkActionBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   count: number;
+  /**
+   * @deprecated Use primaryActions, secondaryActions, and overflowActions to
+   * preserve a clear action hierarchy.
+   */
   actions?: ReactNode;
+  primaryActions?: ReactNode;
+  secondaryActions?: ReactNode;
+  overflowActions?: MenuItem[];
+  overflowLabel?: string;
   formatSelectedLabel?: (count: number) => string;
 }
 
 export function BulkActionBar({
   count,
   actions,
+  primaryActions,
+  secondaryActions,
+  overflowActions,
+  overflowLabel = "More actions",
   formatSelectedLabel = (n) => `${n} item${n === 1 ? "" : "s"} selected`,
   ...rest
 }: BulkActionBarProps) {
   const motionSettings = useChaseMotion();
   const nativeProps = toMotionDomProps(rest);
+  const visiblePrimaryActions = primaryActions ?? actions;
+  const hasPrimaryActions = hasActionContent(visiblePrimaryActions);
+  const hasSecondaryActions = hasActionContent(secondaryActions);
+  const hasOverflowActions = (overflowActions?.length ?? 0) > 0;
+  const hasActions = hasPrimaryActions || hasSecondaryActions || hasOverflowActions;
 
   return (
     <motion.div
@@ -219,12 +242,62 @@ export function BulkActionBar({
           ? undefined
           : { duration: motionSettings.durations.base, ease: motionSettings.easing }
       }
-      className="modern-surface sticky bottom-[calc(7rem+env(safe-area-inset-bottom))] z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
+      className="modern-surface sticky bottom-[calc(7rem+env(safe-area-inset-bottom))] z-sticky rounded-tokenLg border border-accent p-3 shadow-overlay md:bottom-4"
     >
-      <div className="text-sm font-semibold text-foreground">
-        {formatSelectedLabel(count)}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            aria-hidden="true"
+            className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent"
+          />
+          <div className="min-w-0 text-sm font-semibold text-foreground">
+            {formatSelectedLabel(count)}
+          </div>
+        </div>
+        {hasActions ? (
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
+            {hasPrimaryActions ? (
+              <div
+                data-bulk-action-region="primary"
+                className="flex flex-wrap items-end gap-2"
+              >
+                {visiblePrimaryActions}
+              </div>
+            ) : null}
+            {hasSecondaryActions ? (
+              <div
+                data-bulk-action-region="secondary"
+                className="flex flex-wrap items-end gap-2 border-t border-muted pt-2 sm:border-l sm:border-t-0 sm:pl-2 sm:pt-0"
+              >
+                {secondaryActions}
+              </div>
+            ) : null}
+            {hasOverflowActions ? (
+              <div
+                data-bulk-action-region="overflow"
+                className="flex items-center border-t border-muted pt-2 sm:border-l sm:border-t-0 sm:pl-2 sm:pt-0"
+              >
+                <Menu
+                  trigger={
+                    <Button
+                      tone="secondary"
+                      size="sm"
+                      trailingIcon="chevronDown"
+                    >
+                      {overflowLabel}
+                    </Button>
+                  }
+                  items={overflowActions}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-end gap-2">{actions}</div> : null}
     </motion.div>
   );
+}
+
+function hasActionContent(node: ReactNode): boolean {
+  return node !== null && node !== undefined && node !== false;
 }

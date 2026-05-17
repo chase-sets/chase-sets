@@ -377,7 +377,18 @@ export function SourceObservationListPage({
                   count: String(count),
                 })
               }
-              actions={
+              primaryActions={
+                <Button
+                  size="sm"
+                  leadingIcon="badgeCheck"
+                  loading={bulkPromoting}
+                  disabled={bulkRejecting}
+                  onClick={handleBulkPromote}
+                >
+                  {t("catalog.features.sourceObservations.ui.list.bulk.promote")}
+                </Button>
+              }
+              secondaryActions={
                 <>
                   <Button
                     tone="secondary"
@@ -400,14 +411,6 @@ export function SourceObservationListPage({
                     onClick={handleBulkReject}
                   >
                     {t("catalog.features.sourceObservations.ui.list.bulk.reject")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    leadingIcon="badgeCheck"
-                    loading={bulkPromoting}
-                    onClick={handleBulkPromote}
-                  >
-                    {t("catalog.features.sourceObservations.ui.list.bulk.promote")}
                   </Button>
                 </>
               }
