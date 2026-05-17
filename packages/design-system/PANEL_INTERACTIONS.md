@@ -12,7 +12,7 @@ Use this decision rule before choosing a component:
 - If the interaction is brief, lightweight, and anchored to a trigger, use a popover or menu.
 - If the task is complex, long, sequential, or requires focus, use a full-page flow.
 
-Do not use "drawer" as a generic term. Drawer is only allowed in component implementation names where the current code still exposes that primitive. Product, design, and documentation language must use the canonical pattern names below.
+Do not use "drawer" as a generic term. The only approved design-system drawer name is `NavigationDrawer`, because that pattern is specifically for navigation. Product, design, and documentation language must use the canonical pattern names below.
 
 ## Pattern Taxonomy
 
@@ -295,7 +295,7 @@ Canonical design-system names:
 - `Popover` and `Menu`: lightweight anchored interaction.
 - `FullPage`: dedicated focused workflow wrapper or route template.
 
-The package exposes canonical pattern wrappers for the taxonomy. Existing `Drawer` exports remain as low-level primitives for backward compatibility and specialized composition; new product code should import the canonical wrapper that matches the user interaction.
+The package exposes only canonical pattern wrappers for the taxonomy. It does not export a generic `Drawer`, deprecated drawer aliases, or duplicate dropdown menu aliases. Product code must import the canonical wrapper that matches the user interaction.
 
 Marketplace-specific wrappers:
 
@@ -306,10 +306,6 @@ Marketplace-specific wrappers:
 - `NotificationCenterSheet`: notification feed/settings; desktop Side Sheet and mobile Bottom Sheet.
 - `ResponsiveActionMenu`: desktop anchored `Menu` that promotes to mobile Bottom Sheet when the action list is too long for touch-friendly anchoring.
 - `ActivitySheet`, `CommentsSheet`, `AssistantSheet`, and `HelpSheet`: named support panels for non-primary supporting content; desktop right Side Sheet and mobile Bottom Sheet.
-
-Deprecated compatibility wrappers:
-
-- `MarketplaceUiFilterBottomSheet` is retained for older UI imports only. New marketplace filters use `MarketplaceFilterBottomSheet`.
 
 Recommended prop shape:
 
@@ -337,6 +333,7 @@ Implementation rules:
 - Avoid component names such as `GenericDrawer`, `PanelDrawer`, `CustomModal`, or `MobileModal`. Add a canonical wrapper or use the existing canonical one.
 - For More actions, share options, and grouped contextual commands, use `ResponsiveActionMenu` before building a route-local menu. Keep desktop anchored unless the action set becomes too dense; mobile promotes to Bottom Sheet when the item count exceeds the documented threshold.
 - For activity, comments, assistant, or help panels, use the named support wrapper. If the content becomes threaded, long, or route-worthy, promote the mobile experience to Full Page instead of increasing the Bottom Sheet indefinitely.
+- Do not reintroduce compatibility aliases such as `FilterDrawer`, `CommerceDrawer`, `NotificationCenterDrawer`, `MarketplaceFilterDrawer`, `MarketplaceMobileFilterDrawer`, `MarketplaceUiFilterBottomSheet`, or `DropdownMenu`.
 
 ## Do / Don't Examples
 

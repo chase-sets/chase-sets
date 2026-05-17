@@ -3,6 +3,7 @@ import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import * as designSystem from "../index";
 import {
   ActorIdentityCue,
   AccountMenu,
@@ -78,6 +79,17 @@ import {
 } from "../index";
 
 describe("design-system", () => {
+  it("does not expose deprecated design-system aliases", () => {
+    expect(designSystem).not.toHaveProperty("Drawer");
+    expect(designSystem).not.toHaveProperty("FilterDrawer");
+    expect(designSystem).not.toHaveProperty("MarketplaceMobileFilterDrawer");
+    expect(designSystem).not.toHaveProperty("MarketplaceFilterDrawer");
+    expect(designSystem).not.toHaveProperty("MarketplaceUiFilterBottomSheet");
+    expect(designSystem).not.toHaveProperty("CommerceDrawer");
+    expect(designSystem).not.toHaveProperty("NotificationCenterDrawer");
+    expect(designSystem).not.toHaveProperty("DropdownMenu");
+  });
+
   it("renders primitive components on the server", () => {
     const markup = renderToString(
       <Card>
