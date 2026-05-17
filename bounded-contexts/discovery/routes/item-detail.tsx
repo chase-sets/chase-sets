@@ -21,6 +21,7 @@ import {
   NativeSelect,
   NumberInput,
   ProductSelectionSummary,
+  ProgressiveDisclosure,
   SegmentedControl,
   Stack,
   SecurePaymentCue,
@@ -372,9 +373,19 @@ function ProductAlertCreationSection({
   productSummary: string | null;
 }) {
   const isListingAlert = marketSide === "listing";
+  const title = isListingAlert ? "Watch for listings" : "Watch for offers";
+  const description = isListingAlert
+    ? "Web alert when supply appears at or below your price."
+    : "Web alert when offer demand appears at or above your price.";
 
   return (
-    <FormPanel variant="card">
+    <ProgressiveDisclosure
+      title={title}
+      description={description}
+      summary={productSummary ?? "Selected product"}
+      tone="info"
+      icon="bell"
+    >
       <form id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="create-product-alert" />
@@ -388,9 +399,6 @@ function ProductAlertCreationSection({
           />
           <input type="hidden" name="productSummary" value={productSummary ?? ""} />
           <Stack gap={1}>
-            <Text weight="semibold">
-              {isListingAlert ? "Watch for listings" : "Watch for offers"}
-            </Text>
             <ProductSelectionSummary
               selections={productSelectionDetails}
               summary={productSummary ?? "Selected product"}
@@ -414,7 +422,7 @@ function ProductAlertCreationSection({
           </Button>
         </Stack>
       </form>
-    </FormPanel>
+    </ProgressiveDisclosure>
   );
 }
 
