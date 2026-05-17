@@ -154,7 +154,7 @@ export function BulkLifecycleActionBar({
                 entityName,
               })
         }
-        actions={
+        primaryActions={
           <Inline gap={2} align="end">
             <Select
               label={t("catalog.support.shellSupport.ui.bulkLifecycleActions.action")}
@@ -168,6 +168,10 @@ export function BulkLifecycleActionBar({
             <Button size="sm" onClick={handlePreviewSelected} loading={busy} disabled={!hasSelectedRows}>
               {t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview")}
             </Button>
+          </Inline>
+        }
+        secondaryActions={
+          <Inline gap={2} align="end">
             {hasFilterScope && (
               <Button size="sm" tone="secondary" onClick={handlePreviewMatching} loading={busy}>
                 {t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.matching")}
