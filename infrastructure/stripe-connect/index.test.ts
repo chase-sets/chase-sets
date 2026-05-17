@@ -42,12 +42,33 @@ describe("money movement adapters", () => {
       expect(init?.headers).toBeInstanceOf(Headers);
       const headers = init?.headers as Headers;
       expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
+      expect(headers.get("Content-Type")).toBe("application/json");
       expect(headers.get("Idempotency-Key")).toBe("account-key");
-      expect(String(init?.body)).toContain("stripe_transfers");
-      expect(String(init?.body)).toContain("payouts");
-      expect(String(init?.body)).toContain(
-        "defaults%5Bresponsibilities%5D%5Bfees_collector%5D=application",
-      );
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        contact_email: "seller@example.test",
+        identity: {
+          country: "US",
+        },
+        metadata: {
+          chase_sets_account_id: "acc_seller",
+        },
+        configuration: {
+          recipient: {
+            capabilities: {
+              stripe_balance: {
+                stripe_transfers: { requested: true },
+              },
+            },
+          },
+        },
+        defaults: {
+          responsibilities: {
+            fees_collector: "application",
+            losses_collector: "application",
+          },
+        },
+        dashboard: "express",
+      });
 
       return new Response(
         JSON.stringify({
@@ -78,6 +99,8 @@ describe("money movement adapters", () => {
       adapter.ensurePayoutAccount({
         accountId: "acc_seller" as never,
         currencyCode: "usd",
+        contactEmail: "seller@example.test",
+        countryCode: "US",
         idempotencyKey: "account-key",
       }),
     ).resolves.toMatchObject({
@@ -102,24 +125,36 @@ describe("money movement adapters", () => {
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
         expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
+        expect(headers.get("Content-Type")).toBe("application/json");
         expect(headers.get("Idempotency-Key")).toBe("onboarding-key");
-        expect(String(init?.body)).toContain(
-          "use_case%5Baccount_onboarding%5D%5Bconfigurations%5D%5B%5D=recipient",
-        );
-        expect(String(init?.body)).toContain(
-          "use_case%5Baccount_onboarding%5D%5Bcollection_options%5D%5Bfields%5D=eventually_due",
-        );
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          account: "acct_123",
+          use_case: {
+            type: "account_onboarding",
+            account_onboarding: {
+              configurations: ["recipient"],
+              return_url: "https://example.test/return",
+              refresh_url: "https://example.test/refresh",
+              collection_options: {
+                fields: "eventually_due",
+                future_requirements: "include",
+              },
+            },
+          },
+        });
 
         return new Response(
           JSON.stringify({
             url: "https://connect.stripe.test/setup",
-            expires_at: 1_776_000_600,
+            expires_at: "2026-04-12T13:30:00.000Z",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
 
-      expect(String(input)).toContain("/v2/core/accounts/acct_123?");
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements",
+      );
       return new Response(
         JSON.stringify({
           id: "acct_123",
@@ -156,6 +191,7 @@ describe("money movement adapters", () => {
     ).resolves.toMatchObject({
       url: "https://connect.stripe.test/setup",
       providerReference: "acct_123",
+      expiresAt: "2026-04-12T13:30:00.000Z",
     });
     expect(calls).toHaveLength(2);
   });

@@ -47,7 +47,7 @@ type StripeAccountResponse = Readonly<{
 
 type StripeAccountLinkResponse = Readonly<{
   url?: string | null;
-  expires_at?: number | null;
+  expires_at?: number | string | null;
 }>;
 
 type StripeLoginLinkResponse = Readonly<{
@@ -250,6 +250,23 @@ function occurredAtFromEvent(event: StripeEventEnvelope) {
     .toISOString();
 }
 
+function expiresAtFromAccountLink(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const timestamp = typeof value === "number"
+    ? value * 1000
+    : /^\d+$/.test(value)
+    ? Number.parseInt(value, 10) * 1000
+    : Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return new Date(timestamp).toISOString();
+}
+
 function providerEventIdFromEvent(event: StripeEventEnvelope, fallbackReference: string) {
   return event.id?.trim() || `stripe:${event.type ?? "event"}:${fallbackReference}`;
 }
@@ -306,8 +323,8 @@ export function createStripeConnectMoneyMovementGateway(
 
   async function retrieveAccount(providerReference: string) {
     const include = new URLSearchParams();
-    include.append("include[]", "configuration.recipient");
-    include.append("include[]", "requirements");
+    include.set("include[0]", "configuration.recipient");
+    include.set("include[1]", "requirements");
 
     return stripeRequest<StripeAccountResponse>(
       `/v2/core/accounts/${providerReference}?${include.toString()}`,
@@ -340,17 +357,34 @@ export function createStripeConnectMoneyMovementGateway(
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Type": "application/json",
           },
-          body: toFormBody({
-            "metadata[chase_sets_account_id]": input.accountId,
-            "configuration[recipient][capabilities][stripe_balance][stripe_transfers][requested]":
-              "true",
-            "configuration[recipient][capabilities][stripe_balance][payouts][requested]":
-              "true",
-            "defaults[responsibilities][losses_collector]": "application",
-            "defaults[responsibilities][fees_collector]": "application",
-            "dashboard[type]": "express",
+          body: JSON.stringify({
+            ...(input.contactEmail ? { contact_email: input.contactEmail } : {}),
+            identity: {
+              country: input.countryCode ?? "US",
+            },
+            metadata: {
+              chase_sets_account_id: input.accountId,
+            },
+            configuration: {
+              recipient: {
+                capabilities: {
+                  stripe_balance: {
+                    stripe_transfers: {
+                      requested: true,
+                    },
+                  },
+                },
+              },
+            },
+            defaults: {
+              responsibilities: {
+                losses_collector: "application",
+                fees_collector: "application",
+              },
+            },
+            dashboard: "express",
           }),
           idempotencyKey: input.idempotencyKey,
         },
@@ -382,18 +416,22 @@ export function createStripeConnectMoneyMovementGateway(
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Type": "application/json",
           },
-          body: toFormBody({
+          body: JSON.stringify({
             account: input.providerReference,
-            "use_case[type]": "account_onboarding",
-            "use_case[account_onboarding][configurations][]": ["recipient"],
-            "use_case[account_onboarding][return_url]": returnUrl,
-            "use_case[account_onboarding][refresh_url]": refreshUrl,
-            "use_case[account_onboarding][collection_options][fields]":
-              "eventually_due",
-            "use_case[account_onboarding][collection_options][future_requirements]":
-              "include",
+            use_case: {
+              type: "account_onboarding",
+              account_onboarding: {
+                configurations: ["recipient"],
+                return_url: returnUrl,
+                refresh_url: refreshUrl,
+                collection_options: {
+                  fields: "eventually_due",
+                  future_requirements: "include",
+                },
+              },
+            },
           }),
           idempotencyKey: input.idempotencyKey,
         },
@@ -410,9 +448,7 @@ export function createStripeConnectMoneyMovementGateway(
       return {
         providerReference: input.providerReference,
         url: accountLink.url,
-        expiresAt: accountLink.expires_at
-          ? new Date(accountLink.expires_at * 1000).toISOString()
-          : null,
+        expiresAt: expiresAtFromAccountLink(accountLink.expires_at),
         readiness,
       };
     },
