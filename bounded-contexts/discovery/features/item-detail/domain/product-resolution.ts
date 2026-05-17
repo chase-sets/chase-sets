@@ -9,6 +9,46 @@ export function getOptionLabel(option: ProductOptionChoice): string {
   return option.label || option.code;
 }
 
+export function getOrderedDimensionOptions(
+  dimension: ProductDimension,
+): ProductOptionChoice[] {
+  if (dimension.valueKind === "ordered") {
+    return [...dimension.allowedOptions].sort(
+      (left, right) =>
+        left.displayOrder - right.displayOrder ||
+        getOptionLabel(left).localeCompare(getOptionLabel(right)) ||
+        left.optionId.localeCompare(right.optionId),
+    );
+  }
+
+  if (dimension.valueKind === "numeric") {
+    return [...dimension.allowedOptions].sort((left, right) => {
+      if (left.numericValue !== null && right.numericValue !== null) {
+        const numericDelta = right.numericValue - left.numericValue;
+        if (numericDelta !== 0) {
+          return numericDelta;
+        }
+      }
+
+      if (left.numericValue !== null) {
+        return -1;
+      }
+
+      if (right.numericValue !== null) {
+        return 1;
+      }
+
+      return (
+        left.displayOrder - right.displayOrder ||
+        getOptionLabel(left).localeCompare(getOptionLabel(right)) ||
+        left.optionId.localeCompare(right.optionId)
+      );
+    });
+  }
+
+  return [...dimension.allowedOptions];
+}
+
 export function isDimensionActive(
   dimension: ProductDimension,
   selections: Record<string, string>,
