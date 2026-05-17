@@ -28,12 +28,20 @@ function occurrenceCount(source, needle) {
 }
 
 describe("DigitalOcean platform configuration", () => {
-  it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
+  it("keeps staging landing under the environment namespace and routes the staging root to marketplace", () => {
     expect(platformLocals).toContain(
-      'local.is_staging ? "www.${var.environment}.${var.root_domain}"',
+      'landing_domain      = local.is_production ? var.root_domain : local.is_staging ? "www.${var.environment}.${var.root_domain}"',
     );
-    expect(platformLocals).not.toContain(
-      'local.is_staging ? "${var.environment}.${var.root_domain}"',
+    expect(platformLocals).toContain(
+      'staging_root_domain = local.is_staging ? "${var.environment}.${var.root_domain}" : null',
+    );
+    expect(platformLocals).toContain(
+      "marketplace_route_domains        = concat(local.marketplace_domains, local.staging_root_marketplace_domains)",
+    );
+    expect(platformMain).toContain("name = local.primary_domain");
+    expect(platformMain).toContain("for_each = local.marketplace_route_domains");
+    expect(platformLocals).toContain(
+      "ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.marketplace_route_domains) : []",
     );
     expect(platformLocals).toContain(
       '"landing-${var.environment}.${var.root_domain}"     = local.landing_domain',
