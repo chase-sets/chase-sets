@@ -38,7 +38,6 @@ import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { Input } from "./input";
 import { Progress, Skeleton } from "./progress";
-import { BottomSheet } from "../feedback";
 
 export type MarketplaceDensity = "compact" | "comfortable" | "focused";
 export type ListingModel = "product" | "service" | "rental" | "booking" | "digital" | "quote" | "local";
@@ -1088,44 +1087,6 @@ export function SortSelector({ label, value, options, onChange }: SortSelectorPr
         ))}
       </select>
     </label>
-  );
-}
-
-export interface MarketplaceUiFilterBottomSheetProps {
-  title: ReactNode;
-  open: boolean;
-  children: ReactNode;
-  footer?: ReactNode;
-  description?: ReactNode;
-  closeLabel?: string;
-  onOpenChange?: (open: boolean) => void;
-}
-
-/**
- * @deprecated Use `MarketplaceFilterBottomSheet` from `patterns/app-shells` for
- * marketplace filter experiences so filters follow the canonical panel taxonomy.
- */
-export function MarketplaceUiFilterBottomSheet({
-  title,
-  open,
-  children,
-  footer,
-  description,
-  closeLabel,
-  onOpenChange
-}: MarketplaceUiFilterBottomSheetProps) {
-  return (
-    <BottomSheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title={title}
-      description={description}
-      closeLabel={closeLabel}
-      height="expanded"
-      footer={footer}
-    >
-      <div className="grid gap-4">{children}</div>
-    </BottomSheet>
   );
 }
 

@@ -3,6 +3,7 @@ import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import * as designSystem from "../index";
 import {
   ActorIdentityCue,
   AccountMenu,
@@ -78,6 +79,23 @@ import {
 } from "../index";
 
 describe("design-system", () => {
+  it("does not expose deprecated design-system aliases", () => {
+    const retiredAliasNames = [
+      ["Drawer"],
+      ["Filter", "Drawer"],
+      ["Marketplace", "Mobile", "Filter", "Drawer"],
+      ["Marketplace", "Filter", "Drawer"],
+      ["Marketplace", "Ui", "Filter", "Bottom", "Sheet"],
+      ["Commerce", "Drawer"],
+      ["Notification", "Center", "Drawer"],
+      ["Dropdown", "Menu"]
+    ].map((parts) => parts.join(""));
+
+    for (const aliasName of retiredAliasNames) {
+      expect(designSystem).not.toHaveProperty(aliasName);
+    }
+  });
+
   it("renders primitive components on the server", () => {
     const markup = renderToString(
       <Card>

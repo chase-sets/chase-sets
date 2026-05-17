@@ -5,8 +5,8 @@ export type { Tone } from "./shared";
 export { Banner } from "./banner";
 export type { BannerProps } from "./banner";
 
-export { Dialog, Drawer } from "./dialog";
-export type { DialogProps, DrawerPlacement, DrawerProps } from "./dialog";
+export { Dialog } from "./dialog";
+export type { DialogProps } from "./dialog";
 
 export {
   BottomSheet,
