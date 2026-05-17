@@ -103,14 +103,6 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    dynamic "domain" {
-      for_each = local.staging_root_marketplace_domains
-      content {
-        name = domain.value
-        type = "ALIAS"
-      }
-    }
-
     domain {
       name = local.admin_domain
       type = "ALIAS"
@@ -1267,7 +1259,7 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
-        for_each = local.all_marketplace_domains
+        for_each = local.marketplace_domains
         content {
           match {
             authority {
@@ -1318,7 +1310,7 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
-        for_each = local.all_marketplace_domains
+        for_each = local.marketplace_domains
         content {
           match {
             authority {
