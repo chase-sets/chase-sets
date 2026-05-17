@@ -2,12 +2,12 @@
 
 ## Intent
 
-Discovery filter facets should order values by the meaning of the facet, not by incidental result counts. Year filters show newest to oldest, Expansion/Set filters show newest releases first when release metadata exists, numeric Grade filters show highest to lowest, ordered Condition filters preserve Catalog's best-to-worst option order, and unordered facets remain stable and readable.
+Discovery filter facets should order values by the meaning of the facet, not by incidental result counts. Year filters show newest to oldest, Expansion/Set filters show newest releases first when release metadata exists, numeric Grade filters show highest to lowest, ordered Condition filters preserve Catalog's best-to-worst option order, and unordered facets remain stable and readable. Search facet options for ordered dimensions must match the item detail option dropdown order.
 
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260517-filter-option-ordering`
-- Branch: `codex/filter-option-ordering`
+- Branch: `codex/item-detail-option-ordering` for the item-detail follow-up; original `codex/filter-option-ordering` PR #156 was already merged before this hardening pass.
 - Sandbox id: `5437532d`.
 - Dependency setup status: complete via `pnpm run deps:install`.
 - pnpm store path: default `.codex/worktrees/.chase-sets-pnpm-store`.
@@ -33,6 +33,8 @@ Discovery filter facets should order values by the meaning of the facet, not by 
   - `numeric` dimensions sort by numeric value descending, with display order as fallback.
   - `ordered` dimensions sort by display order ascending, preserving curated ordering such as Condition best-to-worst.
   - `unordered` dimensions fall back to count desc, label asc, id asc.
+- Item detail product option dropdowns defensively order options by Catalog semantics before rendering: `ordered` dimensions use Catalog `displayOrder`, `numeric` dimensions use `numericValue` descending with display-order fallback, and `unordered` dimensions keep source order.
+- Acceptance coverage should prove ordered search facets match the item detail product option order even when a Blueprint lists allowed options in a different order.
 - Discovery search projection must consume `catalog.dimension.options-reordered` so facet and bulk-preview option order stay consistent after replay or reorder events.
 - No durable docs are needed beyond the retained plan; this is an implementation detail of the Discovery read model using existing glossary terms.
 
@@ -48,12 +50,18 @@ Discovery filter facets should order values by the meaning of the facet, not by 
 - [x] Change field and dimension facet value queries to order through the helper policy instead of raw count.
 - [x] Add the missing search projection handler and context subscription for `catalog.dimension.options-reordered`.
 - [x] Cover year, expansion, numeric grade, ordered condition, and fallback ordering with focused tests.
+- [x] Cover ordered item-detail product option order matching ordered search facet value order.
+- [x] Add non-database item-detail selector coverage for the rendered dropdown option order.
 
 ## Verification
 
-- `pnpm --filter @chase-sets/discovery test` passed.
-- `pnpm run verify:typecheck` passed.
-- `pnpm run check:structure` passed.
+- `pnpm --filter @chase-sets/discovery test` passed on `codex/item-detail-option-ordering`.
+- `pnpm run verify:typecheck` passed on `codex/item-detail-option-ordering`.
+- `pnpm run check:structure` passed on `codex/item-detail-option-ordering`.
+- `pnpm --filter @chase-sets/discovery test -- facet-ordering queries item-detail-product-resolution item-detail-commerce-panel` passed.
+- `pnpm --filter @chase-sets/discovery test -- item-detail-product-resolution item-detail-product-selector facet-ordering queries` passed.
+- `pnpm --filter @chase-sets/discovery test -- marketplace-search` compiled and skipped because `TEST_DATABASE_URL` is not configured in this shell.
+- Additional acceptance coverage added for ordered Condition search facets matching item-detail product option order.
 
 ## Documentation To Promote
 
