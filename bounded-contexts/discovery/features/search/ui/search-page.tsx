@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AppliedFilterChips,
   Button,
-  CommerceDrawer,
+  CommerceBottomSheet,
   SearchInput,
   Select,
   LoadingSpinner,
@@ -17,11 +17,12 @@ import {
   NoResultsRecovery,
   PlatformCredibilityCue,
   PromoStrip,
+  ProgressiveDisclosureGroup,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
+  MarketplaceFilterBottomSheet,
   MarketplaceLandingHero,
   MarketplaceMobileFilterBar,
-  MarketplaceMobileFilterDrawer,
   SavedSearchPrompt,
   SearchControlBar,
 } from "@chase-sets/design-system";
@@ -551,7 +552,7 @@ export function SearchPage({
                 ) : null
               }
             />
-            <MarketplaceMobileFilterDrawer
+            <MarketplaceFilterBottomSheet
               open={mobileFiltersOpen}
               onOpenChange={setMobileFiltersOpen}
               title={t("discovery.features.search.ui.searchPage.filters")}
@@ -598,33 +599,51 @@ export function SearchPage({
                 allLeadingIcon="book"
                 itemLeadingIcon="book"
               />
-              {dynamicFacets.map((facet) => {
-                const selectedValues = selectedFacetValues(facet).map((value) => value.id);
+              {dynamicFacets.length > 0 ? (
+                <ProgressiveDisclosureGroup
+                  title={t("discovery.features.search.ui.searchPage.advanced.filters")}
+                  description={t("discovery.features.search.ui.searchPage.mobile.filters.description")}
+                  defaultValue={dynamicFacets
+                    .filter((facet) => selectedFacetValues(facet).length > 0)
+                    .map((facet) => `${facet.kind}:${facet.id}`)}
+                  items={dynamicFacets.map((facet) => {
+                    const selectedValues = selectedFacetValues(facet).map((value) => value.id);
 
-                return (
-                  <MarketplaceFacetChoiceGroup
-                    key={`${facet.kind}:${facet.id}`}
-                    title={facet.label}
-                    description={formatFacetDescription(facet)}
-                    allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-                    items={facet.values.map((value) => ({
-                      id: value.id,
-                      label: value.label,
-                      count: value.count,
-                    }))}
-                    selectedIds={selectedValues}
-                    selectionMode="multiple"
-                    onSelect={(value) => {
-                      if (value) {
-                        onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-                      } else {
-                        onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-                      }
-                    }}
-                  />
-                );
-              })}
-            </MarketplaceMobileFilterDrawer>
+                    return {
+                      value: `${facet.kind}:${facet.id}`,
+                      title: facet.label,
+                      description: formatFacetDescription(facet),
+                      summary: selectedValues.length > 0
+                        ? t("discovery.features.search.ui.searchPage.selected.facet.values", {
+                            count: selectedValues.length,
+                          })
+                        : undefined,
+                      content: (
+                        <MarketplaceFacetChoiceGroup
+                          title={t("discovery.features.search.ui.searchPage.facet.choices", { facet: facet.label })}
+                          description={formatFacetDescription(facet)}
+                          allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+                          items={facet.values.map((value) => ({
+                            id: value.id,
+                            label: value.label,
+                            count: value.count,
+                          }))}
+                          selectedIds={selectedValues}
+                          selectionMode="multiple"
+                          onSelect={(value) => {
+                            if (value) {
+                              onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+                            } else {
+                              onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+                            }
+                          }}
+                        />
+                      ),
+                    };
+                  })}
+                />
+              ) : null}
+            </MarketplaceFilterBottomSheet>
           </>
         ) : null}
 
@@ -768,10 +787,9 @@ export function SearchPage({
         ) : null}
       </Stack>
       {bulkAdd && bulkPreview ? (
-        <CommerceDrawer
+        <CommerceBottomSheet
           open={bulkDrawerOpen}
           onOpenChange={setBulkDrawerOpen}
-          placement="bottomSheet"
           title={
             bulkActionData?.status === "bulk-added"
               ? t("discovery.features.search.ui.searchPage.bulk.added.title")
@@ -851,7 +869,7 @@ export function SearchPage({
               />
             ) : null}
           </Stack>
-        </CommerceDrawer>
+        </CommerceBottomSheet>
       ) : null}
     </SearchResultsLayout>
   );

@@ -43,4 +43,4 @@ Notifications terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 1. Source contexts publish facts; Notifications decides notification policy and feed presentation.
 2. Notification settings manage delivery and notification-center behavior, not source-context business rules.
 3. Product Alert rules remain Discovery-owned and appear as a `Product alerts` category inside notification settings.
-4. The marketplace notification center is a shell drawer or sheet, not a primary full-page account destination.
+4. The marketplace notification center is a shell side sheet on desktop and bottom sheet on mobile, not a primary full-page account destination.

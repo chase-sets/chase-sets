@@ -27,7 +27,15 @@ import {
   Stat,
   StatGrid
 } from "../components/data-display";
-import { Badge, Drawer, type BadgeProps, type DrawerProps } from "../components/feedback";
+import {
+  Badge,
+  BottomSheet,
+  Sidebar,
+  SideSheet,
+  type BadgeProps,
+  type BottomSheetProps,
+  type SideSheetProps
+} from "../components/feedback";
 import { ChaseSetsLogo } from "../brand/chase-sets-logo";
 import { Icon, type IconName } from "../icons";
 import { toMotionDomProps } from "../utils/motion-props";
@@ -316,9 +324,11 @@ export function SearchResultsLayout({
   return (
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <div className="hidden lg:block">
-        <div className="sticky top-20 max-h-[calc(100dvh-6rem)] self-start overflow-y-auto overscroll-contain pb-4 pr-1">
-          {filters}
-        </div>
+        <Sidebar label="Desktop search filters" purpose="support" width="filter" sticky>
+          <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain pb-4 pr-1">
+            {filters}
+          </div>
+        </Sidebar>
       </div>
       {content}
     </div>
@@ -339,13 +349,10 @@ export function CheckoutLayout({
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div>{children}</div>
-      <div
-        className={cx(
-          "lg:sticky lg:top-24 lg:self-start",
-          summaryMobile === "hidden" && "hidden lg:block"
-        )}
-      >
+      <div className={cx(summaryMobile === "hidden" && "hidden lg:block")}>
+        <Sidebar label="Checkout summary" purpose="support" width="summary" sticky>
         {summary}
+        </Sidebar>
       </div>
     </div>
   );
@@ -363,7 +370,9 @@ export function InspectorLayout({
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div>{main}</div>
-      <div>{inspector}</div>
+      <Sidebar label="Inspector" purpose="support" width="detail">
+        {inspector}
+      </Sidebar>
     </div>
   );
 }
@@ -1067,22 +1076,22 @@ export function MarketplaceMobileFilterBar({
   );
 }
 
-export interface MarketplaceMobileFilterDrawerProps
-  extends Omit<DrawerProps, "children" | "placement" | "trigger"> {
+export interface MarketplaceFilterBottomSheetProps
+  extends Omit<BottomSheetProps, "children" | "trigger"> {
   children?: ReactNode;
   resultSummary?: ReactNode;
 }
 
-export function MarketplaceMobileFilterDrawer({
+export function MarketplaceFilterBottomSheet({
   children,
   resultSummary,
   footer,
   ...rest
-}: MarketplaceMobileFilterDrawerProps) {
+}: MarketplaceFilterBottomSheetProps) {
   return (
-    <Drawer
+    <BottomSheet
       {...rest}
-      placement="bottomSheet"
+      height="expanded"
       footer={footer}
     >
       <div className="grid gap-5">
@@ -1093,8 +1102,16 @@ export function MarketplaceMobileFilterDrawer({
         ) : null}
         {children}
       </div>
-    </Drawer>
+    </BottomSheet>
   );
+}
+
+/** @deprecated Use MarketplaceFilterBottomSheet. Drawers are reserved for navigation. */
+export interface MarketplaceMobileFilterDrawerProps extends MarketplaceFilterBottomSheetProps {}
+
+/** @deprecated Use MarketplaceFilterBottomSheet. Drawers are reserved for navigation. */
+export function MarketplaceMobileFilterDrawer(props: MarketplaceMobileFilterDrawerProps) {
+  return <MarketplaceFilterBottomSheet {...props} />;
 }
 
 export interface MarketplaceFilterAction {
@@ -1763,24 +1780,33 @@ export function FormPanel({
   );
 }
 
-export interface CommerceDrawerProps
-  extends Omit<DrawerProps, "children"> {
+export interface CommerceBottomSheetProps
+  extends Omit<BottomSheetProps, "children"> {
   children?: ReactNode;
 }
 
-export function CommerceDrawer({
+export function CommerceBottomSheet({
   children,
   footer,
   ...rest
-}: CommerceDrawerProps) {
+}: CommerceBottomSheetProps) {
   return (
-    <Drawer
+    <BottomSheet
       {...rest}
+      height="expanded"
       footer={footer}
     >
       {children}
-    </Drawer>
+    </BottomSheet>
   );
+}
+
+/** @deprecated Use CommerceBottomSheet. Drawers are reserved for navigation. */
+export interface CommerceDrawerProps extends CommerceBottomSheetProps {}
+
+/** @deprecated Use CommerceBottomSheet. Drawers are reserved for navigation. */
+export function CommerceDrawer(props: CommerceDrawerProps) {
+  return <CommerceBottomSheet {...props} />;
 }
 
 export type NotificationCenterView = "feed" | "settings";
@@ -1811,8 +1837,8 @@ export interface NotificationCenterProductAlert {
   productHref?: string;
 }
 
-export interface NotificationCenterDrawerProps
-  extends Omit<DrawerProps, "children" | "title" | "description" | "footer"> {
+export interface NotificationCenterSheetProps
+  extends Omit<SideSheetProps, "children" | "title" | "description" | "footer"> {
   title?: ReactNode;
   description?: ReactNode;
   view?: NotificationCenterView;
@@ -1830,7 +1856,7 @@ export interface NotificationCenterDrawerProps
   onProductAlertDelete?: (id: string) => void;
 }
 
-export function NotificationCenterDrawer({
+export function NotificationCenterSheet({
   title = "Notifications",
   description = "Review marketplace updates and notification settings.",
   view = "feed",
@@ -1847,13 +1873,15 @@ export function NotificationCenterDrawer({
   onProductAlertResume,
   onProductAlertDelete,
   ...rest
-}: NotificationCenterDrawerProps) {
+}: NotificationCenterSheetProps) {
   const hasNotifications = notifications.length > 0;
   const unreadLabel = unreadCount === 1 ? "1 unread" : `${unreadCount} unread`;
 
   return (
-    <Drawer
+    <SideSheet
       {...rest}
+      side="right"
+      width="md"
       title={title}
       description={description}
       footer={
@@ -2046,8 +2074,16 @@ export function NotificationCenterDrawer({
           </div>
         )}
       </div>
-    </Drawer>
+    </SideSheet>
   );
+}
+
+/** @deprecated Use NotificationCenterSheet. Drawers are reserved for navigation. */
+export interface NotificationCenterDrawerProps extends NotificationCenterSheetProps {}
+
+/** @deprecated Use NotificationCenterSheet. Drawers are reserved for navigation. */
+export function NotificationCenterDrawer(props: NotificationCenterDrawerProps) {
+  return <NotificationCenterSheet {...props} />;
 }
 
 export function CommerceActionBar({

@@ -38,6 +38,7 @@ import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { Input } from "./input";
 import { Progress, Skeleton } from "./progress";
+import { BottomSheet } from "../feedback";
 
 export type MarketplaceDensity = "compact" | "comfortable" | "focused";
 export type ListingModel = "product" | "service" | "rental" | "booking" | "digital" | "quote" | "local";
@@ -1090,27 +1091,46 @@ export function SortSelector({ label, value, options, onChange }: SortSelectorPr
   );
 }
 
-export interface MarketplaceFilterDrawerProps {
+export interface MarketplaceUiFilterBottomSheetProps {
   title: ReactNode;
   open: boolean;
   children: ReactNode;
   footer?: ReactNode;
+  description?: ReactNode;
+  closeLabel?: string;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function MarketplaceFilterDrawer({ title, open, children, footer }: MarketplaceFilterDrawerProps) {
-  if (!open) {
-    return null;
-  }
-
+export function MarketplaceUiFilterBottomSheet({
+  title,
+  open,
+  children,
+  footer,
+  description,
+  closeLabel,
+  onOpenChange
+}: MarketplaceUiFilterBottomSheetProps) {
   return (
-    <aside className="fixed inset-x-0 bottom-0 z-drawer max-h-[86vh] overflow-y-auto rounded-t-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow-overlay)] md:hidden" aria-label={String(title)}>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="m-0 text-base font-semibold text-[var(--foreground)]">{title}</h2>
-      </div>
+    <BottomSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      closeLabel={closeLabel}
+      height="expanded"
+      footer={footer}
+    >
       <div className="grid gap-4">{children}</div>
-      {footer ? <div className="sticky bottom-0 mt-4 border-t border-[var(--border)] bg-[var(--card)] pt-3">{footer}</div> : null}
-    </aside>
+    </BottomSheet>
   );
+}
+
+/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
+export interface MarketplaceFilterDrawerProps extends MarketplaceUiFilterBottomSheetProps {}
+
+/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
+export function MarketplaceFilterDrawer(props: MarketplaceFilterDrawerProps) {
+  return <MarketplaceUiFilterBottomSheet {...props} />;
 }
 
 export interface NoResultsRecoveryProps {

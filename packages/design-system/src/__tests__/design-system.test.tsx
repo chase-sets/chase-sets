@@ -7,6 +7,7 @@ import {
   ActorIdentityCue,
   AccountMenu,
   AppliedFilterChips,
+  BottomSheet,
   BottomNav,
   BuyerProtectionBadge,
   UiBadge as Badge,
@@ -25,17 +26,22 @@ import {
   VerifiedSellerBadge,
   SecurePaymentCue,
   SellerTrustCard,
+  SideSheet,
   PriceBreakdown,
   BuyerProtectionModule,
   ComparisonModule,
   FilterBar,
+  FullPage,
+  ModalDialog,
+  NavigationDrawer,
   SavedSearchPrompt,
   SearchFilterPanel,
   SearchInput,
+  Sidebar,
   StickyCtaBar,
   MarketplaceFacetChoiceGroup,
+  MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
-  MarketplaceMobileFilterDrawer,
   MarketplaceEmptyState,
   MarketplaceCartLineItem,
   MarketplaceStatusTimeline,
@@ -504,7 +510,7 @@ describe("design-system", () => {
               setOpen(true);
             }}
           />
-          <MarketplaceMobileFilterDrawer
+          <MarketplaceFilterBottomSheet
             open={open}
             onOpenChange={setOpen}
             title="Filters"
@@ -525,7 +531,7 @@ describe("design-system", () => {
               selectionMode="multiple"
               onSelect={onSelect}
             />
-          </MarketplaceMobileFilterDrawer>
+          </MarketplaceFilterBottomSheet>
         </div>
       );
     }
@@ -543,6 +549,93 @@ describe("design-system", () => {
 
     await user.click(screen.getByRole("button", { name: "Lightly Played (2)" }));
     expect(onSelect).toHaveBeenCalledWith("lightly-played");
+  });
+
+  it("renders canonical panel interaction components", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <div>
+        <NavigationDrawer
+          trigger={<Button>Open navigation</Button>}
+          label="Workspace navigation"
+          items={[
+            { key: "dashboard", label: "Dashboard", href: "/dashboard" },
+            { key: "reports", label: "Reports", href: "/reports" }
+          ]}
+          activeKey="dashboard"
+        />
+        <SideSheet
+          trigger={<Button>Open customer details</Button>}
+          title="Customer details"
+          description="Inspect the selected customer."
+        >
+          Customer history
+        </SideSheet>
+        <BottomSheet
+          trigger={<Button>Open mobile filters</Button>}
+          title="Mobile filters"
+          description="Refine the result set."
+          height="expanded"
+        >
+          Filter controls
+        </BottomSheet>
+        <ModalDialog
+          trigger={<Button>Delete report</Button>}
+          title="Delete report"
+          description="This action cannot be undone."
+        >
+          Confirm delete
+        </ModalDialog>
+      </div>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(await screen.findByRole("dialog", { name: "Workspace navigation" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Open customer details" }));
+    expect(await screen.findByRole("dialog", { name: "Customer details" })).toBeTruthy();
+    expect(screen.getByText("Customer history")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Open mobile filters" }));
+    expect(await screen.findByRole("dialog", { name: "Mobile filters" })).toBeTruthy();
+    expect(screen.getByText("Filter controls")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Delete report" }));
+    expect(await screen.findByRole("dialog", { name: "Delete report" })).toBeTruthy();
+    expect(screen.getByText("Confirm delete")).toBeTruthy();
+  });
+
+  it("renders non-modal panel regions and full-page flows on the server", () => {
+    const markup = renderToString(
+      <div>
+        <Sidebar
+          title="Admin navigation"
+          items={[{ key: "feedback", label: "Platform Feedback", href: "/platform-feedback" }]}
+          activeKey="feedback"
+        />
+        <SideSheet modal={false} title="Activity" description="Recent changes.">
+          Activity feed
+        </SideSheet>
+        <BottomSheet modal={false} title="Share options" height="compact">
+          Copy link
+        </BottomSheet>
+        <FullPage title="Create report" description="Build a marketplace report.">
+          Report builder
+        </FullPage>
+      </div>
+    );
+
+    expect(markup).toContain("Admin navigation");
+    expect(markup).toContain("Platform Feedback");
+    expect(markup).toContain("Activity feed");
+    expect(markup).toContain("Share options");
+    expect(markup).toContain("Create report");
+    expect(markup).toContain("Report builder");
   });
 
   it("renders sticky checkout CTAs without hiding context", () => {

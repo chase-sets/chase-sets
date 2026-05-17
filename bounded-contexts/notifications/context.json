@@ -151,7 +151,7 @@
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal notifications module composition",
-        "Marketplace shell notification drawer"
+        "Marketplace shell notification side sheet and bottom sheet"
       ]
     },
     "preferences": {
@@ -180,8 +180,8 @@
       "expectedConsumers": [
         "marketplace-web"
       ],
-      "justification": "shell-support keeps notification drawer composition outside feature route modules.",
-      "createdFor": "Notifications marketplace Notification Center drawer.",
+      "justification": "shell-support keeps Notification Center sheet composition outside feature route modules.",
+      "createdFor": "Notifications marketplace Notification Center side sheet and mobile bottom sheet.",
       "sunsetWhen": "Remove if Notifications no longer contributes marketplace-web shell behavior."
     },
     "routes": {

@@ -4,7 +4,7 @@ import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
 import { Button } from "../actions";
-import { Drawer, type DrawerProps } from "../feedback";
+import { BottomSheet, type BottomSheetProps } from "../feedback";
 
 export interface FilterBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -47,31 +47,40 @@ export function FilterBar({
   );
 }
 
-export interface FilterDrawerProps
-  extends Omit<DrawerProps, "title" | "trigger" | "children"> {
+export interface FilterBottomSheetProps
+  extends Omit<BottomSheetProps, "title" | "trigger" | "children"> {
   trigger: ReactNode;
   children?: ReactNode;
   title?: ReactNode;
   applyLabel?: string;
 }
 
-export function FilterDrawer({
+export function FilterBottomSheet({
   trigger,
   children,
   title = "Filters",
   applyLabel = "Apply filters",
   ...rest
-}: FilterDrawerProps) {
+}: FilterBottomSheetProps) {
   return (
-    <Drawer
+    <BottomSheet
       {...rest}
       trigger={trigger}
+      height="expanded"
       title={title}
       footer={<Button tone="primary" block>{applyLabel}</Button>}
     >
       <div className="space-y-4">{children}</div>
-    </Drawer>
+    </BottomSheet>
   );
+}
+
+/** @deprecated Use FilterBottomSheet. Drawers are reserved for navigation. */
+export interface FilterDrawerProps extends FilterBottomSheetProps {}
+
+/** @deprecated Use FilterBottomSheet. Drawers are reserved for navigation. */
+export function FilterDrawer(props: FilterDrawerProps) {
+  return <FilterBottomSheet {...props} />;
 }
 
 export interface BulkActionBarProps
