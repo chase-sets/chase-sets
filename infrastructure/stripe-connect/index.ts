@@ -47,7 +47,7 @@ type StripeAccountResponse = Readonly<{
 
 type StripeAccountLinkResponse = Readonly<{
   url?: string | null;
-  expires_at?: number | null;
+  expires_at?: number | string | null;
 }>;
 
 type StripeLoginLinkResponse = Readonly<{
@@ -250,6 +250,23 @@ function occurredAtFromEvent(event: StripeEventEnvelope) {
     .toISOString();
 }
 
+function expiresAtFromAccountLink(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const timestamp = typeof value === "number"
+    ? value * 1000
+    : /^\d+$/.test(value)
+    ? Number.parseInt(value, 10) * 1000
+    : Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return new Date(timestamp).toISOString();
+}
+
 function providerEventIdFromEvent(event: StripeEventEnvelope, fallbackReference: string) {
   return event.id?.trim() || `stripe:${event.type ?? "event"}:${fallbackReference}`;
 }
@@ -431,9 +448,7 @@ export function createStripeConnectMoneyMovementGateway(
       return {
         providerReference: input.providerReference,
         url: accountLink.url,
-        expiresAt: accountLink.expires_at
-          ? new Date(accountLink.expires_at * 1000).toISOString()
-          : null,
+        expiresAt: expiresAtFromAccountLink(accountLink.expires_at),
         readiness,
       };
     },

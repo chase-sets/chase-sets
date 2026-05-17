@@ -146,7 +146,7 @@ describe("money movement adapters", () => {
         return new Response(
           JSON.stringify({
             url: "https://connect.stripe.test/setup",
-            expires_at: 1_776_000_600,
+            expires_at: "2026-04-12T13:30:00.000Z",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -191,6 +191,7 @@ describe("money movement adapters", () => {
     ).resolves.toMatchObject({
       url: "https://connect.stripe.test/setup",
       providerReference: "acct_123",
+      expiresAt: "2026-04-12T13:30:00.000Z",
     });
     expect(calls).toHaveLength(2);
   });
