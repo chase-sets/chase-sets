@@ -590,8 +590,13 @@ describeWithDatabase("marketplace search", () => {
       formDimensionId: "dim_form",
       formRawOptionId: "chc_form_raw",
       conditionDimensionId: "dim_condition",
-      conditionNearMintOptionId: "chc_condition_nm",
+      conditionPristineOptionId: "chc_condition_pristine",
+      conditionMintOptionId: "chc_condition_mint",
+      conditionNearMintOptionId: "chc_condition_near_mint",
       conditionExcellentOptionId: "chc_condition_excellent",
+      conditionGoodOptionId: "chc_condition_good",
+      conditionPoorOptionId: "chc_condition_poor",
+      conditionDamagedOptionId: "chc_condition_damaged",
       cardBlueprintId: "bpr_card_single",
       sealedBlueprintId: "bpr_sealed",
       nameFieldId: "fld_name",
@@ -658,20 +663,23 @@ describeWithDatabase("marketplace search", () => {
       description: l10n("Card condition"),
       valueKind: "ordered",
     });
-    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
-      type: "AddOption",
-      optionId: ids.conditionNearMintOptionId as never,
-      code: "near-mint",
-      label: l10n("Near Mint"),
-      numericValue: 5,
-    });
-    await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
-      type: "AddOption",
-      optionId: ids.conditionExcellentOptionId as never,
-      code: "excellent",
-      label: l10n("Excellent"),
-      numericValue: 4,
-    });
+    for (const option of [
+      { optionId: ids.conditionPristineOptionId, code: "pristine", label: "Pristine", numericValue: 7 },
+      { optionId: ids.conditionMintOptionId, code: "mint", label: "Mint", numericValue: 6 },
+      { optionId: ids.conditionNearMintOptionId, code: "near-mint", label: "Near Mint", numericValue: 5 },
+      { optionId: ids.conditionExcellentOptionId, code: "excellent", label: "Excellent", numericValue: 4 },
+      { optionId: ids.conditionGoodOptionId, code: "good", label: "Good", numericValue: 3 },
+      { optionId: ids.conditionPoorOptionId, code: "poor", label: "Poor", numericValue: 2 },
+      { optionId: ids.conditionDamagedOptionId, code: "damaged", label: "Damaged", numericValue: 1 },
+    ]) {
+      await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
+        type: "AddOption",
+        optionId: option.optionId as never,
+        code: option.code,
+        label: l10n(option.label),
+        numericValue: option.numericValue,
+      });
+    }
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${ids.conditionDimensionId}`, {
       type: "ActivateDimension",
     });
@@ -697,7 +705,15 @@ describeWithDatabase("marketplace search", () => {
         {
           dimensionId: ids.conditionDimensionId as never,
           required: true,
-          allowedOptionIds: [ids.conditionExcellentOptionId as never, ids.conditionNearMintOptionId as never],
+          allowedOptionIds: [
+            ids.conditionDamagedOptionId as never,
+            ids.conditionExcellentOptionId as never,
+            ids.conditionGoodOptionId as never,
+            ids.conditionMintOptionId as never,
+            ids.conditionNearMintOptionId as never,
+            ids.conditionPoorOptionId as never,
+            ids.conditionPristineOptionId as never,
+          ],
           appliesWhen: [{ dimensionId: ids.formDimensionId as never, optionIds: [ids.formRawOptionId as never] }],
         },
       ],
@@ -806,16 +822,32 @@ describeWithDatabase("marketplace search", () => {
     const cardResponse = await app.request(`/api/marketplace/items/${ids.cardItemId}`);
     expect(cardResponse.status).toBe(200);
     const cardBody = await cardResponse.json();
-    expect(
-      cardBody.product_schema.dimensions.find((dimension: { dimensionId: string }) => dimension.dimensionId === ids.conditionDimensionId),
-    ).toMatchObject({
+    const cardConditionDimension = cardBody.product_schema.dimensions.find(
+      (dimension: { dimensionId: string }) => dimension.dimensionId === ids.conditionDimensionId,
+    );
+    expect(cardConditionDimension).toMatchObject({
       valueKind: "ordered",
       appliesWhen: [{ dimensionId: ids.formDimensionId, optionIds: [ids.formRawOptionId] }],
       allowedOptions: [
-        { optionId: ids.conditionNearMintOptionId, displayOrder: 0, numericValue: 5 },
-        { optionId: ids.conditionExcellentOptionId, displayOrder: 1, numericValue: 4 },
+        { optionId: ids.conditionPristineOptionId, displayOrder: 0, numericValue: 7 },
+        { optionId: ids.conditionMintOptionId, displayOrder: 1, numericValue: 6 },
+        { optionId: ids.conditionNearMintOptionId, displayOrder: 2, numericValue: 5 },
+        { optionId: ids.conditionExcellentOptionId, displayOrder: 3, numericValue: 4 },
+        { optionId: ids.conditionGoodOptionId, displayOrder: 4, numericValue: 3 },
+        { optionId: ids.conditionPoorOptionId, displayOrder: 5, numericValue: 2 },
+        { optionId: ids.conditionDamagedOptionId, displayOrder: 6, numericValue: 1 },
       ],
     });
+
+    const searchResponse = await app.request("/api/marketplace/items?includeTotal=true");
+    expect(searchResponse.status).toBe(200);
+    const searchBody = await searchResponse.json();
+    const searchConditionFacet = searchBody.facets.find(
+      (facet: { id: string }) => facet.id === ids.conditionDimensionId,
+    );
+    expect(searchConditionFacet.values.map((value: { label: string }) => value.label)).toEqual(
+      cardConditionDimension.allowedOptions.map((option: { label: string }) => option.label),
+    );
 
     const sealedResponse = await app.request(`/api/marketplace/items/${ids.sealedItemId}`);
     expect(sealedResponse.status).toBe(200);

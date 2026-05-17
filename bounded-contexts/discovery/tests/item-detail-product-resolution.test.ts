@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ProductSchema } from "../support/client-support/contracts";
 import {
   createDiscoveryProductDescriptor,
+  getOrderedDimensionOptions,
   getOrderedActiveDimensions,
   isProductSelectionComplete,
   normalizeProductSearchOptionsForSchema,
@@ -88,6 +89,48 @@ describe("item detail product search options", () => {
     expect(condition?.allowedOptions.map((option) => [option.optionId, option.numericValue])).toEqual([
       ["near_mint", 5],
       ["excellent", 4],
+    ]);
+  });
+
+  it("orders ordered dimension options by Catalog display order", () => {
+    const condition = {
+      ...schema.dimensions[1],
+      allowedOptions: [
+        { optionId: "damaged", code: "damaged", label: "Damaged", displayOrder: 6, numericValue: 1 },
+        { optionId: "excellent", code: "excellent", label: "Excellent", displayOrder: 3, numericValue: 4 },
+        { optionId: "mint", code: "mint", label: "Mint", displayOrder: 1, numericValue: 6 },
+        { optionId: "near_mint", code: "near-mint", label: "Near Mint", displayOrder: 2, numericValue: 5 },
+        { optionId: "pristine", code: "pristine", label: "Pristine", displayOrder: 0, numericValue: 7 },
+      ],
+    };
+
+    expect(getOrderedDimensionOptions(condition).map((option) => option.label)).toEqual([
+      "Pristine",
+      "Mint",
+      "Near Mint",
+      "Excellent",
+      "Damaged",
+    ]);
+  });
+
+  it("orders numeric dimension options by numeric value before display order", () => {
+    const grade = {
+      dimensionId: "grade",
+      dimensionName: "Grade",
+      valueKind: "numeric" as const,
+      required: false,
+      appliesWhen: [],
+      allowedOptions: [
+        { optionId: "grade_9", code: "9", label: "9", displayOrder: 3, numericValue: 9 },
+        { optionId: "grade_10", code: "10", label: "10", displayOrder: 2, numericValue: 10 },
+        { optionId: "grade_9_5", code: "9.5", label: "9.5", displayOrder: 1, numericValue: 9.5 },
+      ],
+    };
+
+    expect(getOrderedDimensionOptions(grade).map((option) => option.optionId)).toEqual([
+      "grade_10",
+      "grade_9_5",
+      "grade_9",
     ]);
   });
 });
