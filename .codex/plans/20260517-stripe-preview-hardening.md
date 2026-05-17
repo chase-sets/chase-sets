@@ -52,7 +52,8 @@ Harden the Stripe integration before go-live by extending automated and preview 
 ## Preview Result
 
 - PR: https://github.com/todd-skelton/chase-sets/pull/155
-- Latest preview run: https://github.com/todd-skelton/chase-sets/actions/runs/25996222270
+- Implementation preview run: https://github.com/todd-skelton/chase-sets/actions/runs/25996222270
+- Follow-up plan-only preview run: https://github.com/todd-skelton/chase-sets/actions/runs/25996419122
 - Result on 2026-05-17: all Platform PR checks passed, including label-gated Deploy Preview and Smoke.
 - Preview smoke coverage exercised unsigned provider webhook rejection, disposable seller registration/sign-in, payout setup onboarding session creation, payout readiness refresh, payment and settlement provider health, account wallet balance-credit flag, checkout fee policy/status probe, provider idempotency surfaces, platform balance forecast, and payout preview safety.
 - Optional full payment creation and payout request remain gated behind explicit preview test data (`SMOKE_ORDER_IDS`, available seller wallet balance, and opt-in create/request flags).
