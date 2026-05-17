@@ -75,14 +75,6 @@ export function FilterBottomSheet({
   );
 }
 
-/** @deprecated Use FilterBottomSheet. Drawers are reserved for navigation. */
-export interface FilterDrawerProps extends FilterBottomSheetProps {}
-
-/** @deprecated Use FilterBottomSheet. Drawers are reserved for navigation. */
-export function FilterDrawer(props: FilterDrawerProps) {
-  return <FilterBottomSheet {...props} />;
-}
-
 export interface BulkActionBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   count: number;

@@ -21,8 +21,6 @@ export {
   type FilterBarProps,
   FilterBottomSheet,
   type FilterBottomSheetProps,
-  FilterDrawer,
-  type FilterDrawerProps,
   BulkActionBar,
   type BulkActionBarProps,
 } from "./filter";

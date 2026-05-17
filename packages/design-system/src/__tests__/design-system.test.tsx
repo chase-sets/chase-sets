@@ -3,6 +3,7 @@ import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import * as designSystem from "../index";
 import {
   ActorIdentityCue,
   AccountMenu,
@@ -10,6 +11,7 @@ import {
   BottomSheet,
   BottomNav,
   BuyerProtectionBadge,
+  CommerceSheet,
   UiBadge as Badge,
   UiButton as Button,
   UiCard as Card,
@@ -28,12 +30,15 @@ import {
   SellerTrustCard,
   SideSheet,
   PriceBreakdown,
+  ActivitySheet,
+  AssistantSheet,
   BuyerProtectionModule,
   ComparisonModule,
   FilterBar,
   FullPage,
   ModalDialog,
   NavigationDrawer,
+  ResponsiveActionMenu,
   SavedSearchPrompt,
   SearchFilterPanel,
   SearchInput,
@@ -54,6 +59,7 @@ import {
   PaymentRecoveryPanel,
   ProductSelectionSummary,
   ProductMediaModule,
+  ResponsiveEditSheet,
   ReviewCard,
   SearchControlBar,
   SellerProfileHeader,
@@ -73,6 +79,23 @@ import {
 } from "../index";
 
 describe("design-system", () => {
+  it("does not expose deprecated design-system aliases", () => {
+    const retiredAliasNames = [
+      ["Drawer"],
+      ["Filter", "Drawer"],
+      ["Marketplace", "Mobile", "Filter", "Drawer"],
+      ["Marketplace", "Filter", "Drawer"],
+      ["Marketplace", "Ui", "Filter", "Bottom", "Sheet"],
+      ["Commerce", "Drawer"],
+      ["Notification", "Center", "Drawer"],
+      ["Dropdown", "Menu"]
+    ].map((parts) => parts.join(""));
+
+    for (const aliasName of retiredAliasNames) {
+      expect(designSystem).not.toHaveProperty(aliasName);
+    }
+  });
+
   it("renders primitive components on the server", () => {
     const markup = renderToString(
       <Card>
@@ -608,6 +631,86 @@ describe("design-system", () => {
     await user.click(screen.getByRole("button", { name: "Delete report" }));
     expect(await screen.findByRole("dialog", { name: "Delete report" })).toBeTruthy();
     expect(screen.getByText("Confirm delete")).toBeTruthy();
+  });
+
+  it("renders responsive marketplace sheet wrappers", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <div>
+        <CommerceSheet
+          trigger={<Button>Preview cart action</Button>}
+          title="Add matching products"
+          description="Review eligible products without leaving search."
+        >
+          Bulk add preview
+        </CommerceSheet>
+        <ResponsiveEditSheet
+          trigger={<Button>Edit shipping address</Button>}
+          title="Update address"
+          description="Edit the saved destination."
+        >
+          Address form
+        </ResponsiveEditSheet>
+      </div>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Preview cart action" }));
+    expect(await screen.findByRole("dialog", { name: "Add matching products" })).toBeTruthy();
+    expect(screen.getByText("Bulk add preview")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Edit shipping address" }));
+    expect(await screen.findByRole("dialog", { name: "Update address" })).toBeTruthy();
+    expect(screen.getByText("Address form")).toBeTruthy();
+  });
+
+  it("promotes long action menus to mobile bottom sheets", async () => {
+    const user = userEvent.setup();
+    const onPause = vi.fn();
+
+    render(
+      <ResponsiveActionMenu
+        trigger={<Button>More actions</Button>}
+        menuLabel="Listing actions"
+        sheetDescription="Choose an action for this listing."
+        items={[
+          { key: "share", label: "Share", icon: "share" },
+          { key: "duplicate", label: "Duplicate listing", icon: "copy" },
+          { key: "edit", label: "Edit listing", href: "/account/listings/listing_1" },
+          { key: "pause", label: "Pause listing", onSelect: onPause },
+          { key: "withdraw", label: "Withdraw listing", destructive: true },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+
+    const sheet = await screen.findByRole("dialog", { name: "Listing actions" });
+    expect(sheet).toBeTruthy();
+    expect(screen.getByText("Choose an action for this listing.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Edit listing" }).getAttribute("href")).toBe("/account/listings/listing_1");
+
+    await user.click(screen.getByRole("button", { name: "Pause listing" }));
+    expect(onPause).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders named support sheets for activity and assistant panels", () => {
+    const markup = renderToString(
+      <div>
+        <ActivitySheet open mobileModal={false} title="Listing activity">
+          Price changed
+        </ActivitySheet>
+        <AssistantSheet open mobileModal={false} title="Marketplace assistant">
+          Suggested next step
+        </AssistantSheet>
+      </div>
+    );
+
+    expect(markup).toContain("Listing activity");
+    expect(markup).toContain("Price changed");
+    expect(markup).toContain("Marketplace assistant");
+    expect(markup).toContain("Suggested next step");
   });
 
   it("renders non-modal panel regions and full-page flows on the server", () => {

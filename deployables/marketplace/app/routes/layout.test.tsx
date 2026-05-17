@@ -161,10 +161,10 @@ describe("marketplace route layout", () => {
     await user.click(screen.getByRole("button", { name: "Account menu" }));
 
     expect(await screen.findByText("Alex Clerk")).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: "Account" }).getAttribute("href")).toBe("/account");
-    expect(screen.getByRole("menuitem", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
-    expect(screen.getByRole("menuitem", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
-    expect(screen.getByRole("menuitem", { name: "Sign Out" }).getAttribute("form")).toBe("marketplace-account-menu-sign-out");
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
+    expect(screen.getByRole("link", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
+    expect(screen.getByRole("link", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
+    expect(screen.getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe("marketplace-account-menu-sign-out");
     expect(screen.queryByText("Acting as")).toBeNull();
     expect(screen.queryByText("Signed in as")).toBeNull();
   });
