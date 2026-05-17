@@ -29,12 +29,15 @@ import {
   SellerTrustCard,
   SideSheet,
   PriceBreakdown,
+  ActivitySheet,
+  AssistantSheet,
   BuyerProtectionModule,
   ComparisonModule,
   FilterBar,
   FullPage,
   ModalDialog,
   NavigationDrawer,
+  ResponsiveActionMenu,
   SavedSearchPrompt,
   SearchFilterPanel,
   SearchInput,
@@ -642,6 +645,54 @@ describe("design-system", () => {
     await user.click(screen.getByRole("button", { name: "Edit shipping address" }));
     expect(await screen.findByRole("dialog", { name: "Update address" })).toBeTruthy();
     expect(screen.getByText("Address form")).toBeTruthy();
+  });
+
+  it("promotes long action menus to mobile bottom sheets", async () => {
+    const user = userEvent.setup();
+    const onPause = vi.fn();
+
+    render(
+      <ResponsiveActionMenu
+        trigger={<Button>More actions</Button>}
+        menuLabel="Listing actions"
+        sheetDescription="Choose an action for this listing."
+        items={[
+          { key: "share", label: "Share", icon: "share" },
+          { key: "duplicate", label: "Duplicate listing", icon: "copy" },
+          { key: "edit", label: "Edit listing", href: "/account/listings/listing_1" },
+          { key: "pause", label: "Pause listing", onSelect: onPause },
+          { key: "withdraw", label: "Withdraw listing", destructive: true },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+
+    const sheet = await screen.findByRole("dialog", { name: "Listing actions" });
+    expect(sheet).toBeTruthy();
+    expect(screen.getByText("Choose an action for this listing.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Edit listing" }).getAttribute("href")).toBe("/account/listings/listing_1");
+
+    await user.click(screen.getByRole("button", { name: "Pause listing" }));
+    expect(onPause).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders named support sheets for activity and assistant panels", () => {
+    const markup = renderToString(
+      <div>
+        <ActivitySheet open mobileModal={false} title="Listing activity">
+          Price changed
+        </ActivitySheet>
+        <AssistantSheet open mobileModal={false} title="Marketplace assistant">
+          Suggested next step
+        </AssistantSheet>
+      </div>
+    );
+
+    expect(markup).toContain("Listing activity");
+    expect(markup).toContain("Price changed");
+    expect(markup).toContain("Marketplace assistant");
+    expect(markup).toContain("Suggested next step");
   });
 
   it("renders non-modal panel regions and full-page flows on the server", () => {

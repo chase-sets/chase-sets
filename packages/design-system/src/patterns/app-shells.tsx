@@ -1886,6 +1886,128 @@ export function ResponsiveEditSheet({
   );
 }
 
+export interface ResponsiveSupportSheetProps
+  extends Omit<SideSheetProps, "children" | "modal" | "side" | "width"> {
+  children?: ReactNode;
+  desktopModal?: boolean;
+  desktopWidth?: PanelWidth;
+  mobileHeight?: BottomSheetHeight;
+  mobileModal?: boolean;
+}
+
+export function ResponsiveSupportSheet({
+  children,
+  footer,
+  desktopModal = false,
+  desktopWidth = "md",
+  mobileHeight = "expanded",
+  mobileModal = true,
+  ...rest
+}: ResponsiveSupportSheetProps) {
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  if (isDesktop) {
+    return (
+      <SideSheet
+        {...rest}
+        modal={desktopModal}
+        side="right"
+        width={desktopWidth}
+        footer={footer}
+      >
+        {children}
+      </SideSheet>
+    );
+  }
+
+  return (
+    <BottomSheet
+      {...rest}
+      modal={mobileModal}
+      height={mobileHeight}
+      footer={footer}
+    >
+      {children}
+    </BottomSheet>
+  );
+}
+
+export interface ActivitySheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function ActivitySheet({
+  title = "Activity",
+  description = "Review recent updates.",
+  ...rest
+}: ActivitySheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
+}
+
+export interface CommentsSheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function CommentsSheet({
+  title = "Comments",
+  description = "Review and add contextual comments.",
+  ...rest
+}: CommentsSheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
+}
+
+export interface AssistantSheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function AssistantSheet({
+  title = "Assistant",
+  description = "Get contextual help without leaving your work.",
+  ...rest
+}: AssistantSheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
+}
+
+export interface HelpSheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function HelpSheet({
+  title = "Help",
+  description = "Review guidance for this workflow.",
+  ...rest
+}: HelpSheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
+}
+
 export type NotificationCenterView = "feed" | "settings";
 
 export interface NotificationCenterItem {

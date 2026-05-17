@@ -11,6 +11,7 @@ export interface MenuItem {
   label: string;
   description?: string;
   destructive?: boolean;
+  href?: string;
   onSelect?: () => void;
   icon?: IconName;
   shortcut?: string;
@@ -29,18 +30,8 @@ export interface MenuProps {
 }
 
 function renderMenuItem(item: MenuItem) {
-  return (
-    <MenuPrimitive.Item
-      key={item.key}
-      disabled={item.disabled}
-      className={(state) => cx(
-        "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none",
-        state.highlighted && "bg-background",
-        state.disabled && "cursor-not-allowed opacity-50",
-        item.destructive ? "text-danger" : "text-foreground"
-      )}
-      onClick={item.onSelect}
-    >
+  const content = (
+    <>
       {item.icon ? (
         <Icon
           name={item.icon}
@@ -57,6 +48,45 @@ function renderMenuItem(item: MenuItem) {
       {item.shortcut ? (
         <span className="ml-auto text-xs text-secondary">{item.shortcut}</span>
       ) : null}
+    </>
+  );
+  const className = (state: { highlighted?: boolean; disabled?: boolean }) => cx(
+    "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none",
+    state.highlighted && "bg-background",
+    state.disabled && "cursor-not-allowed opacity-50",
+    item.destructive ? "text-danger" : "text-foreground"
+  );
+
+  if (item.href) {
+    return (
+      <MenuPrimitive.LinkItem
+        key={item.key}
+        href={item.href}
+        aria-disabled={item.disabled || undefined}
+        closeOnClick
+        className={(state) => className({ ...state, disabled: item.disabled })}
+        onClick={(event) => {
+          if (item.disabled) {
+            event.preventDefault();
+            return;
+          }
+
+          item.onSelect?.();
+        }}
+      >
+        {content}
+      </MenuPrimitive.LinkItem>
+    );
+  }
+
+  return (
+    <MenuPrimitive.Item
+      key={item.key}
+      disabled={item.disabled}
+      className={className}
+      onClick={item.onSelect}
+    >
+      {content}
     </MenuPrimitive.Item>
   );
 }

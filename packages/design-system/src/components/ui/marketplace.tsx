@@ -1101,6 +1101,10 @@ export interface MarketplaceUiFilterBottomSheetProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+/**
+ * @deprecated Use `MarketplaceFilterBottomSheet` from `patterns/app-shells` for
+ * marketplace filter experiences so filters follow the canonical panel taxonomy.
+ */
 export function MarketplaceUiFilterBottomSheet({
   title,
   open,
