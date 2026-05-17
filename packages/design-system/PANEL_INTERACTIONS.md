@@ -144,6 +144,7 @@ Use desktop width to preserve context without turning the screen into a stack of
 - A non-modal Side Sheet may allow page scroll, but its header and primary footer should remain visible when it contains actions.
 - Side Sheets should not shrink the main content below usable table, form, or card widths. At narrow desktop or tablet widths, overlay the sheet instead of squeezing the page.
 - Persistent Sidebars reserve layout width only at breakpoints where the remaining content keeps its minimum usable width.
+- Persistent filter Sidebars should have one scroll owner for the whole filter surface when content exceeds the viewport. Do not add independent scroll regions inside facet groups; long groups use progressive disclosure, option search, or a focused replacement surface.
 
 ### Keyboard, Screen Reader, And Escape
 
@@ -201,6 +202,7 @@ Mobile surfaces must preserve thumb reach, route clarity, and content comprehens
 
 - Modal Bottom Sheets lock background scroll.
 - Sheet body may scroll, but avoid nested scroll containers. If nested scrolling is unavoidable, headers and footers stay stable and the inner region has clear boundaries.
+- Filter Bottom Sheets should not contain scrollable facet subregions. Keep the sheet body as the single vertical scroll container, keep `Clear` and `Show results` actions in the sticky footer, and promote very dense option picking to a focused sheet section or Full Page.
 - Page content behind a sheet must not shift when the sheet opens.
 
 ### When To Promote A Bottom Sheet
@@ -365,6 +367,7 @@ Misuse prevention rules:
 | Main app navigation | Sidebar for admin; top/bottom nav for marketplace; temporary Navigation Drawer only for dense IA. | Bottom navigation, tabs, compact menu, or Navigation Drawer for deep IA. | Persistent nav speeds desktop work; mobile needs thumb reach and less chrome. |
 | Account or workspace switcher | Popover/Menu anchored to account control. | Bottom Sheet if more than a few accounts or workspace metadata is needed. | Anchored desktop switchers are fast; mobile needs room for touch targets. |
 | Table filters | Persistent Sidebar or Side Sheet with active-filter summary. | Bottom Sheet with grouped filters, clear all, and show results. | Desktop can preserve result context; mobile needs a focused filter surface. |
+| Dynamic marketplace filters | Persistent FilterRail with one scroll surface, active chips outside the rail, show more/show less for long groups, and searchable high-cardinality facets. | Bottom Sheet with one scroll surface, active chips outside the sheet, sticky clear/show-results footer, and focused sections or Full Page for dense single-facet search. | Dynamic counts and selected options must feel stable; nested scrollbars make ownership ambiguous and hurt touch ergonomics. |
 | Row details | Non-modal Side Sheet for quick inspection; Full Page for rich records. | Bottom Sheet for lightweight summary; Full Page for rich details. | Sheets keep list context, pages support reading and deep links. |
 | Edit customer | Side Sheet for short edits; Full Page for multi-section or permission-heavy edits. | Bottom Sheet for 1-3 simple fields; Full Page for complex edit. | Short edits benefit from context; complex validation needs a page. |
 | Create report | Full Page flow with stepper or sections. | Full Page flow. | Report creation is sequential and often needs validation, preview, and save state. |
