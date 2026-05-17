@@ -824,7 +824,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
 
       await db.query(
         `UPDATE discovery_search_catalog_items
-         SET status = 'retired', updated_at = $2
+         SET status = 'archived', updated_at = $2
          WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );

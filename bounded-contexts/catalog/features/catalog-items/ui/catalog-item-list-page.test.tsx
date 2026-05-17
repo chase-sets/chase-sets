@@ -155,4 +155,21 @@ describe("CatalogItemListPage", () => {
     });
     expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();
   });
+
+  it("shows archive as the only bulk lifecycle action", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Action")).toBeTruthy();
+    expect(screen.getByText("Archive")).toBeTruthy();
+    expect(screen.queryByText("Retire")).toBeNull();
+  });
 });

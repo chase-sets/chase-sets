@@ -171,10 +171,6 @@ export type UnlinkExternalProductReferenceCommand = Readonly<{
   externalKey: string;
 }>;
 
-export type RetireCatalogItemCommand = Readonly<{
-  type: "RetireCatalogItem";
-}>;
-
 export type ArchiveCatalogItemCommand = Readonly<{
   type: "ArchiveCatalogItem";
 }>;
@@ -195,7 +191,6 @@ export type CatalogItemCommand =
   | ClearCatalogItemImageFallbackCommand
   | LinkExternalProductReferenceCommand
   | UnlinkExternalProductReferenceCommand
-  | RetireCatalogItemCommand
   | ArchiveCatalogItemCommand;
 
 type ItemMetadata = Readonly<{
@@ -592,19 +587,9 @@ export const decideCatalogItem: AggregateDecider<
         },
       ];
     }
-    case "RetireCatalogItem":
-      requireCreatedItem(state);
-      assert(state.status === "active", "Only active items can be retired.");
-
-      return [
-        {
-          type: "catalog.catalog-item.retired",
-          data: EMPTY_EVENT_DATA,
-        },
-      ];
     case "ArchiveCatalogItem":
       requireCreatedItem(state);
-      assert(state.status === "retired", "Only retired items can be archived.");
+      assert(state.status === "active", "Only active items can be archived.");
 
       return [
         {
@@ -731,7 +716,7 @@ export const evolveCatalogItem: AggregateEvolver<
     case "catalog.catalog-item.retired":
       return {
         ...state,
-        status: "retired",
+        status: "archived",
       };
     case "catalog.catalog-item.archived":
       return {

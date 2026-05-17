@@ -28,7 +28,6 @@ import {
   publishCatalogItem,
   reviseMetadata,
   localizedTextMapFromEnglish,
-  retireCatalogItem,
   archiveCatalogItem,
   setTags,
   setImageUrls,
@@ -47,8 +46,6 @@ function getTransitions(status: string): Transition[] {
     case "draft":
       return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish"), action: "publish", tone: "primary" }];
     case "active":
-      return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.retire"), action: "retire", confirm: true, tone: "danger" }];
-    case "retired":
       return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
     default:
       return [];
@@ -59,8 +56,6 @@ function lifecycleActionLabel(action: string) {
   switch (action) {
     case "publish":
       return t("catalog.features.catalogItems.ui.catalogItemDetailPage.published");
-    case "retire":
-      return t("catalog.features.catalogItems.ui.catalogItemDetailPage.retired");
     case "archive":
       return t("catalog.features.catalogItems.ui.catalogItemDetailPage.archived");
     default:
@@ -237,7 +232,6 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       return;
     }
     const actions: Record<string, () => Promise<unknown>> = {
-      retire: () => retireCatalogItem(id),
       archive: () => archiveCatalogItem(id),
     };
     await actions[action]?.();

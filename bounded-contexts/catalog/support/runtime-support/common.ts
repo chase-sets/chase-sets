@@ -23,7 +23,7 @@ export type CatalogLifecycleStatus =
   | "deprecated"
   | "archived";
 
-export type CatalogItemStatus = "draft" | "active" | "retired" | "archived";
+export type CatalogItemStatus = "draft" | "active" | "archived";
 
 export type OptionStatus = "active" | "deprecated";
 

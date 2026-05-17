@@ -192,18 +192,11 @@ export function createCatalogItemRuntime(
   const bulkLifecycle = createBulkLifecycleOperations<CatalogItemListParams, CatalogItemCommand, CatalogItemState, CatalogItemEvent>({
     actions: [
       {
-        action: "retire",
-        readyStatus: "active",
-        command: { type: "RetireCatalogItem" },
-        streamId: (id) => `catalog.item-${id}`,
-        blockedReason: (status) => `Only active Catalog Items can be retired. Current status: ${status}.`,
-      },
-      {
         action: "archive",
-        readyStatus: "retired",
+        readyStatus: "active",
         command: { type: "ArchiveCatalogItem" },
         streamId: (id) => `catalog.item-${id}`,
-        blockedReason: (status) => `Only retired Catalog Items can be archived. Current status: ${status}.`,
+        blockedReason: (status) => `Only active Catalog Items can be archived. Current status: ${status}.`,
       },
     ],
     commandHandler,
