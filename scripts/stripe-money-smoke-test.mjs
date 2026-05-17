@@ -18,6 +18,19 @@ function csvEnv(name, env = process.env) {
     .filter(Boolean);
 }
 
+function positiveIntegerEnv(name, env = process.env) {
+  const value = readEnv(name, env);
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function authHeaders(env = process.env) {
   const headers = new Headers();
   const authorization = readEnv("PLATFORM_API_AUTHORIZATION", env);
@@ -47,12 +60,20 @@ async function resolveAuthHeaders(env = process.env, fetchImpl = fetch) {
     readEnv("PLATFORM_API_BASE_URL", env);
   if (sellerEmail && sellerPassword && authBaseUrl) {
     if (readEnv("SMOKE_REGISTER_SELLER", env) === "true") {
-      const sessionToken = await registerSellerAccount({
+      const registration = await registerSellerAccount({
         authBaseUrl,
         email: sellerEmail,
         password: sellerPassword,
         displayName: readEnv("SMOKE_SELLER_DISPLAY_NAME", env) ??
           "Stripe Preview Smoke Seller",
+      }, fetchImpl);
+      const sessionToken = await signInWithPasswordAfterRegistration({
+        authBaseUrl,
+        email: sellerEmail,
+        password: sellerPassword,
+        accountId: registration.accountId,
+        attempts: positiveIntegerEnv("SMOKE_AUTH_READY_ATTEMPTS", env) ?? 24,
+        retryDelayMs: positiveIntegerEnv("SMOKE_AUTH_READY_RETRY_DELAY_MS", env) ?? 5000,
       }, fetchImpl);
       headers.set("Authorization", `Bearer ${sessionToken}`);
       return headers;
@@ -108,6 +129,28 @@ async function signInWithPassword(params, fetchImpl) {
   return readSessionToken(signIn.body, params.label);
 }
 
+async function signInWithPasswordAfterRegistration(params, fetchImpl) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= params.attempts; attempt += 1) {
+    try {
+      return await signInWithPassword({
+        authBaseUrl: params.authBaseUrl,
+        email: params.email,
+        password: params.password,
+        accountId: params.accountId,
+        label: "seller password sign-in after registration",
+      }, fetchImpl);
+    } catch (error) {
+      lastError = error;
+      if (attempt < params.attempts) {
+        await sleep(params.retryDelayMs);
+      }
+    }
+  }
+
+  throw lastError ?? new Error("Seller password sign-in after registration did not complete.");
+}
+
 async function registerSellerAccount(params, fetchImpl) {
   const registration = await requestJson(
     `${stripTrailingSlash(params.authBaseUrl)}/api/auth/register`,
@@ -134,7 +177,14 @@ async function registerSellerAccount(params, fetchImpl) {
     registration.response.status === 201,
     `Expected seller registration to return 201, got ${registration.response.status}.`,
   );
-  return readSessionToken(registration.body, "seller registration");
+  const sessionToken = readSessionToken(registration.body, "seller registration");
+  const accountId =
+    typeof registration.body?.accountId === "string"
+      ? registration.body.accountId.trim()
+      : "";
+  assert(accountId, "Seller registration did not return an account id.");
+
+  return { accountId, sessionToken };
 }
 
 function readSessionToken(body, label) {
@@ -187,6 +237,8 @@ export function envReport(env = process.env) {
     "PLATFORM_ADMIN_EMAIL",
     "PLATFORM_ADMIN_PASSWORD",
     "SMOKE_REGISTER_SELLER",
+    "SMOKE_AUTH_READY_ATTEMPTS",
+    "SMOKE_AUTH_READY_RETRY_DELAY_MS",
     "SMOKE_SELLER_ACCOUNT_ID",
     "SMOKE_SELLER_DISPLAY_NAME",
     "SMOKE_SELLER_EMAIL",

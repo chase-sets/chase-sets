@@ -90,6 +90,8 @@ when that account has seller money permissions.
 Optional authenticated preview checks:
 
 - `SMOKE_REGISTER_SELLER=true`: registers the smoke seller as a new owner account before checking seller flows.
+- `SMOKE_AUTH_READY_ATTEMPTS`: number of sign-in retries after disposable seller registration. Defaults to `24`.
+- `SMOKE_AUTH_READY_RETRY_DELAY_MS`: delay between post-registration sign-in retries. Defaults to `5000`.
 - `SMOKE_SELLER_EMAIL`: preview seller email for sign-in or registration.
 - `SMOKE_SELLER_PASSWORD`: preview seller password for sign-in or registration.
 - `SMOKE_SELLER_ACCOUNT_ID`: account to select when the seller user has multiple memberships.

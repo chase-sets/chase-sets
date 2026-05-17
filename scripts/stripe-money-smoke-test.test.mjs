@@ -21,6 +21,10 @@ function createSmokeFetch(calls) {
       return jsonResponse({ ok: true });
     }
     if (path === "/api/auth/password-sign-in") {
+      const body = JSON.parse(init.body ?? "{}");
+      if (body.email === "stripe-smoke@example.test") {
+        return jsonResponse({ type: "session-started", sessionToken: "session_seller_login" });
+      }
       return jsonResponse({ type: "session-started", sessionToken: "session_admin" });
     }
     if (path === "/api/auth/register") {
@@ -239,11 +243,18 @@ describe("stripe money smoke test", () => {
         },
       ],
     });
+    const signInCall = calls.find((call) =>
+      call.url === "https://marketplace.preview.test/api/auth/password-sign-in"
+    );
+    expect(JSON.parse(signInCall.init.body)).toMatchObject({
+      email: "stripe-smoke@example.test",
+      accountId: "acc_smoke_seller",
+    });
     const accountStatusCall = calls.find((call) =>
       call.url === "https://marketplace.preview.test/api/settlement/account-status"
     );
     expect(accountStatusCall.init.headers.get("Authorization")).toBe(
-      "Bearer session_seller",
+      "Bearer session_seller_login",
     );
   });
 });
