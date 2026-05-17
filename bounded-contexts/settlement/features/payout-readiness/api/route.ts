@@ -37,10 +37,24 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("settlement.features.payoutReadiness.api.route.request.failed");
 }
 
+function firstForwardedValue(value: string | null) {
+  return value?.split(",")[0]?.trim() || null;
+}
+
+function requestPublicOrigin(request: Request) {
+  const requestUrl = new URL(request.url);
+  const forwardedHost = firstForwardedValue(request.headers.get("x-forwarded-host"));
+  const forwardedProto = firstForwardedValue(request.headers.get("x-forwarded-proto"));
+  const host = forwardedHost ?? request.headers.get("host");
+  const protocol = forwardedProto ?? requestUrl.protocol.replace(/:$/, "");
+
+  return host ? `${protocol}://${host}` : requestUrl.origin;
+}
+
 function hostedRedirectUrlFromBody(
   body: Record<string, unknown>,
   fieldName: string,
-  requestUrl: string,
+  request: Request,
 ) {
   const value = body[fieldName];
   if (typeof value !== "string" || value.trim() === "") {
@@ -54,7 +68,7 @@ function hostedRedirectUrlFromBody(
     throw new Error(t("settlement.features.payoutReadiness.api.route.payout.setup.redirects.must.use.absolute"));
   }
 
-  if (parsed.origin !== new URL(requestUrl).origin) {
+  if (parsed.origin !== requestPublicOrigin(request)) {
     throw new Error(t("settlement.features.payoutReadiness.api.route.payout.setup.redirects.must.stay.on"));
   }
 
@@ -98,8 +112,8 @@ export function createPayoutReadinessRoutes(
     const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
 
     try {
-      const returnUrl = hostedRedirectUrlFromBody(body, "returnUrl", c.req.url);
-      const refreshUrl = hostedRedirectUrlFromBody(body, "refreshUrl", c.req.url);
+      const returnUrl = hostedRedirectUrlFromBody(body, "returnUrl", c.req.raw);
+      const refreshUrl = hostedRedirectUrlFromBody(body, "refreshUrl", c.req.raw);
       const result = await services.createOnboardingSession(
         {
           accountId: access.actor.accountId as never,
@@ -132,7 +146,7 @@ export function createPayoutReadinessRoutes(
       const result = await services.createAccountManagementSession(
         {
           accountId: access.actor.accountId as never,
-          returnUrl: hostedRedirectUrlFromBody(body, "returnUrl", c.req.url),
+          returnUrl: hostedRedirectUrlFromBody(body, "returnUrl", c.req.raw),
         },
         context,
       );
