@@ -251,6 +251,20 @@
         "marketplace.offer.accepted"
       ],
       "order": 35
+    },
+    {
+      "sourceContextName": "reputation",
+      "projectionName": "discovery-market-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "discovery-market-projection"
+      ],
+      "eventTypes": [
+        "reputation.review.submitted",
+        "reputation.review.updated",
+        "reputation.review.withdrawn"
+      ],
+      "order": 40
     }
   ],
   "projectionGroups": [
@@ -301,10 +315,12 @@
       "projectionName": "discovery-market-projection",
       "sourceContextNames": [
         "identity",
-        "marketplace"
+        "marketplace",
+        "reputation"
       ],
       "ownedTables": [
         "discovery_market_accounts",
+        "discovery_market_account_reviews",
         "discovery_market_listings",
         "discovery_buyer_offer_matches"
       ],

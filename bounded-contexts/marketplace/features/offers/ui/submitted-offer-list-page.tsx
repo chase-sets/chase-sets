@@ -10,6 +10,7 @@ import {
   PageHeader,
   PageSection,
   ProductSelectionSummary,
+  RatingSummary,
   Stack,
   Text,
   productSelectionDetailsFromSummary,
@@ -27,6 +28,15 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function parseRating(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const rating = Number(value);
+  return Number.isFinite(rating) ? rating : null;
 }
 
 function formatTimestamp(value: string) {
@@ -90,35 +100,58 @@ export function MarketplaceSubmittedOfferListPage({
           />
         ) : (
           <Grid columns={{ base: 1, xl: 2 }} gap={3}>
-            {data.items.map((offer) => (
-              <OfferCard
-                key={offer.offer_id}
-                title={offer.item_title}
-                amount={formatMoney(offer.price_amount)}
-                status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
-                details={
-                  <Stack gap={2}>
-                    {offer.item_subtitle ? <Text size="sm">{offer.item_subtitle}</Text> : null}
-                    {offer.product_summary ? <ProductSummaryChips summary={offer.product_summary} /> : null}
-                    <Text size="sm" tone="secondary">
-                      {t("marketplace.features.offers.ui.submittedOfferListPage.quantity.requested", {
-                        quantity: offer.quantity_requested,
-                      })}
-                    </Text>
-                    <Text size="sm" tone="secondary">
-                      {t("marketplace.features.offers.ui.submittedOfferListPage.updated.on", {
-                        date: formatTimestamp(offer.updated_at),
-                      })}
-                    </Text>
-                  </Stack>
-                }
-                actions={
-                  <LinkButton href={`/account/offers/submitted/${offer.offer_id}`} tone="secondary" size="sm">
-                    {t("marketplace.features.offers.ui.submittedOfferListPage.open")}
-                  </LinkButton>
-                }
-              />
-            ))}
+            {data.items.map((offer) => {
+              const acceptedSellerRating = parseRating(offer.accepted_seller_average_rating);
+              const acceptedSellerReviewCount = offer.accepted_seller_review_count ?? 0;
+
+              return (
+                <OfferCard
+                  key={offer.offer_id}
+                  title={offer.item_title}
+                  amount={formatMoney(offer.price_amount)}
+                  status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
+                  details={
+                    <Stack gap={2}>
+                      {offer.item_subtitle ? <Text size="sm">{offer.item_subtitle}</Text> : null}
+                      {offer.product_summary ? <ProductSummaryChips summary={offer.product_summary} /> : null}
+                      <Text size="sm" tone="secondary">
+                        {t("marketplace.features.offers.ui.submittedOfferListPage.quantity.requested", {
+                          quantity: offer.quantity_requested,
+                        })}
+                      </Text>
+                      {offer.accepted_seller_account_id && offer.status === "accepted" ? (
+                        <Stack gap={1}>
+                          <Text size="sm" weight="semibold">
+                            {t("marketplace.features.offers.ui.submittedOfferListPage.seller.reputation")}
+                          </Text>
+                          {acceptedSellerRating !== null && acceptedSellerReviewCount > 0 ? (
+                            <RatingSummary
+                              value={acceptedSellerRating}
+                              count={acceptedSellerReviewCount}
+                              compact
+                            />
+                          ) : (
+                            <Text size="sm" tone="secondary">
+                              {t("marketplace.features.offers.ui.submittedOfferListPage.no.seller.feedback.yet")}
+                            </Text>
+                          )}
+                        </Stack>
+                      ) : null}
+                      <Text size="sm" tone="secondary">
+                        {t("marketplace.features.offers.ui.submittedOfferListPage.updated.on", {
+                          date: formatTimestamp(offer.updated_at),
+                        })}
+                      </Text>
+                    </Stack>
+                  }
+                  actions={
+                    <LinkButton href={`/account/offers/submitted/${offer.offer_id}`} tone="secondary" size="sm">
+                      {t("marketplace.features.offers.ui.submittedOfferListPage.open")}
+                    </LinkButton>
+                  }
+                />
+              );
+            })}
           </Grid>
         )}
       </PageSection>

@@ -14,8 +14,29 @@ ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS seller_listing_availability_reason_category text NULL,
   ADD COLUMN IF NOT EXISTS seller_listing_available_again_on date NULL;
 
+ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS average_rating numeric(4, 2) NULL,
+  ADD COLUMN IF NOT EXISTS review_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_1_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_2_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_3_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_4_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_5_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS reputation_updated_at timestamptz NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_market_accounts_seller_slug_idx
   ON discovery_market_accounts (seller_slug) WHERE seller_slug <> '';
+
+CREATE TABLE IF NOT EXISTS discovery_market_account_reviews (
+  review_id text PRIMARY KEY,
+  subject_account_id text NOT NULL,
+  rating integer NOT NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS discovery_market_account_reviews_subject_idx
+  ON discovery_market_account_reviews (subject_account_id, status);
 
 CREATE TABLE IF NOT EXISTS discovery_market_listings (
   listing_id text PRIMARY KEY,

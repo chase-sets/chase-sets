@@ -15,6 +15,7 @@ import {
   PageSection,
   PriceBreakdown,
   ProductSelectionSummary,
+  RatingSummary,
   Stack,
   StickyCtaBar,
   Text,
@@ -34,6 +35,15 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function parseRating(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const rating = Number(value);
+  return Number.isFinite(rating) ? rating : null;
 }
 
 function formatAllowancePercentage(bps: number) {
@@ -114,6 +124,7 @@ export function MarketplaceOfferMatchDetailPage({
         </Button>
       </form>
     ) : null;
+  const buyerRating = parseRating(offer.buyer_average_rating);
 
   return (
     <Page>
@@ -172,6 +183,18 @@ export function MarketplaceOfferMatchDetailPage({
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.buyer"),
                     value: offer.buyer_display_name ?? offer.buyer_account_id,
+                  },
+                  {
+                    key: t("marketplace.features.offers.ui.offerMatchDetailPage.buyer.reputation"),
+                    value: buyerRating !== null && (offer.buyer_review_count ?? 0) > 0
+                      ? (
+                        <RatingSummary
+                          value={buyerRating}
+                          count={offer.buyer_review_count ?? 0}
+                          compact
+                        />
+                      )
+                      : t("marketplace.features.offers.ui.offerMatchDetailPage.no.buyer.feedback.yet"),
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),

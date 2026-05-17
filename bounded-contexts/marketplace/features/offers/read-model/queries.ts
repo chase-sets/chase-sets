@@ -15,6 +15,8 @@ export type MarketplaceOfferListRow = Readonly<{
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
+  accepted_seller_average_rating?: string | null;
+  accepted_seller_review_count?: number;
   accepted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -29,6 +31,8 @@ export type OfferMatchRow = MarketplaceOfferListRow &
     offer_price_gap_amount: string;
     offer_to_listing_price_bps: number;
     buyer_display_name: string | null;
+    buyer_average_rating: string | null;
+    buyer_review_count: number;
     seller_available_quantity: number;
     seller_listing_availability_status: "available" | "unavailable";
     can_fulfill: boolean;
@@ -49,6 +53,8 @@ type MarketplaceOfferPageRow = Readonly<{
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
+  accepted_seller_average_rating?: string | null;
+  accepted_seller_review_count?: number;
   accepted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -136,6 +142,8 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
   return `
   offer.*,
   buyer.display_name AS buyer_display_name,
+  buyer.average_rating::text AS buyer_average_rating,
+  COALESCE(buyer.review_count, 0)::integer AS buyer_review_count,
   matched_listing.listing_id,
   matched_listing.listing_price_amount::text AS listing_price_amount,
   matched_listing.listing_quantity_cap,
@@ -175,6 +183,8 @@ type OfferMatchPageRow = MarketplaceOfferPageRow & {
   offer_price_gap_amount: string;
   offer_to_listing_price_bps: number;
   buyer_display_name: string | null;
+  buyer_average_rating: string | null;
+  buyer_review_count: number;
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable" | null | undefined;
   in_sell_list: boolean;
@@ -196,6 +206,8 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
     offer_price_gap_amount: row.offer_price_gap_amount,
     offer_to_listing_price_bps: row.offer_to_listing_price_bps,
     buyer_display_name: row.buyer_display_name,
+    buyer_average_rating: row.buyer_average_rating,
+    buyer_review_count: row.buyer_review_count,
     seller_available_quantity: row.seller_available_quantity,
     seller_listing_availability_status: row.seller_listing_availability_status ?? "available",
     can_fulfill:
@@ -221,10 +233,15 @@ export async function listSubmittedOffers(
       [params.buyerAccountId],
     ),
     db.query<MarketplaceOfferPageRow>(
-      `SELECT *
-       FROM marketplace_offer_pages
-       WHERE buyer_account_id = $1
-       ORDER BY updated_at DESC, offer_id DESC
+      `SELECT
+         offer.*,
+         seller.average_rating::text AS accepted_seller_average_rating,
+         COALESCE(seller.review_count, 0)::integer AS accepted_seller_review_count
+       FROM marketplace_offer_pages AS offer
+       LEFT JOIN marketplace_account_pages AS seller
+         ON seller.account_id = offer.accepted_seller_account_id
+       WHERE offer.buyer_account_id = $1
+       ORDER BY offer.updated_at DESC, offer.offer_id DESC
        LIMIT $2 OFFSET $3`,
       [params.buyerAccountId, limit, offset],
     ),
@@ -242,10 +259,15 @@ export async function getSubmittedOffer(
   buyerAccountId: string,
 ): Promise<MarketplaceOfferListRow | null> {
   const result = await db.query<MarketplaceOfferPageRow>(
-    `SELECT *
-     FROM marketplace_offer_pages
-     WHERE offer_id = $1
-       AND buyer_account_id = $2`,
+    `SELECT
+       offer.*,
+       seller.average_rating::text AS accepted_seller_average_rating,
+       COALESCE(seller.review_count, 0)::integer AS accepted_seller_review_count
+     FROM marketplace_offer_pages AS offer
+     LEFT JOIN marketplace_account_pages AS seller
+       ON seller.account_id = offer.accepted_seller_account_id
+     WHERE offer.offer_id = $1
+       AND offer.buyer_account_id = $2`,
     [offerId, buyerAccountId],
   );
 

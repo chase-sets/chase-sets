@@ -10,6 +10,8 @@ export type DiscoveryPublicListingRow = Readonly<{
   seller_listing_availability_status: "available" | "unavailable";
   seller_listing_availability_reason_category: string | null;
   seller_listing_available_again_on: string | null;
+  seller_average_rating: string | null;
+  seller_review_count: number;
   inventory_item_id: string;
   catalog_catalog_item_id: string;
   catalog_item_slug: string | null;
@@ -36,6 +38,8 @@ export type DiscoveryPublicSellerRow = Readonly<{
   seller_slug: string;
   seller_display_name: string | null;
   status: string;
+  average_rating: string | null;
+  review_count: number;
   active_listing_count: number;
   updated_at: string;
   listings: DiscoveryPublicListingRow[];
@@ -62,7 +66,9 @@ export async function getDiscoveryPublicListingBySlug(
        account.seller_display_name,
        account.seller_listing_availability_status,
        account.seller_listing_availability_reason_category,
-       account.seller_listing_available_again_on::text AS seller_listing_available_again_on
+       account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+       account.average_rating::text AS seller_average_rating,
+       COALESCE(account.review_count, 0)::integer AS seller_review_count
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
@@ -90,7 +96,14 @@ export async function getDiscoveryPublicSellerBySlug(
   slug: string,
 ): Promise<DiscoveryPublicSellerRow | null> {
   const sellerResult = await db.query<Omit<DiscoveryPublicSellerRow, "listings" | "active_listing_count">>(
-    `SELECT account.*
+    `SELECT
+       account.account_id,
+       account.seller_slug,
+       account.seller_display_name,
+       account.status,
+       account.average_rating::text AS average_rating,
+       COALESCE(account.review_count, 0)::integer AS review_count,
+       account.updated_at::text AS updated_at
      FROM discovery_market_accounts AS account
      LEFT JOIN discovery_slug_redirects AS redirect
        ON redirect.entity_kind = 'seller'
@@ -119,7 +132,9 @@ export async function getDiscoveryPublicSellerBySlug(
        account.seller_display_name,
        account.seller_listing_availability_status,
        account.seller_listing_availability_reason_category,
-       account.seller_listing_available_again_on::text AS seller_listing_available_again_on
+       account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+       account.average_rating::text AS seller_average_rating,
+       COALESCE(account.review_count, 0)::integer AS seller_review_count
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id

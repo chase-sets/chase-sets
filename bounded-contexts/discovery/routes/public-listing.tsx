@@ -28,6 +28,15 @@ function formatMoney(value: string): string {
   return `$${value}`;
 }
 
+function parseRating(value: string | null | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const rating = Number(value);
+  return Number.isFinite(rating) ? rating : undefined;
+}
+
 function titleForListing(listing: {
   item_title: string | null;
 }) {
@@ -215,6 +224,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
     (listing.seller_listing_availability_status ?? "available") === "available";
   const limitLabel = purchaseLimitLabel(listing);
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
+  const sellerRating = parseRating(listing.seller_average_rating);
 
   return (
     <Container width="content">
@@ -278,6 +288,8 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
             <SellerTrustCard
               name={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
               verified={listing.status === "active" && sellerListingsAvailable}
+              rating={sellerRating}
+              reviewCount={listing.seller_review_count ?? 0}
               completedSales={t("discovery.routes.publicListing.active.listing")}
               shipsFrom={fulfillment}
               policies={[
@@ -306,7 +318,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               ]}
               actions={
                 listing.seller_slug ? (
-                  <LinkButton href={`/sellers/${listing.seller_slug}`} tone="secondary">
+                  <LinkButton href={`/sellers/${listing.seller_slug}#feedback`} tone="secondary">
                     {t("discovery.routes.publicListing.view.seller")}
                   </LinkButton>
                 ) : null
