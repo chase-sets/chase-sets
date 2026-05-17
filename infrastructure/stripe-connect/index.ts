@@ -340,17 +340,35 @@ export function createStripeConnectMoneyMovementGateway(
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Type": "application/json",
           },
-          body: toFormBody({
-            "metadata[chase_sets_account_id]": input.accountId,
-            "configuration[recipient][capabilities][stripe_balance][stripe_transfers][requested]":
-              "true",
-            "configuration[recipient][capabilities][stripe_balance][payouts][requested]":
-              "true",
-            "defaults[responsibilities][losses_collector]": "application",
-            "defaults[responsibilities][fees_collector]": "application",
-            "dashboard[type]": "express",
+          body: JSON.stringify({
+            metadata: {
+              chase_sets_account_id: input.accountId,
+            },
+            configuration: {
+              recipient: {
+                capabilities: {
+                  stripe_balance: {
+                    stripe_transfers: {
+                      requested: true,
+                    },
+                    payouts: {
+                      requested: true,
+                    },
+                  },
+                },
+              },
+            },
+            defaults: {
+              responsibilities: {
+                losses_collector: "application",
+                fees_collector: "application",
+              },
+            },
+            dashboard: {
+              type: "express",
+            },
           }),
           idempotencyKey: input.idempotencyKey,
         },
@@ -382,18 +400,22 @@ export function createStripeConnectMoneyMovementGateway(
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Type": "application/json",
           },
-          body: toFormBody({
+          body: JSON.stringify({
             account: input.providerReference,
-            "use_case[type]": "account_onboarding",
-            "use_case[account_onboarding][configurations][]": ["recipient"],
-            "use_case[account_onboarding][return_url]": returnUrl,
-            "use_case[account_onboarding][refresh_url]": refreshUrl,
-            "use_case[account_onboarding][collection_options][fields]":
-              "eventually_due",
-            "use_case[account_onboarding][collection_options][future_requirements]":
-              "include",
+            use_case: {
+              type: "account_onboarding",
+              account_onboarding: {
+                configurations: ["recipient"],
+                return_url: returnUrl,
+                refresh_url: refreshUrl,
+                collection_options: {
+                  fields: "eventually_due",
+                  future_requirements: "include",
+                },
+              },
+            },
           }),
           idempotencyKey: input.idempotencyKey,
         },
