@@ -206,6 +206,56 @@ async function refreshAllMarketplaceCatalogItems(db: PgQueryable): Promise<void>
   );
 }
 
+async function refreshMarketplaceAccountReputation(
+  db: PgQueryable,
+  accountId: string,
+  updatedAt: string,
+) {
+  await db.query(
+    `INSERT INTO marketplace_account_pages (
+       account_id,
+       display_name,
+       status,
+       average_rating,
+       review_count,
+       rating_1_count,
+       rating_2_count,
+       rating_3_count,
+       rating_4_count,
+       rating_5_count,
+       reputation_updated_at,
+       updated_at
+     )
+     SELECT
+       $1,
+       COALESCE((SELECT display_name FROM marketplace_account_pages WHERE account_id = $1), $1),
+       COALESCE((SELECT status FROM marketplace_account_pages WHERE account_id = $1), 'active'),
+       CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
+       COUNT(*)::integer,
+       COUNT(*) FILTER (WHERE rating = 1)::integer,
+       COUNT(*) FILTER (WHERE rating = 2)::integer,
+       COUNT(*) FILTER (WHERE rating = 3)::integer,
+       COUNT(*) FILTER (WHERE rating = 4)::integer,
+       COUNT(*) FILTER (WHERE rating = 5)::integer,
+       $2,
+       $2
+     FROM marketplace_account_reviews
+     WHERE subject_account_id = $1
+       AND status = 'active'
+     ON CONFLICT (account_id) DO UPDATE SET
+       average_rating = EXCLUDED.average_rating,
+       review_count = EXCLUDED.review_count,
+       rating_1_count = EXCLUDED.rating_1_count,
+       rating_2_count = EXCLUDED.rating_2_count,
+       rating_3_count = EXCLUDED.rating_3_count,
+       rating_4_count = EXCLUDED.rating_4_count,
+       rating_5_count = EXCLUDED.rating_5_count,
+       reputation_updated_at = EXCLUDED.reputation_updated_at,
+       updated_at = EXCLUDED.updated_at`,
+    [accountId, updatedAt],
+  );
+}
+
 export function buildMarketplaceAccountProjectionHandlers(
   db: PgQueryable,
 ): ProjectorHandlerMap {
@@ -278,6 +328,68 @@ export function buildMarketplaceAccountProjectionHandlers(
          WHERE account_id = $1`,
         [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
       );
+    },
+    "reputation.review.submitted": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        subjectAccountId: string;
+        rating: number;
+        submittedAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO marketplace_account_reviews (
+           review_id,
+           subject_account_id,
+           rating,
+           status,
+           updated_at
+         ) VALUES ($1, $2, $3, 'active', $4)
+         ON CONFLICT (review_id) DO UPDATE SET
+           subject_account_id = EXCLUDED.subject_account_id,
+           rating = EXCLUDED.rating,
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at`,
+        [data.reviewId, data.subjectAccountId, data.rating, data.submittedAt],
+      );
+      await refreshMarketplaceAccountReputation(db, data.subjectAccountId, data.submittedAt);
+    },
+    "reputation.review.updated": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        rating: number;
+        updatedAt: string;
+      };
+      const subjectResult = await db.query<{ subject_account_id: string }>(
+        `UPDATE marketplace_account_reviews
+         SET rating = $2,
+             updated_at = $3
+         WHERE review_id = $1
+         RETURNING subject_account_id`,
+        [data.reviewId, data.rating, data.updatedAt],
+      );
+      const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await refreshMarketplaceAccountReputation(db, subjectAccountId, data.updatedAt);
+      }
+    },
+    "reputation.review.withdrawn": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        withdrawnAt: string;
+      };
+      const subjectResult = await db.query<{ subject_account_id: string }>(
+        `UPDATE marketplace_account_reviews
+         SET status = 'withdrawn',
+             updated_at = $2
+         WHERE review_id = $1
+         RETURNING subject_account_id`,
+        [data.reviewId, data.withdrawnAt],
+      );
+      const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await refreshMarketplaceAccountReputation(db, subjectAccountId, data.withdrawnAt);
+      }
     },
   };
 }

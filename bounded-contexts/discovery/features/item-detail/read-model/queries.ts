@@ -47,7 +47,10 @@ export type DiscoveryItemDetailRow = Readonly<{
     max_units_per_day: number | null;
     max_units_per_customer_account: number | null;
     status: string;
+    seller_slug: string | null;
     seller_display_name: string | null;
+    seller_average_rating: string | null;
+    seller_review_count: number;
     visible_quantity: number;
     created_at: string;
     updated_at: string;
@@ -67,6 +70,9 @@ export type DiscoveryItemDetailRow = Readonly<{
     status: string;
     accepted_seller_account_id: string | null;
     accepted_at: string | null;
+    buyer_slug: string | null;
+    buyer_average_rating: string | null;
+    buyer_review_count: number;
     created_at: string;
     updated_at: string;
   }>[];
@@ -163,7 +169,10 @@ export async function getDiscoveryItemDetail(
   >(
     `SELECT
        listing.*,
+       account.seller_slug,
        account.seller_display_name,
+       account.average_rating::text AS seller_average_rating,
+       COALESCE(account.review_count, 0)::integer AS seller_review_count,
        listing.quantity_cap AS visible_quantity
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
@@ -182,7 +191,10 @@ export async function getDiscoveryItemDetail(
   >(
     `SELECT
        offer.*,
-       account.seller_display_name AS buyer_display_name
+       account.seller_slug AS buyer_slug,
+       account.seller_display_name AS buyer_display_name,
+       account.average_rating::text AS buyer_average_rating,
+       COALESCE(account.review_count, 0)::integer AS buyer_review_count
      FROM discovery_buyer_offer_matches AS offer
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id

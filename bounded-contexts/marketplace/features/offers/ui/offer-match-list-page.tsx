@@ -12,6 +12,7 @@ import {
   PageHeader,
   PageSection,
   ProductSelectionSummary,
+  RatingSummary,
   Stack,
   Text,
   productSelectionDetailsFromSummary,
@@ -30,6 +31,15 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
+}
+
+function parseRating(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const rating = Number(value);
+  return Number.isFinite(rating) ? rating : null;
 }
 
 function formatAllowancePercentage(bps: number) {
@@ -309,6 +319,18 @@ export function MarketplaceOfferMatchListPage({
                   <Text size="sm" tone="secondary">
                     {row.buyer_display_name ?? row.buyer_account_id}
                   </Text>
+                  {parseRating(row.buyer_average_rating) !== null && (row.buyer_review_count ?? 0) > 0 ? (
+                    <RatingSummary
+                      value={parseRating(row.buyer_average_rating)!}
+                      count={row.buyer_review_count ?? 0}
+                      label={t("marketplace.features.offers.ui.offerMatchListPage.buyer.reputation")}
+                      compact
+                    />
+                  ) : (
+                    <Text size="xs" tone="secondary">
+                      {t("marketplace.features.offers.ui.offerMatchListPage.no.buyer.feedback.yet")}
+                    </Text>
+                  )}
                 </Stack>
               ),
             },
