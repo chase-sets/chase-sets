@@ -21,6 +21,7 @@ import {
   Inline,
   KeyValueList,
   LinkButton,
+  AccountReputationSummary,
   MarketplaceEmptyState,
   MarketplaceMarketSummary,
   MarketplaceProductDetailLayout,
@@ -1389,9 +1390,15 @@ function LoadedItemDetailPage({
                                       <Badge tone="success">{t("discovery.features.itemDetail.ui.itemDetailPage.selected")}</Badge>
                                     ) : null}
                                   </Inline>
-                                  <Text size="sm" tone="secondary">
-                                    {listing.seller_display_name ?? t("discovery.features.itemDetail.ui.itemDetailPage.seller")}
-                                  </Text>
+                                  <AccountReputationSummary
+                                    accountName={listing.seller_display_name ?? t("discovery.features.itemDetail.ui.itemDetailPage.seller")}
+                                    href={listing.seller_slug ? `/sellers/${listing.seller_slug}#feedback` : null}
+                                    averageRating={listing.seller_average_rating}
+                                    reviewCount={listing.seller_review_count ?? 0}
+                                    emptyLabel={t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}
+                                    ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.seller.reputation")}
+                                    onLinkClick={(event) => event.stopPropagation()}
+                                  />
                                 </Stack>
                                 <ReputationCue
                                   label={t("discovery.features.itemDetail.ui.itemDetailPage.seller.reputation")}
@@ -1526,9 +1533,15 @@ function LoadedItemDetailPage({
                                     </Badge>
                                   ) : null}
                                 </Inline>
-                                <Text size="sm" tone="secondary">
-                                  {offer.buyer_display_name ?? offer.buyer_account_id}
-                                  </Text>
+                                  <AccountReputationSummary
+                                    accountName={offer.buyer_display_name ?? offer.buyer_account_id}
+                                    href={offer.buyer_slug ? `/sellers/${offer.buyer_slug}#feedback` : null}
+                                    averageRating={offer.buyer_average_rating}
+                                    reviewCount={offer.buyer_review_count ?? 0}
+                                    emptyLabel={t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}
+                                    ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
+                                    onLinkClick={(event) => event.stopPropagation()}
+                                  />
                                   {isViewerOffer ? (
                                     <Text size="xs" tone="secondary">
                                       {t("discovery.features.itemDetail.ui.itemDetailPage.own.offer.visibility")}

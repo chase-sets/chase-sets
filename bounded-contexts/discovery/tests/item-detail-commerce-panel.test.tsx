@@ -657,11 +657,10 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByText("Seller reputation")).toBeTruthy();
-    expect(screen.getByText("4.8")).toBeTruthy();
-    expect(screen.getByText("(12)")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View feedback" }).getAttribute("href"))
-      .toBe("/sellers/chase-sets-seller#feedback");
+    const sellerReputationLink = screen.getByRole("link", { name: /Chase Sets/ });
+    expect(within(sellerReputationLink).getByText("4.8")).toBeTruthy();
+    expect(within(sellerReputationLink).getByText("(12)")).toBeTruthy();
+    expect(sellerReputationLink.getAttribute("href")).toBe("/sellers/chase-sets-seller#feedback");
 
     fireEvent.click(
       within(
@@ -669,11 +668,10 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    expect(screen.getByText("Buyer reputation")).toBeTruthy();
-    expect(screen.getByText("4.2")).toBeTruthy();
-    expect(screen.getByText("(5)")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View feedback" }).getAttribute("href"))
-      .toBe("/sellers/ash-ketchum#feedback");
+    const buyerReputationLink = screen.getByRole("link", { name: /Ash Ketchum/ });
+    expect(within(buyerReputationLink).getByText("4.2")).toBeTruthy();
+    expect(within(buyerReputationLink).getByText("(5)")).toBeTruthy();
+    expect(buyerReputationLink.getAttribute("href")).toBe("/sellers/ash-ketchum#feedback");
   });
 
   it("highlights the initial selected listing and attributes the buy panel to it", () => {
