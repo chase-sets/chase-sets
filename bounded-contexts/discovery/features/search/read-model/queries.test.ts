@@ -137,7 +137,9 @@ describe("searchDiscoveryItems cursor paging", () => {
     const facetValueCall = calls.find((call) => call.sql.includes("facet.value->>'sortKind'"));
     expect(facetValueCall?.sql).toContain("CASE WHEN sort_kind = 'date-desc' THEN sort_value END DESC NULLS LAST");
     expect(facetValueCall?.sql).toContain("CASE WHEN sort_kind = 'number-desc' THEN sort_number END DESC NULLS LAST");
-    expect(facetValueCall?.sql).toContain("WHERE selected OR facet_rank <= 8");
+    expect(facetValueCall?.sql).toContain("ROW_NUMBER() OVER (ORDER BY selected DESC");
+    expect(facetValueCall?.sql).toContain("WHERE selected OR facet_rank <= 50");
+    expect(facetValueCall?.sql).toContain("ORDER BY selected DESC");
     expect(facetValueCall?.values.slice(-2)).toEqual(["fld_seed_release_year", ["2024"]]);
   });
 
@@ -171,7 +173,64 @@ describe("searchDiscoveryItems cursor paging", () => {
     const facetValueCall = calls.find((call) => call.sql.includes("facet.value->>'valueKind'"));
     expect(facetValueCall?.sql).toContain("CASE WHEN value_kind = 'numeric' THEN numeric_value END DESC NULLS LAST");
     expect(facetValueCall?.sql).toContain("CASE WHEN value_kind IN ('ordered', 'numeric') THEN display_order END ASC NULLS LAST");
-    expect(facetValueCall?.sql).toContain("WHERE selected OR facet_rank <= 8");
+    expect(facetValueCall?.sql).toContain("ROW_NUMBER() OVER (ORDER BY selected DESC");
+    expect(facetValueCall?.sql).toContain("WHERE selected OR facet_rank <= 50");
+    expect(facetValueCall?.sql).toContain("ORDER BY selected DESC");
     expect(facetValueCall?.values.slice(-2)).toEqual(["dim_seed_grade", ["chc_seed_grade_poor_1"]]);
+  });
+});
+
+describe("searchDiscoveryItems facets", () => {
+  it("returns a larger bounded facet option set and keeps selected values selected", async () => {
+    const calls: { sql: string; values: readonly unknown[] }[] = [];
+    const responses: { rows: readonly unknown[] }[] = [
+      { rows: [] },
+      {
+        rows: [{
+          kind: "field",
+          id: "field_rarity",
+          label: "Rarity",
+          coverage: 12,
+          distinct_count: 12,
+        }],
+      },
+      {
+        rows: [{
+          value: "rare",
+          label: "Rare",
+          count: 3,
+        }],
+      },
+    ];
+    const db = {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        const response = responses.shift();
+
+        if (!response) {
+          throw new Error(`Unexpected query: ${sql}`);
+        }
+
+        return response as { rows: T[] };
+      },
+    } as PgQueryable;
+
+    const result = await searchDiscoveryItems(db, {
+      fieldFilters: [{ fieldId: "field_rarity", value: "rare" }],
+    });
+
+    const valueQuery = calls.at(-1);
+    expect(valueQuery?.sql).toContain("BOOL_OR(facet.value->>'value' = ANY($3::text[])) AS selected");
+    expect(valueQuery?.sql).toContain("WHERE selected OR facet_rank <= 50");
+    expect(valueQuery?.sql).toContain("ORDER BY selected DESC");
+    expect(valueQuery?.values).toEqual(["active", "field_rarity", ["rare"]]);
+    expect(result.facets[0]?.values).toEqual([
+      {
+        id: "rare",
+        label: "Rare",
+        count: 3,
+        selected: true,
+      },
+    ]);
   });
 });

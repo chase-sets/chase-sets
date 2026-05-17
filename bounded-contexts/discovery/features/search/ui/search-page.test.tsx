@@ -244,6 +244,47 @@ describe("SearchPage", () => {
     });
   });
 
+  it("searches within large dynamic facet option sets", () => {
+    renderSearchPage({
+      category: "booster-packs",
+      data: {
+        items: [searchResult],
+        facets: [{
+          id: "dim_condition",
+          kind: "dimension",
+          label: "Condition",
+          values: Array.from({ length: 9 }, (_, index) => ({
+            id: `opt_${index + 1}`,
+            label: `Condition ${index + 1}`,
+            count: 10 - index,
+            selected: index === 0,
+          })),
+        }],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+      },
+    });
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search Condition options" }), {
+      target: { value: "Condition 9" },
+    });
+
+    expect(screen.getByRole("button", { name: "Condition 1 (10)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Condition 9 (2)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Condition 2 (9)" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
+
+    const drawer = screen.getByRole("dialog", { name: "Filters" });
+    fireEvent.change(within(drawer).getByRole("searchbox", { name: "Search Condition options" }), {
+      target: { value: "missing" },
+    });
+
+    expect(within(drawer).getByText("No matching Condition options")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Condition 1 (10)" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("carries dimension filters into item detail links without field filters", () => {
     renderSearchPage({
       committedSearch: "bulbasaur",

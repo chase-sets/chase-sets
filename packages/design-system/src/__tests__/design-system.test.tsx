@@ -45,6 +45,7 @@ import {
   Sidebar,
   StickyCtaBar,
   MarketplaceFacetChoiceGroup,
+  MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
   MarketplaceEmptyState,
@@ -572,6 +573,66 @@ describe("design-system", () => {
 
     await user.click(screen.getByRole("button", { name: "Lightly Played (2)" }));
     expect(onSelect).toHaveBeenCalledWith("lightly-played");
+  });
+
+  it("filters searchable marketplace facet choices without hiding selected values", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    render(
+      <MarketplaceFacetChoiceGroup
+        title="Condition"
+        allLabel="Any Condition"
+        items={[
+          { id: "near-mint", label: "Near Mint", count: 7 },
+          { id: "excellent", label: "Excellent", count: 3 },
+          { id: "foil", label: "Foil", count: 2 },
+        ]}
+        selectedIds={["near-mint"]}
+        selectionMode="multiple"
+        onSelect={onSelect}
+        searchable
+        searchLabel="Search Condition options"
+        searchPlaceholder="Find Condition option"
+        searchEmptyLabel="No matching Condition options"
+      />,
+    );
+
+    await user.type(screen.getByRole("searchbox", { name: "Search Condition options" }), "foil");
+
+    expect(screen.getByRole("button", { name: "Near Mint (7)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Foil (2)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Excellent (3)" })).toBeNull();
+
+    await user.clear(screen.getByRole("searchbox", { name: "Search Condition options" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search Condition options" }), "etched");
+
+    expect(screen.getByRole("button", { name: "Near Mint (7)" })).toBeTruthy();
+    expect(screen.getByText("No matching Condition options")).toBeTruthy();
+  });
+
+  it("filters searchable marketplace facet rails", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MarketplaceFacetRail
+        title="Expansion"
+        allLabel="Any Expansion"
+        items={[
+          { id: "base", label: "Base Set", count: 9 },
+          { id: "jungle", label: "Jungle", count: 4 },
+          { id: "fossil", label: "Fossil", count: 3 },
+        ]}
+        onSelect={vi.fn()}
+        searchable
+        searchLabel="Search Expansion options"
+      />,
+    );
+
+    await user.type(screen.getByRole("searchbox", { name: "Search Expansion options" }), "fossil");
+
+    expect(screen.getByRole("button", { name: "Fossil (3)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Jungle (4)" })).toBeNull();
   });
 
   it("renders canonical panel interaction components", async () => {

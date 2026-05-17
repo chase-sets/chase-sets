@@ -11,7 +11,7 @@ import {
   type NavigationItem,
   type PageStepperItem
 } from "../components/actions";
-import { Switch } from "../components/forms";
+import { SearchInput, Switch } from "../components/forms";
 import { useChaseMotion } from "../theme/provider";
 import { useMediaQuery } from "../hooks";
 import {
@@ -797,6 +797,10 @@ export interface MarketplaceFacetRailProps {
   selectedIds?: readonly string[];
   selectionMode?: MarketplaceFacetSelectionMode;
   onSelect: (id: string) => void;
+  searchable?: boolean;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  searchEmptyLabel?: ReactNode;
 }
 
 export function MarketplaceFacetRail({
@@ -807,10 +811,29 @@ export function MarketplaceFacetRail({
   selectedId = "",
   selectedIds,
   selectionMode = selectedIds ? "multiple" : "single",
-  onSelect
+  onSelect,
+  searchable = false,
+  searchLabel = "Search options",
+  searchPlaceholder,
+  searchEmptyLabel = "No matching options"
 }: MarketplaceFacetRailProps) {
+  const [search, setSearch] = useState("");
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const multiple = selectionMode === "multiple";
+  const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
+  const matchesSearch = (item: MarketplaceFacetItem) =>
+    !normalizedSearch ||
+    item.label.toLocaleLowerCase("en-US").includes(normalizedSearch) ||
+    item.id.toLocaleLowerCase("en-US").includes(normalizedSearch);
+  const matchedItems = items.filter(matchesSearch);
+  const matchedIds = new Set(matchedItems.map((item) => item.id));
+  const selectedItemsOutsideSearch = normalizedSearch
+    ? items.filter((item) =>
+        (selectedValues?.has(item.id) ?? selectedId === item.id) && !matchedIds.has(item.id)
+      )
+    : [];
+  const visibleItems = [...selectedItemsOutsideSearch, ...matchedItems];
+
   return (
     <Card variant="feature">
       <div className="space-y-4">
@@ -819,6 +842,15 @@ export function MarketplaceFacetRail({
           {description ? <div className="text-sm text-secondary">{description}</div> : null}
         </div>
         <div className="h-px bg-border" />
+        {searchable ? (
+          <SearchInput
+            label={searchLabel}
+            hideLabel
+            placeholder={searchPlaceholder ?? searchLabel}
+            value={search}
+            onChange={(event) => setSearch(event.currentTarget.value)}
+          />
+        ) : null}
         <div className="space-y-2">
           <Button
             tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
@@ -830,7 +862,9 @@ export function MarketplaceFacetRail({
           >
             {allLabel}
           </Button>
-          {items.map((item) => {
+        </div>
+        <div className={cx("space-y-2", searchable && "max-h-72 overflow-y-auto pr-1")}>
+          {visibleItems.map((item) => {
             const selected = selectedValues?.has(item.id) ?? selectedId === item.id;
 
             return (
@@ -847,6 +881,11 @@ export function MarketplaceFacetRail({
               </Button>
             );
           })}
+          {normalizedSearch && matchedItems.length === 0 ? (
+            <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
+              {searchEmptyLabel}
+            </div>
+          ) : null}
         </div>
       </div>
     </Card>
@@ -933,6 +972,10 @@ export interface MarketplaceFacetChoiceGroupProps {
   onSelect: (id: string) => void;
   allLeadingIcon?: IconName;
   itemLeadingIcon?: IconName;
+  searchable?: boolean;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  searchEmptyLabel?: ReactNode;
 }
 
 export function MarketplaceFacetChoiceGroup({
@@ -945,11 +988,29 @@ export function MarketplaceFacetChoiceGroup({
   selectionMode = selectedIds ? "multiple" : "single",
   onSelect,
   allLeadingIcon = "grid",
-  itemLeadingIcon = "tag"
+  itemLeadingIcon = "tag",
+  searchable = false,
+  searchLabel = "Search options",
+  searchPlaceholder,
+  searchEmptyLabel = "No matching options"
 }: MarketplaceFacetChoiceGroupProps) {
+  const [search, setSearch] = useState("");
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const anySelected = selectedValues ? selectedValues.size > 0 : Boolean(selectedId);
   const multiple = selectionMode === "multiple";
+  const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
+  const matchesSearch = (item: MarketplaceFacetItem) =>
+    !normalizedSearch ||
+    item.label.toLocaleLowerCase("en-US").includes(normalizedSearch) ||
+    item.id.toLocaleLowerCase("en-US").includes(normalizedSearch);
+  const matchedItems = items.filter(matchesSearch);
+  const matchedIds = new Set(matchedItems.map((item) => item.id));
+  const selectedItemsOutsideSearch = normalizedSearch
+    ? items.filter((item) =>
+        (selectedValues?.has(item.id) ?? selectedId === item.id) && !matchedIds.has(item.id)
+      )
+    : [];
+  const visibleItems = [...selectedItemsOutsideSearch, ...matchedItems];
 
   const renderChoice = (
     id: string,
@@ -1006,9 +1067,20 @@ export function MarketplaceFacetChoiceGroup({
         <h3 className="m-0 font-heading text-sm font-semibold text-foreground">{title}</h3>
         {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
       </div>
+      {searchable ? (
+        <SearchInput
+          label={searchLabel}
+          hideLabel
+          placeholder={searchPlaceholder ?? searchLabel}
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+        />
+      ) : null}
       <div className="grid gap-2">
         {renderChoice("", allLabel, undefined, !anySelected, allLeadingIcon)}
-        {items.map((item) =>
+      </div>
+      <div className={cx("grid gap-2", searchable && "max-h-72 overflow-y-auto pr-1")}>
+        {visibleItems.map((item) =>
           renderChoice(
             item.id,
             item.label,
@@ -1017,6 +1089,11 @@ export function MarketplaceFacetChoiceGroup({
             itemLeadingIcon
           )
         )}
+        {normalizedSearch && matchedItems.length === 0 ? (
+          <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
+            {searchEmptyLabel}
+          </div>
+        ) : null}
       </div>
     </section>
   );
