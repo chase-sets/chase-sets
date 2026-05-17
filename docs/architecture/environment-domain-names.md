@@ -9,7 +9,7 @@ Production uses the clean customer-facing namespace. Do not add a `production` l
 | Surface | Production | Staging |
 | --- | --- | --- |
 | Public web / landing | `chasesets.com` | `www.staging.chasesets.com` |
-| Marketplace | `marketplace.chasesets.com` | `marketplace.staging.chasesets.com` |
+| Marketplace | `marketplace.chasesets.com` | `staging.chasesets.com`, `marketplace.staging.chasesets.com` |
 | Admin | `admin.chasesets.com` | `admin.staging.chasesets.com` |
 | Public API, if exposed later | `api.chasesets.com` | `api.staging.chasesets.com` |
 
@@ -41,12 +41,13 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 `www.staging.chasesets.com` is the canonical staging public-web host.
 
-The environment root, `staging.chasesets.com`, is reserved for environment-level DNS such as mail identity records. Do not attach it as a DigitalOcean App Platform web domain while it carries MX or root TXT records.
+`staging.chasesets.com` is the launch-shaped staging marketplace root. It is the App Platform primary domain for staging so it can use apex-style A records while still carrying environment-level mail records such as MX and SPF TXT. Route `/`, `/search`, and other marketplace paths to `marketplace`, and route `/api`, `/.well-known`, and `/ucp` to `platform-api` for same-origin API and UCP support.
 
-On May 17, 2026, attaching `staging.chasesets.com` directly to the staging App Platform marketplace component left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. To make `https://staging.chasesets.com/` take users to the marketplace, configure an external HTTPS edge redirect to `https://marketplace.staging.chasesets.com/`, or first move mail identity DNS away from the root and then re-plan App Platform ownership.
+On May 17, 2026, attaching `staging.chasesets.com` as a marketplace alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. Keep the root as the staging primary domain rather than as an alias, keep `www.staging.chasesets.com` as the public-web landing alias, and smoke both marketplace hosts after staging deploys.
 
 Staging application hosts are:
 
+- `staging.chasesets.com`
 - `www.staging.chasesets.com`
 - `marketplace.staging.chasesets.com`
 - `admin.staging.chasesets.com`
