@@ -182,6 +182,13 @@
           "sourceContext": "catalog"
         },
         {
+          "routeId": "integrations",
+          "routePath": "integrations",
+          "fileExport": "./routes/admin/integrations",
+          "routeType": "route",
+          "sourceContext": "catalog"
+        },
+        {
           "routeId": "source-observations",
           "routePath": "source-observations",
           "fileExport": "./routes/admin/source-observations",
@@ -273,6 +280,17 @@
       "icon": "book",
       "href": "/reference-records",
       "order": 65,
+      "visibility": "signed-in",
+      "requiredPermissions": []
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "integrations",
+      "label": "Integrations",
+      "icon": "rocket",
+      "href": "/integrations",
+      "order": 70,
       "visibility": "signed-in",
       "requiredPermissions": []
     },

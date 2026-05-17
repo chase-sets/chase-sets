@@ -690,6 +690,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async listSourceObservationIntegrationScopes<T>(query: string): Promise<T> {
+      const response = await client["source-observations"]["integration-scopes"].$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async getSourceObservation<T>(id: string): Promise<T> {
       const response = await client["source-observations"][":id"].$get({
         param: { id },
