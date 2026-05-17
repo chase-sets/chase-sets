@@ -155,6 +155,18 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     || (bulkEditAction === "assignBlueprint" && bulkEditBlueprintId.trim().length > 0)
     || ((bulkEditAction === "assignCategory" || bulkEditAction === "removeCategory") && bulkEditCategoryId.trim().length > 0)
     || ((bulkEditAction === "setTags" || bulkEditAction === "mergeTags") && tagsFromInput(bulkEditTags).length > 0);
+  const activeFilterCount = [
+    listControls.search,
+    listControls.status,
+    listControls.language,
+    listControls.source,
+    listControls.blueprintId,
+    listControls.tag,
+    listControls.blueprintState,
+    listControls.hasImages,
+    listControls.hasSourceReferences,
+    listControls.missingRequiredFields,
+  ].filter(Boolean).length;
 
   async function handleCreate() {
     const itemId = createId("cat");
@@ -190,6 +202,8 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
           status: "draft",
           language: listControls.language,
           source: listControls.source,
+          blueprintId: listControls.blueprintId,
+          tag: listControls.tag,
         },
       },
       t("catalog.features.catalogItems.ui.catalogItemListPage.filtered.drafts"),
@@ -305,6 +319,7 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        activeFilterCount={activeFilterCount}
         extraFilters={
           <>
             <Select
@@ -326,11 +341,13 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
               label={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id")}
               value={listControls.blueprintId}
               onChange={(event) => listControls.setBlueprintId(event.target.value)}
+              placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id.placeholder")}
             />
             <TextInput
               label={t("catalog.features.catalogItems.ui.catalogItemListPage.tag")}
               value={listControls.tag}
               onChange={(event) => listControls.setTag(event.target.value)}
+              placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.tag.placeholder")}
             />
             <Select
               label={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint")}

@@ -35,6 +35,7 @@ import {
   BuyerProtectionModule,
   BulkActionBar,
   ComparisonModule,
+  FilterArea,
   FilterBar,
   FullPage,
   ModalDialog,
@@ -436,6 +437,33 @@ describe("design-system", () => {
     expect(markup).toContain("169 matching Catalog Items");
     expect(markup).toContain("flex flex-wrap items-end gap-2");
     expect(markup).toContain("Preview matching");
+  });
+
+  it("moves overflow filters into an accessible filter panel", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <FilterArea
+        filters={[
+          <TextInput key="search" label="Search" defaultValue="Pikachu" />,
+          <Select key="status" label="Status" items={[{ label: "Draft", value: "draft" }]} />,
+          <TextInput key="source" label="Source" defaultValue="tcgplayer" />,
+          <TextInput key="tag" label="Tag" defaultValue="vintage" />,
+        ]}
+        activeFilterCount={3}
+        panelTitle="Catalog filters"
+        overflowTriggerLabel="More filters"
+      />,
+    );
+
+    expect(screen.getByLabelText("Search")).toBeTruthy();
+    expect(screen.queryByLabelText("Source")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "More filters (3 active)" }));
+
+    expect(await screen.findByRole("dialog", { name: "Catalog filters" })).toBeTruthy();
+    expect(screen.getByLabelText("Source")).toBeTruthy();
+    expect(screen.getByLabelText("Tag")).toBeTruthy();
   });
 
   it("does not reserve visible label spacing for hidden-label form controls", () => {

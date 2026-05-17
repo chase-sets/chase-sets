@@ -19,6 +19,8 @@ export {
 export {
   FilterBar,
   type FilterBarProps,
+  FilterArea,
+  type FilterAreaProps,
   FilterBottomSheet,
   type FilterBottomSheetProps,
   BulkActionBar,

@@ -41,7 +41,10 @@ const query: CatalogListQuery = {
   status: "",
   language: "",
   source: "",
+  blueprintId: "",
+  tag: "",
   setId: "",
+  typeKey: "",
   page: 0,
   pageSize: 50,
 };

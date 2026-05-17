@@ -1,10 +1,10 @@
 import { t } from "@chase-sets/localization";
-import { useMemo, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, useMemo, type ReactNode } from "react";
 import {
   Button,
   DataTable,
   EmptyState,
-  FilterBar,
+  FilterArea,
   LinkButton,
   LoadingSpinner,
   Page,
@@ -52,6 +52,8 @@ interface EntityListPageProps<T> {
   onStatusFilterChange?: (value: string) => void;
   statusOptions?: { label: string; value: string }[];
   extraFilters?: ReactNode;
+  filterActions?: ReactNode;
+  activeFilterCount?: number;
   selectedKeys?: Set<string>;
   onSelectionChange?: (keys: Set<string>) => void;
   isRowSelectable?: (row: T, index: number) => boolean;
@@ -78,6 +80,8 @@ export function EntityListPage<T>({
   onStatusFilterChange,
   statusOptions,
   extraFilters,
+  filterActions,
+  activeFilterCount,
   selectedKeys,
   onSelectionChange,
   isRowSelectable,
@@ -88,6 +92,8 @@ export function EntityListPage<T>({
 }: EntityListPageProps<T>) {
   const totalPages = total !== undefined ? Math.ceil(total / pageSize) : 0;
   const showPagination = total !== undefined && total > pageSize;
+  const filterControls: ReactNode[] = [];
+  const resolvedActiveFilterCount = activeFilterCount ?? [search, statusFilter].filter(Boolean).length;
 
   const columnsWithView = useMemo<DataColumn<T>[]>(() => [
     ...columns,
@@ -101,6 +107,32 @@ export function EntityListPage<T>({
     },
   ], [columns, getHref]);
 
+  if (onSearchChange) {
+    filterControls.push(
+      <TextInput
+        key="search"
+        label={t("catalog.support.shellSupport.ui.entityListPage.search")}
+        value={search ?? ""}
+        onChange={(e) => onSearchChange(e.target.value)}
+        placeholder={t("catalog.support.shellSupport.ui.entityListPage.search.placeholder", { title: title.toLowerCase() })}
+      />,
+    );
+  }
+
+  if (onStatusFilterChange && statusOptions) {
+    filterControls.push(
+      <Select
+        key="status"
+        label={t("catalog.support.shellSupport.ui.entityListPage.status")}
+        value={statusFilter || ALL_STATUSES}
+        onValueChange={(v) => onStatusFilterChange(v === ALL_STATUSES ? "" : v)}
+        items={[{ label: t("catalog.support.shellSupport.ui.entityListPage.all.statuses"), value: ALL_STATUSES }, ...statusOptions]}
+      />,
+    );
+  }
+
+  filterControls.push(...flattenFilterControls(extraFilters));
+
   return (
     <Page>
       <PageHeader
@@ -108,26 +140,16 @@ export function EntityListPage<T>({
         actions={createButton}
       />
       <Stack gap={4}>
-        {(onSearchChange || onStatusFilterChange || extraFilters) && (
-          <FilterBar sticky={false}>
-            {onSearchChange && (
-              <TextInput
-                label={t("catalog.support.shellSupport.ui.entityListPage.search")}
-                value={search ?? ""}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder={t("catalog.support.shellSupport.ui.entityListPage.search.placeholder", { title: title.toLowerCase() })}
-              />
-            )}
-            {onStatusFilterChange && statusOptions && (
-              <Select
-                label={t("catalog.support.shellSupport.ui.entityListPage.status")}
-                value={statusFilter || ALL_STATUSES}
-                onValueChange={(v) => onStatusFilterChange(v === ALL_STATUSES ? "" : v)}
-                items={[{ label: t("catalog.support.shellSupport.ui.entityListPage.all.statuses"), value: ALL_STATUSES }, ...statusOptions]}
-              />
-            )}
-            {extraFilters}
-          </FilterBar>
+        {filterControls.length > 0 && (
+          <FilterArea
+            filters={filterControls}
+            actions={filterActions}
+            activeFilterCount={resolvedActiveFilterCount}
+            panelTitle={t("catalog.support.shellSupport.ui.entityListPage.filters")}
+            panelApplyLabel={t("catalog.support.shellSupport.ui.entityListPage.apply.filters")}
+            panelCloseLabel={t("catalog.support.shellSupport.ui.entityListPage.close.filters")}
+            overflowTriggerLabel={t("catalog.support.shellSupport.ui.entityListPage.more.filters")}
+          />
         )}
         {error && <Banner tone="danger" title={t("catalog.support.shellSupport.ui.entityListPage.error")} description={error} />}
         {loading && !items ? (
@@ -174,4 +196,14 @@ export function EntityListPage<T>({
       </Stack>
     </Page>
   );
+}
+
+function flattenFilterControls(node: ReactNode): ReactNode[] {
+  return Children.toArray(node).flatMap((child) => {
+    if (isValidElement(child) && child.type === Fragment) {
+      return flattenFilterControls((child.props as { children?: ReactNode }).children);
+    }
+
+    return [child];
+  });
 }
