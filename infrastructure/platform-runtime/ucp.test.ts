@@ -548,8 +548,10 @@ describe("UCP MCP routes", () => {
           observed: { query: "charizard" },
         },
         content: [
-          { type: "text" },
-          { json: { observed: { query: "charizard" } } },
+          {
+            type: "text",
+            text: "Search Catalog completed.",
+          },
         ],
         _meta: {
           ui: {
@@ -558,6 +560,53 @@ describe("UCP MCP routes", () => {
         },
       },
     });
+  });
+
+  it("keeps machine-readable UCP payloads out of MCP content blocks", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({
+      mcpToolHandlers: {
+        search_catalog: async () => ({
+          ucp: { version: UCP_VERSION, status: "ok" as const },
+          products: [
+            {
+              id: "cat_1",
+              title: "Charizard",
+            },
+          ],
+          total: 1,
+        }),
+      },
+    }));
+
+    const response = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "tools/call",
+        params: {
+          name: "search_catalog",
+          arguments: { query: "charizard" },
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.result.structuredContent).toMatchObject({
+      products: [{ id: "cat_1", title: "Charizard" }],
+      total: 1,
+    });
+    expect(body.result.content).toEqual([
+      {
+        type: "text",
+        text: "Found 1 marketplace result: Charizard.",
+      },
+    ]);
+    expect(body.result.content).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "json" })]),
+    );
   });
 
   it("returns an OAuth challenge in tool results when account-scoped handlers require authentication", async () => {

@@ -375,10 +375,6 @@ function toolResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
         type: "text",
         text: summarizeUcpMcpResult(tool, result),
       },
-      {
-        type: "json",
-        json: result,
-      },
     ],
     ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
   };
