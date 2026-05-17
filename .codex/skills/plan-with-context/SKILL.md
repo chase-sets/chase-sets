@@ -23,6 +23,7 @@ Plan changes from inside an isolated git worktree, using the repo's bounded cont
 7. Ask exactly one blocking question at a time. Include the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use `request_user_input` when available.
 8. Update the plan after each answer, repo finding, contradiction, recommendation, and doc change.
 9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation scope, verification, durable doc promotion, PR, CI, merge, deployment checks, and retained plan.
+10. Treat submitting the PR, waiting for CI to pass, merging the PR, and confirming staging and production deployments are green as required goal work, not follow-up or optional release tasks.
 
 ## Worktree Setup
 
@@ -58,6 +59,16 @@ Use only useful sections from this template:
 ```
 
 The `Worktree` section must list path, branch, sandbox id, dependency setup status, pnpm store path, and setup blockers. Keep the plan committed with the implementation; do not delete it during cleanup.
+
+The `Goal Completion Criteria` section must always include:
+
+- PR submitted for the completed implementation or scoped non-product change.
+- CI passing on the PR before merge.
+- PR merged after required review and passing checks.
+- Staging deployment verified green after merge.
+- Production deployment verified green after promotion or rollout.
+
+Do not mark the goal complete until all five criteria are satisfied or the user explicitly redefines the goal.
 
 ## Rules
 
