@@ -8,6 +8,7 @@ import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import {
   ItemCommercePanel,
   CheckoutPurchaseIntentSection,
+  MarketplaceListingSubmissionSection,
   MarketplaceOfferMatchSection,
   MarketplaceSellerRegistrationSection,
 } from "../routes/item-detail";
@@ -269,6 +270,52 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Confirm after registration")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Sign in or register to list" }).getAttribute("href"))
       .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
+  });
+
+  it("keeps list at price as a compact action when ship-from setup exists", () => {
+    render(
+      <MarketplaceListingSubmissionSection
+        formId="list-at-price-form"
+        productId="cat_charizard::"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        bestListing={baseListing}
+        ownListing={null}
+        hasListingStockLocation
+      />,
+    );
+
+    const listAction = screen.getByRole("button", { name: "List at price" });
+    expect(listAction.closest("form")?.id).toBe("list-at-price-form");
+    expect(listAction).toHaveProperty("disabled", false);
+    expect(screen.getByText("Current best listing is 399.99.")).toBeTruthy();
+    expect(screen.queryByLabelText("Listing price")).toBeNull();
+    expect(screen.queryByLabelText("Quantity to list")).toBeNull();
+    expect(screen.queryByLabelText("Ship-from name")).toBeNull();
+  });
+
+  it("moves missing ship-from setup into a separate component", () => {
+    const { container } = render(
+      <MarketplaceListingSubmissionSection
+        formId="list-at-price-form"
+        productId="cat_charizard::"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        bestListing={baseListing}
+        ownListing={null}
+        hasListingStockLocation={false}
+      />,
+    );
+
+    const listAction = screen.getByRole("button", { name: "List at price" });
+    const listForm = listAction.closest("form") as HTMLFormElement;
+    expect(listForm.id).toBe("list-at-price-form");
+    expect(listAction).toHaveProperty("disabled", true);
+    expect(listForm.querySelector("[name='shipFromName']")).toBeNull();
+
+    const shipFromName = container.querySelector("[name='shipFromName']") as HTMLInputElement | null;
+    expect(shipFromName?.closest("form")?.id).toBe("list-at-price-form-ship-from-setup");
+    expect(screen.getByRole("button", { name: "Save ship-from setup" })).toBeTruthy();
   });
 
   it("keeps item media constrained on narrow item-detail screens", () => {
