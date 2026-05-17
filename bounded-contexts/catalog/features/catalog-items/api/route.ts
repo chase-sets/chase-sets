@@ -325,6 +325,19 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     return c.json({ id: itemId, version: result.version, status: result.state.status });
   });
 
+  app.delete("/:id", async (c) => {
+    const itemId = c.req.param("id");
+    const context = c.get("context");
+
+    const result = await services.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: { type: "RemoveDraftCatalogItem" },
+      context,
+    });
+
+    return c.json({ id: itemId, version: result.version, status: result.state.status });
+  });
+
   app.get("/", async (c) => {
     const {
       search,

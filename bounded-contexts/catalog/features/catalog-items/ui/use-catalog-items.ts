@@ -98,6 +98,10 @@ export function confirmBulkCatalogItemEdit(operation: BulkEditCatalogItemOperati
   return api.confirmBulkCatalogItemEdit<BulkEditCatalogItemResult>(operation, selection);
 }
 
+export function removeDraftCatalogItem(id: string) {
+  return api.removeDraftCatalogItem<CommandResponse>(id);
+}
+
 export function setTags(id: string, tags: string[]) {
   return api.setTags<CommandResponse>(id, tags);
 }

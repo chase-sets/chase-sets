@@ -718,6 +718,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async removeDraftCatalogItem<T>(id: string): Promise<T> {
+      const response = await client.items[":id"].$delete({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async previewBulkCatalogItemLifecycle<T>(action: string, selection: unknown): Promise<T> {
       const response = await client.items["bulk-lifecycle"].preview.$post({
         json: { action, selection },
