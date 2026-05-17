@@ -6,6 +6,8 @@ import {
   fieldFacetValueOrderSql,
 } from "./facet-ordering";
 
+const FACET_VALUE_LIMIT = 50;
+
 export type DiscoverySearchParams = {
   search?: string;
   category?: string;
@@ -797,13 +799,13 @@ async function loadFieldFacetValues(
        GROUP BY facet.value->>'value'
      ),
      ranked AS (
-       SELECT *, ROW_NUMBER() OVER (ORDER BY ${orderBy}) AS facet_rank
+       SELECT *, ROW_NUMBER() OVER (ORDER BY selected DESC, ${orderBy}) AS facet_rank
        FROM facet_values
      )
      SELECT value, label, count
      FROM ranked
-     WHERE selected OR facet_rank <= 8
-     ORDER BY ${orderBy}`,
+     WHERE selected OR facet_rank <= ${FACET_VALUE_LIMIT}
+     ORDER BY selected DESC, ${orderBy}`,
     [...filter.values, fieldId, selectedValues],
   );
 
@@ -851,13 +853,13 @@ async function loadDimensionFacetValues(
        GROUP BY facet.value->>'optionId'
      ),
      ranked AS (
-       SELECT *, ROW_NUMBER() OVER (ORDER BY ${orderBy}) AS facet_rank
+       SELECT *, ROW_NUMBER() OVER (ORDER BY selected DESC, ${orderBy}) AS facet_rank
        FROM facet_values
      )
      SELECT option_id, label, count
      FROM ranked
-     WHERE selected OR facet_rank <= 8
-     ORDER BY ${orderBy}`,
+     WHERE selected OR facet_rank <= ${FACET_VALUE_LIMIT}
+     ORDER BY selected DESC, ${orderBy}`,
     [...filter.values, dimensionId, selectedOptionIds],
   );
 

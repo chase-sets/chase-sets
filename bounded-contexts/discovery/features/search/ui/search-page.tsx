@@ -40,6 +40,7 @@ import {
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
+const FACET_OPTION_SEARCH_THRESHOLD = 8;
 
 const sortOptions = [
   { label: t("discovery.features.search.ui.searchPage.relevance"), value: "relevance" },
@@ -124,6 +125,21 @@ function formatFacetDescription(facet: DiscoveryFacetGroup): string {
   return facet.kind === "dimension"
     ? t("discovery.features.search.ui.searchPage.dimension.facet.description")
     : t("discovery.features.search.ui.searchPage.field.facet.description");
+}
+
+function facetOptionSearchProps(facet: DiscoveryFacetGroup) {
+  return {
+    searchable: facet.values.length > FACET_OPTION_SEARCH_THRESHOLD,
+    searchLabel: t("discovery.features.search.ui.searchPage.facet.option.search.label", {
+      facet: facet.label,
+    }),
+    searchPlaceholder: t("discovery.features.search.ui.searchPage.facet.option.search.placeholder", {
+      facet: facet.label,
+    }),
+    searchEmptyLabel: t("discovery.features.search.ui.searchPage.facet.option.search.empty", {
+      facet: facet.label,
+    }),
+  };
 }
 
 function buildDynamicAppliedFilters(
@@ -367,6 +383,7 @@ export function SearchPage({
               label: value.label,
               count: value.count,
             }))}
+            {...facetOptionSearchProps(facet)}
             selectedIds={selectedValues}
             selectionMode="multiple"
             onSelect={(value) => {
@@ -612,6 +629,7 @@ export function SearchPage({
                       label: value.label,
                       count: value.count,
                     }))}
+                    {...facetOptionSearchProps(facet)}
                     selectedIds={selectedValues}
                     selectionMode="multiple"
                     onSelect={(value) => {
