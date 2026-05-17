@@ -42,16 +42,21 @@ export function createDiscoveryUcpHandlers(
       });
 
       return createUcpEnvelope("ok", {
-        products: result.items.map(searchRowToProduct),
+        products: result.items.map((row) => searchRowToProduct(row, input.request)),
         count: result.items.length,
         total: result.total,
         next_cursor: result.nextCursor,
+        result_presentation: {
+          component: "marketplace-results",
+          title: "Marketplace results",
+          empty_state: "No matching marketplace products are available right now.",
+        },
       });
     },
     lookup_catalog: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogLookupBody>(input);
       const ids = readIds(body);
-      const products = await resolveProductIds(items, ids);
+      const products = await resolveProductIds(items, ids, input.request);
 
       return createUcpEnvelope("ok", {
         products,
@@ -65,7 +70,7 @@ export function createDiscoveryUcpHandlers(
       const item = id ? await items.detail.getItemDetail(id) : null;
 
       return item
-        ? createUcpEnvelope("ok", { product: detailRowToProduct(item) })
+        ? createUcpEnvelope("ok", { product: detailRowToProduct(item, input.request) })
         : createUcpEnvelope("error", {}, [
             {
               severity: "error",
@@ -83,14 +88,17 @@ export function createDiscoveryUcpHandlers(
   };
 }
 
-function searchRowToProduct(row: DiscoverySearchItemRow) {
+function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
+  const productUrl = marketplaceUrl(request, `/items/${row.slug}`);
+  const imageUrls = productImageUrls(row);
+  const marketSummary = marketplaceSummary(row.market_summary);
   return {
     id: row.catalog_item_id,
     title: row.title,
     subtitle: row.subtitle,
     description: row.description,
-    url: `/items/${row.slug}`,
-    image_urls: readStringArray(row.image_urls),
+    url: productUrl,
+    image_urls: imageUrls,
     availability: availability(row.market_summary),
     price: price(row.market_summary?.lowest_price_amount ?? null),
     extensions: {
@@ -100,20 +108,25 @@ function searchRowToProduct(row: DiscoverySearchItemRow) {
         blueprint_id: row.blueprint_id,
         categories: readStringArray(row.category_names),
         tags: readStringArray(row.tags),
+        primary_image_url: imageUrls[0] ?? null,
+        price_display: priceDisplay(row.market_summary?.lowest_price_amount ?? null),
+        availability_display: availabilityDisplay(row.market_summary),
+        marketplace: marketSummary,
+        actions: marketplaceActions(productUrl, marketSummary.total_visible_quantity),
       },
     },
   };
 }
 
-function detailRowToProduct(row: DiscoveryItemDetailRow) {
+function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
   return {
     ...searchRowToProduct({
       ...row,
-      category_names: row.categories,
-      category_slugs: row.categories,
+      category_names: categoryNames(row.categories),
+      category_slugs: categorySlugs(row.categories),
       blueprint_name: null,
       search_rank: null,
-    }),
+    }, request),
     product_schema: row.product_schema,
     variants: row.market_listings.map((listing) => ({
       id: listing.product_id,
@@ -132,9 +145,17 @@ function detailRowToProduct(row: DiscoveryItemDetailRow) {
       extensions: {
         chase_sets: {
           listing_id: listing.listing_id,
+          listing_slug: listing.listing_slug,
+          listing_url: marketplaceUrl(request, `/listings/${listing.listing_slug}`),
           inventory_item_id: listing.inventory_item_id,
           catalog_item_id: row.catalog_item_id,
           product_id: listing.product_id,
+          price_display: priceDisplay(listing.price_amount),
+          availability_display: `${listing.visible_quantity} available`,
+          actions: marketplaceActions(
+            marketplaceUrl(request, `/listings/${listing.listing_slug}`),
+            listing.visible_quantity,
+          ),
         },
       },
     })),
@@ -144,9 +165,12 @@ function detailRowToProduct(row: DiscoveryItemDetailRow) {
 async function resolveProductIds(
   items: DiscoveryItemsServices,
   ids: readonly string[],
+  request: Request,
 ) {
   const rows = await Promise.all(ids.slice(0, 20).map((id) => items.detail.getItemDetail(id)));
-  return rows.filter((row): row is DiscoveryItemDetailRow => row !== null).map(detailRowToProduct);
+  return rows
+    .filter((row): row is DiscoveryItemDetailRow => row !== null)
+    .map((row) => detailRowToProduct(row, request));
 }
 
 async function readJsonObject<T extends Readonly<Record<string, unknown>>>(
@@ -171,6 +195,10 @@ function readObject(value: unknown): Readonly<Record<string, unknown>> {
     : {};
 }
 
+function readArray(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -187,6 +215,57 @@ function readStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
+}
+
+function readRecordString(value: unknown, key: string) {
+  const record = readObject(value);
+  const entry = record[key];
+  return typeof entry === "string" && entry.trim().length > 0 ? entry.trim() : null;
+}
+
+function marketplaceUrl(request: Request, path: string) {
+  const origin = new URL(request.url).origin;
+  return new URL(path, origin).toString();
+}
+
+function categoryNames(value: unknown) {
+  return readArray(value)
+    .map((entry) => readRecordString(entry, "name"))
+    .filter((entry): entry is string => entry !== null);
+}
+
+function categorySlugs(value: unknown) {
+  return readArray(value)
+    .map((entry) => readRecordString(entry, "slug"))
+    .filter((entry): entry is string => entry !== null);
+}
+
+function productImageUrls(
+  row: Pick<DiscoverySearchItemRow, "image_urls" | "product_asset_sets" | "image_fallback">,
+) {
+  const directUrls = readStringArray(row.image_urls);
+  if (directUrls.length > 0) {
+    return directUrls;
+  }
+
+  const fallbackUrl = readRecordString(row.image_fallback, "url");
+  if (fallbackUrl) {
+    return [fallbackUrl];
+  }
+
+  const urls: string[] = [];
+  for (const assetSet of readArray(row.product_asset_sets)) {
+    const variants = readArray(readObject(assetSet).variants);
+    const preferred = variants.find((variant) =>
+      ["search-card", "thumbnail", "catalog-detail"].includes(readRecordString(variant, "role") ?? ""),
+    ) ?? readObject(assetSet).source;
+    const publicUrl = readRecordString(preferred, "publicUrl");
+    if (publicUrl) {
+      urls.push(publicUrl);
+    }
+  }
+
+  return [...new Set(urls)];
 }
 
 function readIds(body: UcpCatalogLookupBody) {
@@ -207,11 +286,49 @@ function price(amount: string | null) {
     : null;
 }
 
+function priceDisplay(amount: string | null) {
+  return amount ? `$${Number(amount).toFixed(2)}` : "Not currently listed";
+}
+
 function availability(summary: DiscoverySearchItemRow["market_summary"]) {
   return {
     status: summary && summary.total_visible_quantity > 0 ? "available" : "unavailable",
     quantity: summary?.total_visible_quantity ?? 0,
     active_listing_count: summary?.active_listing_count ?? 0,
+  };
+}
+
+function availabilityDisplay(summary: DiscoverySearchItemRow["market_summary"]) {
+  const quantity = summary?.total_visible_quantity ?? 0;
+  if (quantity <= 0) {
+    return "Unavailable";
+  }
+
+  return `${quantity} available`;
+}
+
+function marketplaceSummary(summary: DiscoverySearchItemRow["market_summary"]) {
+  return {
+    status: summary && summary.total_visible_quantity > 0 ? "available" : "unavailable",
+    lowest_price: price(summary?.lowest_price_amount ?? null),
+    lowest_price_display: priceDisplay(summary?.lowest_price_amount ?? null),
+    active_listing_count: summary?.active_listing_count ?? 0,
+    total_visible_quantity: summary?.total_visible_quantity ?? 0,
+  };
+}
+
+function marketplaceActions(url: string, availableQuantity: number) {
+  return {
+    view_product: {
+      label: "View product",
+      url,
+    },
+    create_checkout: availableQuantity > 0
+      ? {
+          label: "Create checkout",
+          tool: "create_checkout",
+        }
+      : null,
   };
 }
 

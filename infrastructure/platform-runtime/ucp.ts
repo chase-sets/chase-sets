@@ -12,10 +12,14 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   buildUcpBusinessProfile,
   createUcpEnvelope,
+  UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+  UCP_MCP_RESOURCES,
+  UCP_MCP_APP_RESOURCE_MIME_TYPE,
   UCP_MCP_TOOLS,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpEnvelope,
+  type UcpMcpResourceDescriptor,
   type UcpMcpToolDescriptor,
 } from "@chase-sets/ucp";
 import type { ResolvedActor } from "./auth";
@@ -37,6 +41,10 @@ type JsonRpcRequest = Readonly<{
 type UcpToolCallParams = Readonly<{
   name?: unknown;
   arguments?: unknown;
+}>;
+
+type UcpResourceReadParams = Readonly<{
+  uri?: unknown;
 }>;
 
 export type UcpOperationHandlerInput = Readonly<{
@@ -142,6 +150,101 @@ const SIGNED_WRITE_HEADERS = [
 ] as const;
 
 const DEFAULT_PROFILE_CACHE_TTL_MS = 15 * 60 * 1000;
+const UCP_MCP_MARKETPLACE_RESULTS_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chase Sets Marketplace Results</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; padding: 12px; background: transparent; color: CanvasText; }
+    .results { display: grid; gap: 10px; }
+    .card { display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: center; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 8px; padding: 10px; background: color-mix(in srgb, Canvas 96%, CanvasText 4%); }
+    .image { width: 72px; height: 96px; object-fit: cover; border-radius: 6px; background: color-mix(in srgb, CanvasText 12%, transparent); }
+    .title { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.25; }
+    .meta { margin: 3px 0 0; font-size: 12px; color: color-mix(in srgb, CanvasText 70%, transparent); line-height: 1.35; }
+    .signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .signal { border: 1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius: 999px; padding: 3px 8px; font-size: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .action { color: LinkText; font-weight: 650; font-size: 13px; text-decoration: none; }
+    .empty { border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 8px; padding: 14px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main id="app" class="results" aria-live="polite"></main>
+  <script>
+    const app = document.getElementById("app");
+    let latestResult = null;
+
+    function productImage(product) {
+      const chaseSets = product?.extensions?.chase_sets ?? {};
+      return chaseSets.primary_image_url || product?.image_urls?.[0] || "";
+    }
+
+    function productUrl(product) {
+      const url = product?.extensions?.chase_sets?.actions?.view_product?.url || product?.url || "";
+      return typeof url === "string" ? url : "";
+    }
+
+    function render(result) {
+      latestResult = result;
+      const products = Array.isArray(result?.structuredContent?.products)
+        ? result.structuredContent.products
+        : Array.isArray(result?.products)
+          ? result.products
+          : [];
+
+      if (!products.length) {
+        app.innerHTML = '<section class="empty">No matching marketplace products are available right now.</section>';
+        return;
+      }
+
+      app.innerHTML = products.slice(0, 8).map((product) => {
+        const chaseSets = product.extensions?.chase_sets ?? {};
+        const image = productImage(product);
+        const href = productUrl(product);
+        const market = chaseSets.marketplace ?? {};
+        const price = chaseSets.price_display ?? "Not currently listed";
+        const availability = chaseSets.availability_display ?? "Unavailable";
+        const subtitle = product.subtitle || product.description || "";
+        return '<article class="card">' +
+          (image ? '<img class="image" src="' + escapeHtml(image) + '" alt="">' : '<div class="image"></div>') +
+          '<div>' +
+            '<h2 class="title">' + escapeHtml(product.title || "Marketplace product") + '</h2>' +
+            (subtitle ? '<p class="meta">' + escapeHtml(subtitle) + '</p>' : '') +
+            '<div class="signals">' +
+              '<span class="signal">' + escapeHtml(price) + '</span>' +
+              '<span class="signal">' + escapeHtml(availability) + '</span>' +
+              '<span class="signal">' + escapeHtml(String(market.active_listing_count ?? 0)) + ' listings</span>' +
+            '</div>' +
+            (href ? '<div class="actions"><a class="action" href="' + escapeHtml(href) + '">View product</a></div>' : '') +
+          '</div>' +
+        '</article>';
+      }).join("");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
+
+    window.addEventListener("message", (event) => {
+      const message = event.data;
+      if (message?.method === "ui/notifications/tool-result") {
+        render(message.params?.result ?? message.params ?? {});
+      }
+    });
+
+    render(latestResult ?? {});
+  </script>
+</body>
+</html>`;
 const ECDSA_SIGNATURE_LENGTHS = {
   ES256: 64,
   ES384: 96,
@@ -248,21 +351,36 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string) {
 }
 
 function toolResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
+  const meta = {
+    ...(requiresOAuthChallenge(result)
+      ? { "mcp/www_authenticate": oauthChallenge(tool) }
+      : {}),
+    ...(tool.resultResourceUri
+      ? {
+          ui: {
+            resourceUri: tool.resultResourceUri,
+          },
+          "openai/outputTemplate": tool.resultResourceUri,
+          chase_sets: {
+            result_kind: tool.name,
+          },
+        }
+      : {}),
+  };
+
   return {
     structuredContent: result,
     content: [
       {
         type: "text",
-        text: JSON.stringify(result),
+        text: summarizeUcpMcpResult(tool, result),
+      },
+      {
+        type: "json",
+        json: result,
       },
     ],
-    ...(requiresOAuthChallenge(result)
-      ? {
-          _meta: {
-            "mcp/www_authenticate": oauthChallenge(tool),
-          },
-        }
-      : {}),
+    ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
   };
 }
 
@@ -314,6 +432,10 @@ function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
     : {};
 }
 
+function normalizeResourceReadParams(value: unknown): UcpResourceReadParams {
+  return normalizeArguments(value) as UcpResourceReadParams;
+}
+
 function readObject(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Readonly<Record<string, unknown>>
@@ -322,6 +444,94 @@ function readObject(value: unknown): Readonly<Record<string, unknown>> | null {
 
 function readArray(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function toMcpToolListItem(tool: UcpMcpToolDescriptor) {
+  return {
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    outputSchema: tool.outputSchema,
+    securitySchemes: tool.securitySchemes,
+    annotations: {
+      capability: tool.capability,
+      idempotencyKeyRequired: tool.idempotencyKeyRequired,
+      ...tool.annotations,
+    },
+    _meta: {
+      securitySchemes: tool.securitySchemes,
+      "openai/toolInvocation/invoking": tool.invoking,
+      "openai/toolInvocation/invoked": tool.invoked,
+      ...(tool.resultResourceUri
+        ? {
+            ui: {
+              resourceUri: tool.resultResourceUri,
+            },
+            "openai/outputTemplate": tool.resultResourceUri,
+          }
+        : {}),
+    },
+  };
+}
+
+function toMcpResourceListItem(resource: UcpMcpResourceDescriptor) {
+  return {
+    uri: resource.uri,
+    name: resource.name,
+    title: resource.title,
+    description: resource.description,
+    mimeType: resource.mimeType,
+  };
+}
+
+function summarizeUcpMcpResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
+  if (result.ucp.status === "error") {
+    return result.messages?.[0]?.message ?? `${tool.title} returned an error.`;
+  }
+
+  const products = readArray((result as Readonly<Record<string, unknown>>).products);
+  if (products.length > 0) {
+    const names = products
+      .slice(0, 3)
+      .map((entry) => readObject(entry)?.title)
+      .filter((title): title is string => typeof title === "string" && title.trim().length > 0);
+    const count = Number((result as Readonly<Record<string, unknown>>).total ?? products.length);
+    return names.length > 0
+      ? `Found ${count} marketplace result${count === 1 ? "" : "s"}: ${names.join(", ")}.`
+      : `Found ${count} marketplace result${count === 1 ? "" : "s"}.`;
+  }
+
+  const product = readObject((result as Readonly<Record<string, unknown>>).product);
+  if (product) {
+    const title = typeof product.title === "string" ? product.title : "the requested product";
+    return `Found ${title}.`;
+  }
+
+  return `${tool.title} completed.`;
+}
+
+function readUcpMcpResource(uri: string) {
+  if (uri !== UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI) {
+    return null;
+  }
+
+  return {
+    contents: [
+      {
+        uri,
+        mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
+        text: UCP_MCP_MARKETPLACE_RESULTS_HTML,
+        _meta: {
+          ui: {
+            preferredBorder: true,
+          },
+          "openai/widgetDescription": "Interactive Chase Sets marketplace search results.",
+          "openai/widgetPrefersBorder": true,
+        },
+      },
+    ],
+  };
 }
 
 function missingSignedWriteHeaders(request: Request) {
@@ -1103,30 +1313,20 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         },
         capabilities: {
           tools: {},
+          resources: {},
         },
       }));
     }
 
     if (body.method === "tools/list") {
       return c.json(jsonRpcResult(body.id, {
-        tools: UCP_MCP_TOOLS.map((tool) => ({
-          name: tool.name,
-          title: tool.title,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-          outputSchema: tool.outputSchema,
-          securitySchemes: tool.securitySchemes,
-          annotations: {
-            capability: tool.capability,
-            idempotencyKeyRequired: tool.idempotencyKeyRequired,
-            ...tool.annotations,
-          },
-          _meta: {
-            securitySchemes: tool.securitySchemes,
-            "openai/toolInvocation/invoking": tool.invoking,
-            "openai/toolInvocation/invoked": tool.invoked,
-          },
-        })),
+        tools: UCP_MCP_TOOLS.map(toMcpToolListItem),
+      }));
+    }
+
+    if (body.method === "resources/list") {
+      return c.json(jsonRpcResult(body.id, {
+        resources: UCP_MCP_RESOURCES.map(toMcpResourceListItem),
       }));
     }
 
@@ -1189,9 +1389,18 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         return c.json(jsonRpcError(body.id, -32000, "Idempotency-Key was already used with different request parameters."), 409);
       }
 
-      return c.json(jsonRpcResult(body.id, {
-        ...toolResult(tool, result),
-      }));
+      return c.json(jsonRpcResult(body.id, toolResult(tool, result)));
+    }
+
+    if (body.method === "resources/read") {
+      const params = normalizeResourceReadParams(body.params);
+      const uri = typeof params.uri === "string" ? params.uri : "";
+      const result = readUcpMcpResource(uri);
+      if (!result) {
+        return c.json(jsonRpcError(body.id, -32602, `Unknown UCP MCP resource '${uri}'.`), 400);
+      }
+
+      return c.json(jsonRpcResult(body.id, result));
     }
 
     return c.json(jsonRpcError(body.id, -32601, `Unsupported UCP MCP method '${body.method ?? ""}'.`), 404);

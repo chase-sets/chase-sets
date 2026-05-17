@@ -71,6 +71,7 @@ export type UcpMcpToolDescriptor = Readonly<{
   capability: (typeof UCP_CAPABILITIES)[keyof typeof UCP_CAPABILITIES];
   description: string;
   idempotencyKeyRequired: boolean;
+  resultResourceUri?: string;
   inputSchema: Readonly<Record<string, unknown>>;
   outputSchema: Readonly<Record<string, unknown>>;
   securitySchemes: readonly UcpMcpSecurityScheme[];
@@ -83,6 +84,14 @@ export type UcpMcpToolDescriptor = Readonly<{
   invoking: string;
   invoked: string;
   trustedHandoffOnUnsignedMcp?: boolean;
+}>;
+
+export type UcpMcpResourceDescriptor = Readonly<{
+  uri: string;
+  name: string;
+  title: string;
+  description: string;
+  mimeType: string;
 }>;
 
 export type UcpMcpSecurityScheme =
@@ -136,6 +145,20 @@ function writeAnnotations(params: Readonly<{
   } as const;
 }
 
+export const UCP_MCP_APP_RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
+export const UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI =
+  "ui://chase-sets/marketplace-results/v1.html";
+
+export const UCP_MCP_RESOURCES = [
+  {
+    uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+    name: "marketplace_results",
+    title: "Marketplace Results",
+    description: "Renders Chase Sets marketplace products, price signals, availability, and checkout actions.",
+    mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
+  },
+] as const satisfies readonly UcpMcpResourceDescriptor[];
+
 export const UCP_MCP_TOOLS = [
   {
     name: "search_catalog",
@@ -143,6 +166,7 @@ export const UCP_MCP_TOOLS = [
     capability: UCP_CAPABILITIES.catalogSearch,
     description: "Use this when a ChatGPT user wants to find buyer-visible Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
     idempotencyKeyRequired: false,
+    resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -174,6 +198,7 @@ export const UCP_MCP_TOOLS = [
     capability: UCP_CAPABILITIES.catalogLookup,
     description: "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs buyer-visible product details.",
     idempotencyKeyRequired: false,
+    resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -199,6 +224,7 @@ export const UCP_MCP_TOOLS = [
     capability: UCP_CAPABILITIES.catalogLookup,
     description: "Use this when a ChatGPT user needs one buyer-visible product detail, variants, seller availability, and option-selection context.",
     idempotencyKeyRequired: false,
+    resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,

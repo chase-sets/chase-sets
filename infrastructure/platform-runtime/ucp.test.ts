@@ -1,7 +1,11 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/ucp";
+import {
+  UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+  UCP_MCP_TOOLS,
+  UCP_VERSION,
+} from "@chase-sets/ucp";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
 import {
@@ -431,6 +435,54 @@ describe("UCP MCP routes", () => {
       },
       _meta: {
         securitySchemes: [{ type: "noauth" }],
+        ui: {
+          resourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+        },
+        "openai/outputTemplate": UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+      },
+    });
+  });
+
+  it("lists and reads the marketplace result component resource", async () => {
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+
+    const listResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "1", method: "resources/list" }),
+    });
+    const readResponse = await app.request("/ucp/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "2",
+        method: "resources/read",
+        params: {
+          uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+        },
+      }),
+    });
+
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({
+      result: {
+        resources: [
+          {
+            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+            mimeType: "text/html;profile=mcp-app",
+          },
+        ],
+      },
+    });
+    expect(readResponse.status).toBe(200);
+    await expect(readResponse.json()).resolves.toMatchObject({
+      result: {
+        contents: [
+          {
+            uri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+            mimeType: "text/html;profile=mcp-app",
+            text: expect.stringContaining("Chase Sets Marketplace Results"),
+          },
+        ],
       },
     });
   });
@@ -492,8 +544,18 @@ describe("UCP MCP routes", () => {
     }));
     await expect(response.json()).resolves.toMatchObject({
       result: {
-        structuredContent: { observed: { query: "charizard" } },
-        content: [{ type: "text" }],
+        structuredContent: {
+          observed: { query: "charizard" },
+        },
+        content: [
+          { type: "text" },
+          { json: { observed: { query: "charizard" } } },
+        ],
+        _meta: {
+          ui: {
+            resourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+          },
+        },
       },
     });
   });
