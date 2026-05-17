@@ -98,6 +98,20 @@
         "inventory.hold.released"
       ],
       "order": 30
+    },
+    {
+      "sourceContextName": "reputation",
+      "projectionName": "marketplace-identity-account-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": [
+        "marketplace-identity-account-projection"
+      ],
+      "eventTypes": [
+        "reputation.review.submitted",
+        "reputation.review.updated",
+        "reputation.review.withdrawn"
+      ],
+      "order": 40
     }
   ],
   "projectionGroups": [
@@ -117,10 +131,12 @@
     {
       "projectionName": "marketplace-identity-account-projection",
       "sourceContextNames": [
-        "identity"
+        "identity",
+        "reputation"
       ],
       "ownedTables": [
-        "marketplace_account_pages"
+        "marketplace_account_pages",
+        "marketplace_account_reviews"
       ],
       "requiredDuringBootstrap": true
     },

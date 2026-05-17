@@ -76,6 +76,10 @@ export const module: BcApiModule<
       "inventory",
       "marketplace-inventory-supply-projection",
     );
+    const reputationSubscription = getEventSubscription(
+      "reputation",
+      "marketplace-identity-account-projection",
+    );
 
     return [
       {
@@ -109,6 +113,16 @@ export const module: BcApiModule<
         eventTypes: inventorySubscription.eventTypes,
         streamPrefixes: inventorySubscription.streamPrefixes,
         order: inventorySubscription.order,
+      },
+      {
+        subscriptionName: "marketplace.reputation-account-projection",
+        sourceContextName: "reputation",
+        projectionName: reputationSubscription.projectionName,
+        subscriptionVersion: reputationSubscription.subscriptionVersion,
+        handlers: buildMarketplaceAccountProjectionHandlers(services.db),
+        eventTypes: reputationSubscription.eventTypes,
+        streamPrefixes: reputationSubscription.streamPrefixes,
+        order: reputationSubscription.order,
       },
     ];
   },

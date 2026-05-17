@@ -533,6 +533,50 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Can fulfill")).toBeNull();
   });
 
+  it("shows account reputation on listing and offer rows", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [{
+            ...baseListing,
+            seller_slug: "chase-sets-seller",
+            seller_average_rating: "4.80",
+            seller_review_count: 12,
+          }],
+          buyer_offer_matches: [{
+            ...baseOffer,
+            buyer_slug: "ash-ketchum",
+            buyer_average_rating: "4.20",
+            buyer_review_count: 5,
+          }],
+        })}
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: <div>Accept offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Seller reputation")).toBeTruthy();
+    expect(screen.getByText("4.8")).toBeTruthy();
+    expect(screen.getByText("(12)")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View feedback" }).getAttribute("href"))
+      .toBe("/sellers/chase-sets-seller#feedback");
+
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Sell" }),
+    );
+
+    expect(screen.getByText("Buyer reputation")).toBeTruthy();
+    expect(screen.getByText("4.2")).toBeTruthy();
+    expect(screen.getByText("(5)")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View feedback" }).getAttribute("href"))
+      .toBe("/sellers/ash-ketchum#feedback");
+  });
+
   it("highlights the initial selected listing and attributes the buy panel to it", () => {
     render(
       <ItemDetailPage

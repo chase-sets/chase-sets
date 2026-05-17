@@ -10,6 +10,7 @@ import {
   MarketplaceEmptyState,
   SellerCredibilityHeader,
   PageSection,
+  RatingSummary,
   Stack,
   Text,
 } from "@chase-sets/design-system";
@@ -25,6 +26,15 @@ import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics
 
 function formatMoney(value: string): string {
   return `$${value}`;
+}
+
+function parseRating(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const rating = Number(value);
+  return Number.isFinite(rating) ? rating : null;
 }
 
 function buyerFulfillmentLabel(shipFromCode: string | null) {
@@ -146,6 +156,14 @@ function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof lo
       </Container>
     );
   }
+  const sellerRating = parseRating(seller.average_rating);
+  const sellerReviewCount = seller.review_count ?? 0;
+  const reputationValue =
+    sellerRating !== null && sellerReviewCount > 0 ? (
+      <RatingSummary value={sellerRating} count={sellerReviewCount} compact />
+    ) : (
+      t("discovery.routes.publicSeller.no.feedback.yet")
+    );
 
   return (
     <Container width="expanded">
@@ -169,9 +187,7 @@ function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof lo
             },
             {
               label: t("discovery.routes.publicSeller.review.history"),
-              value: seller.active_listing_count > 0
-                ? t("discovery.routes.publicSeller.reviews.visible.after.orders")
-                : t("discovery.routes.publicSeller.new.seller"),
+              value: reputationValue,
             },
             {
               label: t("discovery.routes.publicSeller.response.time"),
@@ -207,6 +223,19 @@ function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof lo
             </LinkButton>
           }
         />
+
+        <div id="feedback">
+          <PageSection title={t("discovery.routes.publicSeller.feedback")}>
+            <Text>
+              {sellerRating !== null && sellerReviewCount > 0
+                ? t("discovery.routes.publicSeller.feedback.summary", {
+                    rating: sellerRating.toFixed(1),
+                    count: sellerReviewCount,
+                  })
+                : t("discovery.routes.publicSeller.no.feedback.yet")}
+            </Text>
+          </PageSection>
+        </div>
 
         <BuyerProtectionModule
           title={t("discovery.routes.publicSeller.buyer.confidence")}
@@ -244,11 +273,18 @@ function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof lo
                   priceDetail={availabilityDetail}
                   sellerName={seller.seller_display_name ?? t("discovery.routes.publicSeller.seller.2")}
                   sellerTrustLabel={
-                    seller.status === "active"
-                      ? t("discovery.routes.publicSeller.verified.seller")
-                      : t("discovery.routes.publicSeller.seller.details.visible")
+                    sellerRating !== null && sellerReviewCount > 0
+                      ? t("discovery.routes.publicSeller.reputation.rating", {
+                          rating: sellerRating.toFixed(1),
+                          count: sellerReviewCount,
+                        })
+                      : seller.status === "active"
+                        ? t("discovery.routes.publicSeller.verified.seller")
+                        : t("discovery.routes.publicSeller.seller.details.visible")
                   }
                   sellerVerified={seller.status === "active"}
+                  rating={sellerRating ?? undefined}
+                  reviewCount={sellerReviewCount}
                   fulfillment={buyerFulfillmentLabel(listing.ship_from_code)}
                   availability={availabilityDetail}
                   condition={listing.product_summary ?? t("discovery.routes.publicSeller.standard.product")}

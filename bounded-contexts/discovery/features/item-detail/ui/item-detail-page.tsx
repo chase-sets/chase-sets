@@ -26,6 +26,7 @@ import {
   MarketplaceProductDetailLayout,
   PageSection,
   ProductSelectionSummary,
+  RatingSummary,
   SegmentedControl,
   Stack,
   Surface,
@@ -236,6 +237,51 @@ function formatListingPurchaseLimit(
     return `Limit ${listing.max_units_per_order} per order`;
   }
   return null;
+}
+
+function parseRating(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const rating = Number(value);
+  return Number.isFinite(rating) ? rating : null;
+}
+
+function ReputationCue({
+  feedbackHref,
+  label,
+  rating,
+  reviewCount = 0,
+}: {
+  feedbackHref?: string | null;
+  label: string;
+  rating?: string | null;
+  reviewCount?: number;
+}) {
+  const parsedRating = parseRating(rating);
+  const hasFeedback = parsedRating !== null && reviewCount > 0;
+
+  return (
+    <Stack gap={1}>
+      <Text size="sm" tone="secondary">{label}</Text>
+      {hasFeedback ? (
+        <RatingSummary value={parsedRating} count={reviewCount} compact />
+      ) : (
+        <Text size="sm">{t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}</Text>
+      )}
+      {feedbackHref ? (
+        <LinkButton
+          href={feedbackHref}
+          tone="ghost"
+          size="sm"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {t("discovery.features.itemDetail.ui.itemDetailPage.view.feedback")}
+        </LinkButton>
+      ) : null}
+    </Stack>
+  );
 }
 
 function matchesSelectedOptions(
@@ -1333,7 +1379,7 @@ function LoadedItemDetailPage({
                                 handleSelectionKeyDown(event, selectListing)
                               }
                             >
-                              <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                              <Grid columns={{ base: 1, md: 4 }} gap={3}>
                                 <Stack gap={1}>
                                   <Inline gap={2}>
                                     <Text weight="semibold">
@@ -1347,6 +1393,16 @@ function LoadedItemDetailPage({
                                     {listing.seller_display_name ?? t("discovery.features.itemDetail.ui.itemDetailPage.seller")}
                                   </Text>
                                 </Stack>
+                                <ReputationCue
+                                  label={t("discovery.features.itemDetail.ui.itemDetailPage.seller.reputation")}
+                                  rating={listing.seller_average_rating}
+                                  reviewCount={listing.seller_review_count ?? 0}
+                                  feedbackHref={
+                                    listing.seller_slug
+                                      ? `/sellers/${listing.seller_slug}#feedback`
+                                      : null
+                                  }
+                                />
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
                                     {t("discovery.features.itemDetail.ui.itemDetailPage.available.2")}</Text>
@@ -1457,7 +1513,7 @@ function LoadedItemDetailPage({
                                 handleSelectionKeyDown(event, selectOffer)
                               }
                             >
-                              <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                              <Grid columns={{ base: 1, md: 4 }} gap={3}>
                                 <Stack gap={1}>
                                   <Inline gap={2}>
                                     <Text weight="semibold">
@@ -1479,6 +1535,16 @@ function LoadedItemDetailPage({
                                     </Text>
                                   ) : null}
                                 </Stack>
+                                <ReputationCue
+                                  label={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
+                                  rating={offer.buyer_average_rating}
+                                  reviewCount={offer.buyer_review_count ?? 0}
+                                  feedbackHref={
+                                    offer.buyer_slug
+                                      ? `/sellers/${offer.buyer_slug}#feedback`
+                                      : null
+                                  }
+                                />
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
                                     {t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}</Text>
