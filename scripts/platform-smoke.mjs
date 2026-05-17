@@ -10,7 +10,7 @@ function getSmokeEnv(name) {
   return process.env[name] ?? sandboxEnv[name] ?? "";
 }
 
-const { landingUrl, adminUrl, marketplaceUrl, redirectUrl } = resolvePlatformSmokeUrls({
+const { landingUrl, adminUrl, marketplaceUrl, marketplaceRootUrl, redirectUrl } = resolvePlatformSmokeUrls({
   cliArgs,
   env: process.env,
   sandboxEnv,
@@ -32,6 +32,7 @@ const writeWaitlist =
   (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
+const requireMarketplaceRoot = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_ROOT", false);
 const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", false);
 const requireSocialLogin = readBooleanEnv("SMOKE_REQUIRE_SOCIAL_LOGIN", false);
 const smokeUtmSource = getSmokeEnv("SMOKE_UTM_SOURCE") || getSmokeEnv("SMOKE_SOURCE") || "smoke";
@@ -286,6 +287,11 @@ async function main() {
   if (requireMarketplace && !marketplaceUrl) {
     throw new Error("Marketplace URL is required when SMOKE_REQUIRE_MARKETPLACE=true.");
   }
+  if (requireMarketplaceRoot && !marketplaceRootUrl) {
+    throw new Error(
+      "Marketplace root URL is required when SMOKE_REQUIRE_MARKETPLACE_ROOT=true.",
+    );
+  }
   if (requireLegacyRedirect && !redirectUrl) {
     throw new Error("Legacy redirect URL is required when SMOKE_REQUIRE_LEGACY_REDIRECT=true.");
   }
@@ -315,6 +321,10 @@ async function main() {
     } else {
       console.warn("Skipping social login smoke; SMOKE_REQUIRE_SOCIAL_LOGIN is not true.");
     }
+  }
+
+  if (marketplaceRootUrl) {
+    await expectMarketplaceSurface("marketplace root", marketplaceRootUrl);
   }
 
   if (redirectUrl) {

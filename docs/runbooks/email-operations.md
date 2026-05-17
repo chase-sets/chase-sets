@@ -33,6 +33,8 @@ Each SES identity needs:
 
 DigitalOcean DNS hosts `chasesets.com`; do not enable Route 53 automatic publishing for these identities.
 
+`staging.chasesets.com` is also the staging marketplace root and must remain a CNAME to the staging App Platform ingress. Do not add exact-name MX, TXT, A, or AAAA records at `staging.chasesets.com`; staging email identity records must stay on child names such as SES DKIM, `_dmarc.staging.chasesets.com`, and `bounce.staging.chasesets.com`.
+
 ## Operational Posture
 
 - Use SES for transactional email first: magic links, account security, order/payment, fulfillment, refund, and payout notices.

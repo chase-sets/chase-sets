@@ -45,13 +45,12 @@ Preview environments are disposable and intentionally `noindex,nofollow` for lan
 The long-lived staging environment uses the same full-platform shape as PR previews, but keeps stable hostnames and state across merges:
 
 - `www.staging.chasesets.com`: canonical staging landing `public-web`.
+- `staging.chasesets.com`: launch-facing staging marketplace entry point, routed to `marketplace`.
 - `marketplace.staging.chasesets.com`: marketplace web.
 - `admin.staging.chasesets.com`: admin web.
 - Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-The staging environment root, `staging.chasesets.com`, is reserved for environment-level DNS records such as Workspace mail, SPF, and SES identity records. A May 17, 2026 attempt to attach it directly to the App Platform marketplace component left the domain in `CONFIGURING` until the staging deployment was canceled. A second attempt to make it the staging App Platform primary domain also left the root in `CONFIGURING` with no certificate. A third attempt attached it as a self-managed App Platform alias without a DNS `zone`, but DigitalOcean still reported `DomainCNAMEMismatch`: the hostname must CNAME to the app ingress, which conflicts with exact-name MX and TXT mail records. Keep App Platform web domains on child hosts such as `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com` unless the root DNS ownership and mail identity records are changed first.
-
-If `https://staging.chasesets.com/` must take users to the marketplace before that DNS change, configure the redirect outside this Terraform root at the DNS or edge layer so it sends HTTPS traffic to `https://marketplace.staging.chasesets.com/`.
+The staging environment root, `staging.chasesets.com`, is attached to App Platform without a DNS `zone` field and must resolve as a CNAME to the staging App Platform ingress. A May 17, 2026 attempt to attach it as a DigitalOcean-managed App Platform marketplace alias left the domain in `CONFIGURING` until the staging deployment was canceled. A second attempt to make it the staging App Platform primary domain also left the root in `CONFIGURING` with no certificate. A third attempt attached it as a self-managed App Platform alias without a DNS `zone`, but DigitalOcean still reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present. Keep exact-name mail records off `staging.chasesets.com`; staging mail identity must use child records such as `bounce.staging.chasesets.com`, `_dmarc.staging.chasesets.com`, and provider DKIM records.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 

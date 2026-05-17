@@ -7,7 +7,7 @@ Make `https://staging.chasesets.com/` behave like the launch-facing marketplace 
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260517-staging-root-marketplace`
-- Branch: `codex/revert-staging-root-self-managed`
+- Branch: `codex/staging-root-marketplace-dns`
 - Sandbox id: `03399e6c`
 - Dependency setup status: `pnpm run deps:install` completed with shared pnpm store.
 - pnpm store path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\.chase-sets-pnpm-store`
@@ -22,18 +22,20 @@ Make `https://staging.chasesets.com/` behave like the launch-facing marketplace 
 
 ## Resolved Decisions
 
-- Do not route `staging.chasesets.com` through DigitalOcean App Platform while the root carries mail identity DNS. Managed alias, managed primary, and self-managed alias attachments were attempted, merged, and then blocked staging deployment with the domain stuck in `CONFIGURING`.
+- Do not route `staging.chasesets.com` as a DigitalOcean-managed App Platform domain while the root carries exact-name mail identity DNS. Managed alias and managed primary-domain attachments were attempted, merged, and then blocked staging deployment with the domain stuck in `CONFIGURING`.
+- A self-managed App Platform alias without `zone` is the correct app shape, but it only works after live DNS changes `staging.chasesets.com` from exact-name A/AAAA/MX/TXT records to a CNAME pointing at the staging App Platform ingress.
+- Treat exact-name Google Workspace MX/TXT records at `staging.chasesets.com` as displaced by the launch-facing marketplace root. SES staging mail keeps using DKIM, DMARC, and MAIL FROM child records under the staging namespace.
 - Keep `marketplace.staging.chasesets.com` as an explicit marketplace host for existing links and operations.
 - Keep `www.staging.chasesets.com` as the staging landing host so waitlist and public policy smoke checks remain stable.
 - Preserve the staging legacy landing redirect smoke requirement; it is already represented by App Platform child/legacy hosts.
-- Document that `https://staging.chasesets.com/` needs an external HTTPS edge or DNS-layer redirect to `https://marketplace.staging.chasesets.com/`, or a future DNS/mail-identity migration before App Platform can own the root directly.
 
 ## Implementation Checklist
 
-- Reverted: Remove the staging root marketplace domain from DigitalOcean platform Terraform locals because staging deployment could not activate it.
-- Reverted: Remove direct root marketplace smoke checks from CI because the root is not an App Platform-owned host.
-- Completed: Align staging smoke with the existing legacy landing redirect requirement while waiting on all staging web domains.
-- Completed: Update environment domain architecture docs and the DigitalOcean deployment runbook with the root-domain blocker and external redirect path.
+- Completed locally: Add `staging.chasesets.com` as a self-managed staging marketplace App Platform domain.
+- Completed: Route staging root `/`, `/api`, `/.well-known`, and `/ucp` through the marketplace/platform API paths.
+- Completed: Add deployment wait and smoke coverage for the staging root marketplace URL.
+- Completed live: Replaced live DigitalOcean DNS exact-name `staging` A/AAAA/MX/TXT records with a `staging` CNAME to `chase-sets-staging-platform-98hn5.ondigitalocean.app`.
+- Completed: Update environment domain architecture docs and the DigitalOcean deployment runbook with the self-managed root-domain pattern, DNS migration requirement, and failed managed-domain findings.
 - Completed: Run focused Terraform/static tests and smoke URL tests.
 
 ## Deployment Finding
@@ -47,7 +49,9 @@ Make `https://staging.chasesets.com/` behave like the launch-facing marketplace 
 - PR #177 tried a third App Platform shape by attaching `staging.chasesets.com` as a self-managed alias without the Terraform `zone` field.
 - Staging deployment for PR #177 merge commit `04d9f5e9` accepted the App Platform spec, but the root domain stayed `CONFIGURING`; DigitalOcean reported `DomainCNAMEMismatch` because `staging.chasesets.com` must CNAME to `chase-sets-staging-platform-98hn5.ondigitalocean.app`.
 - Live DNS for `staging.chasesets.com` has A/AAAA records plus exact-name MX and TXT records for mail identity, so the required CNAME cannot be added without first moving or removing those mail records.
-- Corrective PR scope: remove direct App Platform ownership of the root so staging/prod deployment can resume, and document the out-of-band redirect needed to satisfy the user-visible root behavior.
+- PR #178 reverted the self-managed alias so staging/prod deployment could return to green while the DNS conflict was still present.
+- Current follow-up scope: reapply the self-managed alias and verify staging root marketplace traffic with same-origin API and UCP paths.
+- Live DNS change completed on May 17, 2026: deleted exact-name `staging` A/AAAA/MX/TXT records `1818978778`, `1818978779`, `1818978780`, `1818978781`, `1818978782`, and `1818978793`; created CNAME record `1819266848` from `staging.chasesets.com` to `chase-sets-staging-platform-98hn5.ondigitalocean.app`.
 
 ## Verification
 
@@ -55,6 +59,7 @@ Make `https://staging.chasesets.com/` behave like the launch-facing marketplace 
 - `pnpm run test:digitalocean-app-deployment`
 - `pnpm run verify:static`
 - `terraform fmt -check -recursive infrastructure/digitalocean/platform`
+- `terraform -chdir=infrastructure/digitalocean/platform validate`
 - `git diff --check`
 
 ## Documentation To Promote
