@@ -84,7 +84,7 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{ search: "", status: "draft", language: "", source: "tcgplayer", blueprintId: "", tag: "", setId: "", typeKey: "", page: 0, pageSize: 50 }}
       />,
     );
 

@@ -1,10 +1,10 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import { Children, useState, type HTMLAttributes, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
 import { Button } from "../actions";
-import { BottomSheet, type BottomSheetProps } from "../feedback";
+import { BottomSheet, SideSheet, type BottomSheetProps } from "../feedback";
 
 export interface FilterBarProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -43,6 +43,124 @@ export function FilterBar({
     >
       <div className="flex flex-1 flex-wrap items-end gap-3">{children}</div>
       {actions ? <div className="flex flex-wrap items-end gap-2 md:self-end">{actions}</div> : null}
+    </motion.div>
+  );
+}
+
+export interface FilterAreaProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children?: ReactNode;
+  filters?: readonly ReactNode[];
+  actions?: ReactNode;
+  sticky?: boolean;
+  stickyOffset?: string;
+  primaryFilterCount?: number;
+  activeFilterCount?: number;
+  panelTitle?: ReactNode;
+  panelDescription?: ReactNode;
+  panelApplyLabel?: string;
+  panelCloseLabel?: string;
+  overflowTriggerLabel?: string;
+}
+
+function formatOverflowTriggerLabel(
+  baseLabel: string,
+  overflowCount: number,
+  activeFilterCount: number | undefined,
+) {
+  if (activeFilterCount !== undefined && activeFilterCount > 0) {
+    return `${baseLabel} (${activeFilterCount} active)`;
+  }
+
+  return overflowCount > 0 ? `${baseLabel} (${overflowCount})` : baseLabel;
+}
+
+export function FilterArea({
+  children,
+  filters,
+  actions,
+  sticky = false,
+  stickyOffset,
+  primaryFilterCount = 2,
+  activeFilterCount,
+  panelTitle = "Filters",
+  panelDescription,
+  panelApplyLabel = "Apply filters",
+  panelCloseLabel = "Close filters",
+  overflowTriggerLabel = "More filters",
+  ...rest
+}: FilterAreaProps) {
+  const motionSettings = useChaseMotion();
+  const nativeProps = toMotionDomProps(rest);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const filterItems = (filters ?? Children.toArray(children)).filter(Boolean);
+  const visibleFilterCount = Math.max(0, primaryFilterCount);
+  const inlineFilters = filterItems.slice(0, visibleFilterCount);
+  const overflowFilters = filterItems.slice(visibleFilterCount);
+  const hasOverflow = overflowFilters.length > 0;
+  const triggerLabel = formatOverflowTriggerLabel(
+    overflowTriggerLabel,
+    overflowFilters.length,
+    activeFilterCount,
+  );
+
+  return (
+    <motion.div
+      {...nativeProps}
+      initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 10 }}
+      animate={motionSettings.reducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={
+        motionSettings.reducedMotion
+          ? undefined
+          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+      }
+      style={sticky && stickyOffset ? { top: stickyOffset } : undefined}
+      className={cx(
+        "modern-surface flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm lg:flex-row lg:items-end lg:justify-between",
+        sticky && "sticky z-sticky",
+        sticky && !stickyOffset && "top-16"
+      )}
+    >
+      <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
+        {inlineFilters.map((filter, index) => (
+          <div key={index} className="min-w-[10rem] max-w-full">
+            {filter}
+          </div>
+        ))}
+      </div>
+      {(hasOverflow || actions) ? (
+        <div className="flex shrink-0 flex-wrap items-end gap-2 lg:self-end">
+          {hasOverflow ? (
+            <SideSheet
+              open={panelOpen}
+              onOpenChange={setPanelOpen}
+              title={panelTitle}
+              description={panelDescription}
+              closeLabel={panelCloseLabel}
+              width="md"
+              trigger={
+                <Button tone="secondary" leadingIcon="filter">
+                  {triggerLabel}
+                </Button>
+              }
+              footer={
+                <Button tone="primary" block onClick={() => setPanelOpen(false)}>
+                  {panelApplyLabel}
+                </Button>
+              }
+            >
+              <div className="grid gap-4">
+                {overflowFilters.map((filter, index) => (
+                  <div key={index} className="min-w-0">
+                    {filter}
+                  </div>
+                ))}
+              </div>
+            </SideSheet>
+          ) : null}
+          {actions}
+        </div>
+      ) : null}
     </motion.div>
   );
 }

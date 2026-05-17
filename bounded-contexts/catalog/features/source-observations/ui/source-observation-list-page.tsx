@@ -108,6 +108,13 @@ export function SourceObservationListPage({
       ),
     [data.items],
   );
+  const activeFilterCount = [
+    listControls.search,
+    listControls.status,
+    listControls.language,
+    listControls.source,
+    listControls.setId,
+  ].filter(Boolean).length;
 
   useEffect(() => {
     setSelectedKeys((current) =>
@@ -300,6 +307,7 @@ export function SourceObservationListPage({
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        activeFilterCount={activeFilterCount}
         selectedKeys={selectedKeys}
         onSelectionChange={handleSelectionChange}
         isRowSelectable={(row) => row.status === "observed"}
@@ -375,6 +383,10 @@ export function SourceObservationListPage({
               value={listControls.setId}
               onChange={(event) => listControls.setSetId(event.target.value)}
             />
+          </>
+        }
+        filterActions={
+          <Inline gap={2}>
             <Button
               tone="secondary"
               leadingIcon="badgeCheck"
@@ -397,7 +409,7 @@ export function SourceObservationListPage({
             >
               {t("catalog.features.sourceObservations.ui.list.bulk.reject.all.matching")}
             </Button>
-          </>
+          </Inline>
         }
         page={listControls.page}
         pageSize={listControls.pageSize}
