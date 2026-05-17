@@ -20,6 +20,9 @@ function createSmokeFetch(calls) {
     if (path === "/health") {
       return jsonResponse({ ok: true });
     }
+    if (path === "/api/auth/password-sign-in") {
+      return jsonResponse({ type: "session-started", sessionToken: "session_admin" });
+    }
     if (path === "/api/payments/provider/webhooks") {
       return jsonResponse({ error: { code: "validation_failed" } }, 400);
     }
@@ -172,6 +175,31 @@ describe("stripe money smoke test", () => {
         "/api/marketplace/account/payments",
         "/api/settlement/payouts",
       ]),
+    );
+  });
+
+  it("can sign in with preview admin credentials when no bearer or cookie is supplied", async () => {
+    const calls = [];
+    const result = await runSellerFlow("https://marketplace.preview.test", {
+      fetchImpl: createSmokeFetch(calls),
+      env: {
+        PLATFORM_AUTH_BASE_URL: "https://admin.preview.test",
+        PLATFORM_ADMIN_EMAIL: "admin@example.test",
+        PLATFORM_ADMIN_PASSWORD: "correct horse battery staple",
+        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
+        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
+      },
+    });
+
+    expect(result.accountStatus).toBe("ok");
+    expect(calls[0]).toMatchObject({
+      url: "https://admin.preview.test/api/auth/password-sign-in",
+    });
+    const accountStatusCall = calls.find((call) =>
+      call.url === "https://marketplace.preview.test/api/settlement/account-status"
+    );
+    expect(accountStatusCall.init.headers.get("Authorization")).toBe(
+      "Bearer session_admin",
     );
   });
 });

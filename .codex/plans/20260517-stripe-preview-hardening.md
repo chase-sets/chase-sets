@@ -46,6 +46,7 @@ Consequence of choosing differently: without authenticated preview access, I can
 - [x] Extend Stripe money smoke coverage for both payment and settlement provider webhook edge rejection.
 - [x] Extend smoke coverage for payment provider health, settlement provider health, account status wallet flags, checkout fee policy, provider idempotency surfaces, platform balance forecast, optional balance-credit payment creation, and payout preview/request safety.
 - [x] Add focused tests for the smoke script so preview coverage cannot regress silently.
+- [x] Add Stripe money smoke to the label-gated PR preview workflow using preview admin sign-in.
 - [x] Review Stripe adapter unit coverage for Accounts v2, payment sessions, balance/transfer/payout calls, webhook mapping, idempotency, and signature failures.
 - [x] Run targeted tests for Stripe adapters, money movement, payment processing, platform config, smoke script, and money contexts.
 - [x] Run broader verification: metadata, static checks, typecheck, non-DB tests, DB-profile tests, and build.

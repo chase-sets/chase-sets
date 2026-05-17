@@ -715,6 +715,29 @@ jobs:
           cd ../../..
           pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}"
 
+      - name: Stripe money smoke
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_CONNECT_RETURN_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts
+          STRIPE_CONNECT_REFRESH_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts/setup
+        run: |
+          set -euo pipefail
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required preview Stripe smoke domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          PLATFORM_API_BASE_URL="https://${marketplace_domain}" \
+            PLATFORM_AUTH_BASE_URL="https://${admin_domain}" \
+            pnpm run stripe:money-smoke -- --edge-check --seller-flow
+
   pr-required:
     name: PR Required
     runs-on: ubuntu-latest

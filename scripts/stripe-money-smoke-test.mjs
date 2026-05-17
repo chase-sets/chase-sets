@@ -33,6 +33,45 @@ function authHeaders(env = process.env) {
   return headers;
 }
 
+async function resolveAuthHeaders(env = process.env, fetchImpl = fetch) {
+  const headers = authHeaders(env);
+  if (headers.has("Authorization") || headers.has("Cookie")) {
+    return headers;
+  }
+
+  const adminEmail = readEnv("PLATFORM_ADMIN_EMAIL", env);
+  const adminPassword = readEnv("PLATFORM_ADMIN_PASSWORD", env);
+  const authBaseUrl =
+    readEnv("PLATFORM_AUTH_BASE_URL", env) ??
+    readEnv("PLATFORM_ADMIN_BASE_URL", env) ??
+    readEnv("PLATFORM_API_BASE_URL", env);
+  if (!adminEmail || !adminPassword || !authBaseUrl) {
+    return headers;
+  }
+
+  const signIn = await requestJson(
+    `${stripTrailingSlash(authBaseUrl)}/api/auth/password-sign-in`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+    },
+    fetchImpl,
+  );
+  assert(
+    signIn.response.status === 200,
+    `Expected admin password sign-in to return 200, got ${signIn.response.status}.`,
+  );
+  const sessionToken =
+    typeof signIn.body?.sessionToken === "string"
+      ? signIn.body.sessionToken.trim()
+      : "";
+  assert(sessionToken, "Admin password sign-in did not return a session token.");
+
+  headers.set("Authorization", `Bearer ${sessionToken}`);
+  return headers;
+}
+
 async function requestJson(url, init = {}, fetchImpl = fetch) {
   const response = await fetchImpl(url, init);
   const text = await response.text();
@@ -69,6 +108,10 @@ export function envReport(env = process.env) {
   const optional = [
     "PLATFORM_API_AUTHORIZATION",
     "PLATFORM_API_COOKIE",
+    "PLATFORM_AUTH_BASE_URL",
+    "PLATFORM_ADMIN_BASE_URL",
+    "PLATFORM_ADMIN_EMAIL",
+    "PLATFORM_ADMIN_PASSWORD",
     "SMOKE_BALANCE_CREDIT_AMOUNT",
     "SMOKE_CREATE_PAYMENT",
     "SMOKE_ORDER_IDS",
@@ -149,10 +192,10 @@ async function getJsonOk(fetchImpl, url, headers, label) {
 export async function runSellerFlow(baseUrl, options = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const headers = authHeaders(env);
+  const headers = await resolveAuthHeaders(env, fetchImpl);
   assert(
     headers.has("Authorization") || headers.has("Cookie"),
-    "Set PLATFORM_API_AUTHORIZATION or PLATFORM_API_COOKIE before running --seller-flow.",
+    "Set PLATFORM_API_AUTHORIZATION or PLATFORM_API_COOKIE, or set PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD with PLATFORM_AUTH_BASE_URL, before running --seller-flow.",
   );
 
   const accountStatus = await getJsonOk(

@@ -79,6 +79,10 @@ For authenticated seller-flow checks, set one of:
 - `PLATFORM_API_AUTHORIZATION`
 - `PLATFORM_API_COOKIE`
 
+If a bearer token or cookie is not already available, the smoke test can sign in
+with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, and
+`PLATFORM_AUTH_BASE_URL`.
+
 Optional authenticated preview checks:
 
 - `SMOKE_ORDER_IDS`: comma-separated pending-payment order ids to probe checkout payment status.
