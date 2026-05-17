@@ -38,7 +38,6 @@ import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { Input } from "./input";
 import { Progress, Skeleton } from "./progress";
-import { BottomSheet } from "../feedback";
 
 export type MarketplaceDensity = "compact" | "comfortable" | "focused";
 export type ListingModel = "product" | "service" | "rental" | "booking" | "digital" | "quote" | "local";
@@ -1176,48 +1175,6 @@ export function SortSelector({ label, value, options, onChange }: SortSelectorPr
       </select>
     </label>
   );
-}
-
-export interface MarketplaceUiFilterBottomSheetProps {
-  title: ReactNode;
-  open: boolean;
-  children: ReactNode;
-  footer?: ReactNode;
-  description?: ReactNode;
-  closeLabel?: string;
-  onOpenChange?: (open: boolean) => void;
-}
-
-export function MarketplaceUiFilterBottomSheet({
-  title,
-  open,
-  children,
-  footer,
-  description,
-  closeLabel,
-  onOpenChange
-}: MarketplaceUiFilterBottomSheetProps) {
-  return (
-    <BottomSheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title={title}
-      description={description}
-      closeLabel={closeLabel}
-      height="expanded"
-      footer={footer}
-    >
-      <div className="grid gap-4">{children}</div>
-    </BottomSheet>
-  );
-}
-
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export interface MarketplaceFilterDrawerProps extends MarketplaceUiFilterBottomSheetProps {}
-
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export function MarketplaceFilterDrawer(props: MarketplaceFilterDrawerProps) {
-  return <MarketplaceUiFilterBottomSheet {...props} />;
 }
 
 export interface NoResultsRecoveryProps {

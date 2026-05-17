@@ -134,7 +134,7 @@ export default function MarketplaceLayoutRoute() {
   const notificationParams = new URLSearchParams(location.search);
   const notificationState = notificationParams.get("notifications");
   const notificationView = notificationState === "settings" ? "settings" : "feed";
-  const notificationDrawerOpen = notificationState === "feed" || notificationState === "settings";
+  const notificationSheetOpen = notificationState === "feed" || notificationState === "settings";
   const showAddPasskeyPrompt = Boolean(actor && prompt === "add-passkey");
   const setNotificationRouteState = (
     nextOpen: boolean,
@@ -163,7 +163,7 @@ export default function MarketplaceLayoutRoute() {
 
   return (
     <DiscoveryShellLayout
-      activeKey={notificationDrawerOpen ? "notifications" : getActiveKey(location.pathname)}
+      activeKey={notificationSheetOpen ? "notifications" : getActiveKey(location.pathname)}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
       onNavSelect={handleNavSelect}
@@ -212,7 +212,7 @@ export default function MarketplaceLayoutRoute() {
       </Stack>
       {actor ? (
         <NotificationCenterShell
-          open={notificationDrawerOpen}
+          open={notificationSheetOpen}
           view={notificationView}
           onOpenChange={(open) => setNotificationRouteState(open)}
           onViewChange={(view) => setNotificationRouteState(true, view)}

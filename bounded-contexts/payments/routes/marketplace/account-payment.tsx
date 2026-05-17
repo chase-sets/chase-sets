@@ -814,6 +814,7 @@ export default function MarketplaceAccountPaymentRoute() {
       />
 
       <CheckoutLayout
+        summaryLabel="Payment summary"
         summary={
           <Stack gap={4}>
             <PriceBreakdown

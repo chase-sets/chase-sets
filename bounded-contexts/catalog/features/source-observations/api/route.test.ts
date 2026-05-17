@@ -93,6 +93,51 @@ describe("source observation routes", () => {
     });
   });
 
+  it("lists integration scopes using provider language and expansion filters", async () => {
+    const listIntegrationScopes = vi.fn(async () => [
+      {
+        provider_key: "tcgdex",
+        language_code: "en",
+        expansion_id: "base1",
+        expansion_name: "Base Set",
+        series_id: "base",
+        series_name: "Base",
+        total_observations: 102,
+        observed_observations: 100,
+        promoted_observations: 2,
+        rejected_observations: 0,
+        first_observed_at: "2026-05-16T00:00:00.000Z",
+        latest_observed_at: "2026-05-16T00:01:00.000Z",
+        latest_source_updated_at: null,
+      },
+    ]);
+    const services = {
+      listIntegrationScopes,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-scopes?source=tcgdex&language=en&setId=base1");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      total: 1,
+      count: 1,
+      items: [
+        {
+          provider_key: "tcgdex",
+          language_code: "en",
+          expansion_id: "base1",
+          series_name: "Base",
+        },
+      ],
+    });
+    expect(listIntegrationScopes).toHaveBeenCalledWith({
+      provider: "tcgdex",
+      language: "en",
+      setId: "base1",
+    });
+  });
+
   it("accepts TCGdex expansion ID as the Catalog-facing import request field", async () => {
     const importTcgdexSet = vi.fn(async () => ({
       setId: "base1",
@@ -201,6 +246,98 @@ describe("source observation routes", () => {
     });
     expect(promoteObservations).toHaveBeenCalledWith({
       observationIds: ["obs_1", "obs_2"],
+      context,
+    });
+  });
+
+  it("requires a reason for bulk rejection", async () => {
+    const services = {
+      rejectObservations: vi.fn(),
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-reject", {
+      method: "POST",
+      body: JSON.stringify({ observationIds: ["obs_1"], reason: " " }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(services.rejectObservations).not.toHaveBeenCalled();
+  });
+
+  it("bulk rejects explicit observation ids with the shared reason", async () => {
+    const rejectObservations = vi.fn(async () => ({
+      requested: 2,
+      promoted: 0,
+      rejected: 2,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    }));
+    const services = {
+      rejectObservations,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-reject", {
+      method: "POST",
+      body: JSON.stringify({
+        observationIds: ["obs_1", "obs_2"],
+        reason: "Duplicate provider row.",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      requested: 2,
+      rejected: 2,
+    });
+    expect(rejectObservations).toHaveBeenCalledWith({
+      observationIds: ["obs_1", "obs_2"],
+      reason: "Duplicate provider row.",
+      context,
+    });
+  });
+
+  it("bulk rejects observations matching an explicit filter scope", async () => {
+    const rejectObservationScope = vi.fn(async () => ({
+      requested: 3,
+      promoted: 0,
+      rejected: 3,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    }));
+    const services = {
+      rejectObservationScope,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-reject", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { status: "observed", source: "tcgdex", language: "en", setId: "base1" },
+        reason: "Out of scope.",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      requested: 3,
+      rejected: 3,
+    });
+    expect(rejectObservationScope).toHaveBeenCalledWith({
+      scope: {
+        search: undefined,
+        status: "observed",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+      reason: "Out of scope.",
       context,
     });
   });

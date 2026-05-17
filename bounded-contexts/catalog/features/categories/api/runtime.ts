@@ -7,6 +7,11 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
+  createBulkLifecycleOperations,
+  type BulkLifecycleOperations,
+  type BulkSelection,
+} from "../../../support/runtime-support/bulk-lifecycle";
+import {
   type CategoryState,
   type CategoryCommand,
   type CategoryEvent,
@@ -14,7 +19,13 @@ import {
   decideCategory,
   evolveCategory,
 } from "../domain/domain";
-import { getCategoryDetail, listCategories } from "../read-model/queries";
+import {
+  getCategoryDetail,
+  listCategories,
+  listCategoryBulkRows,
+  listCategoryIds,
+  type CategoryListParams,
+} from "../read-model/queries";
 import { buildCatalogAdminCategoryProjectionHandlers } from "../read-model/admin-projection";
 import { buildCategoryProjectionHandlers } from "../read-model/projection";
 
@@ -26,6 +37,7 @@ export type CategoryServices = Readonly<{
   getCategoryDetail: (
     categoryId: string,
   ) => ReturnType<typeof getCategoryDetail>;
+  bulkLifecycle: BulkLifecycleOperations<CategoryListParams, CategoryCommand, CategoryState, CategoryEvent>;
   projectors: readonly Projector[];
 }>;
 
@@ -43,23 +55,56 @@ export function createCategoryRuntime(
     decide: decideCategory,
   });
 
+  const projectors = [
+    createProjector({
+      projectorName: "catalog-category-projection",
+      eventStore: deps.eventStore,
+      checkpointStore: deps.checkpointStore,
+      handlers: buildCategoryProjectionHandlers(deps.db),
+    }),
+    createProjector({
+      projectorName: "catalog-admin-category-projection",
+      eventStore: deps.eventStore,
+      checkpointStore: deps.checkpointStore,
+      handlers: buildCatalogAdminCategoryProjectionHandlers(deps.db),
+    }),
+  ];
+  const bulkLifecycle = createBulkLifecycleOperations<CategoryListParams, CategoryCommand, CategoryState, CategoryEvent>({
+    actions: [
+      {
+        action: "publish",
+        readyStatus: "draft",
+        command: { type: "PublishCategory" },
+        streamId: (id) => `catalog.category-${id}`,
+        blockedReason: (status) => `Only draft Categories can be published. Current status: ${status}.`,
+      },
+      {
+        action: "deprecate",
+        readyStatus: "active",
+        command: { type: "DeprecateCategory" },
+        streamId: (id) => `catalog.category-${id}`,
+        blockedReason: (status) => `Only active Categories can be deprecated. Current status: ${status}.`,
+      },
+      {
+        action: "archive",
+        readyStatus: "deprecated",
+        command: { type: "ArchiveCategory" },
+        streamId: (id) => `catalog.category-${id}`,
+        blockedReason: (status) => `Only deprecated Categories can be archived. Current status: ${status}.`,
+      },
+    ],
+    commandHandler,
+    resolveIds: (selection: BulkSelection<CategoryListParams>) =>
+      selection.mode === "ids" ? Promise.resolve(selection.ids) : listCategoryIds(deps.db, selection.query),
+    loadRows: (ids) => listCategoryBulkRows(deps.db, ids),
+    projectors,
+  });
+
   return {
     commandHandler,
     listCategories: (params) => listCategories(deps.db, params),
     getCategoryDetail: (categoryId) => getCategoryDetail(deps.db, categoryId),
-    projectors: [
-      createProjector({
-        projectorName: "catalog-category-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildCategoryProjectionHandlers(deps.db),
-      }),
-      createProjector({
-        projectorName: "catalog-admin-category-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildCatalogAdminCategoryProjectionHandlers(deps.db),
-      }),
-    ],
+    bulkLifecycle,
+    projectors,
   };
 }

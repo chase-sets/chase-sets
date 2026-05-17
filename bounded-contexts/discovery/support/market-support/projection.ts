@@ -780,25 +780,44 @@ export function buildDiscoveryMarketProjectionHandlers(
     "reputation.review.submitted": async (event) => {
       const data = event.data as {
         reviewId: string;
+        authorAccountId: string;
         subjectAccountId: string;
+        authorRole: string;
         rating: number;
+        feedback: string | null;
         submittedAt: string;
       };
 
       await db.query(
         `INSERT INTO discovery_market_account_reviews (
            review_id,
+           author_account_id,
            subject_account_id,
+           author_role,
            rating,
+           feedback,
            status,
+           submitted_at,
            updated_at
-         ) VALUES ($1, $2, $3, 'active', $4)
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7)
          ON CONFLICT (review_id) DO UPDATE SET
+           author_account_id = EXCLUDED.author_account_id,
            subject_account_id = EXCLUDED.subject_account_id,
+           author_role = EXCLUDED.author_role,
            rating = EXCLUDED.rating,
+           feedback = EXCLUDED.feedback,
            status = EXCLUDED.status,
+           submitted_at = COALESCE(discovery_market_account_reviews.submitted_at, EXCLUDED.submitted_at),
            updated_at = EXCLUDED.updated_at`,
-        [data.reviewId, data.subjectAccountId, data.rating, data.submittedAt],
+        [
+          data.reviewId,
+          data.authorAccountId,
+          data.subjectAccountId,
+          data.authorRole,
+          data.rating,
+          data.feedback,
+          data.submittedAt,
+        ],
       );
       await refreshAccountReputation(db, data.subjectAccountId, data.submittedAt);
       await emitAccountReputationPatches(db, event, data.subjectAccountId);
@@ -807,15 +826,17 @@ export function buildDiscoveryMarketProjectionHandlers(
       const data = event.data as {
         reviewId: string;
         rating: number;
+        feedback: string | null;
         updatedAt: string;
       };
       const subjectResult = await db.query<{ subject_account_id: string }>(
         `UPDATE discovery_market_account_reviews
          SET rating = $2,
-             updated_at = $3
+             feedback = $3,
+             updated_at = $4
          WHERE review_id = $1
          RETURNING subject_account_id`,
-        [data.reviewId, data.rating, data.updatedAt],
+        [data.reviewId, data.rating, data.feedback, data.updatedAt],
       );
       const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
       if (!subjectAccountId) {

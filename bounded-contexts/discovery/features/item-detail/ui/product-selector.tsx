@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/design-system";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
+  getOrderedDimensionOptions,
   getOptionLabel,
   getOrderedActiveDimensions,
 } from "../domain/product-resolution";
@@ -40,12 +41,13 @@ export function ProductSelector({
     <Stack gap={4}>
       {orderedDimensions.map((dimension) => {
         const selected = selections[dimension.dimensionId] ?? ANY_OPTION_VALUE;
+        const orderedOptions = getOrderedDimensionOptions(dimension);
         const items = [
           {
             value: ANY_OPTION_VALUE,
             label: t("discovery.features.itemDetail.ui.productSelector.any"),
           },
-          ...dimension.allowedOptions.map((option) => ({
+          ...orderedOptions.map((option) => ({
             value: option.optionId,
             label: getOptionLabel(option),
             description: optionSummaries[dimension.dimensionId]?.[option.optionId],
@@ -57,7 +59,7 @@ export function ProductSelector({
             value === ANY_OPTION_VALUE ? "" : value,
           );
 
-        if (dimension.allowedOptions.length <= 5) {
+        if (orderedOptions.length <= 5) {
           return (
             <Stack key={dimension.dimensionId} gap={2}>
               <Text size="sm" weight="semibold">

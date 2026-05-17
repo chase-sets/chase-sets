@@ -420,6 +420,7 @@ export default function CheckoutStartRoute() {
         description={headerCopy.description}
       />
       <CheckoutLayout
+        summaryLabel="Checkout summary"
         summary={
           <Stack gap={4}>
             <PriceBreakdown

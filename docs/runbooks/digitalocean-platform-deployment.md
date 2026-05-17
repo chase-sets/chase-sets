@@ -45,11 +45,12 @@ Preview environments are disposable and intentionally `noindex,nofollow` for lan
 The long-lived staging environment uses the same full-platform shape as PR previews, but keeps stable hostnames and state across merges:
 
 - `www.staging.chasesets.com`: canonical staging landing `public-web`.
+- `staging.chasesets.com`: launch-facing staging marketplace entry point, routed to `marketplace`.
 - `marketplace.staging.chasesets.com`: marketplace web.
 - `admin.staging.chasesets.com`: admin web.
 - Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-The staging environment root, `staging.chasesets.com`, is reserved for environment-level DNS records such as Workspace mail, SPF, and SES identity records. Keep App Platform web domains on child hosts such as `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com` so mail records cannot block web certificate activation.
+The staging environment root, `staging.chasesets.com`, also carries environment-level DNS records such as Workspace mail, SPF, and SES identity records. A May 17, 2026 attempt to attach it as a DigitalOcean-managed App Platform marketplace alias left the domain in `CONFIGURING` until the staging deployment was canceled. A second attempt to make it the staging App Platform primary domain also left the root in `CONFIGURING` with no certificate. Keep the root DNS records self-managed, and attach the root to App Platform without a `zone` field so the app owns only hostname certificate/routing while DigitalOcean DNS continues to own the A/AAAA, MX, and TXT records.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 

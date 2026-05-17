@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { CategoryServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CategoryId } from "../../../ids";
+import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 
 export function categoryRoutes(services: CategoryServices) {
@@ -28,6 +29,27 @@ export function categoryRoutes(services: CategoryServices) {
     });
 
     return c.json({ id: categoryId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, categoryListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, categoryListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
   });
 
   app.put("/:id", async (c) => {
@@ -91,8 +113,8 @@ export function categoryRoutes(services: CategoryServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset, parentCategoryId } = c.req.query();
-    const result = await services.listCategories({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined, parentCategoryId });
+    const { search, status, limit, offset, parentCategoryId, hierarchy } = c.req.query();
+    const result = await services.listCategories({ search, status, hierarchy, limit: Number(limit) || undefined, offset: Number(offset) || undefined, parentCategoryId });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
@@ -109,6 +131,14 @@ export function categoryRoutes(services: CategoryServices) {
   return app;
 }
 
+function categoryListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: toOptionalString(record.search),
+    status: toOptionalString(record.status),
+    parentCategoryId: toOptionalString(record.parentCategoryId),
+    hierarchy: toOptionalString(record.hierarchy),
+  };
+}
 
 
 

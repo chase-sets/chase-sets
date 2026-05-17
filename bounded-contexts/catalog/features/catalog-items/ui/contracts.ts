@@ -101,3 +101,50 @@ export interface BulkPublishResult {
   skipped_count: number;
   candidates: BulkPublishCandidate[];
 }
+
+export type BulkEditCatalogItemAction =
+  | "assignBlueprint"
+  | "assignCategory"
+  | "removeCategory"
+  | "setTags"
+  | "mergeTags"
+  | "clearTags";
+
+export type BulkEditCatalogItemOperation =
+  | { action: "assignBlueprint"; blueprintId: string }
+  | { action: "assignCategory"; categoryId: string }
+  | { action: "removeCategory"; categoryId: string }
+  | { action: "setTags"; tags: string[] }
+  | { action: "mergeTags"; tags: string[] }
+  | { action: "clearTags" };
+
+export interface BulkEditCatalogItemCandidate {
+  catalog_item_id: string;
+  title: string;
+  status: string;
+  blueprint_id: string | null;
+  category_ids: string[];
+  tags: string[];
+  outcome: "ready" | "blocked" | "succeeded" | "skipped" | "failed";
+  reason: string | null;
+}
+
+export interface BulkEditCatalogItemPreview {
+  mode: "ids" | "filter";
+  action: BulkEditCatalogItemAction;
+  item_ids: string[];
+  total: number;
+  ready_count: number;
+  blocked_count: number;
+  candidates: BulkEditCatalogItemCandidate[];
+}
+
+export interface BulkEditCatalogItemResult {
+  action: BulkEditCatalogItemAction;
+  item_ids: string[];
+  total: number;
+  succeeded_count: number;
+  skipped_count: number;
+  failed_count: number;
+  candidates: BulkEditCatalogItemCandidate[];
+}

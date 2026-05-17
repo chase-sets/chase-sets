@@ -13,11 +13,12 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
+import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createReferenceType } from "./use-reference-data";
+import { confirmBulkReferenceTypeLifecycle, createReferenceType, previewBulkReferenceTypeLifecycle } from "./use-reference-data";
 import type { ReferenceType } from "./contracts";
 import { parseKeyList } from "./reference-data-form";
 
@@ -39,6 +40,11 @@ const statusOptions = [
   { label: t("catalog.features.referenceData.ui.referenceTypeListPage.deprecated"), value: "deprecated" },
   { label: t("catalog.features.referenceData.ui.referenceTypeListPage.archived"), value: "archived" },
 ];
+const lifecycleActions = [
+  { value: "publish", label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.publish") },
+  { value: "deprecate", label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.deprecate") },
+  { value: "archive", label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.archive") },
+];
 
 export function ReferenceTypeListPage({ data, query }: CatalogListRouteData<ReferenceType>) {
   const listControls = useCatalogListQueryControls(query);
@@ -49,6 +55,7 @@ export function ReferenceTypeListPage({ data, query }: CatalogListRouteData<Refe
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [attributeKeys, setAttributeKeys] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   async function handleCreate() {
     const referenceTypeId = createId("rft");
@@ -85,6 +92,28 @@ export function ReferenceTypeListPage({ data, query }: CatalogListRouteData<Refe
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        extraFilters={
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceTypeListPage.attribute.key")}
+            value={listControls.attributeKey}
+            onChange={(event) => listControls.setAttributeKey(event.target.value)}
+          />
+        }
+        selectedKeys={selectedKeys}
+        onSelectionChange={setSelectedKeys}
+        bulkActionBar={
+          <BulkLifecycleActionBar
+            entityName="Reference Types"
+            selectedKeys={selectedKeys}
+            filterSelection={{ mode: "filter", query }}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkReferenceTypeLifecycle}
+            confirm={confirmBulkReferenceTypeLifecycle}
+            onCompleted={revalidator.revalidate}
+          />
+        }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}

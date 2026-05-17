@@ -313,7 +313,7 @@ export function buildSandboxEnv(sandbox) {
     OTEL_HTTP_HOST_PORT: String(sandbox.ports.otelHttp),
     OTEL_METRICS_HOST_PORT: String(sandbox.ports.otelMetrics),
     TEMPO_GRPC_HOST_PORT: String(sandbox.ports.tempoGrpc),
-    STRIPE_WEBHOOK_FORWARD_URL: `http://host.docker.internal:${sandbox.ports.platformApi}/api/payments/stripe/webhooks`,
+    STRIPE_WEBHOOK_FORWARD_URL: `http://host.docker.internal:${sandbox.ports.platformApi}/api/payments/provider/webhooks`,
   };
 
   for (const [contextName, databaseUrl] of Object.entries(sandbox.contextDatabaseUrls)) {

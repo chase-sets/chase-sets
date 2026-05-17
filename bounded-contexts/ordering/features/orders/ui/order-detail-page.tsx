@@ -129,6 +129,7 @@ export function OrderingOrderDetailPage({
       ) : null}
 
       <CheckoutLayout
+        summaryLabel="Order summary"
         summary={
           <Stack gap={4}>
             <PriceBreakdown

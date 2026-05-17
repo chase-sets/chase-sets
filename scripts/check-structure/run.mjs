@@ -33,6 +33,14 @@ const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared
 const nonSupportSuffixDirectoryExceptions = new Set(["tests"]);
 const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
 const forbiddenUmbrellaSliceNames = new Set(["authoring", "customer", "items"]);
+const retiredPanelDrawerNames = [
+  "CommerceDrawer",
+  "FilterDrawer",
+  "MarketplaceFilterDrawer",
+  "MarketplaceMobileFilterDrawer",
+  "NotificationCenterDrawer",
+];
+const retiredPanelDrawerPattern = new RegExp(`\\b(?:${retiredPanelDrawerNames.join("|")})\\b`);
 const supportLifecycleRequiredFields = ["justification", "createdFor", "sunsetWhen"];
 const intentPlaceholderGuardFields = ["purpose", "allowedWhen", "justification", "createdFor", "sunsetWhen"];
 const placeholderFieldTokens = new Set([
@@ -2275,6 +2283,16 @@ await runImportBoundaryValidation({
     }
 
     content ??= await readFile(file, "utf8");
+
+    if (
+      normalizedFile !== "scripts/check-structure/run.mjs" &&
+      retiredPanelDrawerPattern.test(content)
+    ) {
+      addViolation(
+        file,
+        "non-navigation drawer aliases are retired; use SideSheet, BottomSheet, CommerceSheet, ResponsiveEditSheet, or NotificationCenterSheet",
+      );
+    }
 
     if (
       ((

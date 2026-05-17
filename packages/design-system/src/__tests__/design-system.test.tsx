@@ -3,6 +3,7 @@ import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import * as designSystem from "../index";
 import {
   ActorIdentityCue,
   AccountMenu,
@@ -10,6 +11,7 @@ import {
   BottomSheet,
   BottomNav,
   BuyerProtectionBadge,
+  CommerceSheet,
   UiBadge as Badge,
   UiButton as Button,
   UiCard as Card,
@@ -29,18 +31,24 @@ import {
   SellerTrustCard,
   SideSheet,
   PriceBreakdown,
+  ActivitySheet,
+  AssistantSheet,
   BuyerProtectionModule,
+  BulkActionBar,
   ComparisonModule,
+  FilterArea,
   FilterBar,
   FullPage,
   ModalDialog,
   NavigationDrawer,
+  ResponsiveActionMenu,
   SavedSearchPrompt,
   SearchFilterPanel,
   SearchInput,
   Sidebar,
   StickyCtaBar,
   MarketplaceFacetChoiceGroup,
+  MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
   MarketplaceEmptyState,
@@ -55,6 +63,7 @@ import {
   PaymentRecoveryPanel,
   ProductSelectionSummary,
   ProductMediaModule,
+  ResponsiveEditSheet,
   ReviewCard,
   SearchControlBar,
   SellerProfileHeader,
@@ -74,6 +83,23 @@ import {
 } from "../index";
 
 describe("design-system", () => {
+  it("does not expose deprecated design-system aliases", () => {
+    const retiredAliasNames = [
+      ["Drawer"],
+      ["Filter", "Drawer"],
+      ["Marketplace", "Mobile", "Filter", "Drawer"],
+      ["Marketplace", "Filter", "Drawer"],
+      ["Marketplace", "Ui", "Filter", "Bottom", "Sheet"],
+      ["Commerce", "Drawer"],
+      ["Notification", "Center", "Drawer"],
+      ["Dropdown", "Menu"]
+    ].map((parts) => parts.join(""));
+
+    for (const aliasName of retiredAliasNames) {
+      expect(designSystem).not.toHaveProperty(aliasName);
+    }
+  });
+
   it("renders primitive components on the server", () => {
     const markup = renderToString(
       <Card>
@@ -415,6 +441,53 @@ describe("design-system", () => {
     expect(markup).toContain("Promote all matching");
   });
 
+  it("bottom-aligns controls and buttons in admin bulk action bars", () => {
+    const markup = renderToString(
+      <BulkActionBar
+        count={169}
+        formatSelectedLabel={(count) => `${count} matching Catalog Items`}
+        actions={
+          <>
+            <Select label="Bulk Edit" items={[{ label: "Assign Blueprint", value: "assignBlueprint" }]} />
+            <TextInput label="Blueprint ID" defaultValue="bpr_card" />
+            <Button variant="secondary">Preview matching</Button>
+          </>
+        }
+      />,
+    );
+
+    expect(markup).toContain("169 matching Catalog Items");
+    expect(markup).toContain("flex flex-wrap items-end gap-2");
+    expect(markup).toContain("Preview matching");
+  });
+
+  it("moves overflow filters into an accessible filter panel", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <FilterArea
+        filters={[
+          <TextInput key="search" label="Search" defaultValue="Pikachu" />,
+          <Select key="status" label="Status" items={[{ label: "Draft", value: "draft" }]} />,
+          <TextInput key="source" label="Source" defaultValue="tcgplayer" />,
+          <TextInput key="tag" label="Tag" defaultValue="vintage" />,
+        ]}
+        activeFilterCount={3}
+        panelTitle="Catalog filters"
+        overflowTriggerLabel="More filters"
+      />,
+    );
+
+    expect(screen.getByLabelText("Search")).toBeTruthy();
+    expect(screen.queryByLabelText("Source")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "More filters (3 active)" }));
+
+    expect(await screen.findByRole("dialog", { name: "Catalog filters" })).toBeTruthy();
+    expect(screen.getByLabelText("Source")).toBeTruthy();
+    expect(screen.getByLabelText("Tag")).toBeTruthy();
+  });
+
   it("does not reserve visible label spacing for hidden-label form controls", () => {
     const markup = renderToString(
       <SearchInput label="Search marketplace" hideLabel defaultValue="pikachu" />
@@ -573,6 +646,141 @@ describe("design-system", () => {
     expect(onSelect).toHaveBeenCalledWith("lightly-played");
   });
 
+  it("filters searchable marketplace facet choices without hiding selected values", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    render(
+      <MarketplaceFacetChoiceGroup
+        title="Condition"
+        allLabel="Any Condition"
+        items={[
+          { id: "near-mint", label: "Near Mint", count: 7 },
+          { id: "excellent", label: "Excellent", count: 3 },
+          { id: "foil", label: "Foil", count: 2 },
+        ]}
+        selectedIds={["near-mint"]}
+        selectionMode="multiple"
+        onSelect={onSelect}
+        searchable
+        searchLabel="Search Condition options"
+        searchPlaceholder="Find Condition option"
+        searchEmptyLabel="No matching Condition options"
+      />,
+    );
+
+    await user.type(screen.getByRole("searchbox", { name: "Search Condition options" }), "foil");
+
+    expect(screen.getByRole("button", { name: "Near Mint (7)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Foil (2)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Excellent (3)" })).toBeNull();
+
+    await user.clear(screen.getByRole("searchbox", { name: "Search Condition options" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search Condition options" }), "etched");
+
+    expect(screen.getByRole("button", { name: "Near Mint (7)" })).toBeTruthy();
+    expect(screen.getByText("No matching Condition options")).toBeTruthy();
+  });
+
+  it("uses progressive disclosure for long marketplace facet choices without nested scrolling", async () => {
+    const user = userEvent.setup();
+
+    const { container } = render(
+      <MarketplaceFacetChoiceGroup
+        title="Condition"
+        allLabel="Any Condition"
+        items={Array.from({ length: 9 }, (_, index) => ({
+          id: `condition-${index + 1}`,
+          label: `Condition ${index + 1}`,
+          count: 9 - index,
+        }))}
+        selectedIds={["condition-9"]}
+        selectionMode="multiple"
+        onSelect={vi.fn()}
+        searchable
+        searchLabel="Search Condition options"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Condition 1 (9)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Condition 6 (4)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Condition 9 (1)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Condition 7 (3)" })).toBeNull();
+    expect(container.innerHTML).not.toContain("max-h-72");
+    expect(container.innerHTML).not.toContain("overflow-y-auto");
+
+    await user.click(screen.getByRole("button", { name: "Show more" }));
+
+    expect(screen.getByRole("button", { name: "Condition 7 (3)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Condition 8 (2)" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+
+    expect(screen.queryByRole("button", { name: "Condition 7 (3)" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Condition 9 (1)" })).toBeTruthy();
+  });
+
+  it("filters searchable marketplace facet rails", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MarketplaceFacetRail
+        title="Expansion"
+        allLabel="Any Expansion"
+        items={[
+          { id: "base", label: "Base Set", count: 9 },
+          { id: "jungle", label: "Jungle", count: 4 },
+          { id: "fossil", label: "Fossil", count: 3 },
+        ]}
+        onSelect={vi.fn()}
+        searchable
+        searchLabel="Search Expansion options"
+      />,
+    );
+
+    await user.type(screen.getByRole("searchbox", { name: "Search Expansion options" }), "fossil");
+
+    expect(screen.getByRole("button", { name: "Fossil (3)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Jungle (4)" })).toBeNull();
+  });
+
+  it("uses progressive disclosure for long marketplace facet rails without nested scrolling", async () => {
+    const user = userEvent.setup();
+
+    const { container } = render(
+      <MarketplaceFacetRail
+        title="Expansion"
+        allLabel="Any Expansion"
+        items={Array.from({ length: 9 }, (_, index) => ({
+          id: `set-${index + 1}`,
+          label: `Set ${index + 1}`,
+          count: 9 - index,
+        }))}
+        selectedId="set-9"
+        onSelect={vi.fn()}
+        searchable
+        searchLabel="Search Expansion options"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Set 1 (9)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set 6 (4)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set 9 (1)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Set 7 (3)" })).toBeNull();
+    expect(container.innerHTML).not.toContain("max-h-72");
+    expect(container.innerHTML).not.toContain("overflow-y-auto");
+
+    await user.click(screen.getByRole("button", { name: "Show more" }));
+
+    expect(screen.getByRole("button", { name: "Set 7 (3)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set 8 (2)" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+
+    expect(screen.queryByRole("button", { name: "Set 7 (3)" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Set 9 (1)" })).toBeTruthy();
+  });
+
   it("renders canonical panel interaction components", async () => {
     const user = userEvent.setup();
 
@@ -630,6 +838,86 @@ describe("design-system", () => {
     await user.click(screen.getByRole("button", { name: "Delete report" }));
     expect(await screen.findByRole("dialog", { name: "Delete report" })).toBeTruthy();
     expect(screen.getByText("Confirm delete")).toBeTruthy();
+  });
+
+  it("renders responsive marketplace sheet wrappers", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <div>
+        <CommerceSheet
+          trigger={<Button>Preview cart action</Button>}
+          title="Add matching products"
+          description="Review eligible products without leaving search."
+        >
+          Bulk add preview
+        </CommerceSheet>
+        <ResponsiveEditSheet
+          trigger={<Button>Edit shipping address</Button>}
+          title="Update address"
+          description="Edit the saved destination."
+        >
+          Address form
+        </ResponsiveEditSheet>
+      </div>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Preview cart action" }));
+    expect(await screen.findByRole("dialog", { name: "Add matching products" })).toBeTruthy();
+    expect(screen.getByText("Bulk add preview")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Edit shipping address" }));
+    expect(await screen.findByRole("dialog", { name: "Update address" })).toBeTruthy();
+    expect(screen.getByText("Address form")).toBeTruthy();
+  });
+
+  it("promotes long action menus to mobile bottom sheets", async () => {
+    const user = userEvent.setup();
+    const onPause = vi.fn();
+
+    render(
+      <ResponsiveActionMenu
+        trigger={<Button>More actions</Button>}
+        menuLabel="Listing actions"
+        sheetDescription="Choose an action for this listing."
+        items={[
+          { key: "share", label: "Share", icon: "share" },
+          { key: "duplicate", label: "Duplicate listing", icon: "copy" },
+          { key: "edit", label: "Edit listing", href: "/account/listings/listing_1" },
+          { key: "pause", label: "Pause listing", onSelect: onPause },
+          { key: "withdraw", label: "Withdraw listing", destructive: true },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+
+    const sheet = await screen.findByRole("dialog", { name: "Listing actions" });
+    expect(sheet).toBeTruthy();
+    expect(screen.getByText("Choose an action for this listing.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Edit listing" }).getAttribute("href")).toBe("/account/listings/listing_1");
+
+    await user.click(screen.getByRole("button", { name: "Pause listing" }));
+    expect(onPause).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders named support sheets for activity and assistant panels", () => {
+    const markup = renderToString(
+      <div>
+        <ActivitySheet open mobileModal={false} title="Listing activity">
+          Price changed
+        </ActivitySheet>
+        <AssistantSheet open mobileModal={false} title="Marketplace assistant">
+          Suggested next step
+        </AssistantSheet>
+      </div>
+    );
+
+    expect(markup).toContain("Listing activity");
+    expect(markup).toContain("Price changed");
+    expect(markup).toContain("Marketplace assistant");
+    expect(markup).toContain("Suggested next step");
   });
 
   it("renders non-modal panel regions and full-page flows on the server", () => {

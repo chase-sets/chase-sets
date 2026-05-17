@@ -6,6 +6,8 @@ import {
   Button,
   Dialog,
   Inline,
+  KeyValueList,
+  NativeSelect,
   Select,
   Stack,
   StatusPill,
@@ -20,12 +22,15 @@ import { EntityListPage } from "../../../support/shell-support/ui/entity-list-pa
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type { SourceObservationListItem } from "./contracts";
 import {
+  bulkRejectSourceObservationsByScope,
+  bulkRejectSourceObservations,
   bulkPromoteSourceObservationsByScope,
   bulkPromoteSourceObservations,
   importTcgdexSet,
   previewBulkPromoteSourceObservations,
 } from "./use-source-observations";
 import type {
+  SourceObservationExpansionReference,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
 } from "./contracts";
@@ -78,14 +83,20 @@ const ALL_LANGUAGES = "__all__";
 export function SourceObservationListPage({
   data,
   query,
-}: CatalogListRouteData<SourceObservationListItem>) {
+  expansionReferences = [],
+}: CatalogListRouteData<SourceObservationListItem> & {
+  expansionReferences?: SourceObservationExpansionReference[];
+}) {
   const listControls = useCatalogListQueryControls(query);
   const columns = useMemo(() => buildColumns(), []);
   const revalidator = useRevalidator();
   const { addToast } = useToasts();
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
-  const [setId, setSetId] = useState("");
+  const [selectedExpansionReferenceId, setSelectedExpansionReferenceId] =
+    useState("");
+  const [manualSetId, setManualSetId] = useState("");
+  const [importing, setImporting] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkPromoting, setBulkPromoting] = useState(false);
   const [promoteAllScope, setPromoteAllScope] =
@@ -95,6 +106,8 @@ export function SourceObservationListPage({
   const [previewingPromoteAll, setPreviewingPromoteAll] = useState(false);
   const [promoteAllRunning, setPromoteAllRunning] = useState(false);
   const [showPromoteAll, setShowPromoteAll] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [bulkRejecting, setBulkRejecting] = useState(false);
   const eligibleIds = useMemo(
     () =>
       new Set(
@@ -104,6 +117,33 @@ export function SourceObservationListPage({
       ),
     [data.items],
   );
+  const activeFilterCount = [
+    listControls.search,
+    listControls.status,
+    listControls.language,
+    listControls.source,
+    listControls.setId,
+  ].filter(Boolean).length;
+  const expansionOptions = useMemo(
+    () =>
+      expansionReferences
+        .map((record) => {
+          const tcgdexSetId = getReferenceAttribute(record, "tcgdex-set-id");
+
+          return {
+            label: formatExpansionReferenceOption(record),
+            value: record.reference_record_id,
+            disabled: !tcgdexSetId,
+          };
+        }),
+    [expansionReferences],
+  );
+  const selectedExpansion = expansionReferences.find(
+    (record) => record.reference_record_id === selectedExpansionReferenceId,
+  ) ?? null;
+  const selectedExpansionSetId =
+    selectedExpansion ? getReferenceAttribute(selectedExpansion, "tcgdex-set-id") : "";
+  const importSetId = selectedExpansionSetId || manualSetId.trim();
 
   useEffect(() => {
     setSelectedKeys((current) =>
@@ -118,21 +158,49 @@ export function SourceObservationListPage({
   }
 
   async function handleImport() {
-    const result = await importTcgdexSet({ languageCode, setId });
-    addToast(
-      t("catalog.features.sourceObservations.ui.list.import.completed", {
-        count: String(result.observed),
-      }),
-      "success",
-    );
-    setShowImport(false);
-    setSetId("");
-    listControls.setFilters({
-      language: result.languageCode,
-      setId: result.expansionId ?? result.setId,
-      status: "observed",
-    });
-    revalidator.revalidate();
+    if (!importSetId) {
+      return;
+    }
+
+    setImporting(true);
+
+    try {
+      const result = await importTcgdexSet({ languageCode, setId: importSetId });
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.import.completed", {
+          count: String(result.observed),
+        }),
+        "success",
+      );
+      setShowImport(false);
+      setSelectedExpansionReferenceId("");
+      setManualSetId("");
+      listControls.setFilters({
+        language: result.languageCode,
+        setId: result.expansionId ?? result.setId,
+        status: "observed",
+      });
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.list.import.failed"),
+        "danger",
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleExpansionSelection(referenceRecordId: string) {
+    setSelectedExpansionReferenceId(referenceRecordId);
+    setManualSetId("");
+  }
+
+  function handleManualSetIdChange(value: string) {
+    setManualSetId(value);
+    setSelectedExpansionReferenceId("");
   }
 
   async function handleBulkPromote() {
@@ -160,6 +228,62 @@ export function SourceObservationListPage({
       );
     } finally {
       setBulkPromoting(false);
+    }
+  }
+
+  async function handleBulkReject() {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      addToast(t("catalog.features.sourceObservations.ui.list.bulk.reject.reason.required"), "danger");
+      return;
+    }
+
+    setBulkRejecting(true);
+    try {
+      const result = await bulkRejectSourceObservations(Array.from(selectedKeys), reason);
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.bulk.reject.completed", {
+          rejected: String(result.rejected ?? 0),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }),
+        result.failed > 0 ? "warning" : "success",
+      );
+      setSelectedKeys(new Set());
+      setRejectReason("");
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkRejecting(false);
+    }
+  }
+
+  async function handleRejectAllMatching() {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      addToast(t("catalog.features.sourceObservations.ui.list.bulk.reject.reason.required"), "danger");
+      return;
+    }
+
+    setBulkRejecting(true);
+    try {
+      const result = await bulkRejectSourceObservationsByScope(currentPromotionScope(), reason);
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.bulk.reject.completed", {
+          rejected: String(result.rejected ?? 0),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }),
+        result.failed > 0 ? "warning" : "success",
+      );
+      setRejectReason("");
+      setSelectedKeys(new Set());
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkRejecting(false);
     }
   }
 
@@ -240,6 +364,7 @@ export function SourceObservationListPage({
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        activeFilterCount={activeFilterCount}
         selectedKeys={selectedKeys}
         onSelectionChange={handleSelectionChange}
         isRowSelectable={(row) => row.status === "observed"}
@@ -258,9 +383,23 @@ export function SourceObservationListPage({
                     tone="secondary"
                     size="sm"
                     onClick={() => setSelectedKeys(new Set())}
-                    disabled={bulkPromoting}
+                    disabled={bulkPromoting || bulkRejecting}
                   >
                     {t("catalog.features.sourceObservations.ui.list.clear.selection")}
+                  </Button>
+                  <TextInput
+                    label={t("catalog.features.sourceObservations.ui.list.reject.reason")}
+                    value={rejectReason}
+                    onChange={(event) => setRejectReason(event.target.value)}
+                  />
+                  <Button
+                    tone="danger"
+                    size="sm"
+                    loading={bulkRejecting}
+                    disabled={bulkPromoting || bulkRejecting}
+                    onClick={handleBulkReject}
+                  >
+                    {t("catalog.features.sourceObservations.ui.list.bulk.reject")}
                   </Button>
                   <Button
                     size="sm"
@@ -292,10 +431,19 @@ export function SourceObservationListPage({
               ]}
             />
             <TextInput
+              label={t("catalog.features.sourceObservations.ui.list.provider")}
+              value={listControls.source}
+              onChange={(event) => listControls.setSource(event.target.value)}
+            />
+            <TextInput
               label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
               value={listControls.setId}
               onChange={(event) => listControls.setSetId(event.target.value)}
             />
+          </>
+        }
+        filterActions={
+          <Inline gap={2}>
             <Button
               tone="secondary"
               leadingIcon="badgeCheck"
@@ -305,7 +453,20 @@ export function SourceObservationListPage({
             >
               {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.matching")}
             </Button>
-          </>
+            <TextInput
+              label={t("catalog.features.sourceObservations.ui.list.reject.reason")}
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+            />
+            <Button
+              tone="danger"
+              loading={bulkRejecting}
+              disabled={bulkRejecting}
+              onClick={handleRejectAllMatching}
+            >
+              {t("catalog.features.sourceObservations.ui.list.bulk.reject.all.matching")}
+            </Button>
+          </Inline>
         }
         page={listControls.page}
         pageSize={listControls.pageSize}
@@ -319,19 +480,43 @@ export function SourceObservationListPage({
         open={showImport}
         onOpenChange={setShowImport}
         title={t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
-        footer={<Button onClick={handleImport}>{t("catalog.features.sourceObservations.ui.list.import")}</Button>}
+        footer={
+          <Button
+            loading={importing}
+            disabled={!importSetId || importing}
+            onClick={handleImport}
+          >
+            {t("catalog.features.sourceObservations.ui.list.import")}
+          </Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.language.code")}
+          <NativeSelect
+            label={t("catalog.features.sourceObservations.ui.list.language")}
+            items={languageOptions}
             value={languageCode}
-            onChange={(event) => setLanguageCode(event.target.value)}
+            onChange={(event) => setLanguageCode(event.currentTarget.value)}
           />
+          {expansionOptions.length > 0 ? (
+            <NativeSelect
+              label={t("catalog.features.sourceObservations.ui.list.expansion")}
+              items={expansionOptions}
+              value={selectedExpansionReferenceId}
+              onChange={(event) => handleExpansionSelection(event.currentTarget.value)}
+              placeholder={t("catalog.features.sourceObservations.ui.list.choose.expansion")}
+            />
+          ) : null}
           <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
-            value={setId}
-            onChange={(event) => setSetId(event.target.value)}
+            label={t("catalog.features.sourceObservations.ui.list.other.tcgdex.expansion.id")}
+            value={manualSetId}
+            onChange={(event) => handleManualSetIdChange(event.target.value)}
           />
+          {selectedExpansion ? (
+            <KeyValueList
+              density="compact"
+              items={buildExpansionSummaryItems(selectedExpansion)}
+            />
+          ) : null}
         </Stack>
       </Dialog>
       <Dialog
@@ -377,6 +562,59 @@ export function SourceObservationListPage({
       </Dialog>
     </>
   );
+}
+
+function formatExpansionReferenceOption(
+  record: SourceObservationExpansionReference,
+): string {
+  const abbreviation = getReferenceAttribute(record, "abbreviation");
+  const tcgdexSetId = getReferenceAttribute(record, "tcgdex-set-id");
+  const details = [abbreviation, tcgdexSetId].filter(Boolean).join(" - ");
+
+  return details
+    ? t("catalog.features.sourceObservations.ui.list.expansion.option.with.details", {
+        name: record.name,
+        details,
+      })
+    : record.name;
+}
+
+function buildExpansionSummaryItems(record: SourceObservationExpansionReference) {
+  return [
+    {
+      key: t("catalog.features.sourceObservations.ui.list.expansion"),
+      value: record.name,
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id"),
+      value: getReferenceAttribute(record, "tcgdex-set-id") || "-",
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.list.release.date"),
+      value: getReferenceAttribute(record, "release-date") || "-",
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.list.card.count"),
+      value: getReferenceAttribute(record, "card-count") || "-",
+    },
+  ];
+}
+
+function getReferenceAttribute(
+  record: SourceObservationExpansionReference,
+  key: string,
+): string {
+  const value = record.attributes[key];
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  return "";
 }
 
 function formatPromotionScope(scope: Required<SourceObservationPromotionScope>): string {

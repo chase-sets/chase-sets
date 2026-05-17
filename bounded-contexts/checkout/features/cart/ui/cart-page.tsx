@@ -355,6 +355,7 @@ export function CheckoutCartPage({
       {cartLineGroups.length > 0 ? (
         <CheckoutLayout
           summaryMobile="hidden"
+          summaryLabel="Cart summary"
           summary={
             <Stack gap={4}>
               <PriceBreakdown

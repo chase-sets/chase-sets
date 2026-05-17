@@ -14,7 +14,7 @@ function renderDialogFrame({
   footer,
   onDismiss,
   kind,
-  drawerPlacement = "side",
+  panelPlacement = "side",
   surfaceClassName,
   reducedMotion,
   durations,
@@ -27,8 +27,8 @@ function renderDialogFrame({
   children?: ReactNode;
   footer?: ReactNode;
   onDismiss?: () => void;
-  kind: "dialog" | "drawer";
-  drawerPlacement?: DrawerPlacement;
+  kind: "dialog" | "panel";
+  panelPlacement?: ModalPanelPlacement;
   surfaceClassName?: string;
   reducedMotion: boolean;
   durations: { base: number; slow: number };
@@ -36,7 +36,7 @@ function renderDialogFrame({
   closeLabel?: string;
 }) {
   const frameAnimation =
-    kind === "drawer"
+    kind === "panel"
       ? {
           initial: reducedMotion ? (false as const) : { opacity: 0, y: 24, x: 0 },
           animate: reducedMotion
@@ -90,11 +90,11 @@ function renderDialogFrame({
           className: (baseClassName) => cx(
               "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none md:w-full md:max-w-2xl",
               kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
-              kind === "drawer" && drawerPlacement === "side" &&
+              kind === "panel" && panelPlacement === "side" &&
                 "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]",
-              kind === "drawer" && drawerPlacement === "sideLeft" &&
+              kind === "panel" && panelPlacement === "sideLeft" &&
                 "inset-x-4 bottom-4 md:inset-y-4 md:left-4 md:right-auto md:w-[28rem]",
-              kind === "drawer" && drawerPlacement === "bottomSheet" &&
+              kind === "panel" && panelPlacement === "bottomSheet" &&
                 "inset-x-3 bottom-3 w-auto max-h-[88vh] rounded-tokenXl md:inset-x-6 md:bottom-6 lg:hidden",
               surfaceClassName,
               baseClassName
@@ -182,13 +182,13 @@ export function Dialog({
   );
 }
 
-export type DrawerPlacement = "side" | "sideLeft" | "bottomSheet";
+export type ModalPanelPlacement = "side" | "sideLeft" | "bottomSheet";
 
-export interface DrawerProps extends DialogProps {
-  placement?: DrawerPlacement;
+export interface ModalPanelProps extends DialogProps {
+  placement?: ModalPanelPlacement;
 }
 
-export function Drawer({
+export function ModalPanel({
   open,
   defaultOpen,
   onOpenChange,
@@ -200,7 +200,7 @@ export function Drawer({
   closeLabel,
   surfaceClassName,
   placement = "side"
-}: DrawerProps) {
+}: ModalPanelProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
   const [resolvedOpen, setResolvedOpen] = useControllableOpen(open, defaultOpen, onOpenChange);
@@ -217,8 +217,8 @@ export function Drawer({
           title,
           description,
           footer,
-          kind: "drawer",
-          drawerPlacement: placement,
+          kind: "panel",
+          panelPlacement: placement,
           children,
           surfaceClassName,
           reducedMotion: motionSettings.reducedMotion,

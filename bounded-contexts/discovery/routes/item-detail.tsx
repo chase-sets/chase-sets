@@ -21,6 +21,7 @@ import {
   NativeSelect,
   NumberInput,
   ProductSelectionSummary,
+  ProgressiveDisclosure,
   SegmentedControl,
   Stack,
   SecurePaymentCue,
@@ -372,9 +373,19 @@ function ProductAlertCreationSection({
   productSummary: string | null;
 }) {
   const isListingAlert = marketSide === "listing";
+  const title = isListingAlert ? "Watch for listings" : "Watch for offers";
+  const description = isListingAlert
+    ? "Web alert when supply appears at or below your price."
+    : "Web alert when offer demand appears at or above your price.";
 
   return (
-    <FormPanel variant="card">
+    <ProgressiveDisclosure
+      title={title}
+      description={description}
+      summary={productSummary ?? "Selected product"}
+      tone="info"
+      icon="bell"
+    >
       <form id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="create-product-alert" />
@@ -388,9 +399,6 @@ function ProductAlertCreationSection({
           />
           <input type="hidden" name="productSummary" value={productSummary ?? ""} />
           <Stack gap={1}>
-            <Text weight="semibold">
-              {isListingAlert ? "Watch for listings" : "Watch for offers"}
-            </Text>
             <ProductSelectionSummary
               selections={productSelectionDetails}
               summary={productSummary ?? "Selected product"}
@@ -414,7 +422,7 @@ function ProductAlertCreationSection({
           </Button>
         </Stack>
       </form>
-    </FormPanel>
+    </ProgressiveDisclosure>
   );
 }
 
@@ -1982,12 +1990,17 @@ function DiscoveryItemDetailRealtimeView({
                 />
               );
               const renderSeller = (formIdPrefix: string) =>
-                data.canUseSellerFeatures ? (
+                (
                   <Stack gap={4}>
-                    {renderOfferMatch(`${formIdPrefix}-sell-box`)}
-                    {renderListingSubmission(`${formIdPrefix}-list-box`)}
+                    {data.canUseSellerFeatures ? (
+                      <>
+                        {renderOfferMatch(`${formIdPrefix}-sell-box`)}
+                        {renderListingSubmission(`${formIdPrefix}-list-box`)}
+                      </>
+                    ) : renderSellerRegistration()}
+                    {renderProductAlert(`${formIdPrefix}-offer-product-alert`, "offer")}
                   </Stack>
-                ) : renderSellerRegistration();
+                );
               return (
                 {
                   buy: (
@@ -1996,12 +2009,7 @@ function DiscoveryItemDetailRealtimeView({
                       {renderProductAlert("listing-product-alert", "listing")}
                     </Stack>
                   ),
-                  offer: (
-                    <Stack gap={4}>
-                      {renderOffer("make-offer")}
-                      {renderProductAlert("offer-product-alert", "offer")}
-                    </Stack>
-                  ),
+                  offer: renderOffer("make-offer"),
                   sell: data.showSellerTab ? renderSeller("sell") : undefined,
                   mobile: {
                     buy: {
@@ -2014,21 +2022,26 @@ function DiscoveryItemDetailRealtimeView({
                       title: t("discovery.routes.itemDetail.buy"),
                     },
                     offer: {
-                      content: (
-                        <Stack gap={4}>
-                          {renderOffer("mobile-make-offer", "plain", undefined, true)}
-                          {renderProductAlert("mobile-offer-product-alert", "offer")}
-                        </Stack>
-                      ),
+                      content: renderOffer("mobile-make-offer", "plain", undefined, true),
                       title: t("discovery.routes.itemDetail.make.an.offer"),
                     },
                     sell: data.canUseSellerFeatures
                       ? {
-                          content: renderOfferMatch("mobile-sell-box", "plain", undefined, true),
+                          content: (
+                            <Stack gap={4}>
+                              {renderOfferMatch("mobile-sell-box", "plain", undefined, true)}
+                              {renderProductAlert("mobile-sell-offer-product-alert", "offer")}
+                            </Stack>
+                          ),
                           title: t("discovery.routes.itemDetail.sell.2"),
                         }
                       : {
-                          content: renderSellerRegistration("plain", true, "offer"),
+                          content: (
+                            <Stack gap={4}>
+                              {renderSellerRegistration("plain", true, "offer")}
+                              {renderProductAlert("mobile-sell-offer-product-alert", "offer")}
+                            </Stack>
+                          ),
                           title: t("discovery.routes.itemDetail.sell.on.chase.sets.2"),
                         },
                     list: data.canUseSellerFeatures

@@ -279,7 +279,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
       await db.query(
-        `UPDATE catalog_items SET status = 'retired', updated_at = $2 WHERE catalog_item_id = $1`,
+        `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
     },
@@ -290,6 +290,15 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       await db.query(
         `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
+      );
+    },
+
+    "catalog.catalog-item.draft-removed": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+
+      await db.query(
+        `DELETE FROM catalog_items WHERE catalog_item_id = $1`,
+        [itemId],
       );
     },
   };

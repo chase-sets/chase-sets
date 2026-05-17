@@ -21,6 +21,17 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
+  app.get("/integration-scopes", async (c) => {
+    const { provider, source, language, setId, expansionId } = c.req.query();
+    const items = await services.listIntegrationScopes({
+      provider: provider ?? source,
+      language,
+      setId: expansionId ?? setId,
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
   app.post("/imports/tcgdex-set", async (c) => {
     const body = await c.req.json();
     const result = await services.importTcgdexSet({
@@ -63,6 +74,42 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       : [];
     const result = await services.promoteObservations({
       observationIds,
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-reject", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+      reason?: unknown;
+    };
+    const reason = String(body.reason ?? "").trim();
+
+    if (!reason) {
+      return c.json({
+        error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+      }, 400);
+    }
+
+    if (body.scope) {
+      const result = await services.rejectObservationScope({
+        scope: parsePromotionScope(body.scope),
+        reason,
+        context: c.get("context"),
+      });
+
+      return c.json(result);
+    }
+
+    const observationIds = Array.isArray(body.observationIds)
+      ? body.observationIds.map((observationId: unknown) => String(observationId))
+      : [];
+    const result = await services.rejectObservations({
+      observationIds,
+      reason,
       context: c.get("context"),
     });
 

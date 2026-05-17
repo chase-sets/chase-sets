@@ -21,12 +21,14 @@ If hiding a fact would make the visible screen misleading, keep the fact visible
 
 Disclosure is appropriate for:
 
-- advanced filters, bulk actions, and saved-search controls
+- optional filters that do not shape the primary result set, bulk actions, and saved-search controls
 - listing constraints such as per-order, per-day, or per-customer limits
 - extra policy explanation after the plain-language policy summary is visible
 - optional form sections and secondary setup fields
 - audit trails, support-safe provider detail, and historical events
 - admin configuration that is rarely changed after setup
+
+Disclosure is not appropriate for ranked search facets that directly shape the active result set; keep those facets visible with the primary filter controls.
 
 ## Component Defaults
 
@@ -56,9 +58,9 @@ Adopt the pattern in code-backed slices first. Each slice stays in its owning bo
    - Summary rule: if a disclosed limit changes buyer commitment or low-value card margin, show the active limit in the collapsed summary.
 2. Discovery search and item detail.
    - Owners: Discovery search, mobile filter bottom sheet, facet rail, and item detail routes.
-   - Keep visible: category and language filters, applied filter chips, result count, listing/offer comparison, buy/sell actions, and item identity.
-   - Disclose first: dynamic advanced facets after the primary filters, specification depth, policy explanation, market-history detail, and saved-search recovery.
-   - Summary rule: collapsed advanced filters must state whether none, some, or a named set of advanced filters is active.
+   - Keep visible: category and language filters, ranked dynamic facets, applied filter chips, result count, listing/offer comparison, buy/sell actions, and item identity.
+   - Disclose first: optional specification depth, policy explanation, market-history detail, and saved-search recovery.
+   - Summary rule: collapsed optional search controls must state whether none, some, or a named set of controls is active.
 3. Checkout session and payment recovery.
    - Owners: Checkout for session review and fulfillment; Payments for payment fee quote, confirmation, provider events, and recovery.
    - Keep visible: ready/unavailable line counts, fulfillment estimate, final cost, wallet credit, selected shipping destination, payment method, secure payment cue, and the primary payment or recovery action.

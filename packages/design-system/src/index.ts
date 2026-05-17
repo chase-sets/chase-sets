@@ -56,10 +56,6 @@ export {
   type DialogProps as UiDialogProps
 } from "./components/ui/dialog";
 export {
-  DropdownMenu,
-  type DropdownMenuItem
-} from "./components/ui/dropdown-menu";
-export {
   Input
 } from "./components/ui/input";
 export {

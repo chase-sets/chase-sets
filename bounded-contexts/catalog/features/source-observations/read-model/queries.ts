@@ -45,6 +45,22 @@ export type SourceObservationPromotionPreview = Readonly<{
   scope: Required<SourceObservationFilterScope>;
 }>;
 
+export type SourceObservationIntegrationScopeRow = Readonly<{
+  provider_key: string;
+  language_code: string;
+  expansion_id: string;
+  expansion_name: string;
+  series_id: string;
+  series_name: string;
+  total_observations: number;
+  observed_observations: number;
+  promoted_observations: number;
+  rejected_observations: number;
+  first_observed_at: string;
+  latest_observed_at: string;
+  latest_source_updated_at: string | null;
+}>;
+
 export async function listSourceObservations(
   db: PgQueryable,
   params: ListParams & SourceObservationFilterScope = {},
@@ -58,6 +74,7 @@ export async function listSourceObservations(
       "source_url",
       "(normalized->>'setId')",
       "(normalized->>'name')",
+      "(normalized->>'cardNumber')",
       "coalesce(normalized->>'expansionName', normalized->>'setName')",
     ],
     "observed_at DESC",
@@ -71,6 +88,45 @@ export async function listSourceObservations(
     query.listSql,
     query.values,
   );
+}
+
+export async function listSourceObservationIntegrationScopes(
+  db: PgQueryable,
+  params: Pick<SourceObservationFilterScope, "provider" | "language" | "setId"> = {},
+): Promise<SourceObservationIntegrationScopeRow[]> {
+  const filter = buildSourceObservationFilter(params, { includeListFilters: false });
+  const where = filter.conditions.length > 0
+    ? `WHERE ${filter.conditions.join(" AND ")}`
+    : "";
+  const result = await db.query<SourceObservationIntegrationScopeRow>(
+    `SELECT
+       provider_key,
+       language_code,
+       coalesce(normalized->>'expansionId', normalized->>'setId', '') AS expansion_id,
+       coalesce(normalized->>'expansionName', normalized->>'setName', '') AS expansion_name,
+       coalesce(normalized->>'seriesId', '') AS series_id,
+       coalesce(normalized->>'seriesName', '') AS series_name,
+       COUNT(*)::integer AS total_observations,
+       (COUNT(*) FILTER (WHERE status = 'observed'))::integer AS observed_observations,
+       (COUNT(*) FILTER (WHERE status = 'promoted'))::integer AS promoted_observations,
+       (COUNT(*) FILTER (WHERE status = 'rejected'))::integer AS rejected_observations,
+       MIN(observed_at)::text AS first_observed_at,
+       MAX(observed_at)::text AS latest_observed_at,
+       MAX(source_updated_at)::text AS latest_source_updated_at
+     FROM catalog_source_observations
+     ${where}
+     GROUP BY
+       provider_key,
+       language_code,
+       coalesce(normalized->>'expansionId', normalized->>'setId', ''),
+       coalesce(normalized->>'expansionName', normalized->>'setName', ''),
+       coalesce(normalized->>'seriesId', ''),
+       coalesce(normalized->>'seriesName', '')
+     ORDER BY MAX(observed_at) DESC, provider_key ASC, language_code ASC`,
+    filter.values,
+  );
+
+  return result.rows;
 }
 
 export async function previewSourceObservationPromotionScope(
@@ -179,7 +235,7 @@ function buildSourceObservationFilter(
   if (options.includeListFilters && scope.search) {
     values.push(`%${scope.search}%`);
     const param = `$${values.length}`;
-    conditions.push(`(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`);
+    conditions.push(`(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'cardNumber') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`);
   }
 
   return { conditions, values };

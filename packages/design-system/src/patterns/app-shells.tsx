@@ -11,8 +11,9 @@ import {
   type NavigationItem,
   type PageStepperItem
 } from "../components/actions";
-import { Switch } from "../components/forms";
+import { SearchInput, Switch } from "../components/forms";
 import { useChaseMotion } from "../theme/provider";
+import { useMediaQuery } from "../hooks";
 import {
   SkipLink,
   layoutWidthClasses,
@@ -33,7 +34,9 @@ import {
   Sidebar,
   SideSheet,
   type BadgeProps,
+  type BottomSheetHeight,
   type BottomSheetProps,
+  type PanelWidth,
   type SideSheetProps
 } from "../components/feedback";
 import { ChaseSetsLogo } from "../brand/chase-sets-logo";
@@ -339,19 +342,21 @@ export interface CheckoutLayoutProps {
   summary: ReactNode;
   children?: ReactNode;
   summaryMobile?: "after" | "hidden";
+  summaryLabel?: string;
 }
 
 export function CheckoutLayout({
   summary,
   children,
-  summaryMobile = "after"
+  summaryMobile = "after",
+  summaryLabel = "Summary"
 }: CheckoutLayoutProps) {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div>{children}</div>
       <div className={cx(summaryMobile === "hidden" && "hidden lg:block")}>
-        <Sidebar label="Checkout summary" purpose="support" width="summary" sticky>
-        {summary}
+        <Sidebar label={summaryLabel} purpose="support" width="summary" sticky>
+          {summary}
         </Sidebar>
       </div>
     </div>
@@ -783,6 +788,75 @@ export interface MarketplaceFacetItem {
 
 export type MarketplaceFacetSelectionMode = "single" | "multiple";
 
+const DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS = 6;
+
+function isMarketplaceFacetItemSelected(
+  item: MarketplaceFacetItem,
+  selectedValues: ReadonlySet<string> | null,
+  selectedId: string
+) {
+  return selectedValues?.has(item.id) ?? selectedId === item.id;
+}
+
+function getProgressiveMarketplaceFacetItems({
+  items,
+  normalizedSearch,
+  selectedValues,
+  selectedId,
+  expanded,
+  visibleOptionCount
+}: {
+  items: MarketplaceFacetItem[];
+  normalizedSearch: string;
+  selectedValues: ReadonlySet<string> | null;
+  selectedId: string;
+  expanded: boolean;
+  visibleOptionCount: number;
+}) {
+  const matchesSearch = (item: MarketplaceFacetItem) =>
+    !normalizedSearch ||
+    item.label.toLocaleLowerCase("en-US").includes(normalizedSearch) ||
+    item.id.toLocaleLowerCase("en-US").includes(normalizedSearch);
+  const matchedItems = items.filter(matchesSearch);
+
+  if (normalizedSearch) {
+    const matchedIds = new Set(matchedItems.map((item) => item.id));
+    const selectedItemsOutsideSearch = items.filter((item) =>
+      isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !matchedIds.has(item.id)
+    );
+
+    return {
+      matchedItems,
+      visibleItems: [...selectedItemsOutsideSearch, ...matchedItems],
+      canToggle: false
+    };
+  }
+
+  const limitedCount = Math.max(1, visibleOptionCount);
+
+  if (expanded || items.length <= limitedCount) {
+    return {
+      matchedItems,
+      visibleItems: matchedItems,
+      canToggle: items.length > limitedCount
+    };
+  }
+
+  const defaultItems = items.slice(0, limitedCount);
+  const defaultIds = new Set(defaultItems.map((item) => item.id));
+  const selectedItemsOutsideDefault = items.filter((item) =>
+    isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !defaultIds.has(item.id)
+  );
+  const visibleItems = [...defaultItems, ...selectedItemsOutsideDefault];
+  const visibleIds = new Set(visibleItems.map((item) => item.id));
+
+  return {
+    matchedItems,
+    visibleItems,
+    canToggle: items.some((item) => !visibleIds.has(item.id))
+  };
+}
+
 export interface MarketplaceFacetRailProps {
   title?: ReactNode;
   description?: ReactNode;
@@ -792,6 +866,13 @@ export interface MarketplaceFacetRailProps {
   selectedIds?: readonly string[];
   selectionMode?: MarketplaceFacetSelectionMode;
   onSelect: (id: string) => void;
+  searchable?: boolean;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  searchEmptyLabel?: ReactNode;
+  showMoreLabel?: ReactNode;
+  showLessLabel?: ReactNode;
+  visibleOptionCount?: number;
 }
 
 export function MarketplaceFacetRail({
@@ -802,49 +883,93 @@ export function MarketplaceFacetRail({
   selectedId = "",
   selectedIds,
   selectionMode = selectedIds ? "multiple" : "single",
-  onSelect
+  onSelect,
+  searchable = false,
+  searchLabel = "Search options",
+  searchPlaceholder,
+  searchEmptyLabel = "No matching options",
+  showMoreLabel = "Show more",
+  showLessLabel = "Show less",
+  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS
 }: MarketplaceFacetRailProps) {
+  const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const multiple = selectionMode === "multiple";
+  const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
+  const { matchedItems, visibleItems, canToggle } = getProgressiveMarketplaceFacetItems({
+    items,
+    normalizedSearch,
+    selectedValues,
+    selectedId: selectedId ?? "",
+    expanded,
+    visibleOptionCount
+  });
+
   return (
-    <Card variant="feature">
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <div className="font-heading text-base font-semibold text-foreground">{title}</div>
-          {description ? <div className="text-sm text-secondary">{description}</div> : null}
-        </div>
-        <div className="h-px bg-border" />
-        <div className="space-y-2">
+    <section className="min-w-0 space-y-3 border-b border-muted/70 pb-4 last:border-b-0 last:pb-0">
+      <div className="space-y-1 px-1">
+        <h2 className="font-heading text-base font-semibold text-foreground">{title}</h2>
+        {description ? <div className="text-sm text-secondary">{description}</div> : null}
+      </div>
+      {searchable ? (
+        <SearchInput
+          label={searchLabel}
+          hideLabel
+          placeholder={searchPlaceholder ?? searchLabel}
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+        />
+      ) : null}
+      <div className="space-y-2">
+        <Button
+          tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
+          size="sm"
+          onClick={() => onSelect("")}
+          leadingIcon="grid"
+          aria-pressed={!selectedId && (!selectedValues || selectedValues.size === 0)}
+          block
+        >
+          {allLabel}
+        </Button>
+      </div>
+      <div className="space-y-2">
+        {visibleItems.map((item) => {
+          const selected = isMarketplaceFacetItemSelected(item, selectedValues, selectedId ?? "");
+
+          return (
+            <Button
+              key={item.id}
+              tone={selected ? "primary" : "ghost"}
+              size="sm"
+              onClick={() => onSelect(item.id)}
+              leadingIcon={multiple && selected ? "check" : "tag"}
+              aria-pressed={selected}
+              block
+            >
+              {item.count == null ? item.label : `${item.label} (${item.count})`}
+            </Button>
+          );
+        })}
+        {normalizedSearch && matchedItems.length === 0 ? (
+          <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
+            {searchEmptyLabel}
+          </div>
+        ) : null}
+        {canToggle ? (
           <Button
-            tone={!selectedId && (!selectedValues || selectedValues.size === 0) ? "primary" : "ghost"}
+            tone="ghost"
             size="sm"
-            onClick={() => onSelect("")}
-            leadingIcon="grid"
-            aria-pressed={!selectedId && (!selectedValues || selectedValues.size === 0)}
+            onClick={() => setExpanded((current) => !current)}
+            leadingIcon={expanded ? "chevronUp" : "chevronDown"}
+            aria-expanded={expanded}
             block
           >
-            {allLabel}
+            {expanded ? showLessLabel : showMoreLabel}
           </Button>
-          {items.map((item) => {
-            const selected = selectedValues?.has(item.id) ?? selectedId === item.id;
-
-            return (
-              <Button
-                key={item.id}
-                tone={selected ? "primary" : "ghost"}
-                size="sm"
-                onClick={() => onSelect(item.id)}
-                leadingIcon={multiple && selected ? "check" : "tag"}
-                aria-pressed={selected}
-                block
-              >
-                {item.count == null ? item.label : `${item.label} (${item.count})`}
-              </Button>
-            );
-          })}
-        </div>
+        ) : null}
       </div>
-    </Card>
+    </section>
   );
 }
 
@@ -928,6 +1053,13 @@ export interface MarketplaceFacetChoiceGroupProps {
   onSelect: (id: string) => void;
   allLeadingIcon?: IconName;
   itemLeadingIcon?: IconName;
+  searchable?: boolean;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  searchEmptyLabel?: ReactNode;
+  showMoreLabel?: ReactNode;
+  showLessLabel?: ReactNode;
+  visibleOptionCount?: number;
 }
 
 export function MarketplaceFacetChoiceGroup({
@@ -940,11 +1072,29 @@ export function MarketplaceFacetChoiceGroup({
   selectionMode = selectedIds ? "multiple" : "single",
   onSelect,
   allLeadingIcon = "grid",
-  itemLeadingIcon = "tag"
+  itemLeadingIcon = "tag",
+  searchable = false,
+  searchLabel = "Search options",
+  searchPlaceholder,
+  searchEmptyLabel = "No matching options",
+  showMoreLabel = "Show more",
+  showLessLabel = "Show less",
+  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS
 }: MarketplaceFacetChoiceGroupProps) {
+  const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const anySelected = selectedValues ? selectedValues.size > 0 : Boolean(selectedId);
   const multiple = selectionMode === "multiple";
+  const normalizedSearch = search.trim().toLocaleLowerCase("en-US");
+  const { matchedItems, visibleItems, canToggle } = getProgressiveMarketplaceFacetItems({
+    items,
+    normalizedSearch,
+    selectedValues,
+    selectedId,
+    expanded,
+    visibleOptionCount
+  });
 
   const renderChoice = (
     id: string,
@@ -1001,17 +1151,45 @@ export function MarketplaceFacetChoiceGroup({
         <h3 className="m-0 font-heading text-sm font-semibold text-foreground">{title}</h3>
         {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
       </div>
+      {searchable ? (
+        <SearchInput
+          label={searchLabel}
+          hideLabel
+          placeholder={searchPlaceholder ?? searchLabel}
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+        />
+      ) : null}
       <div className="grid gap-2">
         {renderChoice("", allLabel, undefined, !anySelected, allLeadingIcon)}
-        {items.map((item) =>
+      </div>
+      <div className="grid gap-2">
+        {visibleItems.map((item) =>
           renderChoice(
             item.id,
             item.label,
             item.count,
-            selectedValues?.has(item.id) ?? selectedId === item.id,
+            isMarketplaceFacetItemSelected(item, selectedValues, selectedId),
             itemLeadingIcon
           )
         )}
+        {normalizedSearch && matchedItems.length === 0 ? (
+          <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
+            {searchEmptyLabel}
+          </div>
+        ) : null}
+        {canToggle ? (
+          <Button
+            tone="ghost"
+            size="sm"
+            onClick={() => setExpanded((current) => !current)}
+            leadingIcon={expanded ? "chevronUp" : "chevronDown"}
+            aria-expanded={expanded}
+            block
+          >
+            {expanded ? showLessLabel : showMoreLabel}
+          </Button>
+        ) : null}
       </div>
     </section>
   );
@@ -1104,14 +1282,6 @@ export function MarketplaceFilterBottomSheet({
       </div>
     </BottomSheet>
   );
-}
-
-/** @deprecated Use MarketplaceFilterBottomSheet. Drawers are reserved for navigation. */
-export interface MarketplaceMobileFilterDrawerProps extends MarketplaceFilterBottomSheetProps {}
-
-/** @deprecated Use MarketplaceFilterBottomSheet. Drawers are reserved for navigation. */
-export function MarketplaceMobileFilterDrawer(props: MarketplaceMobileFilterDrawerProps) {
-  return <MarketplaceFilterBottomSheet {...props} />;
 }
 
 export interface MarketplaceFilterAction {
@@ -1638,9 +1808,11 @@ export function MarketplaceProductDetailLayout({
           <div className="order-3 min-w-0 xl:mt-6">{market}</div>
           <div className="order-4 min-w-0 xl:mt-6">{children}</div>
         </div>
-        <aside className="order-4 hidden min-w-0 xl:order-3 xl:block xl:sticky xl:top-24">
-          {commerce}
-        </aside>
+        <div className="order-4 hidden min-w-0 xl:order-3 xl:block">
+          <Sidebar label="Commerce options" purpose="support" width="summary" sticky>
+            {commerce}
+          </Sidebar>
+        </div>
       </div>
       {mobileActionBar ? (
         <div className="fixed inset-x-3 bottom-20 z-sticky xl:hidden md:bottom-4">
@@ -1801,12 +1973,212 @@ export function CommerceBottomSheet({
   );
 }
 
-/** @deprecated Use CommerceBottomSheet. Drawers are reserved for navigation. */
-export interface CommerceDrawerProps extends CommerceBottomSheetProps {}
+export interface CommerceSheetProps
+  extends Omit<SideSheetProps, "children" | "side" | "width"> {
+  children?: ReactNode;
+  desktopWidth?: PanelWidth;
+  mobileHeight?: BottomSheetHeight;
+}
 
-/** @deprecated Use CommerceBottomSheet. Drawers are reserved for navigation. */
-export function CommerceDrawer(props: CommerceDrawerProps) {
-  return <CommerceBottomSheet {...props} />;
+export function CommerceSheet({
+  children,
+  footer,
+  desktopWidth = "md",
+  mobileHeight = "expanded",
+  ...rest
+}: CommerceSheetProps) {
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  if (isDesktop) {
+    return (
+      <SideSheet
+        {...rest}
+        side="right"
+        width={desktopWidth}
+        footer={footer}
+      >
+        {children}
+      </SideSheet>
+    );
+  }
+
+  return (
+    <BottomSheet
+      {...rest}
+      height={mobileHeight}
+      footer={footer}
+    >
+      {children}
+    </BottomSheet>
+  );
+}
+
+export interface MarketplaceActionSheetProps extends CommerceSheetProps {}
+
+export function MarketplaceActionSheet(props: MarketplaceActionSheetProps) {
+  return <CommerceSheet {...props} />;
+}
+
+export interface ResponsiveEditSheetProps
+  extends Omit<SideSheetProps, "children" | "side" | "width"> {
+  children?: ReactNode;
+  desktopWidth?: PanelWidth;
+  mobileHeight?: BottomSheetHeight;
+}
+
+export function ResponsiveEditSheet({
+  children,
+  footer,
+  desktopWidth = "md",
+  mobileHeight = "full",
+  ...rest
+}: ResponsiveEditSheetProps) {
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  if (isDesktop) {
+    return (
+      <SideSheet
+        {...rest}
+        side="right"
+        width={desktopWidth}
+        footer={footer}
+      >
+        {children}
+      </SideSheet>
+    );
+  }
+
+  return (
+    <BottomSheet
+      {...rest}
+      height={mobileHeight}
+      footer={footer}
+    >
+      {children}
+    </BottomSheet>
+  );
+}
+
+export interface ResponsiveSupportSheetProps
+  extends Omit<SideSheetProps, "children" | "modal" | "side" | "width"> {
+  children?: ReactNode;
+  desktopModal?: boolean;
+  desktopWidth?: PanelWidth;
+  mobileHeight?: BottomSheetHeight;
+  mobileModal?: boolean;
+}
+
+export function ResponsiveSupportSheet({
+  children,
+  footer,
+  desktopModal = false,
+  desktopWidth = "md",
+  mobileHeight = "expanded",
+  mobileModal = true,
+  ...rest
+}: ResponsiveSupportSheetProps) {
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  if (isDesktop) {
+    return (
+      <SideSheet
+        {...rest}
+        modal={desktopModal}
+        side="right"
+        width={desktopWidth}
+        footer={footer}
+      >
+        {children}
+      </SideSheet>
+    );
+  }
+
+  return (
+    <BottomSheet
+      {...rest}
+      modal={mobileModal}
+      height={mobileHeight}
+      footer={footer}
+    >
+      {children}
+    </BottomSheet>
+  );
+}
+
+export interface ActivitySheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function ActivitySheet({
+  title = "Activity",
+  description = "Review recent updates.",
+  ...rest
+}: ActivitySheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
+}
+
+export interface CommentsSheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function CommentsSheet({
+  title = "Comments",
+  description = "Review and add contextual comments.",
+  ...rest
+}: CommentsSheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
+}
+
+export interface AssistantSheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function AssistantSheet({
+  title = "Assistant",
+  description = "Get contextual help without leaving your work.",
+  ...rest
+}: AssistantSheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
+}
+
+export interface HelpSheetProps
+  extends Omit<ResponsiveSupportSheetProps, "title"> {
+  title?: ReactNode;
+}
+
+export function HelpSheet({
+  title = "Help",
+  description = "Review guidance for this workflow.",
+  ...rest
+}: HelpSheetProps) {
+  return (
+    <ResponsiveSupportSheet
+      {...rest}
+      title={title}
+      description={description}
+    />
+  );
 }
 
 export type NotificationCenterView = "feed" | "settings";
@@ -1874,8 +2246,212 @@ export function NotificationCenterSheet({
   onProductAlertDelete,
   ...rest
 }: NotificationCenterSheetProps) {
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
   const hasNotifications = notifications.length > 0;
   const unreadLabel = unreadCount === 1 ? "1 unread" : `${unreadCount} unread`;
+  const footer = view === "feed" ? (
+    <Button
+      type="button"
+      tone="secondary"
+      size="sm"
+      block
+      disabled={unreadCount === 0 || loading}
+      onClick={onMarkAllRead}
+    >
+      Mark all read
+    </Button>
+  ) : null;
+  const content = (
+    <div className="grid min-h-0 gap-4">
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          tone={view === "feed" ? "primary" : "secondary"}
+          size="sm"
+          onClick={() => onViewChange?.("feed")}
+        >
+          Feed
+        </Button>
+        <Button
+          type="button"
+          tone={view === "settings" ? "primary" : "secondary"}
+          size="sm"
+          leadingIcon="settings"
+          onClick={() => onViewChange?.("settings")}
+        >
+          Settings
+        </Button>
+      </div>
+
+      {view === "feed" ? (
+        <div className="grid gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-foreground">Recent updates</span>
+            <Badge tone={unreadCount > 0 ? "accent" : "neutral"}>{unreadLabel}</Badge>
+          </div>
+
+          {loading ? (
+            <div className="rounded-tokenMd border border-muted bg-surface p-4 text-sm text-secondary">
+              Loading notifications
+            </div>
+          ) : hasNotifications ? (
+            notifications.map((notification) => (
+              <div
+                key={notification.deliveryId}
+                className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-sm font-semibold text-foreground">
+                      {notification.title}
+                    </div>
+                    <div className="text-sm leading-6 text-secondary">
+                      {notification.body}
+                    </div>
+                  </div>
+                  <Badge tone={notification.read ? "neutral" : "accent"}>
+                    {notification.read ? "Read" : "New"}
+                  </Badge>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-secondary">
+                  {notification.sourceLabel ? <span>{notification.sourceLabel}</span> : null}
+                  {notification.createdAtLabel ? <span>{notification.createdAtLabel}</span> : null}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {notification.actionHref ? (
+                    <LinkButton href={notification.actionHref} tone="secondary" size="sm">
+                      {notification.actionLabel ?? "Open"}
+                    </LinkButton>
+                  ) : null}
+                  {!notification.read ? (
+                    <Button
+                      type="button"
+                      tone="ghost"
+                      size="sm"
+                      onClick={() => onMarkRead?.(notification.deliveryId)}
+                    >
+                      Mark read
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-tokenMd border border-muted bg-surface p-4">
+              <div className="text-sm font-semibold text-foreground">No notifications</div>
+              <div className="mt-1 text-sm leading-6 text-secondary">
+                Order, shipment, and Product alert updates will appear here.
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          <section className="grid gap-3">
+            <div>
+              <div className="text-sm font-semibold text-foreground">Delivery settings</div>
+              <div className="text-sm text-secondary">
+                Control how marketplace updates reach this account.
+              </div>
+            </div>
+            {preferences.map((preference) => (
+              <Switch
+                key={preference.key}
+                label={preference.label}
+                description={preference.description}
+                checked={preference.enabled}
+                onCheckedChange={(enabled) => onPreferenceChange?.(preference.key, enabled)}
+              />
+            ))}
+          </section>
+
+          <section className="grid gap-3">
+            <div>
+              <div className="text-sm font-semibold text-foreground">Product alerts</div>
+              <div className="text-sm text-secondary">
+                Pause or remove watches created from product detail pages.
+              </div>
+            </div>
+            {productAlerts.length > 0 ? (
+              productAlerts.map((alert) => (
+                <div
+                  key={alert.id}
+                  className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-foreground">{alert.title}</div>
+                      {alert.detail ? (
+                        <div className="mt-1 text-sm leading-6 text-secondary">{alert.detail}</div>
+                      ) : null}
+                    </div>
+                    <Badge tone={alert.status === "active" ? "success" : "neutral"}>
+                      {alert.status}
+                    </Badge>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {alert.status === "active" ? (
+                      <Button
+                        type="button"
+                        tone="secondary"
+                        size="sm"
+                        onClick={() => onProductAlertPause?.(alert.id)}
+                      >
+                        Pause
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        tone="secondary"
+                        size="sm"
+                        onClick={() => onProductAlertResume?.(alert.id)}
+                      >
+                        Resume
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      tone="ghost"
+                      size="sm"
+                      onClick={() => onProductAlertDelete?.(alert.id)}
+                    >
+                      Delete
+                    </Button>
+                    {alert.productHref ? (
+                      <LinkButton href={alert.productHref} tone="ghost" size="sm">
+                        View product
+                      </LinkButton>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-tokenMd border border-muted bg-surface p-4">
+                <div className="text-sm font-semibold text-foreground">No Product alerts yet</div>
+                <div className="mt-1 text-sm leading-6 text-secondary">
+                  Create alerts from product detail pages after choosing product options.
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
+  );
+
+  if (!isDesktop) {
+    return (
+      <BottomSheet
+        {...rest}
+        height="expanded"
+        title={title}
+        description={description}
+        footer={footer}
+      >
+        {content}
+      </BottomSheet>
+    );
+  }
 
   return (
     <SideSheet
@@ -1884,206 +2460,11 @@ export function NotificationCenterSheet({
       width="md"
       title={title}
       description={description}
-      footer={
-        view === "feed" ? (
-          <Button
-            type="button"
-            tone="secondary"
-            size="sm"
-            block
-            disabled={unreadCount === 0 || loading}
-            onClick={onMarkAllRead}
-          >
-            Mark all read
-          </Button>
-        ) : null
-      }
+      footer={footer}
     >
-      <div className="grid min-h-0 gap-4">
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            type="button"
-            tone={view === "feed" ? "primary" : "secondary"}
-            size="sm"
-            onClick={() => onViewChange?.("feed")}
-          >
-            Feed
-          </Button>
-          <Button
-            type="button"
-            tone={view === "settings" ? "primary" : "secondary"}
-            size="sm"
-            leadingIcon="settings"
-            onClick={() => onViewChange?.("settings")}
-          >
-            Settings
-          </Button>
-        </div>
-
-        {view === "feed" ? (
-          <div className="grid gap-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold text-foreground">Recent updates</span>
-              <Badge tone={unreadCount > 0 ? "accent" : "neutral"}>{unreadLabel}</Badge>
-            </div>
-
-            {loading ? (
-              <div className="rounded-tokenMd border border-muted bg-surface p-4 text-sm text-secondary">
-                Loading notifications
-              </div>
-            ) : hasNotifications ? (
-              notifications.map((notification) => (
-                <div
-                  key={notification.deliveryId}
-                  className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="text-sm font-semibold text-foreground">
-                        {notification.title}
-                      </div>
-                      <div className="text-sm leading-6 text-secondary">
-                        {notification.body}
-                      </div>
-                    </div>
-                    <Badge tone={notification.read ? "neutral" : "accent"}>
-                      {notification.read ? "Read" : "New"}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-secondary">
-                    {notification.sourceLabel ? <span>{notification.sourceLabel}</span> : null}
-                    {notification.createdAtLabel ? <span>{notification.createdAtLabel}</span> : null}
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {notification.actionHref ? (
-                      <LinkButton href={notification.actionHref} tone="secondary" size="sm">
-                        {notification.actionLabel ?? "Open"}
-                      </LinkButton>
-                    ) : null}
-                    {!notification.read ? (
-                      <Button
-                        type="button"
-                        tone="ghost"
-                        size="sm"
-                        onClick={() => onMarkRead?.(notification.deliveryId)}
-                      >
-                        Mark read
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-tokenMd border border-muted bg-surface p-4">
-                <div className="text-sm font-semibold text-foreground">No notifications</div>
-                <div className="mt-1 text-sm leading-6 text-secondary">
-                  Order, shipment, and Product alert updates will appear here.
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            <section className="grid gap-3">
-              <div>
-                <div className="text-sm font-semibold text-foreground">Delivery settings</div>
-                <div className="text-sm text-secondary">
-                  Control how marketplace updates reach this account.
-                </div>
-              </div>
-              {preferences.map((preference) => (
-                <Switch
-                  key={preference.key}
-                  label={preference.label}
-                  description={preference.description}
-                  checked={preference.enabled}
-                  onCheckedChange={(enabled) => onPreferenceChange?.(preference.key, enabled)}
-                />
-              ))}
-            </section>
-
-            <section className="grid gap-3">
-              <div>
-                <div className="text-sm font-semibold text-foreground">Product alerts</div>
-                <div className="text-sm text-secondary">
-                  Pause or remove watches created from product detail pages.
-                </div>
-              </div>
-              {productAlerts.length > 0 ? (
-                productAlerts.map((alert) => (
-                  <div
-                    key={alert.id}
-                    className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-foreground">{alert.title}</div>
-                        {alert.detail ? (
-                          <div className="mt-1 text-sm leading-6 text-secondary">{alert.detail}</div>
-                        ) : null}
-                      </div>
-                      <Badge tone={alert.status === "active" ? "success" : "neutral"}>
-                        {alert.status}
-                      </Badge>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {alert.status === "active" ? (
-                        <Button
-                          type="button"
-                          tone="secondary"
-                          size="sm"
-                          onClick={() => onProductAlertPause?.(alert.id)}
-                        >
-                          Pause
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          tone="secondary"
-                          size="sm"
-                          onClick={() => onProductAlertResume?.(alert.id)}
-                        >
-                          Resume
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        tone="ghost"
-                        size="sm"
-                        onClick={() => onProductAlertDelete?.(alert.id)}
-                      >
-                        Delete
-                      </Button>
-                      {alert.productHref ? (
-                        <LinkButton href={alert.productHref} tone="ghost" size="sm">
-                          View product
-                        </LinkButton>
-                      ) : null}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-tokenMd border border-muted bg-surface p-4">
-                  <div className="text-sm font-semibold text-foreground">No Product alerts yet</div>
-                  <div className="mt-1 text-sm leading-6 text-secondary">
-                    Create alerts from product detail pages after choosing product options.
-                  </div>
-                </div>
-              )}
-            </section>
-          </div>
-        )}
-      </div>
+      {content}
     </SideSheet>
   );
-}
-
-/** @deprecated Use NotificationCenterSheet. Drawers are reserved for navigation. */
-export interface NotificationCenterDrawerProps extends NotificationCenterSheetProps {}
-
-/** @deprecated Use NotificationCenterSheet. Drawers are reserved for navigation. */
-export function NotificationCenterDrawer(props: NotificationCenterDrawerProps) {
-  return <NotificationCenterSheet {...props} />;
 }
 
 export function CommerceActionBar({

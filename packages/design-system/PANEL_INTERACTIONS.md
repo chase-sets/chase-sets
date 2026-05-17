@@ -12,7 +12,7 @@ Use this decision rule before choosing a component:
 - If the interaction is brief, lightweight, and anchored to a trigger, use a popover or menu.
 - If the task is complex, long, sequential, or requires focus, use a full-page flow.
 
-Do not use "drawer" as a generic term. Drawer is only allowed in component implementation names where the current code still exposes that primitive. Product, design, and documentation language must use the canonical pattern names below.
+Do not use "drawer" as a generic term. The only approved design-system drawer name is `NavigationDrawer`, because that pattern is specifically for navigation. Product, design, and documentation language must use the canonical pattern names below.
 
 ## Pattern Taxonomy
 
@@ -144,6 +144,7 @@ Use desktop width to preserve context without turning the screen into a stack of
 - A non-modal Side Sheet may allow page scroll, but its header and primary footer should remain visible when it contains actions.
 - Side Sheets should not shrink the main content below usable table, form, or card widths. At narrow desktop or tablet widths, overlay the sheet instead of squeezing the page.
 - Persistent Sidebars reserve layout width only at breakpoints where the remaining content keeps its minimum usable width.
+- Persistent filter Sidebars should have one scroll owner for the whole filter surface when content exceeds the viewport. Do not add independent scroll regions inside facet groups; long groups use progressive disclosure, option search, or a focused replacement surface.
 
 ### Keyboard, Screen Reader, And Escape
 
@@ -201,6 +202,7 @@ Mobile surfaces must preserve thumb reach, route clarity, and content comprehens
 
 - Modal Bottom Sheets lock background scroll.
 - Sheet body may scroll, but avoid nested scroll containers. If nested scrolling is unavoidable, headers and footers stay stable and the inner region has clear boundaries.
+- Filter Bottom Sheets should not contain scrollable facet subregions. Keep the sheet body as the single vertical scroll container, keep `Clear` and `Show results` actions in the sticky footer, and promote very dense option picking to a focused sheet section or Full Page.
 - Page content behind a sheet must not shift when the sheet opens.
 
 ### When To Promote A Bottom Sheet
@@ -295,7 +297,17 @@ Canonical design-system names:
 - `Popover` and `Menu`: lightweight anchored interaction.
 - `FullPage`: dedicated focused workflow wrapper or route template.
 
-The package exposes canonical pattern wrappers for the taxonomy. Existing `Drawer` exports remain as low-level primitives for backward compatibility and specialized composition; new product code should import the canonical wrapper that matches the user interaction.
+The package exposes only canonical pattern wrappers for the taxonomy. It does not export a generic `Drawer`, deprecated drawer aliases, or duplicate dropdown menu aliases. Product code must import the canonical wrapper that matches the user interaction.
+
+Marketplace-specific wrappers:
+
+- `MarketplaceFilterBottomSheet`: mobile search and table filters with result context and sticky apply actions.
+- `CommerceSheet`: contextual marketplace commerce inspection or action; desktop Side Sheet and mobile Bottom Sheet.
+- `MarketplaceActionSheet`: marketplace action groups that should stay in context; desktop Side Sheet and mobile Bottom Sheet.
+- `ResponsiveEditSheet`: short contextual edit forms; desktop Side Sheet and mobile full-height Bottom Sheet by default.
+- `NotificationCenterSheet`: notification feed/settings; desktop Side Sheet and mobile Bottom Sheet.
+- `ResponsiveActionMenu`: desktop anchored `Menu` that promotes to mobile Bottom Sheet when the action list is too long for touch-friendly anchoring.
+- `ActivitySheet`, `CommentsSheet`, `AssistantSheet`, and `HelpSheet`: named support panels for non-primary supporting content; desktop right Side Sheet and mobile Bottom Sheet.
 
 Recommended prop shape:
 
@@ -321,6 +333,9 @@ Implementation rules:
 - Bounded contexts pass titles, descriptions, actions, validation state, loading state, empty state, and domain content.
 - Do not create route-local overlay CSS or custom panel widths. Add missing variants to the design system.
 - Avoid component names such as `GenericDrawer`, `PanelDrawer`, `CustomModal`, or `MobileModal`. Add a canonical wrapper or use the existing canonical one.
+- For More actions, share options, and grouped contextual commands, use `ResponsiveActionMenu` before building a route-local menu. Keep desktop anchored unless the action set becomes too dense; mobile promotes to Bottom Sheet when the item count exceeds the documented threshold.
+- For activity, comments, assistant, or help panels, use the named support wrapper. If the content becomes threaded, long, or route-worthy, promote the mobile experience to Full Page instead of increasing the Bottom Sheet indefinitely.
+- Do not reintroduce compatibility aliases such as `FilterDrawer`, `CommerceDrawer`, `NotificationCenterDrawer`, `MarketplaceFilterDrawer`, `MarketplaceMobileFilterDrawer`, `MarketplaceUiFilterBottomSheet`, or `DropdownMenu`.
 
 ## Do / Don't Examples
 
@@ -352,17 +367,18 @@ Misuse prevention rules:
 | Main app navigation | Sidebar for admin; top/bottom nav for marketplace; temporary Navigation Drawer only for dense IA. | Bottom navigation, tabs, compact menu, or Navigation Drawer for deep IA. | Persistent nav speeds desktop work; mobile needs thumb reach and less chrome. |
 | Account or workspace switcher | Popover/Menu anchored to account control. | Bottom Sheet if more than a few accounts or workspace metadata is needed. | Anchored desktop switchers are fast; mobile needs room for touch targets. |
 | Table filters | Persistent Sidebar or Side Sheet with active-filter summary. | Bottom Sheet with grouped filters, clear all, and show results. | Desktop can preserve result context; mobile needs a focused filter surface. |
+| Dynamic marketplace filters | Persistent FilterRail with one scroll surface, active chips outside the rail, show more/show less for long groups, and searchable high-cardinality facets. | Bottom Sheet with one scroll surface, active chips outside the sheet, sticky clear/show-results footer, and focused sections or Full Page for dense single-facet search. | Dynamic counts and selected options must feel stable; nested scrollbars make ownership ambiguous and hurt touch ergonomics. |
 | Row details | Non-modal Side Sheet for quick inspection; Full Page for rich records. | Bottom Sheet for lightweight summary; Full Page for rich details. | Sheets keep list context, pages support reading and deep links. |
 | Edit customer | Side Sheet for short edits; Full Page for multi-section or permission-heavy edits. | Bottom Sheet for 1-3 simple fields; Full Page for complex edit. | Short edits benefit from context; complex validation needs a page. |
 | Create report | Full Page flow with stepper or sections. | Full Page flow. | Report creation is sequential and often needs validation, preview, and save state. |
 | Confirmation before deleting | Modal Dialog or AlertDialog. | Modal Dialog if short; Full Page only for unusually detailed consequences. | Blocking confirmation prevents accidental irreversible action. |
 | Share options | Popover/Menu for a short list. | Bottom Sheet for touch-friendly share targets. | Mobile share choices need more spacing and platform-like behavior. |
-| More actions menu | Popover/Menu. | Popover/Menu for very short anchored actions; Bottom Sheet for longer lists. | Keep common desktop actions fast; promote when mobile space is tight. |
+| More actions menu | `ResponsiveActionMenu` rendered as an anchored Menu. | `ResponsiveActionMenu` rendered as a Bottom Sheet when options exceed available space. | Keep common desktop actions fast; promote when mobile space is tight. |
 | Mobile filter experience | Side Sheet or FilterRail on desktop source route. | Bottom Sheet. | Filters are contextual controls, not navigation. |
 | Mobile edit form | Side Sheet on desktop for short form. | Bottom Sheet for short form; Full Page for complex form. | Avoid expanded sheets becoming poor pages. |
 | Mobile item details | Side Sheet or Full Page based on detail richness. | Bottom Sheet for summary; Full Page for full detail. | Lightweight details can preserve list context; rich content needs a route. |
-| AI assistant/help panel | Non-modal right Side Sheet. | Bottom Sheet for quick help; Full Page for conversation history or complex tasking. | Non-modal assistance should not block core work unless the user starts a focused flow. |
-| Activity/comments panel | Right Side Sheet or persistent Sidebar for active records. | Bottom Sheet for short activity; Full Page for long threaded conversation. | Comments often need reading depth on mobile. |
+| AI assistant/help panel | `AssistantSheet` or `HelpSheet` as non-modal right Side Sheet. | Bottom Sheet for quick help; Full Page for conversation history or complex tasking. | Non-modal assistance should not block core work unless the user starts a focused flow. |
+| Activity/comments panel | `ActivitySheet` or `CommentsSheet`, or persistent Sidebar for active records. | Bottom Sheet for short activity; Full Page for long threaded conversation. | Comments often need reading depth on mobile. |
 
 ## Governance Rules
 
@@ -370,6 +386,7 @@ Misuse prevention rules:
 - Bounded contexts own the reason a surface opens, the data inside it, validation, commands, events, read models, and workflow outcomes.
 - Deployables compose route shells and must not introduce custom panel primitives.
 - New overlay or panel variants require design-system review when they add a new name, breakpoint behavior, focus behavior, scroll model, or stacking model.
+- Bounded-context routes must import the named wrapper that matches the interaction; they must not compose low-level `Drawer`, `BottomSheet`, or `SideSheet` directly when a marketplace wrapper exists for the scenario.
 - A pull request that adds a panel must identify the chosen pattern in its description or code comments when the choice is not obvious.
 - Stacked temporary surfaces require explicit design-system approval. The default alternatives are replace-in-place, Full Page, or one Modal Dialog for a blocking confirmation.
 - Any surface that reaches full-height on mobile by default must be reviewed as a Full Page candidate.

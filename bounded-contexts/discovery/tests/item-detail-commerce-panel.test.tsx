@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { ReactElement } from "react";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
@@ -11,6 +11,7 @@ import {
   MarketplaceOfferMatchSection,
   MarketplaceSellerRegistrationSection,
 } from "../routes/item-detail";
+import DiscoveryItemDetailRoute from "../routes/item-detail";
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
@@ -18,6 +19,11 @@ import type {
   DiscoveryAccountOfferMatch,
   ProductSchema,
 } from "../support/client-support/contracts";
+
+vi.mock("@chase-sets/platform-runtime/realtime-react", () => ({
+  useRealtimePatchedSnapshot: ({ initialSnapshot }: { initialSnapshot: unknown }) =>
+    initialSnapshot,
+}));
 
 afterEach(() => cleanup());
 
@@ -149,6 +155,19 @@ function renderWithDataRouter(element: ReactElement) {
   return render(<RouterProvider router={router} />);
 }
 
+function renderItemDetailRoute(loaderData: Record<string, unknown>) {
+  const router = createMemoryRouter([
+    {
+      path: "/",
+      element: <DiscoveryItemDetailRoute />,
+      loader: async () => loaderData,
+      action: async () => ({ status: "ok" }),
+    },
+  ]);
+
+  return render(<RouterProvider router={router} />);
+}
+
 function createItem(
   overrides: Partial<DiscoveryItemDetail> = {},
 ): DiscoveryItemDetail {
@@ -268,7 +287,7 @@ describe("item detail commerce panel", () => {
     expect(imageFrame?.className).toContain("[--gallery-max-height:32rem]");
   });
 
-  it("opens the selected mobile commerce section in a drawer", () => {
+  it("opens the selected mobile commerce section in a bottom sheet", () => {
     render(
       <ItemDetailPage
         data={createItem()}
@@ -291,14 +310,14 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
-    expect(buyDrawer).toBeTruthy();
-    expect(within(buyDrawer).getByText("Mobile buy action")).toBeTruthy();
-    expect(within(buyDrawer).getByRole("button", { name: "Mobile footer buy" })).toBeTruthy();
-    expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
+    const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(buySheet).toBeTruthy();
+    expect(within(buySheet).getByText("Mobile buy action")).toBeTruthy();
+    expect(within(buySheet).getByRole("button", { name: "Mobile footer buy" })).toBeTruthy();
+    expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
-  it("keeps checkout purchase actions available in the mobile buy drawer", () => {
+  it("keeps checkout purchase actions available in the mobile buy sheet", () => {
     renderWithDataRouter(
       <ItemDetailPage
         data={createItem()}
@@ -330,14 +349,14 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    const buyDrawer = screen.getByRole("dialog", { name: "Buy selected product" });
-    expect(within(buyDrawer).getByRole("spinbutton", { name: /Quantity/ }))
+    const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
+    expect(within(buySheet).getByRole("spinbutton", { name: /Quantity/ }))
       .toBeTruthy();
-    expect(within(buyDrawer).getByRole("button", { name: "Buy optimized" }))
+    expect(within(buySheet).getByRole("button", { name: "Buy optimized" }))
       .not.toHaveProperty("disabled", true);
-    expect(within(buyDrawer).getByRole("button", { name: "Add product to cart" }))
+    expect(within(buySheet).getByRole("button", { name: "Add product to cart" }))
       .not.toHaveProperty("disabled", true);
-    expect(within(buyDrawer).queryByText("Desktop buy rail")).toBeNull();
+    expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
   it("changes mobile commerce actions with the selected market intent", () => {
@@ -471,6 +490,39 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
+  it("places listing watches in Buy and offer watches in Sell", async () => {
+    renderItemDetailRoute({
+      item: createItem(),
+      accountOfferMatches: [baseAccountOfferMatch],
+      sellerInventoryItems: [],
+      sellerAccountId: "seller_1",
+      hasListingStockLocation: false,
+      viewerAccountId: "seller_1",
+      initialMarketIntent: "buy",
+      initialSelectedOptions: [],
+      hasInitialSelectedOptionFilters: false,
+      showSellerTab: true,
+      canUseSellerFeatures: true,
+      canSubmitOffers: true,
+      registerToSellHref: "/register",
+      notFound: false,
+      error: null,
+      canonicalUrl: null,
+    });
+
+    expect(await screen.findByText("Watch for listings")).toBeTruthy();
+    expect(screen.queryByText("Watch for offers")).toBeNull();
+
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Sell" }),
+    );
+
+    expect(screen.getByText("Watch for offers")).toBeTruthy();
+    expect(screen.queryByText("Watch for listings")).toBeNull();
+  });
+
   it("keeps the market intent URL in sync when switching tabs", () => {
     window.history.pushState(null, "", "/items/charizard-base-set?market=sell");
 
@@ -558,11 +610,10 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByText("Chase Sets")).toBeTruthy();
-    expect(screen.getByText("4.8")).toBeTruthy();
-    expect(screen.getByText("(12)")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Chase Sets/ }).getAttribute("href"))
-      .toBe("/sellers/chase-sets-seller#feedback");
+    const sellerReputationLink = screen.getByRole("link", { name: /Chase Sets/ });
+    expect(within(sellerReputationLink).getByText("4.8")).toBeTruthy();
+    expect(within(sellerReputationLink).getByText("(12)")).toBeTruthy();
+    expect(sellerReputationLink.getAttribute("href")).toBe("/sellers/chase-sets-seller#feedback");
 
     fireEvent.click(
       within(
@@ -570,11 +621,10 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    expect(screen.getByText("Ash Ketchum")).toBeTruthy();
-    expect(screen.getByText("4.2")).toBeTruthy();
-    expect(screen.getByText("(5)")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Ash Ketchum/ }).getAttribute("href"))
-      .toBe("/sellers/ash-ketchum#feedback");
+    const buyerReputationLink = screen.getByRole("link", { name: /Ash Ketchum/ });
+    expect(within(buyerReputationLink).getByText("4.2")).toBeTruthy();
+    expect(within(buyerReputationLink).getByText("(5)")).toBeTruthy();
+    expect(buyerReputationLink.getAttribute("href")).toBe("/sellers/ash-ketchum#feedback");
   });
 
   it("highlights the initial selected listing and attributes the buy panel to it", () => {

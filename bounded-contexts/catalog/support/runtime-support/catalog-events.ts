@@ -34,11 +34,6 @@ export type CatalogItemUpdatedIntegrationEvent = DomainEvent<
   CatalogItemSnapshot
 >;
 
-export type CatalogItemRetiredIntegrationEvent = DomainEvent<
-  "CatalogItemRetired",
-  CatalogItemSnapshot
->;
-
 export type CatalogItemArchivedIntegrationEvent = DomainEvent<
   "CatalogItemArchived",
   CatalogItemSnapshot
@@ -47,7 +42,6 @@ export type CatalogItemArchivedIntegrationEvent = DomainEvent<
 export type CatalogIntegrationEvent =
   | CatalogItemPublishedIntegrationEvent
   | CatalogItemUpdatedIntegrationEvent
-  | CatalogItemRetiredIntegrationEvent
   | CatalogItemArchivedIntegrationEvent;
 
 export function createCatalogItemSnapshot(input: {
@@ -102,15 +96,6 @@ export function createCatalogItemUpdatedEvent(
 ): CatalogItemUpdatedIntegrationEvent {
   return {
     type: "CatalogItemUpdated",
-    data: snapshot,
-  };
-}
-
-export function createCatalogItemRetiredEvent(
-  snapshot: CatalogItemSnapshot,
-): CatalogItemRetiredIntegrationEvent {
-  return {
-    type: "CatalogItemRetired",
     data: snapshot,
   };
 }

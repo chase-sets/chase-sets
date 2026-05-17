@@ -86,7 +86,7 @@ export function buildPricingCatalogInputProjectionHandlers(
     "catalog.catalog-item.retired": async (event) => {
       await db.query(
         `UPDATE pricing_catalog_item_inputs
-         SET status = 'retired',
+         SET status = 'archived',
              updated_at = $2
          WHERE catalog_item_id = $1`,
         [

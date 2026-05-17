@@ -94,7 +94,8 @@
         "catalog.dimension.created",
         "catalog.dimension.revised",
         "catalog.dimension.option-added",
-        "catalog.dimension.option-revised"
+        "catalog.dimension.option-revised",
+        "catalog.dimension.options-reordered"
       ],
       "order": 10
     },
@@ -141,7 +142,8 @@
         "catalog.dimension.created",
         "catalog.dimension.revised",
         "catalog.dimension.option-added",
-        "catalog.dimension.option-revised"
+        "catalog.dimension.option-revised",
+        "catalog.dimension.options-reordered"
       ],
       "order": 10
     },
@@ -188,7 +190,8 @@
         "catalog.dimension.created",
         "catalog.dimension.revised",
         "catalog.dimension.option-added",
-        "catalog.dimension.option-revised"
+        "catalog.dimension.option-revised",
+        "catalog.dimension.options-reordered"
       ],
       "order": 10
     },

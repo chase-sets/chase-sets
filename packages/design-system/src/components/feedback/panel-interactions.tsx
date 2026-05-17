@@ -8,7 +8,7 @@ import {
   type SidebarWidth as LayoutSidebarWidth
 } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
-import { Dialog, Drawer, type DialogProps, type DrawerProps } from "./dialog";
+import { Dialog, ModalPanel, type DialogProps, type ModalPanelProps } from "./dialog";
 
 export type PanelWidth = "sm" | "md" | "lg";
 export type SupportSidebarWidth = LayoutSidebarWidth | PanelWidth;
@@ -138,7 +138,7 @@ export function ModalDialog(props: ModalDialogProps) {
   return <Dialog {...props} />;
 }
 
-export interface SideSheetProps extends Omit<DrawerProps, "placement"> {
+export interface SideSheetProps extends Omit<ModalPanelProps, "placement"> {
   modal?: boolean;
   side?: "left" | "right";
   width?: PanelWidth;
@@ -161,7 +161,7 @@ export function SideSheet({
 }: SideSheetProps) {
   if (modal) {
     return (
-      <Drawer
+      <ModalPanel
         open={open}
         defaultOpen={defaultOpen}
         onOpenChange={onOpenChange}
@@ -174,7 +174,7 @@ export function SideSheet({
         surfaceClassName={cx(sideSheetWidthClasses[width], surfaceClassName)}
       >
         {children}
-      </Drawer>
+      </ModalPanel>
     );
   }
 
@@ -197,7 +197,7 @@ export function SideSheet({
   );
 }
 
-export interface BottomSheetProps extends Omit<DrawerProps, "placement"> {
+export interface BottomSheetProps extends Omit<ModalPanelProps, "placement"> {
   modal?: boolean;
   height?: BottomSheetHeight;
 }
@@ -218,7 +218,7 @@ export function BottomSheet({
 }: BottomSheetProps) {
   if (modal) {
     return (
-      <Drawer
+      <ModalPanel
         open={open}
         defaultOpen={defaultOpen}
         onOpenChange={onOpenChange}
@@ -231,7 +231,7 @@ export function BottomSheet({
         surfaceClassName={cx(bottomSheetHeightClasses[height], surfaceClassName)}
       >
         {children}
-      </Drawer>
+      </ModalPanel>
     );
   }
 

@@ -16,6 +16,7 @@ import {
   createMarketplaceSlug,
   rememberSlugRedirect,
 } from "../../../support/runtime-support/slugs";
+import { fieldFacetSortMetadata } from "./facet-ordering";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -38,7 +39,9 @@ type SearchDimensionFilterValue = Readonly<{
   label: string;
   optionId: string;
   optionLabel: string;
+  valueKind: string;
   displayOrder: number;
+  numericValue: number | null;
 }>;
 
 type SearchCatalogItemRow = Readonly<{
@@ -152,16 +155,20 @@ async function loadDimensionFilterValues(
     dimension_name: string;
     option_id: string;
     option_label: string;
+    value_kind: string;
     blueprint_display_order: number;
     option_display_order: number;
+    numeric_value: string | number | null;
   }>(
     `SELECT
        rule.dimension_id,
        dimension.name AS dimension_name,
+       dimension.value_kind,
        option.option_id,
        option.label AS option_label,
        rule.display_order AS blueprint_display_order,
-       option.display_order AS option_display_order
+       option.display_order AS option_display_order,
+       option.numeric_value
      FROM discovery_search_catalog_blueprint_dimensions AS rule
      INNER JOIN discovery_search_catalog_dimensions AS dimension
        ON dimension.dimension_id = rule.dimension_id
@@ -181,7 +188,9 @@ async function loadDimensionFilterValues(
     label: row.dimension_name,
     optionId: row.option_id,
     optionLabel: row.option_label,
+    valueKind: row.value_kind,
     displayOrder: row.blueprint_display_order * 10_000 + row.option_display_order,
+    numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
   }));
 }
 
@@ -231,12 +240,21 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       return [];
     }
 
+    const sort = fieldFacetSortMetadata({
+      fieldId: fieldValue.fieldId,
+      label: definition.name,
+      value: fieldValue.value,
+      valueType: definition.value_type,
+    });
+
     return [{
       fieldId: fieldValue.fieldId,
       label: definition.name,
       value: normalized,
       valueLabel: formatFilterValueLabel(fieldValue.value),
       valueType: definition.value_type,
+      sortKind: sort.sortKind,
+      sortValue: sort.sortValue,
     }];
   });
   const dimensionFilterValues = await loadDimensionFilterValues(db, item.blueprint_id);
@@ -412,15 +430,29 @@ function buildReferenceFieldFilterValues(
     return [];
   }
 
-  return collectReferenceRecords(reference).map((record, index) => ({
-    fieldId: index === 0 ? fieldValue.fieldId : `${fieldValue.fieldId}:${record.typeKey}`,
-    label: index === 0
+  return collectReferenceRecords(reference).map((record, index) => {
+    const fieldId = index === 0 ? fieldValue.fieldId : `${fieldValue.fieldId}:${record.typeKey}`;
+    const label = index === 0
       ? definition.name
-      : `${definition.name} ${titleizeKey(record.typeKey)}`,
-    value: record.referenceId.toLocaleLowerCase("en-US"),
-    valueLabel: record.name,
-    valueType: definition.value_type,
-  }));
+      : `${definition.name} ${titleizeKey(record.typeKey)}`;
+    const sort = fieldFacetSortMetadata({
+      fieldId,
+      label,
+      value: record.referenceId,
+      valueType: definition.value_type,
+      reference: record,
+    });
+
+    return {
+      fieldId,
+      label,
+      value: record.referenceId.toLocaleLowerCase("en-US"),
+      valueLabel: record.name,
+      valueType: definition.value_type,
+      sortKind: sort.sortKind,
+      sortValue: sort.sortValue,
+    };
+  });
 }
 
 function titleizeKey(value: string): string {
@@ -792,7 +824,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
 
       await db.query(
         `UPDATE discovery_search_catalog_items
-         SET status = 'retired', updated_at = $2
+         SET status = 'archived', updated_at = $2
          WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],
       );
@@ -1219,6 +1251,21 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
           event.timing.recordedAt,
         ],
       );
+
+      await refreshItemsByDimension(db, dimensionId);
+    },
+    "catalog.dimension.options-reordered": async (event) => {
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
+      const { optionIds } = event.data as { optionIds: string[] };
+
+      for (let i = 0; i < optionIds.length; i++) {
+        await db.query(
+          `UPDATE discovery_search_catalog_dimension_options
+           SET display_order = $3, updated_at = $4
+           WHERE dimension_id = $1 AND option_id = $2`,
+          [dimensionId, optionIds[i], i, event.timing.recordedAt],
+        );
+      }
 
       await refreshItemsByDimension(db, dimensionId);
     },

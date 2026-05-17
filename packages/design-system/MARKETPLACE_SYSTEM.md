@@ -43,6 +43,19 @@ Use `packages/design-system/src/` as the canonical component inventory. Marketpl
 
 Cards may adapt to products, services, rentals, bookings, digital goods, quotes, and local listings, but the signal hierarchy stays stable: item identity, price, seller trust, fulfillment, availability, risk reduction, then action.
 
+## Search And Filtering
+
+Marketplace search filters must preserve buyer momentum: selections stay visible, result counts refresh predictably, and scrolling always has one obvious owner.
+
+- Applied filters stay outside temporary filter surfaces as reversible chips. A selected value also remains visible in its owning facet group even if the refreshed Result Set would otherwise hide that option.
+- Facet groups are ordered by usefulness, not by fewest options alone. Use buyer decision value, active-result coverage, selected state, meaningful distinct counts, and stable labels before falling back to alphabetical order.
+- Facet option counts refresh from the active Result Set. Counts for one facet group should answer "what options remain if every other filter stays applied and this group can vary?"
+- Hide unavailable zero-count options by default, except selected values must remain visible. Do not fill marketplace filters with disabled taxonomy rows unless an expert workflow explicitly needs unavailable comparison.
+- Long option lists use progressive depth, not nested scrollbars. Show the most useful values first, provide `Show more` / `Show less`, and add option search for high-cardinality facets such as card name, card number, set, player, team, seller, franchise, character, or other catalog-specific attributes.
+- Desktop uses a persistent left filter rail or side sheet with one scrollable filter surface. Individual facet groups must not create their own independent scroll containers.
+- Mobile uses a compact filter bar plus Bottom Sheet for normal filtering. The sheet body may scroll as one surface with a sticky footer for `Clear` and `Show results`; dense single-facet search should become a focused sheet section or Full Page rather than a scrollbar inside the sheet.
+- Live dynamic filtering should update results, counts, and availability without making the layout jump unpredictably. Preserve active chips, group ordering stability, and the user's current place in the filter surface whenever possible.
+
 ## Checkout Confidence
 
 Checkout must show item subtotal, shipping, fees, tax, discounts, wallet credit, and final total before payment. The sticky CTA should include the final action, payment confidence copy, and at most one secondary edit or escape action.
@@ -66,6 +79,7 @@ Each marketplace route should keep the most decision-critical information visibl
 - Tables must collapse into scan-friendly cards in mobile contexts.
 - Filters should be sheet-friendly, reversible, and summarized as chips. Use desktop side sheets or filter rails and mobile bottom sheets; do not describe filter controls as navigation drawers.
 - Facet controls that allow more than one value, such as dynamic condition filters, should use the marketplace facet `multiple` selection mode and keep each selected value reversible as an applied chip.
+- Avoid scrollbars inside facet groups on mobile. The filter sheet owns vertical scroll, while dense option lists use search, show more/show less, focused section replacement, or a full page.
 - Sticky CTAs are mobile-first; desktop should prefer sticky sidebars or inline CTAs that do not cover content.
 - Touch targets must remain at least 44px where interaction is expected.
 
@@ -90,20 +104,20 @@ Use progressive disclosure for advanced marketplace depth, not for required buye
 
 Good disclosure candidates:
 
-- advanced search filters, saved-search recovery, and dense comparison controls
+- optional search depth, saved-search recovery, and dense comparison controls
 - seller listing limits, offer matching thresholds, fulfillment exceptions, and publishing recovery detail
 - product specification depth, grading population context, certification extras, and market-history detail
 - checkout support diagnostics and provider-safe payment explanations after the final total is visible
 - payout verification reason detail, ledger context, and provider-safe settlement explanations
 
-Do not disclose the current price, final total, seller trust, availability, fulfillment expectation, buyer-protection summary, blocking error, or primary action. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
+Do not disclose the current price, final total, seller trust, availability, fulfillment expectation, buyer-protection summary, blocking error, primary action, or result-shaping search facets. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
 
 Recommended first flows:
 
 1. Marketplace seller listing creation and listing management.
    Keep inventory identity, price, quantity cap, fee preview, status, and publish controls visible. Move optional seller limits, fee-lock history, stale quote recovery detail, grading population depth, and certification extras into disclosure.
 2. Discovery search and item detail.
-   Keep primary filters, applied filter chips, result count, item identity, listing/offer comparison, and commerce actions visible. Move dynamic advanced facets, specification depth, policy explanation, market-history detail, and saved-search recovery into disclosure.
+   Keep primary filters, ranked dynamic facets, applied filter chips, result count, item identity, listing/offer comparison, and commerce actions visible. Move optional specification depth, policy explanation, market-history detail, and saved-search recovery into disclosure.
 3. Checkout session and payment recovery.
    Keep fulfillment state, final cost, wallet credit, selected destination, payment method, secure payment cue, blocking failure copy, and the payment or recovery action visible. Checkout owns session/fulfillment disclosure; Payments owns payment fee quote, confirmation, provider event, support detail, claim-token fallback, and recovery diagnostic disclosure.
 4. Settlement payout readiness and payout requests.
