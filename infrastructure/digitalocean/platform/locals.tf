@@ -6,15 +6,11 @@ locals {
   database_name_token = replace(local.environment_slug, "-", "_")
   name_prefix         = local.is_production ? "chase-sets" : "chase-sets-${local.environment_slug}"
 
-  staging_root_domain = local.is_staging ? "${var.environment}.${var.root_domain}" : null
-  landing_domain      = local.is_production ? var.root_domain : local.is_staging ? "www.${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}"
-  primary_domain      = local.is_staging ? local.staging_root_domain : local.landing_domain
-
   public_domains = local.is_production ? [
-    local.landing_domain,
+    var.root_domain,
     "www.${var.root_domain}",
     ] : [
-    local.landing_domain,
+    local.is_staging ? "www.${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}",
   ]
 
   legacy_public_redirect_domains = local.is_staging ? [
@@ -25,12 +21,8 @@ locals {
     local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 
-  staging_root_marketplace_domains = local.staging_root_domain != null ? [local.staging_root_domain] : []
-  marketplace_route_domains        = concat(local.marketplace_domains, local.staging_root_marketplace_domains)
-  public_alias_domains             = [for domain in local.public_domains : domain if domain != local.primary_domain]
-  marketplace_alias_domains        = [for domain in local.marketplace_route_domains : domain if domain != local.primary_domain]
-
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
+  landing_domain     = local.public_domains[0]
   marketplace_domain = length(local.marketplace_domains) > 0 ? local.marketplace_domains[0] : null
   legacy_domain_redirects = local.is_staging ? {
     "landing-${var.environment}.${var.root_domain}"     = local.landing_domain
@@ -126,9 +118,9 @@ locals {
     if context_name != "control"
   }
 
-  all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.marketplace_route_domains)
+  all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
-  ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.marketplace_route_domains) : []
+  ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.marketplace_domains) : []
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {

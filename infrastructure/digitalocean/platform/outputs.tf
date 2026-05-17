@@ -19,10 +19,6 @@ output "public_domains" {
   value = local.public_domains
 }
 
-output "primary_domain" {
-  value = local.primary_domain
-}
-
 output "landing_domain" {
   value = local.landing_domain
 }
@@ -32,11 +28,7 @@ output "legacy_public_redirect_domains" {
 }
 
 output "marketplace_domains" {
-  value = local.marketplace_route_domains
-}
-
-output "marketplace_root_domain" {
-  value = local.staging_root_domain
+  value = local.marketplace_domains
 }
 
 output "admin_domain" {
