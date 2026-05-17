@@ -43,7 +43,7 @@ Stripe mode uses:
 
 For local development, keep real Stripe values in `deployables/platform-api/.env.local` when you want to exercise real Stripe flows. If any required Stripe value is missing, the platform API falls back to the fake payment gateway so local startup works without webhook forwarding.
 
-Webhook callbacks are mounted by the platform API at `/api/payments/stripe/webhooks`. The account payment routes stay under `/api/marketplace/account/payments`.
+Webhook callbacks are mounted by the platform API at `/api/payments/provider/webhooks`. The account payment routes stay under `/api/marketplace/account/payments`.
 
 When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` into the current worktree's `.env.sandbox.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `pnpm run stripe:listen` manually if you want the listener in a separate terminal; it forwards to the sandbox platform API URL by default.
 
@@ -79,6 +79,15 @@ For authenticated seller-flow checks, set one of:
 - `PLATFORM_API_AUTHORIZATION`
 - `PLATFORM_API_COOKIE`
 
+Optional authenticated preview checks:
+
+- `SMOKE_ORDER_IDS`: comma-separated pending-payment order ids to probe checkout payment status.
+- `SMOKE_BALANCE_CREDIT_AMOUNT`: wallet credit amount to apply in checkout status and optional payment creation.
+- `SMOKE_PAYMENT_METHOD_CATEGORY`: `card`, `bank-account`, or `platform-credit`.
+- `SMOKE_CREATE_PAYMENT=true`: creates a payment from `SMOKE_ORDER_IDS` using the returned Marketplace Checkout Fee fingerprint.
+- `SMOKE_PAYOUT_AMOUNT`: payout amount for preview and optional request checks. Defaults to `1.00`.
+- `SMOKE_REQUEST_PAYOUT=true`: requests a test-mode payout only when payout preview returns `can_request: true`.
+
 Commands:
 
 ```bash
@@ -90,11 +99,18 @@ pnpm run stripe:money-smoke -- --seller-flow
 Expected results:
 
 - `/health` returns `200`.
-- Unsigned money movement webhooks return `400`.
+- Unsigned payment and money movement webhooks return `400`.
+- Payment and settlement provider health both report Stripe.
+- Payment and payout provider idempotency surfaces return successfully.
+- Settlement account status reports whether wallet balance credit can be used.
+- Marketplace Checkout Fee policy returns successfully.
+- When `SMOKE_ORDER_IDS` is set, checkout status returns wallet credit and Marketplace Checkout Fee details.
+- When `SMOKE_CREATE_PAYMENT=true`, payment creation returns `201`.
 - Payout readiness returns `200` for an authenticated seller.
 - Hosted payout setup returns a one-time HTTPS URL from Stripe.
 - Payout setup refresh returns the provider-neutral readiness shape.
 - Payout preview returns either `200` with `can_request` details or a validation `400` with a user-safe reason.
+- When `SMOKE_REQUEST_PAYOUT=true`, payout request returns `201` after a successful `can_request` preview.
 
 Stripe Dashboard checks:
 
