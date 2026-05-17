@@ -9,7 +9,7 @@ Production uses the clean customer-facing namespace. Do not add a `production` l
 | Surface | Production | Staging |
 | --- | --- | --- |
 | Public web / landing | `chasesets.com` | `www.staging.chasesets.com` |
-| Marketplace | `marketplace.chasesets.com` | `marketplace.staging.chasesets.com` |
+| Marketplace | `marketplace.chasesets.com` | `staging.chasesets.com`, `marketplace.staging.chasesets.com` |
 | Admin | `admin.chasesets.com` | `admin.staging.chasesets.com` |
 | Public API, if exposed later | `api.chasesets.com` | `api.staging.chasesets.com` |
 
@@ -41,10 +41,11 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 `www.staging.chasesets.com` is the canonical staging public-web host.
 
-The environment root, `staging.chasesets.com`, is reserved for environment-level DNS such as mail identity records. Do not attach it as an App Platform web domain while it carries MX or root TXT records.
+`staging.chasesets.com` is the staging marketplace root. It exists so staging can mimic the production marketplace launch posture before the production root moves from landing to marketplace. Environment-level DNS records such as MX and SPF may still live on `staging.chasesets.com`; web ingress must account for that explicitly instead of treating the root as only a mail identity name.
 
 Staging application hosts are:
 
+- `staging.chasesets.com`
 - `www.staging.chasesets.com`
 - `marketplace.staging.chasesets.com`
 - `admin.staging.chasesets.com`
@@ -70,4 +71,4 @@ If a hosting platform requires app-specific wildcard routing, an adapter may use
 
 ## Implementation Notes
 
-DigitalOcean App Platform, Terraform, GitHub environment variables, provider callback URLs, smoke checks, and tests must use the same canonical hostnames. Legacy host redirects should be explicit so old staging links fail closed or redirect predictably instead of silently becoming a second canonical namespace.
+DigitalOcean App Platform, Terraform, GitHub environment variables, provider callback URLs, smoke checks, and tests must use the same canonical hostnames. Staging smoke checks must cover both `staging.chasesets.com` and `marketplace.staging.chasesets.com` until one is intentionally retired. Legacy host redirects should be explicit so old staging links fail closed or redirect predictably instead of silently becoming a second canonical namespace.
