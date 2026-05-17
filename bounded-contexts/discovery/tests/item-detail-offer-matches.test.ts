@@ -13,6 +13,44 @@ function createEvent(type: string, data: Record<string, unknown>, recordedAt: st
 }
 
 describe("item detail offer matches", () => {
+  it("projects public review feedback comments for seller feedback pages", async () => {
+    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const db = {
+      query: async (sql: string, params?: unknown[]) => {
+        calls.push({ sql, params });
+        return { rows: [] };
+      },
+    } satisfies PgQueryable;
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+
+    await handlers["reputation.review.submitted"]?.(
+      createEvent(
+        "reputation.review.submitted",
+        {
+          reviewId: "rev_1",
+          authorAccountId: "acc_buyer",
+          subjectAccountId: "acc_seller",
+          authorRole: "buyer",
+          rating: 5,
+          feedback: "Packed well and shipped quickly.",
+          submittedAt: "2026-05-12T00:00:00.000Z",
+        },
+        "2026-05-12T00:00:00.000Z",
+      ) as never,
+    );
+
+    expect(calls[0].sql).toContain("feedback");
+    expect(calls[0].params).toEqual([
+      "rev_1",
+      "acc_buyer",
+      "acc_seller",
+      "buyer",
+      5,
+      "Packed well and shipped quickly.",
+      "2026-05-12T00:00:00.000Z",
+    ]);
+  });
+
   it("projects submitted and accepted offers into the public discovery market table", async () => {
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const db = {

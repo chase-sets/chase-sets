@@ -3,6 +3,7 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
   BuyerProtectionModule,
+  Card,
   Container,
   Grid,
   ListingCard,
@@ -72,6 +73,24 @@ function purchaseLimitLabel(listing: {
     return `Limit ${listing.max_units_per_order} per order`;
   }
   return null;
+}
+
+function formatReviewDate(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -226,14 +245,45 @@ function PublicSellerRealtimeView({ data }: { data: Awaited<ReturnType<typeof lo
 
         <div id="feedback">
           <PageSection title={t("discovery.routes.publicSeller.feedback")}>
-            <Text>
-              {sellerRating !== null && sellerReviewCount > 0
-                ? t("discovery.routes.publicSeller.feedback.summary", {
-                    rating: sellerRating.toFixed(1),
-                    count: sellerReviewCount,
-                  })
-                : t("discovery.routes.publicSeller.no.feedback.yet")}
-            </Text>
+            <Stack gap={3}>
+              <Text>
+                {sellerRating !== null && sellerReviewCount > 0
+                  ? t("discovery.routes.publicSeller.feedback.summary", {
+                      rating: sellerRating.toFixed(1),
+                      count: sellerReviewCount,
+                    })
+                  : t("discovery.routes.publicSeller.no.feedback.yet")}
+              </Text>
+              {seller.recent_reviews.length > 0 ? (
+                <Stack gap={2}>
+                  {seller.recent_reviews.map((review) => {
+                    const reviewDate = formatReviewDate(review.submitted_at ?? review.updated_at);
+                    return (
+                      <Card key={review.review_id}>
+                        <Stack gap={2}>
+                          <RatingSummary value={review.rating} compact />
+                          <Text size="sm" weight="semibold">
+                            {reviewDate
+                              ? t("discovery.routes.publicSeller.review.byline", {
+                                  author: review.author_display_name ?? t("discovery.routes.publicSeller.marketplace.buyer"),
+                                  date: reviewDate,
+                                })
+                              : review.author_display_name ?? t("discovery.routes.publicSeller.marketplace.buyer")}
+                          </Text>
+                          <Text size="sm" tone="secondary">
+                            {review.feedback ?? t("discovery.routes.publicSeller.no.written.feedback")}
+                          </Text>
+                        </Stack>
+                      </Card>
+                    );
+                  })}
+                </Stack>
+              ) : (
+                <Text size="sm" tone="secondary">
+                  {t("discovery.routes.publicSeller.no.written.feedback")}
+                </Text>
+              )}
+            </Stack>
           </PageSection>
         </div>
 
