@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   BulkActionBar,
   Button,
@@ -56,6 +56,7 @@ export interface BulkLifecycleActionBarProps {
   filterSelection?: BulkLifecycleSelection;
   filterCount?: number;
   actions: readonly BulkLifecycleActionOption[];
+  extraActions?: ReactNode;
   clearSelection: () => void;
   preview: (
     action: string,
@@ -74,6 +75,7 @@ export function BulkLifecycleActionBar({
   filterSelection,
   filterCount,
   actions,
+  extraActions,
   clearSelection,
   preview,
   confirm,
@@ -153,7 +155,7 @@ export function BulkLifecycleActionBar({
               })
         }
         actions={
-          <Inline gap={2}>
+          <Inline gap={2} align="end">
             <Select
               label={t("catalog.support.shellSupport.ui.bulkLifecycleActions.action")}
               value={selectedAction}
@@ -176,6 +178,7 @@ export function BulkLifecycleActionBar({
                 {t("catalog.support.shellSupport.ui.bulkLifecycleActions.clear.selection")}
               </Button>
             )}
+            {extraActions}
           </Inline>
         }
       />

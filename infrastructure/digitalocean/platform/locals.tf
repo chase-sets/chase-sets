@@ -17,9 +17,11 @@ locals {
     "landing-${var.environment}.${var.root_domain}",
   ] : []
 
-  marketplace_domains = local.is_non_production ? [
+  marketplace_domains = local.is_non_production ? concat([
     local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
-  ] : []
+    ], local.is_staging ? [
+    "${var.environment}.${var.root_domain}",
+  ] : []) : []
 
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]

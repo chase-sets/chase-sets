@@ -33,6 +33,7 @@ import {
   ActivitySheet,
   AssistantSheet,
   BuyerProtectionModule,
+  BulkActionBar,
   ComparisonModule,
   FilterBar,
   FullPage,
@@ -415,6 +416,26 @@ describe("design-system", () => {
     expect(markup).toContain("flex-1 flex-wrap items-end gap-3");
     expect(markup).toContain("flex flex-wrap items-end gap-2 md:self-end");
     expect(markup).toContain("Promote all matching");
+  });
+
+  it("bottom-aligns controls and buttons in admin bulk action bars", () => {
+    const markup = renderToString(
+      <BulkActionBar
+        count={169}
+        formatSelectedLabel={(count) => `${count} matching Catalog Items`}
+        actions={
+          <>
+            <Select label="Bulk Edit" items={[{ label: "Assign Blueprint", value: "assignBlueprint" }]} />
+            <TextInput label="Blueprint ID" defaultValue="bpr_card" />
+            <Button variant="secondary">Preview matching</Button>
+          </>
+        }
+      />,
+    );
+
+    expect(markup).toContain("169 matching Catalog Items");
+    expect(markup).toContain("flex flex-wrap items-end gap-2");
+    expect(markup).toContain("Preview matching");
   });
 
   it("does not reserve visible label spacing for hidden-label form controls", () => {
