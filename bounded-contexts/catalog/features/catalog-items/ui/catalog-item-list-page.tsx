@@ -90,7 +90,6 @@ function buildBulkEditColumns(): DataColumn<BulkEditCatalogItemCandidate>[] {
 const statusOptions = [
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.draft"), value: "draft" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.active"), value: "active" },
-  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.retired"), value: "retired" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.archived"), value: "archived" },
 ];
 
@@ -112,7 +111,6 @@ const blueprintStateOptions = [
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.missing"), value: "missing" },
 ];
 const lifecycleActions = [
-  { value: "retire", label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.retire") },
   { value: "archive", label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.archive") },
 ];
 const bulkEditActions = [

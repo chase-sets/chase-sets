@@ -78,10 +78,6 @@ export function reviseMetadata(id: string, body: CatalogItemMetadataInput) {
   return api.reviseMetadata<CommandResponse>(id, body);
 }
 
-export function retireCatalogItem(id: string) {
-  return api.retireCatalogItem<CommandResponse>(id);
-}
-
 export function archiveCatalogItem(id: string) {
   return api.archiveCatalogItem<CommandResponse>(id);
 }

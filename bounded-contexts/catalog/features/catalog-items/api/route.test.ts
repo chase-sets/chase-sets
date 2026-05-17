@@ -67,7 +67,7 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
     bulkLifecycle: {
       preview: async () => ({
         mode: "ids",
-        action: "retire",
+        action: "archive",
         ids: [],
         total: 0,
         ready_count: 0,
@@ -75,7 +75,7 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
         candidates: [],
       }),
       execute: async () => ({
-        action: "retire",
+        action: "archive",
         ids: [],
         total: 0,
         succeeded_count: 0,
@@ -187,7 +187,7 @@ describe("catalog item routes", () => {
   it("previews lifecycle actions against the filtered item scope", async () => {
     const preview = vi.fn(async () => ({
       mode: "filter" as const,
-      action: "retire",
+      action: "archive",
       ids: ["cat_1"],
       total: 1,
       ready_count: 1,
@@ -198,7 +198,7 @@ describe("catalog item routes", () => {
       bulkLifecycle: {
         preview,
         execute: async () => ({
-          action: "retire",
+          action: "archive",
           ids: [],
           total: 0,
           succeeded_count: 0,
@@ -213,7 +213,7 @@ describe("catalog item routes", () => {
       new Request("http://catalog.test/items/bulk-lifecycle/preview", {
         method: "POST",
         body: JSON.stringify({
-          action: "retire",
+          action: "archive",
           selection: {
             mode: "filter",
             query: {
@@ -247,7 +247,7 @@ describe("catalog item routes", () => {
         hasSourceReferences: "true",
         missingRequiredFields: "false",
       },
-    }, "retire");
+    }, "archive");
   });
 
   it("previews shared bulk edits against the filtered item scope", async () => {

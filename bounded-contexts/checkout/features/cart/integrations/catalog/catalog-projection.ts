@@ -321,7 +321,7 @@ export function buildCheckoutCatalogProjectionHandlers(
 
       await db.query(
         `UPDATE checkout_catalog_items
-         SET status = 'retired',
+         SET status = 'archived',
              updated_at = $2
          WHERE catalog_item_id = $1`,
         [itemId, event.timing.recordedAt],

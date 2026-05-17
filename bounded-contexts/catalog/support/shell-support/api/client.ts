@@ -711,13 +711,6 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async retireCatalogItem<T>(id: string): Promise<T> {
-      const response = await client.items[":id"].retire.$post({
-        param: { id },
-        header: headers,
-      });
-      return parseJsonResponse<T>(response);
-    },
     async archiveCatalogItem<T>(id: string): Promise<T> {
       const response = await client.items[":id"].archive.$post({
         param: { id },
