@@ -52,7 +52,7 @@ Remove deprecated and legacy design-system component APIs so the package exposes
 
 ## Goal Completion Criteria
 
-- PR submitted for the completed implementation or scoped non-product change.
+- PR submitted for the completed implementation or scoped non-product change: https://github.com/todd-skelton/chase-sets/pull/153
 - CI passing on the PR before merge.
 - PR merged after required review and passing checks.
 - Staging deployment verified green after merge.
