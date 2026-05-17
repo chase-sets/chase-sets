@@ -1990,12 +1990,17 @@ function DiscoveryItemDetailRealtimeView({
                 />
               );
               const renderSeller = (formIdPrefix: string) =>
-                data.canUseSellerFeatures ? (
+                (
                   <Stack gap={4}>
-                    {renderOfferMatch(`${formIdPrefix}-sell-box`)}
-                    {renderListingSubmission(`${formIdPrefix}-list-box`)}
+                    {data.canUseSellerFeatures ? (
+                      <>
+                        {renderOfferMatch(`${formIdPrefix}-sell-box`)}
+                        {renderListingSubmission(`${formIdPrefix}-list-box`)}
+                      </>
+                    ) : renderSellerRegistration()}
+                    {renderProductAlert(`${formIdPrefix}-offer-product-alert`, "offer")}
                   </Stack>
-                ) : renderSellerRegistration();
+                );
               return (
                 {
                   buy: (
@@ -2004,12 +2009,7 @@ function DiscoveryItemDetailRealtimeView({
                       {renderProductAlert("listing-product-alert", "listing")}
                     </Stack>
                   ),
-                  offer: (
-                    <Stack gap={4}>
-                      {renderOffer("make-offer")}
-                      {renderProductAlert("offer-product-alert", "offer")}
-                    </Stack>
-                  ),
+                  offer: renderOffer("make-offer"),
                   sell: data.showSellerTab ? renderSeller("sell") : undefined,
                   mobile: {
                     buy: {
@@ -2022,21 +2022,26 @@ function DiscoveryItemDetailRealtimeView({
                       title: t("discovery.routes.itemDetail.buy"),
                     },
                     offer: {
-                      content: (
-                        <Stack gap={4}>
-                          {renderOffer("mobile-make-offer", "plain", undefined, true)}
-                          {renderProductAlert("mobile-offer-product-alert", "offer")}
-                        </Stack>
-                      ),
+                      content: renderOffer("mobile-make-offer", "plain", undefined, true),
                       title: t("discovery.routes.itemDetail.make.an.offer"),
                     },
                     sell: data.canUseSellerFeatures
                       ? {
-                          content: renderOfferMatch("mobile-sell-box", "plain", undefined, true),
+                          content: (
+                            <Stack gap={4}>
+                              {renderOfferMatch("mobile-sell-box", "plain", undefined, true)}
+                              {renderProductAlert("mobile-sell-offer-product-alert", "offer")}
+                            </Stack>
+                          ),
                           title: t("discovery.routes.itemDetail.sell.2"),
                         }
                       : {
-                          content: renderSellerRegistration("plain", true, "offer"),
+                          content: (
+                            <Stack gap={4}>
+                              {renderSellerRegistration("plain", true, "offer")}
+                              {renderProductAlert("mobile-sell-offer-product-alert", "offer")}
+                            </Stack>
+                          ),
                           title: t("discovery.routes.itemDetail.sell.on.chase.sets.2"),
                         },
                     list: data.canUseSellerFeatures

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { ReactElement } from "react";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
@@ -11,6 +11,7 @@ import {
   MarketplaceOfferMatchSection,
   MarketplaceSellerRegistrationSection,
 } from "../routes/item-detail";
+import DiscoveryItemDetailRoute from "../routes/item-detail";
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
@@ -18,6 +19,11 @@ import type {
   DiscoveryAccountOfferMatch,
   ProductSchema,
 } from "../support/client-support/contracts";
+
+vi.mock("@chase-sets/platform-runtime/realtime-react", () => ({
+  useRealtimePatchedSnapshot: ({ initialSnapshot }: { initialSnapshot: unknown }) =>
+    initialSnapshot,
+}));
 
 afterEach(() => cleanup());
 
@@ -142,6 +148,19 @@ function renderWithDataRouter(element: ReactElement) {
     {
       path: "/",
       element,
+      action: async () => ({ status: "ok" }),
+    },
+  ]);
+
+  return render(<RouterProvider router={router} />);
+}
+
+function renderItemDetailRoute(loaderData: Record<string, unknown>) {
+  const router = createMemoryRouter([
+    {
+      path: "/",
+      element: <DiscoveryItemDetailRoute />,
+      loader: async () => loaderData,
       action: async () => ({ status: "ok" }),
     },
   ]);
@@ -469,6 +488,39 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Status")).toBeNull();
     expect(screen.queryByText("submitted")).toBeNull();
     expect(screen.queryByText("1 active listing")).toBeNull();
+  });
+
+  it("places listing watches in Buy and offer watches in Sell", async () => {
+    renderItemDetailRoute({
+      item: createItem(),
+      accountOfferMatches: [baseAccountOfferMatch],
+      sellerInventoryItems: [],
+      sellerAccountId: "seller_1",
+      hasListingStockLocation: false,
+      viewerAccountId: "seller_1",
+      initialMarketIntent: "buy",
+      initialSelectedOptions: [],
+      hasInitialSelectedOptionFilters: false,
+      showSellerTab: true,
+      canUseSellerFeatures: true,
+      canSubmitOffers: true,
+      registerToSellHref: "/register",
+      notFound: false,
+      error: null,
+      canonicalUrl: null,
+    });
+
+    expect(await screen.findByText("Watch for listings")).toBeTruthy();
+    expect(screen.queryByText("Watch for offers")).toBeNull();
+
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Sell" }),
+    );
+
+    expect(screen.getByText("Watch for offers")).toBeTruthy();
+    expect(screen.queryByText("Watch for listings")).toBeNull();
   });
 
   it("keeps the market intent URL in sync when switching tabs", () => {
