@@ -36,7 +36,6 @@ describe("platform smoke URL resolution", () => {
       landingUrl: "https://landing.test",
       adminUrl: "https://admin.test",
       marketplaceUrl: "",
-      marketplaceRootUrl: "",
       redirectUrl: "",
     });
   });
@@ -56,27 +55,6 @@ describe("platform smoke URL resolution", () => {
       landingUrl: "http://localhost:10054",
       adminUrl: "http://localhost:10052",
       marketplaceUrl: "http://localhost:10053",
-      marketplaceRootUrl: "",
-      redirectUrl: "",
-    });
-  });
-
-  it("uses an explicit marketplace root URL without falling back to sandbox URLs", () => {
-    expect(
-      resolvePlatformSmokeUrls({
-        cliArgs: ["https://landing.test", "https://admin.test"],
-        env: {
-          MARKETPLACE_ROOT_WEB_URL: "https://staging.example.test/",
-        },
-        sandboxEnv: {
-          MARKETPLACE_ROOT_WEB_URL: "http://localhost:10055",
-        },
-      }),
-    ).toEqual({
-      landingUrl: "https://landing.test",
-      adminUrl: "https://admin.test",
-      marketplaceUrl: "",
-      marketplaceRootUrl: "https://staging.example.test",
       redirectUrl: "",
     });
   });

@@ -76,17 +76,11 @@ resource "digitalocean_app" "platform" {
     name   = "${local.name_prefix}-platform"
     region = var.region
 
-    domain {
-      name = local.primary_domain
-      type = "PRIMARY"
-      zone = var.root_domain
-    }
-
     dynamic "domain" {
-      for_each = local.public_alias_domains
+      for_each = local.public_domains
       content {
         name = domain.value
-        type = "ALIAS"
+        type = tostring(domain.key) == "0" ? "PRIMARY" : "ALIAS"
         zone = var.root_domain
       }
     }
@@ -101,7 +95,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "domain" {
-      for_each = local.marketplace_alias_domains
+      for_each = local.marketplace_domains
       content {
         name = domain.value
         type = "ALIAS"
@@ -1265,7 +1259,7 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
-        for_each = local.marketplace_route_domains
+        for_each = local.marketplace_domains
         content {
           match {
             authority {
@@ -1316,7 +1310,7 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
-        for_each = local.marketplace_route_domains
+        for_each = local.marketplace_domains
         content {
           match {
             authority {

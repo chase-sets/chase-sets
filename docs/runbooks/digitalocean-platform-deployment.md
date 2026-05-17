@@ -44,15 +44,14 @@ Preview environments are disposable and intentionally `noindex,nofollow` for lan
 
 The long-lived staging environment uses the same full-platform shape as PR previews, but keeps stable hostnames and state across merges:
 
-- `staging.chasesets.com`: launch-shaped staging marketplace root.
 - `www.staging.chasesets.com`: canonical staging landing `public-web`.
 - `marketplace.staging.chasesets.com`: marketplace web.
 - `admin.staging.chasesets.com`: admin web.
 - Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-The staging environment root, `staging.chasesets.com`, is the App Platform primary domain for staging. It uses apex-style A records and can coexist with environment-level mail records such as Workspace MX, SPF TXT, and SES identity records. Keep `www.staging.chasesets.com` as an alias for public-web landing, and keep `marketplace.staging.chasesets.com` as an alias for existing marketplace links and provider callbacks.
+The staging environment root, `staging.chasesets.com`, is reserved for environment-level DNS records such as Workspace mail, SPF, and SES identity records. A May 17, 2026 attempt to attach it directly to the App Platform marketplace component left the domain in `CONFIGURING` until the staging deployment was canceled. A second attempt to make it the staging App Platform primary domain also left the root in `CONFIGURING` with no certificate. Keep App Platform web domains on child hosts such as `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com` unless the root DNS ownership and mail identity records are changed first.
 
-A May 17, 2026 attempt to attach `staging.chasesets.com` as a marketplace alias left the domain in `CONFIGURING` until the staging deployment was canceled. Do not add the staging root through the marketplace alias domain list without making it the primary domain. Staging smoke must cover both `https://marketplace.staging.chasesets.com/` and `https://staging.chasesets.com/`, including `/api`, `/.well-known`, and `/ucp` same-origin routes.
+If `https://staging.chasesets.com/` must take users to the marketplace before that DNS change, configure the redirect outside this Terraform root at the DNS or edge layer so it sends HTTPS traffic to `https://marketplace.staging.chasesets.com/`.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
