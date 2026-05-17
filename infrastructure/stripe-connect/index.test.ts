@@ -152,7 +152,9 @@ describe("money movement adapters", () => {
         );
       }
 
-      expect(String(input)).toContain("/v2/core/accounts/acct_123?");
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements",
+      );
       return new Response(
         JSON.stringify({
           id: "acct_123",

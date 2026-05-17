@@ -306,8 +306,8 @@ export function createStripeConnectMoneyMovementGateway(
 
   async function retrieveAccount(providerReference: string) {
     const include = new URLSearchParams();
-    include.append("include[]", "configuration.recipient");
-    include.append("include[]", "requirements");
+    include.set("include[0]", "configuration.recipient");
+    include.set("include[1]", "requirements");
 
     return stripeRequest<StripeAccountResponse>(
       `/v2/core/accounts/${providerReference}?${include.toString()}`,
