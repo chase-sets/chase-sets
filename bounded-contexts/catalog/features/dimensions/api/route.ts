@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { DimensionServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { DimensionId, OptionId } from "../../../ids";
+import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 
 export function dimensionRoutes(services: DimensionServices) {
@@ -27,6 +28,27 @@ export function dimensionRoutes(services: DimensionServices) {
     });
 
     return c.json({ id: dimensionId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, dimensionListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, dimensionListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
   });
 
   app.put("/:id", async (c) => {
@@ -178,8 +200,8 @@ export function dimensionRoutes(services: DimensionServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset } = c.req.query();
-    const result = await services.listDimensions({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const { search, status, limit, offset, valueKind } = c.req.query();
+    const result = await services.listDimensions({ search, status, valueKind, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -195,6 +217,14 @@ export function dimensionRoutes(services: DimensionServices) {
   });
 
   return app;
+}
+
+function dimensionListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: toOptionalString(record.search),
+    status: toOptionalString(record.status),
+    valueKind: toOptionalString(record.valueKind),
+  };
 }
 
 function coerceOptionLabel(value: unknown) {

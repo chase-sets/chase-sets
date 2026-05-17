@@ -3,6 +3,7 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Field } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useFieldList(query: string, initialData?: ListResponse<Field> | null) {
   return useFetch(() => api.listFields<ListResponse<Field>>(query), [query], initialData);
@@ -45,6 +46,13 @@ export function archiveField(id: string) {
   return api.archiveField<CommandResponse>(id);
 }
 
+export function previewBulkFieldLifecycle(action: string, selection: unknown) {
+  return api.previewBulkFieldLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkFieldLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkFieldLifecycle<BulkLifecycleResult>(action, selection);
+}
 
 
 

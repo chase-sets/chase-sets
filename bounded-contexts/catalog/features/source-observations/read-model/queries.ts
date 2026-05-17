@@ -74,6 +74,7 @@ export async function listSourceObservations(
       "source_url",
       "(normalized->>'setId')",
       "(normalized->>'name')",
+      "(normalized->>'cardNumber')",
       "coalesce(normalized->>'expansionName', normalized->>'setName')",
     ],
     "observed_at DESC",
@@ -234,7 +235,7 @@ function buildSourceObservationFilter(
   if (options.includeListFilters && scope.search) {
     values.push(`%${scope.search}%`);
     const param = `$${values.length}`;
-    conditions.push(`(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`);
+    conditions.push(`(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'cardNumber') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`);
   }
 
   return { conditions, values };

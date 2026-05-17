@@ -14,11 +14,12 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
+import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createField } from "./use-fields";
+import { confirmBulkFieldLifecycle, createField, previewBulkFieldLifecycle } from "./use-fields";
 import type { Field } from "./contracts";
 
 const columns: DataColumn<Field>[] = [
@@ -44,6 +45,18 @@ const statusOptions = [
   { label: t("catalog.features.fields.ui.fieldListPage.deprecated"), value: "deprecated" },
   { label: t("catalog.features.fields.ui.fieldListPage.archived"), value: "archived" },
 ];
+const ALL_VALUE_TYPES = "__all__";
+const ALL_FLAGS = "__all__";
+const booleanOptions = [
+  { label: t("catalog.support.shellSupport.ui.entityListPage.all"), value: ALL_FLAGS },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.yes"), value: "true" },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.no"), value: "false" },
+];
+const lifecycleActions = [
+  { value: "activate", label: t("catalog.features.fields.ui.fieldDetailPage.activate") },
+  { value: "deprecate", label: t("catalog.features.fields.ui.fieldDetailPage.deprecate") },
+  { value: "archive", label: t("catalog.features.fields.ui.fieldDetailPage.archive") },
+];
 
 export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
   const listControls = useCatalogListQueryControls(query);
@@ -57,6 +70,7 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
   const [filterable, setFilterable] = useState(false);
   const [searchable, setSearchable] = useState(false);
   const [sortable, setSortable] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   async function handleCreate() {
     const fieldId = createId("fld");
@@ -97,6 +111,52 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        extraFilters={
+          <>
+            <Select
+              label={t("catalog.features.fields.ui.fieldListPage.value.type")}
+              value={listControls.valueType || ALL_VALUE_TYPES}
+              onValueChange={(value) => listControls.setValueType(value === ALL_VALUE_TYPES ? "" : value)}
+              items={[
+                { label: t("catalog.support.shellSupport.ui.entityListPage.all.value.types"), value: ALL_VALUE_TYPES },
+                ...valueTypeOptions,
+              ]}
+            />
+            <Select
+              label={t("catalog.features.fields.ui.fieldListPage.filterable")}
+              value={listControls.filterable || ALL_FLAGS}
+              onValueChange={(value) => listControls.setFilterable(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+            <Select
+              label={t("catalog.features.fields.ui.fieldListPage.searchable")}
+              value={listControls.searchable || ALL_FLAGS}
+              onValueChange={(value) => listControls.setSearchable(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+            <Select
+              label={t("catalog.features.fields.ui.fieldListPage.sortable")}
+              value={listControls.sortable || ALL_FLAGS}
+              onValueChange={(value) => listControls.setSortable(value === ALL_FLAGS ? "" : value)}
+              items={booleanOptions}
+            />
+          </>
+        }
+        selectedKeys={selectedKeys}
+        onSelectionChange={setSelectedKeys}
+        bulkActionBar={
+          <BulkLifecycleActionBar
+            entityName="Fields"
+            selectedKeys={selectedKeys}
+            filterSelection={{ mode: "filter", query }}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkFieldLifecycle}
+            confirm={confirmBulkFieldLifecycle}
+            onCompleted={revalidator.revalidate}
+          />
+        }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
@@ -123,5 +183,3 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
     </>
   );
 }
-
-

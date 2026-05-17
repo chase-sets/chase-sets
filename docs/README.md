@@ -43,6 +43,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [UCP Contract](../contracts/ucp/README.md)
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
 - [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
+- [Catalog Admin Bulk Workflows](../bounded-contexts/catalog/docs/admin-bulk-workflows.md)
 - [Catalog Bulk Catalog Item Publish](../bounded-contexts/catalog/docs/bulk-catalog-item-publish.md)
 - [Catalog Item Imagery](../bounded-contexts/catalog/docs/catalog-item-imagery.md)
 - [Notifications](../bounded-contexts/notifications/README.md)

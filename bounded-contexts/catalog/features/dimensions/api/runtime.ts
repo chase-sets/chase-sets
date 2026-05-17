@@ -7,6 +7,11 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
+  createBulkLifecycleOperations,
+  type BulkLifecycleOperations,
+  type BulkSelection,
+} from "../../../support/runtime-support/bulk-lifecycle";
+import {
   type DimensionState,
   type DimensionCommand,
   type DimensionEvent,
@@ -14,7 +19,13 @@ import {
   decideDimension,
   evolveDimension,
 } from "../domain/domain";
-import { getDimension, listDimensions } from "../read-model/queries";
+import {
+  getDimension,
+  listDimensionBulkRows,
+  listDimensionIds,
+  listDimensions,
+  type DimensionListParams,
+} from "../read-model/queries";
 import { buildDimensionProjectionHandlers } from "../read-model/projection";
 
 export type DimensionServices = Readonly<{
@@ -23,6 +34,7 @@ export type DimensionServices = Readonly<{
     params?: Parameters<typeof listDimensions>[1],
   ) => ReturnType<typeof listDimensions>;
   getDimension: (dimensionId: string) => ReturnType<typeof getDimension>;
+  bulkLifecycle: BulkLifecycleOperations<DimensionListParams, DimensionCommand, DimensionState, DimensionEvent>;
   projectors: readonly Projector[];
 }>;
 
@@ -40,17 +52,50 @@ export function createDimensionRuntime(
     decide: decideDimension,
   });
 
+  const projectors = [
+    createProjector({
+      projectorName: "catalog-dimension-projection",
+      eventStore: deps.eventStore,
+      checkpointStore: deps.checkpointStore,
+      handlers: buildDimensionProjectionHandlers(deps.db),
+    }),
+  ];
+  const bulkLifecycle = createBulkLifecycleOperations<DimensionListParams, DimensionCommand, DimensionState, DimensionEvent>({
+    actions: [
+      {
+        action: "activate",
+        readyStatus: "draft",
+        command: { type: "ActivateDimension" },
+        streamId: (id) => `catalog.dimension-${id}`,
+        blockedReason: (status) => `Only draft Dimensions can be activated. Current status: ${status}.`,
+      },
+      {
+        action: "deprecate",
+        readyStatus: "active",
+        command: { type: "DeprecateDimension" },
+        streamId: (id) => `catalog.dimension-${id}`,
+        blockedReason: (status) => `Only active Dimensions can be deprecated. Current status: ${status}.`,
+      },
+      {
+        action: "archive",
+        readyStatus: "deprecated",
+        command: { type: "ArchiveDimension" },
+        streamId: (id) => `catalog.dimension-${id}`,
+        blockedReason: (status) => `Only deprecated Dimensions can be archived. Current status: ${status}.`,
+      },
+    ],
+    commandHandler,
+    resolveIds: (selection: BulkSelection<DimensionListParams>) =>
+      selection.mode === "ids" ? Promise.resolve(selection.ids) : listDimensionIds(deps.db, selection.query),
+    loadRows: (ids) => listDimensionBulkRows(deps.db, ids),
+    projectors,
+  });
+
   return {
     commandHandler,
     listDimensions: (params) => listDimensions(deps.db, params),
     getDimension: (dimensionId) => getDimension(deps.db, dimensionId),
-    projectors: [
-      createProjector({
-        projectorName: "catalog-dimension-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildDimensionProjectionHandlers(deps.db),
-      }),
-    ],
+    bulkLifecycle,
+    projectors,
   };
 }

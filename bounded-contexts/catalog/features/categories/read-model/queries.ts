@@ -5,6 +5,7 @@ import {
   type ListParams,
   type ListResult,
 } from "../../../support/projection-support/list-query";
+import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type CategoryListRow = Readonly<{
   category_id: string;
@@ -22,9 +23,14 @@ export type CategoryListRow = Readonly<{
 
 export type CategoryDetailRow = CategoryListRow;
 
+export type CategoryListParams = ListParams & Readonly<{
+  parentCategoryId?: string;
+  hierarchy?: string;
+}>;
+
 export async function listCategories(
   db: PgQueryable,
-  params: ListParams & { parentCategoryId?: string } = {},
+  params: CategoryListParams = {},
 ): Promise<ListResult<CategoryListRow>> {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
@@ -32,6 +38,12 @@ export async function listCategories(
   if (params.parentCategoryId) {
     extraConditions.push(`parent_category_id = $1`);
     extraValues.push(params.parentCategoryId);
+  }
+
+  if (params.hierarchy === "root") {
+    extraConditions.push("parent_category_id IS NULL");
+  } else if (params.hierarchy === "child") {
+    extraConditions.push("parent_category_id IS NOT NULL");
   }
 
   const query = buildFilteredQuery(
@@ -46,6 +58,34 @@ export async function listCategories(
   return executeListQuery<CategoryListRow>(db, query.countSql, query.listSql, query.values);
 }
 
+export async function listCategoryIds(
+  db: PgQueryable,
+  params: CategoryListParams = {},
+): Promise<string[]> {
+  const result = await listCategories(db, { ...params, limit: undefined, offset: undefined });
+  return result.items.map((row) => row.category_id);
+}
+
+export async function listCategoryBulkRows(
+  db: PgQueryable,
+  categoryIds: readonly string[],
+): Promise<BulkLifecycleRow[]> {
+  if (categoryIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<CategoryListRow>(
+    `SELECT * FROM catalog_admin_category_list_pages WHERE category_id = ANY($1::text[])`,
+    [[...categoryIds]],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.category_id,
+    label: row.name || row.key,
+    status: row.status,
+  }));
+}
+
 export async function getCategoryDetail(db: PgQueryable, categoryId: string) {
   const result = await db.query<CategoryDetailRow>(
     `SELECT * FROM catalog_admin_category_detail_pages WHERE category_id = $1`,
@@ -54,4 +94,3 @@ export async function getCategoryDetail(db: PgQueryable, categoryId: string) {
 
   return result.rows[0] ?? null;
 }
-

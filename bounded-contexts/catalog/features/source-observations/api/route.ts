@@ -80,6 +80,42 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result);
   });
 
+  app.post("/bulk-reject", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+      reason?: unknown;
+    };
+    const reason = String(body.reason ?? "").trim();
+
+    if (!reason) {
+      return c.json({
+        error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+      }, 400);
+    }
+
+    if (body.scope) {
+      const result = await services.rejectObservationScope({
+        scope: parsePromotionScope(body.scope),
+        reason,
+        context: c.get("context"),
+      });
+
+      return c.json(result);
+    }
+
+    const observationIds = Array.isArray(body.observationIds)
+      ? body.observationIds.map((observationId: unknown) => String(observationId))
+      : [];
+    const result = await services.rejectObservations({
+      observationIds,
+      reason,
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
   app.get("/:id", async (c) => {
     const observation = await services.getSourceObservationDetail(c.req.param("id"));
     if (!observation) {

@@ -5,6 +5,7 @@ import {
   type ListParams,
   type ListResult,
 } from "../../../support/projection-support/list-query";
+import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type FieldRow = Readonly<{
   field_id: string;
@@ -21,12 +22,61 @@ export type FieldRow = Readonly<{
   updated_at: string;
 }>;
 
+export type FieldListParams = ListParams & Readonly<{
+  valueType?: string;
+  filterable?: string;
+  searchable?: string;
+  sortable?: string;
+}>;
+
 export async function listFields(
   db: PgQueryable,
-  params: ListParams = {},
+  params: FieldListParams = {},
 ): Promise<ListResult<FieldRow>> {
-  const query = buildFilteredQuery("catalog_fields", params, ["key", "name"], "key ASC");
+  const extraConditions: string[] = [];
+  const extraValues: unknown[] = [];
+
+  if (params.valueType) {
+    extraValues.push(params.valueType);
+    extraConditions.push(`value_type = $${extraValues.length}`);
+  }
+  for (const flag of ["filterable", "searchable", "sortable"] as const) {
+    if (params[flag] === "true" || params[flag] === "false") {
+      extraValues.push(params[flag] === "true");
+      extraConditions.push(`${flag} = $${extraValues.length}`);
+    }
+  }
+
+  const query = buildFilteredQuery("catalog_fields", params, ["key", "name"], "key ASC", extraConditions, extraValues);
   return executeListQuery<FieldRow>(db, query.countSql, query.listSql, query.values);
+}
+
+export async function listFieldIds(
+  db: PgQueryable,
+  params: FieldListParams = {},
+): Promise<string[]> {
+  const result = await listFields(db, { ...params, limit: undefined, offset: undefined });
+  return result.items.map((row) => row.field_id);
+}
+
+export async function listFieldBulkRows(
+  db: PgQueryable,
+  fieldIds: readonly string[],
+): Promise<BulkLifecycleRow[]> {
+  if (fieldIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<FieldRow>(
+    `SELECT * FROM catalog_fields WHERE field_id = ANY($1::text[])`,
+    [[...fieldIds]],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.field_id,
+    label: row.name || row.key,
+    status: row.status,
+  }));
 }
 
 export async function getField(db: PgQueryable, fieldId: string) {
@@ -37,4 +87,3 @@ export async function getField(db: PgQueryable, fieldId: string) {
 
   return result.rows[0] ?? null;
 }
-

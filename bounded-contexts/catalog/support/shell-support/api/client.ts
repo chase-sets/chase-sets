@@ -112,6 +112,20 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewBulkDimensionLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.dimensions["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkDimensionLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.dimensions["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async addOption<T>(dimensionId: string, body: unknown): Promise<T> {
       const response = await client.dimensions[":id"].options.$post({
         param: { id: dimensionId },
@@ -201,6 +215,20 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewBulkFieldLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.fields["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkFieldLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.fields["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
 
     async listComponents<T>(query: string): Promise<T> {
       const response = await client.components.$get({
@@ -278,6 +306,20 @@ export function createCatalogApiClient({
     async archiveComponent<T>(id: string): Promise<T> {
       const response = await client.components[":id"].archive.$post({
         param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async previewBulkComponentLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.components["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkComponentLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.components["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -371,6 +413,20 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewBulkBlueprintLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.blueprints["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkBlueprintLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.blueprints["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
 
     async listCategories<T>(query: string): Promise<T> {
       const response = await client.categories.$get({
@@ -418,6 +474,20 @@ export function createCatalogApiClient({
     async archiveCategory<T>(id: string): Promise<T> {
       const response = await client.categories[":id"].archive.$post({
         param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async previewBulkCategoryLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.categories["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkCategoryLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.categories["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -473,6 +543,20 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewBulkReferenceTypeLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client["reference-types"]["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkReferenceTypeLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client["reference-types"]["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
 
     async listReferenceRecords<T>(query: string): Promise<T> {
       const response = await client["reference-records"].$get({
@@ -520,6 +604,20 @@ export function createCatalogApiClient({
     async archiveReferenceRecord<T>(id: string): Promise<T> {
       const response = await client["reference-records"][":id"].archive.$post({
         param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async previewBulkReferenceRecordLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client["reference-records"]["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkReferenceRecordLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client["reference-records"]["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -623,6 +721,34 @@ export function createCatalogApiClient({
     async archiveCatalogItem<T>(id: string): Promise<T> {
       const response = await client.items[":id"].archive.$post({
         param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async previewBulkCatalogItemLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.items["bulk-lifecycle"].preview.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkCatalogItemLifecycle<T>(action: string, selection: unknown): Promise<T> {
+      const response = await client.items["bulk-lifecycle"].confirm.$post({
+        json: { action, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async previewBulkCatalogItemEdit<T>(operation: unknown, selection: unknown): Promise<T> {
+      const response = await client.items["bulk-edit"].preview.$post({
+        json: { operation, selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkCatalogItemEdit<T>(operation: unknown, selection: unknown): Promise<T> {
+      const response = await client.items["bulk-edit"].confirm.$post({
+        json: { operation, selection },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -743,6 +869,20 @@ export function createCatalogApiClient({
       const response = await client["source-observations"][":id"].reject.$post({
         param: { id },
         json: { reason },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async bulkRejectSourceObservations<T>(observationIds: string[], reason: string): Promise<T> {
+      const response = await client["source-observations"]["bulk-reject"].$post({
+        json: { observationIds, reason },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async bulkRejectSourceObservationsByScope<T>(scope: unknown, reason: string): Promise<T> {
+      const response = await client["source-observations"]["bulk-reject"].$post({
+        json: { scope, reason },
         header: headers,
       });
       return parseJsonResponse<T>(response);

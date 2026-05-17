@@ -1,10 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { BulkPublishSelection, CatalogItemServices } from "./runtime";
+import type { BulkEditCatalogItemOperation, BulkPublishSelection, CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
-import type { LocalizedTextMap } from "../../../support/runtime-support/common";
+import { CatalogDomainError, type LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { CatalogItemImageFallback } from "../domain/domain";
+import { normalizeBulkSelection, toOptionalString as optionalStringFromBulk } from "../../../support/runtime-support/bulk-lifecycle";
 
 
 export function catalogItemRoutes(services: CatalogItemServices) {
@@ -41,6 +42,48 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const body = await c.req.json();
     const context = c.get("context");
     const result = await services.publishBulk(toStringArray(body.itemIds), context);
+    return c.json(result);
+  });
+
+  app.post("/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-edit/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.previewBulkEdit(
+      normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
+      toBulkEditOperation(body.operation),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-edit/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.editBulk(
+      normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
+      toBulkEditOperation(body.operation),
+      c.get("context"),
+    );
+
     return c.json(result);
   });
 
@@ -296,7 +339,20 @@ export function catalogItemRoutes(services: CatalogItemServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset, blueprintId, tag, language, source } = c.req.query();
+    const {
+      search,
+      status,
+      limit,
+      offset,
+      blueprintId,
+      tag,
+      language,
+      source,
+      blueprintState,
+      hasImages,
+      hasSourceReferences,
+      missingRequiredFields,
+    } = c.req.query();
     const result = await services.listCatalogItems({
       search,
       status,
@@ -306,6 +362,10 @@ export function catalogItemRoutes(services: CatalogItemServices) {
       tag,
       language,
       source,
+      blueprintState,
+      hasImages,
+      hasSourceReferences,
+      missingRequiredFields,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -321,6 +381,21 @@ export function catalogItemRoutes(services: CatalogItemServices) {
   });
 
   return app;
+}
+
+function catalogItemListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: optionalStringFromBulk(record.search),
+    status: optionalStringFromBulk(record.status),
+    blueprintId: optionalStringFromBulk(record.blueprintId),
+    tag: optionalStringFromBulk(record.tag),
+    language: optionalStringFromBulk(record.language),
+    source: optionalStringFromBulk(record.source),
+    blueprintState: optionalStringFromBulk(record.blueprintState),
+    hasImages: optionalStringFromBulk(record.hasImages),
+    hasSourceReferences: optionalStringFromBulk(record.hasSourceReferences),
+    missingRequiredFields: optionalStringFromBulk(record.missingRequiredFields),
+  };
 }
 
 function toBulkPublishSelection(value: unknown): BulkPublishSelection {
@@ -349,6 +424,37 @@ function toBulkPublishSelection(value: unknown): BulkPublishSelection {
   }
 
   return { mode: "ids", ids: toStringArray(selection.ids) };
+}
+
+function toBulkEditOperation(value: unknown): BulkEditCatalogItemOperation {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const action = String(record.action ?? "");
+
+  switch (action) {
+    case "assignBlueprint":
+      return {
+        action,
+        blueprintId: toOptionalString(record.blueprintId) ?? "",
+      };
+    case "assignCategory":
+    case "removeCategory":
+      return {
+        action,
+        categoryId: toOptionalString(record.categoryId) ?? "",
+      };
+    case "setTags":
+    case "mergeTags":
+      return {
+        action,
+        tags: toStringArray(record.tags),
+      };
+    case "clearTags":
+      return { action };
+    default:
+      throw new CatalogDomainError("Unknown Catalog Item bulk edit action.");
+  }
 }
 
 function toStringArray(value: unknown): string[] {
@@ -413,4 +519,3 @@ function toImageFallbackVariants(value: unknown): CatalogItemImageFallback["vari
     }),
   );
 }
-
