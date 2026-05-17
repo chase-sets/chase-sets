@@ -1447,6 +1447,8 @@ export const englishTranslations = {
   "discovery.features.search.ui.searchPage.facet.option.search.empty": "No matching {facet} options",
   "discovery.features.search.ui.searchPage.facet.option.search.label": "Search {facet} options",
   "discovery.features.search.ui.searchPage.facet.option.search.placeholder": "Find {facet} option",
+  "discovery.features.search.ui.searchPage.facet.option.show.less": "Show less",
+  "discovery.features.search.ui.searchPage.facet.option.show.more": "Show more",
   "discovery.features.search.ui.searchPage.field.facet.description": "Narrow by catalog attributes on matching items.",
   "discovery.features.search.ui.searchPage.filters": "Filters",
   "discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and": "Find cards, comics, figures, sneakers, and memorabilia worth chasing.",

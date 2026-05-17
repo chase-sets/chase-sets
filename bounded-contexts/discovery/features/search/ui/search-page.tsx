@@ -299,6 +299,10 @@ export function SearchPage({
     dynamicFilters,
     onDynamicFilterChange,
   );
+  const progressiveFacetLabels = {
+    showMoreLabel: t("discovery.features.search.ui.searchPage.facet.option.show.more"),
+    showLessLabel: t("discovery.features.search.ui.searchPage.facet.option.show.less"),
+  };
   const appliedFilters = [
     ...(committedSearch.trim()
       ? [{
@@ -357,6 +361,7 @@ export function SearchPage({
         }))}
         selectedId={category}
         onSelect={onCategoryChange}
+        {...progressiveFacetLabels}
       />
       <MarketplaceFacetRail
         title={t("discovery.features.search.ui.searchPage.language")}
@@ -368,6 +373,7 @@ export function SearchPage({
         }))}
         selectedId={language}
         onSelect={onLanguageChange}
+        {...progressiveFacetLabels}
       />
       {dynamicFacets.map((facet) => {
         const selectedValues = selectedFacetValues(facet).map((value) => value.id);
@@ -393,6 +399,7 @@ export function SearchPage({
                 onDynamicFilterClear({ kind: facet.kind, id: facet.id });
               }
             }}
+            {...progressiveFacetLabels}
           />
         );
       })}
@@ -601,6 +608,7 @@ export function SearchPage({
                 }))}
                 selectedId={category}
                 onSelect={onCategoryChange}
+                {...progressiveFacetLabels}
               />
               <MarketplaceFacetChoiceGroup
                 title={t("discovery.features.search.ui.searchPage.language")}
@@ -614,6 +622,7 @@ export function SearchPage({
                 onSelect={(value) => onLanguageChange(value)}
                 allLeadingIcon="book"
                 itemLeadingIcon="book"
+                {...progressiveFacetLabels}
               />
               {dynamicFacets.map((facet) => {
                 const selectedValues = selectedFacetValues(facet).map((value) => value.id);
@@ -639,6 +648,7 @@ export function SearchPage({
                         onDynamicFilterClear({ kind: facet.kind, id: facet.id });
                       }
                     }}
+                    {...progressiveFacetLabels}
                   />
                 );
               })}

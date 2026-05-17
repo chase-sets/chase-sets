@@ -1036,8 +1036,17 @@ describe("design system", () => {
   it("renders marketplace facet rails and landing heroes from design-system patterns", () => {
     const facetMarkup = renderToString(
       <MarketplaceFacetRail
-        items={[{ id: "pokemon", label: "Pokemon TCG", count: 7 }]}
+        items={[
+          { id: "pokemon", label: "Pokemon TCG", count: 7 },
+          { id: "comics", label: "Comics", count: 6 },
+          { id: "figures", label: "Figures", count: 5 },
+          { id: "sneakers", label: "Sneakers", count: 4 },
+          { id: "cards", label: "Trading Cards", count: 3 },
+          { id: "games", label: "Video Games", count: 2 },
+          { id: "coins", label: "Coins", count: 1 },
+        ]}
         selectedId="pokemon"
+        searchable
         onSelect={() => {}}
       />
     );
@@ -1064,8 +1073,10 @@ describe("design system", () => {
 
     expect(facetMarkup).toContain("Browse Categories");
     expect(facetMarkup).toContain("Pokemon TCG (7)");
+    expect(facetMarkup).toContain("Show more");
     expect(facetMarkup).toContain("<section");
     expect(facetMarkup).not.toContain("glass-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2");
+    expect(facetMarkup).not.toContain("overflow-y-auto");
     expect(facetStripMarkup).toContain("Condition");
     expect(facetStripMarkup).toContain("Near Mint (3)");
     expect(heroMarkup).toContain("Find collectibles worth chasing.");

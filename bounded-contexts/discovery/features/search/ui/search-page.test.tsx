@@ -266,6 +266,13 @@ describe("SearchPage", () => {
       },
     });
 
+    expect(screen.getByRole("button", { name: "Condition 1 (10)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Condition 9 (2)" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(screen.getByRole("button", { name: "Condition 9 (2)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.queryByRole("button", { name: "Condition 9 (2)" })).toBeNull();
+
     fireEvent.change(screen.getByRole("searchbox", { name: "Search Condition options" }), {
       target: { value: "Condition 9" },
     });
