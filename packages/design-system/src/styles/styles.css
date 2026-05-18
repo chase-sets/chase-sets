@@ -400,6 +400,15 @@
     padding-inline: 0.25rem;
   }
 
+  .panel-edge-scroll-area {
+    border-bottom-left-radius: var(--radius-xl);
+    border-bottom-right-radius: var(--radius-xl);
+    margin-bottom: calc(-1 * var(--panel-content-inset, 1.25rem));
+    margin-inline: calc(-1 * var(--panel-content-inset, 1.25rem));
+    padding-bottom: var(--panel-content-inset, 1.25rem);
+    padding-inline: var(--panel-content-inset, 1.25rem);
+  }
+
   .surface-border {
     border-width: 1px;
     border-color: var(--border);

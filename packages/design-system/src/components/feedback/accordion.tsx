@@ -1,4 +1,4 @@
-import { forwardRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useLayoutEffect, useRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { motion } from "motion/react";
 import { Icon, type IconName } from "../../icons";
@@ -39,6 +39,8 @@ export interface AccordionItem {
   trigger: ReactNode;
   content: ReactNode;
 }
+
+export type AccordionSectionEdge = "card" | "compact" | "panel";
 
 export interface AccordionOptionTriggerProps {
   icon: IconName;
@@ -81,24 +83,44 @@ export interface AccordionProps
   items: AccordionItem[];
   type?: "single" | "multiple";
   variant?: "surface" | "sectionList";
-  bleed?: boolean | "card" | "compact" | "sheet";
+  edge?: AccordionSectionEdge;
   value?: string | string[];
   defaultValue?: string | string[];
   onValueChange?: (value: string | string[]) => void;
   collapsible?: boolean;
+  anchorActiveItemToScrollEnd?: boolean;
+}
+
+function findScrollableParent(element: HTMLElement) {
+  let current = element.parentElement;
+
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+
+    if (overflowY === "auto" || overflowY === "scroll") {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
 }
 
 export function Accordion({
   items,
   type = "single",
   variant = "surface",
-  bleed = false,
+  edge,
   value,
   defaultValue,
   onValueChange,
   collapsible = true,
+  anchorActiveItemToScrollEnd = false,
   ...rest
 }: AccordionProps) {
+  const activeItemRef = useRef<HTMLDivElement | null>(null);
+  const motionSettings = useChaseMotion();
   const defaultOpenValues = Array.isArray(defaultValue)
     ? defaultValue
     : defaultValue
@@ -144,7 +166,52 @@ export function Accordion({
         ? value
         : [value];
   const isSectionList = variant === "sectionList";
-  const bleedMode = bleed === true ? "card" : bleed;
+  const edgeMode = edge;
+
+  useLayoutEffect(() => {
+    if (!isSectionList || !anchorActiveItemToScrollEnd || openValues.length === 0) {
+      return;
+    }
+
+    const activeItem = activeItemRef.current;
+    const scrollParent = activeItem ? findScrollableParent(activeItem) : null;
+
+    if (!activeItem || !scrollParent) {
+      return;
+    }
+
+    let frameId = 0;
+    const startedAt = performance.now();
+    const durationMs = motionSettings.reducedMotion
+      ? 0
+      : Math.ceil(motionSettings.durations.base * 1000) + 80;
+
+    const alignActiveItemBottom = () => {
+      const activeRect = activeItem.getBoundingClientRect();
+      const parentRect = scrollParent.getBoundingClientRect();
+      const nextScrollTop = scrollParent.scrollTop + activeRect.bottom - parentRect.bottom;
+
+      if (nextScrollTop > scrollParent.scrollTop) {
+        scrollParent.scrollTop = nextScrollTop;
+      }
+
+      if (performance.now() - startedAt < durationMs) {
+        frameId = window.requestAnimationFrame(alignActiveItemBottom);
+      }
+    };
+
+    alignActiveItemBottom();
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [
+    anchorActiveItemToScrollEnd,
+    isSectionList,
+    motionSettings.durations.base,
+    motionSettings.reducedMotion,
+    openValues
+  ]);
 
   return (
     <AccordionPrimitive.Root
@@ -156,13 +223,13 @@ export function Accordion({
           ? "relative overflow-hidden"
           : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",
         isSectionList &&
-          bleedMode === "card" &&
+          edgeMode === "card" &&
           "-mx-4 w-[calc(100%+2rem)] max-w-none self-stretch first:-mt-4 first:rounded-t-tokenLg last:-mb-4 last:rounded-b-tokenLg",
         isSectionList &&
-          bleedMode === "compact" &&
+          edgeMode === "compact" &&
           "-mx-3 w-[calc(100%+1.5rem)] max-w-none self-stretch first:-mt-3 first:rounded-t-tokenLg last:-mb-3 last:rounded-b-tokenLg",
         isSectionList &&
-          bleedMode === "sheet" &&
+          edgeMode === "panel" &&
           "-mx-5 w-[calc(100%+2.5rem)] max-w-none self-stretch first:-mt-5 first:rounded-t-tokenXl last:-mb-5 last:rounded-b-tokenXl",
       )}
     >
@@ -173,24 +240,33 @@ export function Accordion({
           <AccordionPrimitive.Item
             key={item.value}
             value={item.value}
+            ref={isOpen ? activeItemRef : undefined}
             className={cx(
               "border-muted",
               index < items.length - 1 && "border-b",
               isSectionList && "relative",
               isSectionList &&
+                edgeMode === "panel" &&
+                "overflow-hidden first:rounded-t-tokenXl last:rounded-b-tokenXl",
+              isSectionList &&
                 isOpen &&
+                edgeMode !== "panel" &&
                 "bg-accent/5 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent",
+              isSectionList &&
+                isOpen &&
+                edgeMode === "panel" &&
+                "bg-accent/10 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-accent",
             )}
           >
             <AccordionPrimitive.Header>
               <AccordionPrimitive.Trigger
                 className={cx(
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
-                  isSectionList && bleedMode === "compact" && "px-3 py-2.5",
-                  isSectionList && bleedMode === "sheet" && "px-5 py-2.5",
+                  isSectionList && edgeMode === "compact" && "px-3 py-2.5",
+                  isSectionList && edgeMode === "panel" && "px-5 py-2.5",
                   isSectionList &&
-                    bleedMode !== "compact" &&
-                    bleedMode !== "sheet" &&
+                    edgeMode !== "compact" &&
+                    edgeMode !== "panel" &&
                     "px-4 py-2.5",
                   !isSectionList && "px-4 py-3",
                   isSectionList && isOpen && "text-accent hover:bg-transparent",
@@ -220,11 +296,11 @@ export function Accordion({
               <div
                 className={cx(
                   "text-sm text-secondary",
-                  isSectionList && bleedMode === "compact" && "px-3 pb-5 pl-10 pt-1",
-                  isSectionList && bleedMode === "sheet" && "px-5 pb-5 pl-12 pt-1",
+                  isSectionList && edgeMode === "compact" && "px-3 pb-5 pl-10 pt-1",
+                  isSectionList && edgeMode === "panel" && "px-5 pb-5 pl-12 pt-1",
                   isSectionList &&
-                    bleedMode !== "compact" &&
-                    bleedMode !== "sheet" &&
+                    edgeMode !== "compact" &&
+                    edgeMode !== "panel" &&
                     "px-4 pb-5 pl-11 pt-1",
                   !isSectionList && "px-4 pb-4",
                 )}
@@ -236,5 +312,25 @@ export function Accordion({
         );
       })}
     </AccordionPrimitive.Root>
+  );
+}
+
+export interface PanelSectionAccordionProps
+  extends Omit<AccordionProps, "variant" | "edge"> {
+  edge?: AccordionSectionEdge;
+}
+
+export function PanelSectionAccordion({
+  edge = "card",
+  anchorActiveItemToScrollEnd,
+  ...props
+}: PanelSectionAccordionProps) {
+  return (
+    <Accordion
+      {...props}
+      variant="sectionList"
+      edge={edge}
+      anchorActiveItemToScrollEnd={anchorActiveItemToScrollEnd ?? edge === "panel"}
+    />
   );
 }

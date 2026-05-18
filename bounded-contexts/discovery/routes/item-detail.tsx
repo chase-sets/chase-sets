@@ -7,9 +7,7 @@ import type {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { redirect, useActionData, useFetcher, useLoaderData } from "react-router";
 import {
-  Accordion,
   AccordionOptionTrigger,
-  type AccordionProps,
   Badge,
   Banner,
   BuyerProtectionBadge,
@@ -22,6 +20,7 @@ import {
   LinkButton,
   NativeSelect,
   NumberInput,
+  PanelSectionAccordion,
   ProductSelectionSummary,
   SegmentedControl,
   Stack,
@@ -29,6 +28,7 @@ import {
   Text,
   TextInput,
   type IconName,
+  type AccordionSectionEdge,
 } from "@chase-sets/design-system";
 import {
   requireActorFromAuthApi,
@@ -64,7 +64,7 @@ import {
 } from "@chase-sets/checkout/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 
-type CommerceAccordionBleed = NonNullable<AccordionProps["bleed"]>;
+type CommerceAccordionEdge = AccordionSectionEdge;
 
 const MARKETPLACE_DESCRIPTION =
   t("discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with");
@@ -1514,7 +1514,7 @@ function ItemDetailActionCard<TAction extends string>({
   onSelectedActionChange,
   children,
   panelVariant = "card",
-  accordionBleed,
+  accordionEdge,
   glow = false,
   showProductSummary = true,
   footer,
@@ -1528,7 +1528,7 @@ function ItemDetailActionCard<TAction extends string>({
   onSelectedActionChange: (action: TAction | "") => void;
   children: ReactNode;
   panelVariant?: FormPanelVariant;
-  accordionBleed?: CommerceAccordionBleed;
+  accordionEdge?: CommerceAccordionEdge;
   glow?: boolean;
   showProductSummary?: boolean;
   footer?: ReactNode;
@@ -1548,10 +1548,9 @@ function ItemDetailActionCard<TAction extends string>({
           ) : null}
         </Stack>
         {footer}
-        <Accordion
+        <PanelSectionAccordion
           type="single"
-          variant="sectionList"
-          bleed={accordionBleed ?? (panelVariant === "plain" ? "compact" : "card")}
+          edge={accordionEdge ?? (panelVariant === "plain" ? "compact" : "card")}
           value={selectedAction}
           onValueChange={(value) => {
             if (typeof value === "string") {
@@ -1580,7 +1579,7 @@ function ItemDetailActionCard<TAction extends string>({
 export function BuyActionCard({
   formIdPrefix,
   panelVariant = "card",
-  accordionBleed,
+  accordionEdge,
   productId,
   productSummary,
   productSelectionDetails,
@@ -1592,7 +1591,7 @@ export function BuyActionCard({
 }: {
   formIdPrefix: string;
   panelVariant?: FormPanelVariant;
-  accordionBleed?: CommerceAccordionBleed;
+  accordionEdge?: CommerceAccordionEdge;
   productId: string | null;
   productSummary: string | null;
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
@@ -1665,7 +1664,7 @@ export function BuyActionCard({
       selectedAction={selectedAction}
       onSelectedActionChange={setSelectedAction}
       panelVariant={panelVariant}
-      accordionBleed={accordionBleed}
+      accordionEdge={accordionEdge}
       glow={visibleListingCount > 0}
       showProductSummary={false}
     >
@@ -1677,7 +1676,7 @@ export function BuyActionCard({
 export function SellActionCard({
   formIdPrefix,
   panelVariant = "card",
-  accordionBleed,
+  accordionEdge,
   productId,
   productSummary,
   productSelectionDetails,
@@ -1690,7 +1689,7 @@ export function SellActionCard({
 }: {
   formIdPrefix: string;
   panelVariant?: FormPanelVariant;
-  accordionBleed?: CommerceAccordionBleed;
+  accordionEdge?: CommerceAccordionEdge;
   productId: string | null;
   productSummary: string | null;
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
@@ -1767,7 +1766,7 @@ export function SellActionCard({
       selectedAction={selectedAction}
       onSelectedActionChange={setSelectedAction}
       panelVariant={panelVariant}
-      accordionBleed={accordionBleed}
+      accordionEdge={accordionEdge}
       glow={hasMatchingOffer}
       showProductSummary={false}
       footer={
@@ -2410,12 +2409,12 @@ function DiscoveryItemDetailRealtimeView({
               const renderBuyActionCard = (
                 formIdPrefix: string,
                 panelVariant: FormPanelVariant = "card",
-                accordionBleed?: CommerceAccordionBleed,
+                accordionEdge?: CommerceAccordionEdge,
               ) => (
                 <BuyActionCard
                   formIdPrefix={formIdPrefix}
                   panelVariant={panelVariant}
-                  accordionBleed={accordionBleed}
+                  accordionEdge={accordionEdge}
                   productId={context.selectedProductId}
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
@@ -2437,12 +2436,12 @@ function DiscoveryItemDetailRealtimeView({
               const renderSellActionCard = (
                 formIdPrefix: string,
                 panelVariant: FormPanelVariant = "card",
-                accordionBleed?: CommerceAccordionBleed,
+                accordionEdge?: CommerceAccordionEdge,
               ) => (
                 <SellActionCard
                   formIdPrefix={formIdPrefix}
                   panelVariant={panelVariant}
-                  accordionBleed={accordionBleed}
+                  accordionEdge={accordionEdge}
                   productId={context.selectedProductId}
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
@@ -2481,11 +2480,11 @@ function DiscoveryItemDetailRealtimeView({
                   sell: data.showSellerTab ? renderSellActionCard("sell-card", "plain") : undefined,
                   mobile: {
                     buy: {
-                      content: renderBuyActionCard("mobile-buy-card", "plain", "sheet"),
+                      content: renderBuyActionCard("mobile-buy-card", "plain", "panel"),
                       title: t("discovery.routes.itemDetail.buy"),
                     },
                     sell: {
-                      content: renderSellActionCard("mobile-sell-card", "plain", "sheet"),
+                      content: renderSellActionCard("mobile-sell-card", "plain", "panel"),
                       title: t("discovery.routes.itemDetail.sell.2"),
                     },
                   },

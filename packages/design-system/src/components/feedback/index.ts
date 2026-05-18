@@ -6,7 +6,7 @@ export { Banner } from "./banner";
 export type { BannerProps } from "./banner";
 
 export { Dialog } from "./dialog";
-export type { DialogProps } from "./dialog";
+export type { DialogProps, PanelBodyLayout } from "./dialog";
 
 export {
   BottomSheet,
@@ -65,8 +65,14 @@ export type { EmptyStateProps } from "./empty-state";
 export { Rating } from "./rating";
 export type { RatingSize, RatingProps } from "./rating";
 
-export { Accordion, AccordionOptionTrigger } from "./accordion";
-export type { AccordionItem, AccordionOptionTriggerProps, AccordionProps } from "./accordion";
+export { Accordion, AccordionOptionTrigger, PanelSectionAccordion } from "./accordion";
+export type {
+  AccordionItem,
+  AccordionOptionTriggerProps,
+  AccordionProps,
+  AccordionSectionEdge,
+  PanelSectionAccordionProps
+} from "./accordion";
 
 export { ProgressiveDisclosure, ProgressiveDisclosureGroup } from "./disclosure";
 export type {
