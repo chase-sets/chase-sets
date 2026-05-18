@@ -42,13 +42,19 @@ export function FilterBar({
       }
       style={sticky && stickyOffset ? { top: stickyOffset } : undefined}
       className={cx(
-        "modern-surface flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:flex-row md:items-center md:justify-between",
+        "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
         sticky && "sticky z-sticky",
         sticky && !stickyOffset && "top-16"
       )}
     >
-      <div className="flex flex-1 flex-wrap items-end gap-3">{children}</div>
-      {actions ? <div className="flex flex-wrap items-end gap-2 md:self-end">{actions}</div> : null}
+      <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3 md:[&>*]:max-w-full md:[&>*]:min-w-[12rem]">
+        {children}
+      </div>
+      {actions ? (
+        <div className="flex min-w-0 flex-wrap items-end justify-start gap-2 md:ml-auto md:justify-end md:self-end md:[&>*]:max-w-full md:[&>div]:items-end">
+          {actions}
+        </div>
+      ) : null}
     </motion.div>
   );
 }
@@ -122,20 +128,20 @@ export function FilterArea({
       }
       style={sticky && stickyOffset ? { top: stickyOffset } : undefined}
       className={cx(
-        "modern-surface flex flex-col gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm lg:flex-row lg:items-end lg:justify-between",
+        "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end",
         sticky && "sticky z-sticky",
         sticky && !stickyOffset && "top-16"
       )}
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
         {inlineFilters.map((filter, index) => (
-          <div key={index} className="min-w-[10rem] max-w-full">
+          <div key={index} className="min-w-[12rem] max-w-full">
             {filter}
           </div>
         ))}
       </div>
       {(hasOverflow || actions) ? (
-        <div className="flex shrink-0 flex-wrap items-end gap-2 lg:self-end">
+        <div className="flex min-w-0 flex-wrap items-end justify-start gap-2 lg:ml-auto lg:justify-end lg:self-end lg:[&>*]:max-w-full lg:[&>div]:items-end">
           {hasOverflow ? (
             <SideSheet
               open={panelOpen}
