@@ -409,7 +409,7 @@ describe("item detail commerce panel", () => {
   });
 
   it("keeps buy actions in one compact accordion section list", () => {
-    render(
+    const { container } = render(
       <BuyActionCard
         formIdPrefix="buy-card"
         productId="cat_charizard::"
@@ -440,6 +440,9 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Make offer form")).toBeNull();
     expect(screen.queryByText("Selected product intent")).toBeNull();
     expect(screen.queryByText("Selected seller signal")).toBeNull();
+    expect(container.querySelector(".modern-surface")).toBeNull();
+    expect(container.querySelector('[class*="-mx-4"]')).toBeTruthy();
+    expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Make offer/ }));
 
@@ -1132,6 +1135,10 @@ describe("item detail commerce panel", () => {
     });
 
     expect(await screen.findByText("Choose action")).toBeTruthy();
+    const commercePanel = screen.getByRole("complementary", { name: "Commerce options" });
+    expect(commercePanel.querySelectorAll(".glass-surface")).toHaveLength(1);
+    expect(commercePanel.querySelector('[class*="-mx-3"]')).toBeTruthy();
+    expect(commercePanel.querySelector(".modern-surface")).toBeNull();
     expect(screen.queryByText("Offer details")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Make offer/ }));
@@ -1179,7 +1186,7 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByText("Your selection")).toBeTruthy();
-    expect(screen.getByText("Checkout immediately with the best matching live listing.")).toBeTruthy();
+    expect(screen.queryByText("Checkout immediately with the best matching live listing.")).toBeNull();
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
     expect(screen.getByText("Chase Sets · 2 available")).toBeTruthy();
