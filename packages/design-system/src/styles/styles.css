@@ -81,11 +81,11 @@
     --control-py: 0.625rem;
     --control-px: 1rem;
     --z-sticky: 20;
-    --z-dropdown: 30;
-    --z-popover: 40;
+    --z-dropdown: 65;
+    --z-popover: 70;
     --z-drawer: 50;
     --z-modal: 60;
-    --z-toast: 70;
+    --z-toast: 80;
   }
 
   [data-theme="dark"],
