@@ -444,10 +444,17 @@ describe("item detail commerce panel", () => {
     expect(container.querySelector('[class*="-mx-4"]')).toBeTruthy();
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Make offer/ }));
+    const makeOfferButton = screen.getByRole("button", { name: /Make offer/ });
+    fireEvent.click(makeOfferButton);
 
     expect(screen.getByText("Make offer form")).toBeTruthy();
     expect(screen.queryByText("Buy now form")).toBeNull();
+
+    fireEvent.click(makeOfferButton);
+
+    expect(makeOfferButton.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Make offer form")).toBeNull();
+    expect(container.querySelector('[class*="before:absolute"]')).toBeNull();
   });
 
   it("keeps sell actions in the same compact section-list pattern as buy actions", () => {
@@ -479,10 +486,17 @@ describe("item detail commerce panel", () => {
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
     expect(screen.queryByText("Raw / Near Mint")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Add to sell list/ }));
+    const addToSellListButton = screen.getByRole("button", { name: /Add to sell list/ });
+    fireEvent.click(addToSellListButton);
 
     expect(screen.getByText("Add to sell list form")).toBeTruthy();
     expect(screen.queryByText("Sell now form")).toBeNull();
+
+    fireEvent.click(addToSellListButton);
+
+    expect(addToSellListButton.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Add to sell list form")).toBeNull();
+    expect(container.querySelector('[class*="before:absolute"]')).toBeNull();
   });
 
   it("changes mobile commerce actions with the selected market intent", () => {

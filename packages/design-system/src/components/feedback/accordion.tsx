@@ -111,7 +111,9 @@ export function Accordion({
       ? undefined
       : Array.isArray(value)
         ? value
-        : [value];
+        : value
+          ? [value]
+          : [];
   const rootProps =
     type === "multiple"
       ? {
@@ -153,8 +155,12 @@ export function Accordion({
         isSectionList
           ? "relative overflow-hidden"
           : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",
-        isSectionList && bleedMode === "card" && "-mx-4 first:-mt-4 last:-mb-4",
-        isSectionList && bleedMode === "compact" && "-mx-3 first:-mt-3 last:-mb-3",
+        isSectionList &&
+          bleedMode === "card" &&
+          "-mx-4 first:-mt-4 first:rounded-t-tokenLg last:-mb-4 last:rounded-b-tokenLg",
+        isSectionList &&
+          bleedMode === "compact" &&
+          "-mx-3 first:-mt-3 first:rounded-t-tokenLg last:-mb-3 last:rounded-b-tokenLg",
       )}
     >
       {items.map((item, index) => {
