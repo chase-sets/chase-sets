@@ -795,7 +795,7 @@ describe("item detail commerce panel", () => {
     expect(within(sellerListingRow).getByText("4.8")).toBeTruthy();
     expect(within(sellerListingRow).getByText("(12)")).toBeTruthy();
     const sellerReputationLink = within(sellerListingRow).getByRole("link", {
-      name: /Chase Sets.*View feedback/,
+      name: "Chase Sets",
     });
     expect(sellerReputationLink.getAttribute("href")).toBe("/accounts/chase-sets-seller#feedback");
 
@@ -806,8 +806,8 @@ describe("item detail commerce panel", () => {
     );
 
     const buyerReputationLink = screen.getByRole("link", { name: /Ash Ketchum/ });
-    expect(within(buyerReputationLink).getByText("4.2")).toBeTruthy();
-    expect(within(buyerReputationLink).getByText("(5)")).toBeTruthy();
+    expect(screen.getByText("4.2")).toBeTruthy();
+    expect(screen.getByText("(5)")).toBeTruthy();
     expect(buyerReputationLink.getAttribute("href")).toBe("/accounts/ash-ketchum#feedback");
   });
 
@@ -842,13 +842,13 @@ describe("item detail commerce panel", () => {
     ).toBe("true");
     expect(screen.getByText("Lowest price")).toBeTruthy();
     expect(screen.getByText("Selected for checkout")).toBeTruthy();
-    expect(screen.getAllByText("No feedback yet")).toHaveLength(2);
+    expect(screen.getAllByText("New")).toHaveLength(2);
     expect(screen.getByText("2 available")).toBeTruthy();
     expect(
       within(screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" }))
         .getByText("Raw · Near Mint"),
     ).toBeTruthy();
-    expect(screen.getByText("Chase Sets · 2 available · Raw · Near Mint"))
+    expect(screen.getByText("2 available · Raw · Near Mint"))
       .toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",
@@ -1091,7 +1091,7 @@ describe("item detail commerce panel", () => {
         })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(screen.getByText("Card Vault · 1 available · Raw · Near Mint"))
+    expect(screen.getByText("1 available · Raw · Near Mint"))
       .toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",

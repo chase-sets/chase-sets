@@ -176,7 +176,6 @@ export function MarketplaceOfferMatchDetailPage({
                         accountName={offer.buyer_display_name ?? offer.buyer_account_id}
                         averageRating={offer.buyer_average_rating}
                         reviewCount={offer.buyer_review_count ?? 0}
-                        emptyLabel={t("marketplace.features.offers.ui.offerMatchDetailPage.no.buyer.feedback.yet")}
                         ratingLabel={t("marketplace.features.offers.ui.offerMatchDetailPage.buyer.reputation")}
                       />
                     ),
