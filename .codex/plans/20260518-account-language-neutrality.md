@@ -54,6 +54,8 @@ Remove buyer/seller bucket language where it implies account identity, profile, 
 - `pnpm run typecheck` passed after final edits.
 - `pnpm run test:fast` passed after final edits with existing jsdom CSS/`scrollTo` warnings.
 - `pnpm run build` passed after final edits.
+- PR #207 initially conflicted with `origin/main` after product-options display work landed. The branch was merged with `origin/main`; the only manual conflict was `bounded-contexts/discovery/routes/public-listing.tsx`, resolved by keeping `ProductOptions` from `main` and `AccountTrustCard` from this plan.
+- After syncing with `origin/main`, `pnpm run test:structure`, `pnpm run check:structure`, `pnpm run check:localization`, `pnpm --filter @chase-sets/design-system test`, `pnpm --filter @chase-sets/discovery test`, `pnpm --filter @chase-sets/checkout test`, `pnpm run typecheck`, `pnpm run test:fast`, and `pnpm run build` all passed.
 
 ## Documentation To Promote
 
