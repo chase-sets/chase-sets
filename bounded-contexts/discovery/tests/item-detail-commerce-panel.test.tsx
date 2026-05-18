@@ -408,7 +408,7 @@ describe("item detail commerce panel", () => {
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
-  it("keeps buy actions in one accordion card", () => {
+  it("keeps buy actions in one compact accordion section list", () => {
     render(
       <BuyActionCard
         formIdPrefix="buy-card"
@@ -424,12 +424,22 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByText("Choose action")).toBeTruthy();
+    expect(screen.getByText("Choose what you want to do with this item.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Buy now/ })).toBeTruthy();
+    expect(screen.getByText("Checkout immediately with the best matching live listing."))
+      .toBeTruthy();
     expect(screen.getByRole("button", { name: /Add to cart/ })).toBeTruthy();
+    expect(screen.getByText("Save this exact selection and continue shopping.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Make offer/ })).toBeTruthy();
+    expect(screen.getByText("Submit product-wide demand eligible sellers can accept."))
+      .toBeTruthy();
     expect(screen.getByRole("button", { name: /Set alert/ })).toBeTruthy();
+    expect(screen.getByText("Get notified when matching supply appears at or below your target."))
+      .toBeTruthy();
     expect(screen.getByText("Buy now form")).toBeTruthy();
     expect(screen.queryByText("Make offer form")).toBeNull();
+    expect(screen.queryByText("Selected product intent")).toBeNull();
+    expect(screen.queryByText("Selected seller signal")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Make offer/ }));
 
@@ -1077,7 +1087,7 @@ describe("item detail commerce panel", () => {
     );
 
     const buyNowHeader = screen.getByRole("button", {
-      name: /Checkout with the best matching live listing/i,
+      name: /Checkout immediately with the best matching live listing/i,
     });
     const makeOfferHeader = screen.getByRole("button", {
       name: /Submit product-wide demand/i,
@@ -1093,6 +1103,55 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Make offer workflow body")).toBeTruthy();
   });
 
+  it("keeps offer and alert workflow details product-wide inside the buyer accordion", async () => {
+    renderItemDetailRoute({
+      item: createItem(),
+      accountOfferMatches: [],
+      sellerInventoryItems: [],
+      sellerAccountId: null,
+      hasListingStockLocation: false,
+      viewerAccountId: "buyer_1",
+      initialMarketIntent: "buy",
+      initialSelectedOptions: [],
+      hasInitialSelectedOptionFilters: false,
+      showSellerTab: false,
+      canUseSellerFeatures: false,
+      canSubmitOffers: true,
+      registerToSellHref: "/register",
+      notFound: false,
+      error: null,
+      canonicalUrl: null,
+    });
+
+    expect(await screen.findByText("Choose action")).toBeTruthy();
+    expect(screen.queryByText("Offer details")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Make offer/ }));
+
+    expect(screen.getByText("Offer details")).toBeTruthy();
+    expect(screen.getByText("Product criteria")).toBeTruthy();
+    expect(screen.getByText("1 listing matches this selection.")).toBeTruthy();
+    expect(
+      screen.getByText("Your offer applies to matching product criteria, not a specific seller."),
+    ).toBeTruthy();
+    expect(screen.getByLabelText(/Offer price/)).toBeTruthy();
+    expect(screen.getByLabelText(/Quantity requested/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Submit offer" })).toBeTruthy();
+    expect(screen.queryByText("Selected seller")).toBeNull();
+    expect(screen.queryByText("Selected seller signal")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Set alert/ }));
+
+    expect(screen.getByText("Alert criteria")).toBeTruthy();
+    expect(
+      screen.getAllByText("Get notified when matching supply appears at or below your target.")
+        .length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Maximum listing price")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set alert" })).toBeTruthy();
+    expect(screen.queryByText("Offer details")).toBeNull();
+  });
+
   it("renders buy now as a single final CTA when selected as a workflow", () => {
     renderWithDataRouter(
       <CheckoutPurchaseIntentSection
@@ -1101,6 +1160,10 @@ describe("item detail commerce panel", () => {
         selectedListing={baseListing}
         itemTitle="Charizard"
         selectedOptions={[]}
+        productSelectionDetails={[
+          { label: "Form", value: "Raw" },
+          { label: "Condition", value: "Excellent" },
+        ]}
         productSummary="Raw / Near Mint"
         visibleListingCount={1}
         actionMode="buy-now"
@@ -1110,6 +1173,11 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Your selection")).toBeTruthy();
     expect(screen.getByText("Checkout immediately with the best matching live listing.")).toBeTruthy();
     expect(screen.getByText("Selected price")).toBeTruthy();
+    expect(screen.getByText("$399.99")).toBeTruthy();
+    expect(screen.getByText("Chase Sets · 2 available")).toBeTruthy();
+    expect(
+      screen.getByText((_, element) => element?.textContent === "Raw · Excellent"),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Buy optimized" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add product to cart" })).toBeNull();
@@ -1133,10 +1201,9 @@ describe("item detail commerce panel", () => {
     expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
-    expect(screen.getByText("Selected seller")).toBeTruthy();
-    expect(screen.getByText("Chase Sets")).toBeTruthy();
-    expect(screen.getByText("Availability")).toBeTruthy();
-    expect(screen.getByText("2 available")).toBeTruthy();
+    expect(screen.getByText("Chase Sets · 2 available")).toBeTruthy();
+    expect(screen.queryByText("Selected seller")).toBeNull();
+    expect(screen.queryByText("Availability")).toBeNull();
     expect(screen.getByRole("spinbutton", { name: /Quantity/ })).toBeTruthy();
     expect(screen.queryByLabelText("Shipping")).toBeNull();
     expect(screen.queryByRole("combobox", { name: /shipping/i })).toBeNull();

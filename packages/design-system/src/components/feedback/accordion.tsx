@@ -1,4 +1,4 @@
-import { forwardRef, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { motion } from "motion/react";
 import { Icon } from "../../icons";
@@ -44,6 +44,7 @@ export interface AccordionProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "defaultValue" | "dir"> {
   items: AccordionItem[];
   type?: "single" | "multiple";
+  variant?: "surface" | "sectionList";
   value?: string | string[];
   defaultValue?: string | string[];
   onValueChange?: (value: string | string[]) => void;
@@ -53,12 +54,20 @@ export interface AccordionProps
 export function Accordion({
   items,
   type = "single",
+  variant = "surface",
   value,
   defaultValue,
   onValueChange,
   collapsible = true,
   ...rest
 }: AccordionProps) {
+  const defaultOpenValues = Array.isArray(defaultValue)
+    ? defaultValue
+    : defaultValue
+      ? [defaultValue]
+      : [];
+  const [uncontrolledOpenValues, setUncontrolledOpenValues] =
+    useState<string[]>(defaultOpenValues);
   const controlledValue =
     value === undefined
       ? undefined
@@ -70,11 +79,7 @@ export function Accordion({
       ? {
           multiple: true,
           value: controlledValue,
-          defaultValue: Array.isArray(defaultValue)
-            ? defaultValue
-            : defaultValue
-              ? [defaultValue]
-              : undefined
+          defaultValue: defaultOpenValues.length > 0 ? defaultOpenValues : undefined
         }
       : {
           multiple: false,
@@ -86,45 +91,88 @@ export function Accordion({
       return;
     }
 
+    if (value === undefined) {
+      setUncontrolledOpenValues(nextValue);
+    }
+
     onValueChange?.(type === "multiple" ? nextValue : nextValue[0] ?? "");
   };
+  const openValues =
+    value === undefined
+      ? uncontrolledOpenValues
+      : Array.isArray(value)
+        ? value
+        : [value];
+  const isSectionList = variant === "sectionList";
 
   return (
     <AccordionPrimitive.Root
       {...rootProps}
       {...rest}
       onValueChange={handleValueChange}
-      className="modern-surface rounded-tokenLg border border-muted shadow-tokenSm"
+      className={cx(
+        isSectionList
+          ? "overflow-hidden"
+          : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",
+      )}
     >
-      {items.map((item, index) => (
-        <AccordionPrimitive.Item
-          key={item.value}
-          value={item.value}
-          className={cx(
-            "border-muted",
-            index < items.length - 1 && "border-b"
-          )}
-        >
-          <AccordionPrimitive.Header>
-            <AccordionPrimitive.Trigger className="focus-ring flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-foreground transition hover:bg-background">
-              <span className="flex-1">{item.trigger}</span>
-              <span className="inline-flex shrink-0 transition-transform duration-200">
-                <Icon name="chevronDown" size="sm" tone="secondary" />
-              </span>
-            </AccordionPrimitive.Trigger>
-          </AccordionPrimitive.Header>
-          <AccordionPrimitive.Panel
-            keepMounted
-            render={(props, state) => (
-              <AnimatedAccordionContent {...props} open={state.open} className={cx("overflow-hidden", props.className)} />
+      {items.map((item, index) => {
+        const isOpen = openValues.includes(item.value);
+
+        return (
+          <AccordionPrimitive.Item
+            key={item.value}
+            value={item.value}
+            className={cx(
+              "border-muted",
+              index < items.length - 1 && "border-b",
+              isSectionList && "relative",
+              isSectionList &&
+                isOpen &&
+                "bg-accent/5 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent",
             )}
           >
-              <div className="px-4 pb-4 text-sm text-secondary">
-              {item.content}
+            <AccordionPrimitive.Header>
+              <AccordionPrimitive.Trigger
+                className={cx(
+                  "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
+                  isSectionList ? "px-3 py-2.5" : "px-4 py-3",
+                  isSectionList && isOpen && "text-accent hover:bg-transparent",
+                )}
+              >
+                <span className="flex-1">{item.trigger}</span>
+                <span
+                  className={cx(
+                    "inline-flex shrink-0 transition-transform duration-200",
+                    isOpen && "rotate-180",
+                  )}
+                >
+                  <Icon name="chevronDown" size="sm" tone="secondary" />
+                </span>
+              </AccordionPrimitive.Trigger>
+            </AccordionPrimitive.Header>
+            <AccordionPrimitive.Panel
+              keepMounted
+              render={(props, state) => (
+                <AnimatedAccordionContent
+                  {...props}
+                  open={state.open}
+                  className={cx("overflow-hidden", props.className)}
+                />
+              )}
+            >
+              <div
+                className={cx(
+                  "text-sm text-secondary",
+                  isSectionList ? "px-3 pb-5 pl-6 pt-1" : "px-4 pb-4",
+                )}
+              >
+                {item.content}
               </div>
-          </AccordionPrimitive.Panel>
-        </AccordionPrimitive.Item>
-      ))}
+            </AccordionPrimitive.Panel>
+          </AccordionPrimitive.Item>
+        );
+      })}
     </AccordionPrimitive.Root>
   );
 }

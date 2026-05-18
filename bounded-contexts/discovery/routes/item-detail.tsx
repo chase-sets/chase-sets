@@ -102,6 +102,31 @@ type ProductSelectionDisplayDetail = Readonly<{
   value: ReactNode;
 }>;
 
+function ProductCriteriaText({
+  selections,
+  summary,
+  fallback,
+}: {
+  selections: readonly ProductSelectionDisplayDetail[];
+  summary: ReactNode;
+  fallback: ReactNode;
+}) {
+  if (selections.length === 0) {
+    return <>{summary ?? fallback}</>;
+  }
+
+  return (
+    <>
+      {selections.map((selection, index) => (
+        <span key={index}>
+          {index > 0 ? " · " : null}
+          {selection.value}
+        </span>
+      ))}
+    </>
+  );
+}
+
 type AddToCartActionData = Readonly<{
   status: "added-to-cart";
   itemTitle: string;
@@ -406,7 +431,7 @@ function ProductAlertCreationSection({
           />
           <input type="hidden" name="productSummary" value={productSummary ?? ""} />
           {showSummary ? (
-            <Stack gap={2}>
+            <Stack gap={3}>
               <Stack gap={1}>
                 <Text weight="semibold">
                   {isListingAlert
@@ -419,22 +444,18 @@ function ProductAlertCreationSection({
                     : "Get a web notification when matching offer demand appears at your price."}
                 </Text>
               </Stack>
-              <KeyValueList
-                density="compact"
-                variant="plain"
-                items={[
-                  {
-                    key: t("discovery.routes.itemDetail.product.form.and.condition"),
-                    value: (
-                      <ProductSelectionSummary
-                        selections={productSelectionDetails}
-                        summary={productSummary ?? "Selected product"}
-                        summaryAsChip={productSelectionDetails.length === 0}
-                      />
-                    ),
-                  },
-                ]}
-              />
+              <Stack gap={1}>
+                <Text size="sm" tone="secondary">
+                  {t("discovery.routes.itemDetail.product.criteria")}
+                </Text>
+                <Text size="sm">
+                  <ProductCriteriaText
+                    selections={productSelectionDetails}
+                    summary={productSummary}
+                    fallback={t("discovery.routes.itemDetail.selected.product")}
+                  />
+                </Text>
+              </Stack>
             </Stack>
           ) : null}
           <CurrencyInput
@@ -495,43 +516,37 @@ function MarketplaceOfferSubmissionSection({
         />
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
         {showSummary ? (
-          <Stack gap={2}>
+          <Stack gap={3}>
             <Stack gap={1}>
               <Text weight="semibold">{t("discovery.routes.itemDetail.offer.details")}</Text>
               <Text size="sm" tone="secondary">
                 {t("discovery.routes.itemDetail.submit.product.wide.demand")}
               </Text>
             </Stack>
-            <KeyValueList
-              density="compact"
-              variant="plain"
-              items={[
-                {
-                  key: t("discovery.routes.itemDetail.product.form.and.condition"),
-                  value: productSelectionDetails.length > 0 ? (
-                    <ProductSelectionSummary
-                      selections={productSelectionDetails}
-                      summary={productSummary ?? itemTitle}
-                    />
-                  ) : productSummary
-                    ? t("discovery.routes.itemDetail.offer.for.product", { productSummary })
-                    : itemTitle,
-                },
-                {
-                  key: t("discovery.routes.itemDetail.matching.listings"),
-                  value: productId
-                    ? t("discovery.routes.itemDetail.listing.match.count", {
-                        count: visibleListingCount,
-                        listingLabel: t(
-                          visibleListingCount === 1
-                            ? "discovery.routes.itemDetail.listing.singular"
-                            : "discovery.routes.itemDetail.listing.plural",
-                        ),
-                      })
-                    : t("discovery.routes.itemDetail.choose.options.to.make.an.offer"),
-                },
-              ]}
-            />
+            <Stack gap={1}>
+              <Text size="sm" tone="secondary">
+                {t("discovery.routes.itemDetail.product.criteria")}
+              </Text>
+              <Text size="sm">
+                <ProductCriteriaText
+                  selections={productSelectionDetails}
+                  summary={productSummary}
+                  fallback={itemTitle}
+                />
+              </Text>
+              <Text size="sm" tone="secondary">
+                {productId
+                  ? t("discovery.routes.itemDetail.listing.match.count", {
+                      count: visibleListingCount,
+                      listingLabel: t(
+                        visibleListingCount === 1
+                          ? "discovery.routes.itemDetail.listing.matches.singular"
+                          : "discovery.routes.itemDetail.listing.matches.plural",
+                      ),
+                    })
+                  : t("discovery.routes.itemDetail.choose.options.to.make.an.offer")}
+              </Text>
+            </Stack>
             <Text size="sm" tone="secondary">
               {productId
                 ? t("discovery.routes.itemDetail.offer.applies.to.matching.product.criteria")
@@ -808,7 +823,7 @@ export function CheckoutPurchaseIntentSection({
           }
         />
         {showSummary ? (
-          <Stack gap={2}>
+          <Stack gap={3}>
             <Stack gap={1}>
               <Text weight="semibold">{t("discovery.routes.itemDetail.your.selection")}</Text>
               {actionMode === "all" ? null : (
@@ -817,40 +832,28 @@ export function CheckoutPurchaseIntentSection({
                 </Text>
               )}
             </Stack>
-            <KeyValueList
-              density="compact"
-              variant="plain"
-              items={[
-                {
-                  key: priceLabel,
-                  value: selectedListingPrice,
-                },
-                {
-                  key: selectedListing
-                    ? t("discovery.routes.itemDetail.selected.seller")
-                    : t("discovery.routes.itemDetail.seller.options"),
-                  value: selectedListingSeller,
-                },
-                {
-                  key: t("discovery.routes.itemDetail.availability"),
-                  value: selectedListingAvailability,
-                },
-                {
-                  key: t("discovery.routes.itemDetail.product.form.and.condition"),
-                  value: (
-                    <ProductSelectionSummary
-                      selections={productSelectionDetails}
-                      summary={
-                        productSummary ??
-                        (productId
-                          ? itemTitle
-                          : t("discovery.routes.itemDetail.choose.options.to.add.this.product"))
-                      }
-                    />
-                  ),
-                },
-              ]}
-            />
+            <Stack gap={1}>
+              <Text size="sm" tone="secondary">
+                {priceLabel}
+              </Text>
+              <Text size="lg" weight="bold">
+                {selectedListingPrice}
+              </Text>
+              <Text size="sm" tone="secondary">
+                {selectedListingSeller} · {selectedListingAvailability}
+              </Text>
+              <Text size="sm" tone="secondary">
+                <ProductCriteriaText
+                  selections={productSelectionDetails}
+                  summary={productSummary}
+                  fallback={
+                    productId
+                      ? itemTitle
+                      : t("discovery.routes.itemDetail.choose.options.to.add.this.product")
+                  }
+                />
+              </Text>
+            </Stack>
             {productId && visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
                 {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}</Text>
@@ -1505,15 +1508,25 @@ type CommerceActionOption<TAction extends string> = Readonly<{
 
 function CommerceActionTrigger({
   option,
+  active = false,
 }: {
   option: CommerceActionOption<string>;
+  active?: boolean;
 }) {
   return (
     <Inline gap={3} align="start" wrap={false}>
-      <Icon name={option.icon} size="sm" tone={option.disabled ? "secondary" : "accent"} />
+      <Icon
+        name={option.icon}
+        size="sm"
+        tone={option.disabled ? "secondary" : active ? "accent" : "secondary"}
+      />
       <Stack gap={1}>
-        <Text weight="semibold">{option.label}</Text>
-        <Text size="sm" tone="secondary">{option.description}</Text>
+        <Text weight="semibold" tone={active ? "accent" : "primary"}>
+          {option.label}
+        </Text>
+        <Text size="sm" tone="secondary">
+          {option.description}
+        </Text>
       </Stack>
     </Inline>
   );
@@ -1530,6 +1543,8 @@ function ItemDetailActionCard<TAction extends string>({
   children,
   panelVariant = "card",
   glow = false,
+  flatAccordion = false,
+  showProductSummary = true,
   footer,
 }: {
   title: string;
@@ -1542,6 +1557,8 @@ function ItemDetailActionCard<TAction extends string>({
   children: ReactNode;
   panelVariant?: FormPanelVariant;
   glow?: boolean;
+  flatAccordion?: boolean;
+  showProductSummary?: boolean;
   footer?: ReactNode;
 }) {
   return (
@@ -1550,15 +1567,18 @@ function ItemDetailActionCard<TAction extends string>({
         <Stack gap={1}>
           <Text weight="semibold">{title}</Text>
           <Text size="sm" tone="secondary">{description}</Text>
-          <ProductSelectionSummary
-            selections={productSelectionDetails}
-            summary={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.select.product")}
-            summaryAsChip={productSelectionDetails.length === 0}
-          />
+          {showProductSummary ? (
+            <ProductSelectionSummary
+              selections={productSelectionDetails}
+              summary={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.select.product")}
+              summaryAsChip={productSelectionDetails.length === 0}
+            />
+          ) : null}
         </Stack>
         {footer}
         <Accordion
           type="single"
+          variant={flatAccordion ? "sectionList" : "surface"}
           collapsible={false}
           value={selectedAction}
           onValueChange={(value) => {
@@ -1568,7 +1588,12 @@ function ItemDetailActionCard<TAction extends string>({
           }}
           items={options.map((option) => ({
             value: option.value,
-            trigger: <CommerceActionTrigger option={option} />,
+            trigger: (
+              <CommerceActionTrigger
+                option={option}
+                active={selectedAction === option.value}
+              />
+            ),
             content: selectedAction === option.value ? children : null,
           }))}
         />
@@ -1637,7 +1662,7 @@ export function BuyActionCard({
     {
       value: "set-alert",
       label: t("discovery.routes.itemDetail.set.alert"),
-      description: t("discovery.routes.itemDetail.buy.alert.action.description"),
+      description: t("discovery.routes.itemDetail.set.alert.workflow.helper"),
       icon: "bell",
       disabled: !productId,
     },
@@ -1664,6 +1689,8 @@ export function BuyActionCard({
       onSelectedActionChange={setSelectedAction}
       panelVariant={panelVariant}
       glow={visibleListingCount > 0}
+      flatAccordion
+      showProductSummary={false}
     >
       {selectedContent}
     </ItemDetailActionCard>
