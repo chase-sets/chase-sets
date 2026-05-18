@@ -408,7 +408,7 @@ describe("item detail commerce panel", () => {
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
-  it("keeps buy actions in one progressive card", () => {
+  it("keeps buy actions in one accordion card", () => {
     render(
       <BuyActionCard
         formIdPrefix="buy-card"
@@ -423,20 +423,21 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByText("Buy options")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Make offer" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Set alert" })).toBeTruthy();
+    expect(screen.getByText("Choose action")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Buy now/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add to cart/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Make offer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Set alert/ })).toBeTruthy();
+    expect(screen.getByText("Buy now form")).toBeTruthy();
     expect(screen.queryByText("Make offer form")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Make offer" }));
+    fireEvent.click(screen.getByRole("button", { name: /Make offer/ }));
 
     expect(screen.getByText("Make offer form")).toBeTruthy();
     expect(screen.queryByText("Buy now form")).toBeNull();
   });
 
-  it("keeps sell actions in one progressive card with sell-list batching", () => {
+  it("keeps sell actions in one accordion card with sell-list batching", () => {
     render(
       <SellActionCard
         formIdPrefix="sell-card"
@@ -453,15 +454,15 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByText("Sell options")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Sell now" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add to sell list" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "List for sale" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Set alert" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sell now/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add to sell list/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /List for sale/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Set alert/ })).toBeTruthy();
     expect(
       screen.getByText("Same-buyer offer batching can improve the 5% shipping allowance."),
     ).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add to sell list" }));
+    fireEvent.click(screen.getByRole("button", { name: /Add to sell list/ }));
 
     expect(screen.getByText("Add to sell list form")).toBeTruthy();
     expect(screen.queryByText("Sell now form")).toBeNull();
@@ -618,11 +619,11 @@ describe("item detail commerce panel", () => {
       canonicalUrl: null,
     });
 
-    expect(await screen.findByText("Buy options")).toBeTruthy();
+    expect(await screen.findByText("Choose action")).toBeTruthy();
     expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Set alert" }));
+    fireEvent.click(screen.getByRole("button", { name: /Set alert/ }));
 
     expect(await screen.findByLabelText("Maximum listing price")).toBeTruthy();
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
@@ -636,7 +637,7 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Set alert" }));
+    fireEvent.click(screen.getByRole("button", { name: /Set alert/ }));
 
     expect(await screen.findByLabelText("Minimum offer price")).toBeTruthy();
     expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
@@ -1033,6 +1034,60 @@ describe("item detail commerce panel", () => {
     );
   });
 
+  it("uses accordion headers as purchase workflow selectors", () => {
+    render(
+      <BuyActionCard
+        formIdPrefix="buy-card"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        productSelectionDetails={[]}
+        visibleListingCount={1}
+        renderBuyNow={() => <div>Buy now workflow body</div>}
+        renderAddToCart={() => <div>Add to cart workflow body</div>}
+        renderOffer={() => <div>Make offer workflow body</div>}
+        renderAlert={() => <div>Set alert workflow body</div>}
+      />,
+    );
+
+    const buyNowHeader = screen.getByRole("button", {
+      name: /Checkout with the best matching live listing/i,
+    });
+    const makeOfferHeader = screen.getByRole("button", {
+      name: /Submit product-wide demand/i,
+    });
+
+    expect(buyNowHeader.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Buy now workflow body")).toBeTruthy();
+
+    fireEvent.click(makeOfferHeader);
+
+    expect(buyNowHeader.getAttribute("aria-expanded")).toBe("false");
+    expect(makeOfferHeader.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Make offer workflow body")).toBeTruthy();
+  });
+
+  it("renders buy now as a single final CTA when selected as a workflow", () => {
+    renderWithDataRouter(
+      <CheckoutPurchaseIntentSection
+        catalogItemId="cat_charizard"
+        productId="cat_charizard::"
+        selectedListing={baseListing}
+        itemTitle="Charizard"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        visibleListingCount={1}
+        actionMode="buy-now"
+      />,
+    );
+
+    expect(screen.getByText("Your selection")).toBeTruthy();
+    expect(screen.getByText("Checkout immediately with the best matching live listing.")).toBeTruthy();
+    expect(screen.getByText("Selected price")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Buy optimized" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add product to cart" })).toBeNull();
+  });
+
   it("keeps shipping out of the item buy panel", () => {
     renderWithDataRouter(
       <CheckoutPurchaseIntentSection
@@ -1049,7 +1104,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Buy locked to this seller" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
-    expect(screen.getByText("Selected seller signal")).toBeTruthy();
+    expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
     expect(screen.getByText("Selected seller")).toBeTruthy();
     expect(screen.getByText("Chase Sets")).toBeTruthy();
