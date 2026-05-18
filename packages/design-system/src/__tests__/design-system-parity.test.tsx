@@ -819,6 +819,37 @@ describe("design system", () => {
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
   });
 
+  it("renders section-list Accordion with a sheet-edge rail", () => {
+    const { container } = render(
+      <ChaseRoot>
+        <Accordion
+          data-testid="sheet-list-accordion"
+          type="single"
+          variant="sectionList"
+          bleed="sheet"
+          defaultValue="item1"
+          items={[
+            { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
+            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> }
+          ]}
+        />
+      </ChaseRoot>
+    );
+
+    const accordion = screen.getByTestId("sheet-list-accordion");
+    const activeTrigger = screen.getByRole("button", { name: /Section 1/ });
+    const activePanel = screen.getByText("Content 1").parentElement;
+
+    expect(accordion.className).toContain("-mx-5");
+    expect(accordion.className).toContain("first:-mt-5");
+    expect(accordion.className).toContain("first:rounded-t-tokenXl");
+    expect(accordion.className).toContain("last:-mb-5");
+    expect(accordion.className).toContain("last:rounded-b-tokenXl");
+    expect(activeTrigger.className).toContain("px-5");
+    expect(activePanel?.className).toContain("pl-12");
+    expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
+  });
+
   it("aligns section-list option icons with the trigger title", () => {
     const { container } = render(
       <ChaseRoot>

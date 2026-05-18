@@ -81,7 +81,7 @@ export interface AccordionProps
   items: AccordionItem[];
   type?: "single" | "multiple";
   variant?: "surface" | "sectionList";
-  bleed?: boolean | "card" | "compact";
+  bleed?: boolean | "card" | "compact" | "sheet";
   value?: string | string[];
   defaultValue?: string | string[];
   onValueChange?: (value: string | string[]) => void;
@@ -161,6 +161,9 @@ export function Accordion({
         isSectionList &&
           bleedMode === "compact" &&
           "-mx-3 first:-mt-3 first:rounded-t-tokenLg last:-mb-3 last:rounded-b-tokenLg",
+        isSectionList &&
+          bleedMode === "sheet" &&
+          "-mx-5 first:-mt-5 first:rounded-t-tokenXl last:-mb-5 last:rounded-b-tokenXl",
       )}
     >
       {items.map((item, index) => {
@@ -184,7 +187,11 @@ export function Accordion({
                 className={cx(
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
                   isSectionList && bleedMode === "compact" && "px-3 py-2.5",
-                  isSectionList && bleedMode !== "compact" && "px-4 py-2.5",
+                  isSectionList && bleedMode === "sheet" && "px-5 py-2.5",
+                  isSectionList &&
+                    bleedMode !== "compact" &&
+                    bleedMode !== "sheet" &&
+                    "px-4 py-2.5",
                   !isSectionList && "px-4 py-3",
                   isSectionList && isOpen && "text-accent hover:bg-transparent",
                 )}
@@ -214,7 +221,11 @@ export function Accordion({
                 className={cx(
                   "text-sm text-secondary",
                   isSectionList && bleedMode === "compact" && "px-3 pb-5 pl-10 pt-1",
-                  isSectionList && bleedMode !== "compact" && "px-4 pb-5 pl-11 pt-1",
+                  isSectionList && bleedMode === "sheet" && "px-5 pb-5 pl-12 pt-1",
+                  isSectionList &&
+                    bleedMode !== "compact" &&
+                    bleedMode !== "sheet" &&
+                    "px-4 pb-5 pl-11 pt-1",
                   !isSectionList && "px-4 pb-4",
                 )}
               >

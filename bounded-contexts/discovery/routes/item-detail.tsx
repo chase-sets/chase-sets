@@ -9,6 +9,7 @@ import { redirect, useActionData, useFetcher, useLoaderData } from "react-router
 import {
   Accordion,
   AccordionOptionTrigger,
+  type AccordionProps,
   Badge,
   Banner,
   BuyerProtectionBadge,
@@ -62,6 +63,8 @@ import {
   ensureAnonymousCartId,
 } from "@chase-sets/checkout/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
+
+type CommerceAccordionBleed = NonNullable<AccordionProps["bleed"]>;
 
 const MARKETPLACE_DESCRIPTION =
   t("discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with");
@@ -1511,6 +1514,7 @@ function ItemDetailActionCard<TAction extends string>({
   onSelectedActionChange,
   children,
   panelVariant = "card",
+  accordionBleed,
   glow = false,
   showProductSummary = true,
   footer,
@@ -1524,6 +1528,7 @@ function ItemDetailActionCard<TAction extends string>({
   onSelectedActionChange: (action: TAction | "") => void;
   children: ReactNode;
   panelVariant?: FormPanelVariant;
+  accordionBleed?: CommerceAccordionBleed;
   glow?: boolean;
   showProductSummary?: boolean;
   footer?: ReactNode;
@@ -1546,7 +1551,7 @@ function ItemDetailActionCard<TAction extends string>({
         <Accordion
           type="single"
           variant="sectionList"
-          bleed={panelVariant === "plain" ? "compact" : "card"}
+          bleed={accordionBleed ?? (panelVariant === "plain" ? "compact" : "card")}
           value={selectedAction}
           onValueChange={(value) => {
             if (typeof value === "string") {
@@ -1575,6 +1580,7 @@ function ItemDetailActionCard<TAction extends string>({
 export function BuyActionCard({
   formIdPrefix,
   panelVariant = "card",
+  accordionBleed,
   productId,
   productSummary,
   productSelectionDetails,
@@ -1586,6 +1592,7 @@ export function BuyActionCard({
 }: {
   formIdPrefix: string;
   panelVariant?: FormPanelVariant;
+  accordionBleed?: CommerceAccordionBleed;
   productId: string | null;
   productSummary: string | null;
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
@@ -1658,6 +1665,7 @@ export function BuyActionCard({
       selectedAction={selectedAction}
       onSelectedActionChange={setSelectedAction}
       panelVariant={panelVariant}
+      accordionBleed={accordionBleed}
       glow={visibleListingCount > 0}
       showProductSummary={false}
     >
@@ -1669,6 +1677,7 @@ export function BuyActionCard({
 export function SellActionCard({
   formIdPrefix,
   panelVariant = "card",
+  accordionBleed,
   productId,
   productSummary,
   productSelectionDetails,
@@ -1681,6 +1690,7 @@ export function SellActionCard({
 }: {
   formIdPrefix: string;
   panelVariant?: FormPanelVariant;
+  accordionBleed?: CommerceAccordionBleed;
   productId: string | null;
   productSummary: string | null;
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
@@ -1757,6 +1767,7 @@ export function SellActionCard({
       selectedAction={selectedAction}
       onSelectedActionChange={setSelectedAction}
       panelVariant={panelVariant}
+      accordionBleed={accordionBleed}
       glow={hasMatchingOffer}
       showProductSummary={false}
       footer={
@@ -2399,10 +2410,12 @@ function DiscoveryItemDetailRealtimeView({
               const renderBuyActionCard = (
                 formIdPrefix: string,
                 panelVariant: FormPanelVariant = "card",
+                accordionBleed?: CommerceAccordionBleed,
               ) => (
                 <BuyActionCard
                   formIdPrefix={formIdPrefix}
                   panelVariant={panelVariant}
+                  accordionBleed={accordionBleed}
                   productId={context.selectedProductId}
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
@@ -2424,10 +2437,12 @@ function DiscoveryItemDetailRealtimeView({
               const renderSellActionCard = (
                 formIdPrefix: string,
                 panelVariant: FormPanelVariant = "card",
+                accordionBleed?: CommerceAccordionBleed,
               ) => (
                 <SellActionCard
                   formIdPrefix={formIdPrefix}
                   panelVariant={panelVariant}
+                  accordionBleed={accordionBleed}
                   productId={context.selectedProductId}
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
@@ -2466,11 +2481,11 @@ function DiscoveryItemDetailRealtimeView({
                   sell: data.showSellerTab ? renderSellActionCard("sell-card", "plain") : undefined,
                   mobile: {
                     buy: {
-                      content: renderBuyActionCard("mobile-buy-card", "plain"),
+                      content: renderBuyActionCard("mobile-buy-card", "plain", "sheet"),
                       title: t("discovery.routes.itemDetail.buy"),
                     },
                     sell: {
-                      content: renderSellActionCard("mobile-sell-card", "plain"),
+                      content: renderSellActionCard("mobile-sell-card", "plain", "sheet"),
                       title: t("discovery.routes.itemDetail.sell.2"),
                     },
                   },
