@@ -157,13 +157,13 @@ export function Accordion({
           : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",
         isSectionList &&
           bleedMode === "card" &&
-          "-mx-4 first:-mt-4 first:rounded-t-tokenLg last:-mb-4 last:rounded-b-tokenLg",
+          "-mx-4 w-[calc(100%+2rem)] max-w-none self-stretch first:-mt-4 first:rounded-t-tokenLg last:-mb-4 last:rounded-b-tokenLg",
         isSectionList &&
           bleedMode === "compact" &&
-          "-mx-3 first:-mt-3 first:rounded-t-tokenLg last:-mb-3 last:rounded-b-tokenLg",
+          "-mx-3 w-[calc(100%+1.5rem)] max-w-none self-stretch first:-mt-3 first:rounded-t-tokenLg last:-mb-3 last:rounded-b-tokenLg",
         isSectionList &&
           bleedMode === "sheet" &&
-          "-mx-5 first:-mt-5 first:rounded-t-tokenXl last:-mb-5 last:rounded-b-tokenXl",
+          "-mx-5 w-[calc(100%+2.5rem)] max-w-none self-stretch first:-mt-5 first:rounded-t-tokenXl last:-mb-5 last:rounded-b-tokenXl",
       )}
     >
       {items.map((item, index) => {

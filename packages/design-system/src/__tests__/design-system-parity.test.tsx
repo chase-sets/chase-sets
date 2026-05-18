@@ -841,6 +841,8 @@ describe("design system", () => {
     const activePanel = screen.getByText("Content 1").parentElement;
 
     expect(accordion.className).toContain("-mx-5");
+    expect(accordion.className).toContain("w-[calc(100%+2.5rem)]");
+    expect(accordion.className).toContain("self-stretch");
     expect(accordion.className).toContain("first:-mt-5");
     expect(accordion.className).toContain("first:rounded-t-tokenXl");
     expect(accordion.className).toContain("last:-mb-5");
