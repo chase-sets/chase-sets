@@ -15,11 +15,11 @@ import {
   PageHeader,
   PageSection,
   PriceBreakdown,
-  ProductSelectionSummary,
+  ProductOptions,
   Stack,
   StickyCtaBar,
   Text,
-  productSelectionDetailsFromSummary,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchDetail } from "./contracts";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
@@ -67,16 +67,6 @@ function termsSourceLabel(terms: MarketplaceListingTermsPreview) {
   return terms.agreement_id
     ? "Seller terms"
     : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms");
-}
-
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
 }
 
 export function MarketplaceOfferMatchDetailPage({
@@ -162,7 +152,7 @@ export function MarketplaceOfferMatchDetailPage({
                 <Text weight="semibold">{offer.item_title}</Text>
                 {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
                 {offer.product_summary ? (
-                  <ProductSummaryChips summary={offer.product_summary} />
+                  <ProductOptions options={productOptionsFromSummary(offer.product_summary)} variant="chips" />
                 ) : null}
               </Stack>
               <KeyValueList

@@ -228,7 +228,8 @@ describe("item detail commerce panel", () => {
     fireEvent.click(sellTab);
 
     expect(screen.getByText("Sell on Chase Sets")).toBeTruthy();
-    expect(screen.getByText("Start with: Raw / Near Mint")).toBeTruthy();
+    expect(screen.getByText(/Start with:/)).toBeTruthy();
+    expect(screen.getByLabelText("Product options: Raw, Near Mint")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Register to sell" }).getAttribute("href"))
       .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
   });
@@ -848,6 +849,11 @@ describe("item detail commerce panel", () => {
       within(screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" }))
         .getByText("Raw · Near Mint"),
     ).toBeTruthy();
+    const selectedListingText = screen
+      .getByRole("article", { name: "Listing $399.99 from Chase Sets" })
+      .textContent ?? "";
+    expect(selectedListingText.indexOf("Raw · Near Mint"))
+      .toBeLessThan(selectedListingText.indexOf("2 available"));
     expect(screen.getByText("2 available · Raw · Near Mint"))
       .toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(

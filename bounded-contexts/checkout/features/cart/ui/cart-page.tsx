@@ -17,12 +17,13 @@ import {
   PageSection,
   PlatformCredibilityCue,
   PriceBreakdown,
-  ProductSelectionSummary,
+  ProductOptions,
   SecurePaymentIndicator,
   Stack,
   StickyCtaBar,
   Surface,
   Text,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { CheckoutCartLine } from "./contracts";
 
@@ -88,31 +89,6 @@ function mergeSellerOptions(
     Number(a.price_amount) - Number(b.price_amount) ||
     a.listing_id.localeCompare(b.listing_id),
   );
-}
-
-function productSelectionDetails(summary: string | null) {
-  const normalized = summary?.trim() ?? "";
-  if (!normalized) {
-    return [];
-  }
-
-  const parts = normalized
-    .split(/\s*\|\s*/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  const labeledParts = parts
-    .map((part) => {
-      const [label, ...valueParts] = part.split(":");
-      const value = valueParts.join(":").trim();
-
-      return label.trim() && value
-        ? { label: label.trim(), value }
-        : null;
-    })
-    .filter((part): part is { label: string; value: string } => part !== null);
-
-  return labeledParts.length === parts.length ? labeledParts : [];
 }
 
 function sellerOptionLabel(option: CheckoutCartLine["seller_options"][number]) {
@@ -206,11 +182,11 @@ export function CheckoutCartPage({
                         {line.item_language_code ? (
                           <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
                         ) : null}
-                        <ProductSelectionSummary
-                        selections={productSelectionDetails(line.product_summary)}
-                        summary={line.product_summary ?? t("checkout.features.cart.ui.cartPage.standard")}
-                        summaryAsChip
-                      />
+                        {line.product_summary ? (
+                          <ProductOptions options={productOptionsFromSummary(line.product_summary)} variant="chips" />
+                        ) : (
+                          <Badge tone="neutral">{t("checkout.features.cart.ui.cartPage.standard")}</Badge>
+                        )}
                       <Inline gap={2}>
                         <Badge tone={line.fulfillment_mode === "locked-listing" ? "success" : "accent"}>
                           {fulfillmentLabel(line)}

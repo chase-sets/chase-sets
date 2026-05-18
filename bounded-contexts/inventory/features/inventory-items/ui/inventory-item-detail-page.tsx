@@ -12,7 +12,9 @@ import {
   Text,
   TextInput,
   NumberInput,
+  ProductOptions,
   Textarea,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { InventoryItemDetail } from "./contracts";
 
@@ -68,7 +70,8 @@ export function InventoryItemDetailPage({
             {item.language_code ? <Badge tone="neutral">{formatLanguageCodeLabel(item.language_code)}</Badge> : null}
             {item.product_summary ? (
               <Text>
-                <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.product")}</strong> {item.product_summary}
+                <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.product")}</strong>{" "}
+                <ProductOptions options={productOptionsFromSummary(item.product_summary)} variant="compact" />
               </Text>
             ) : null}
             <Text>

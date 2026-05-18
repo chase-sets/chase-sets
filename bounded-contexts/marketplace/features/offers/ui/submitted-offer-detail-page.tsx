@@ -12,10 +12,10 @@ import {
   PageHeader,
   PageSection,
   PriceBreakdown,
-  ProductSelectionSummary,
+  ProductOptions,
   Stack,
   Text,
-  productSelectionDetailsFromSummary,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { SubmittedOfferDetail } from "./contracts";
 
@@ -30,16 +30,6 @@ function statusTone(status: string) {
 
 function formatMoney(amount: string) {
   return `$${amount}`;
-}
-
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
 }
 
 export function MarketplaceSubmittedOfferDetailPage({
@@ -82,7 +72,7 @@ export function MarketplaceSubmittedOfferDetailPage({
               <Stack gap={2}>
                 {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
                 {offer.product_summary ? (
-                  <ProductSummaryChips summary={offer.product_summary} />
+                  <ProductOptions options={productOptionsFromSummary(offer.product_summary)} variant="chips" />
                 ) : null}
                 <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
                 <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide")}</Text>

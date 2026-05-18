@@ -16,13 +16,13 @@ import {
   PageSection,
   PriceBreakdown,
   ProgressiveDisclosure,
-  ProductSelectionSummary,
+  ProductOptions,
   Stack,
   Text,
   TextInput,
   NumberInput,
   NativeSelect,
-  productSelectionDetailsFromSummary,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type {
   MarketplaceListingFeeLockReportEntry,
@@ -227,16 +227,6 @@ function normalizeSelections(schema: ProductSchema, current: Record<string, stri
   }
 
   return next;
-}
-
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
 }
 
 export function MarketplaceListingListPage({
@@ -683,7 +673,7 @@ export function MarketplaceListingListPage({
                     </Text>
                   ) : null}
                   {row.product_summary ? (
-                    <ProductSummaryChips summary={row.product_summary} />
+                    <ProductOptions options={productOptionsFromSummary(row.product_summary)} variant="chips" />
                   ) : null}
                 </Stack>
               ),
@@ -758,7 +748,7 @@ export function MarketplaceListingListPage({
                 <Stack gap={1}>
                   <Text weight="semibold">{row.item_title ?? row.inventory_item_id}</Text>
                   {row.product_summary ? (
-                    <ProductSummaryChips summary={row.product_summary} />
+                    <ProductOptions options={productOptionsFromSummary(row.product_summary)} variant="chips" />
                   ) : null}
                 </Stack>
               ),

@@ -20,7 +20,7 @@ import {
   NativeSelect,
   NumberInput,
   PanelSectionAccordion,
-  ProductSelectionSummary,
+  ProductOptions,
   SegmentedControl,
   OrderProtectionBadge,
   Stack,
@@ -29,6 +29,7 @@ import {
   TextInput,
   type IconName,
   type AccordionSectionEdge,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import {
   requireActorFromAuthApi,
@@ -104,6 +105,15 @@ type ProductSelectionDisplayDetail = Readonly<{
   label: ReactNode;
   value: ReactNode;
 }>;
+
+function productOptionsFromSelectionDetails(
+  selections: readonly ProductSelectionDisplayDetail[],
+) {
+  return selections.map((selection) => ({
+    dimensionLabel: selection.label,
+    optionLabel: selection.value,
+  }));
+}
 
 function ProductCriteriaText({
   selections,
@@ -606,10 +616,10 @@ function MarketplaceOfferRegistrationSection({
                 ? "Make offer unavailable"
                 : t("discovery.routes.itemDetail.make.offer.after.sign.in")}
             </Text>
-            <ProductSelectionSummary
-              selections={productSelectionDetails}
-              summary={productSummary ?? itemTitle}
-              summaryAsChip={productSelectionDetails.length === 0}
+            <ProductOptions
+              options={productOptionsFromSelectionDetails(productSelectionDetails)}
+              emptyLabel={productSummary ?? itemTitle}
+              variant={productSelectionDetails.length === 0 ? "chips" : "inline"}
             />
             <Text size="sm" tone="secondary">
               {productId && isAuthenticated
@@ -1198,9 +1208,9 @@ export function MarketplaceSellerRegistrationSection({
                       {
                         key: t("discovery.routes.itemDetail.product"),
                         value: (
-                          <ProductSelectionSummary
-                            selections={productSelectionDetails}
-                            summary={
+                          <ProductOptions
+                            options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                            emptyLabel={
                               productSummary ??
                               t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
                             }
@@ -1218,9 +1228,9 @@ export function MarketplaceSellerRegistrationSection({
                       {
                         key: t("discovery.routes.itemDetail.product"),
                         value: (
-                          <ProductSelectionSummary
-                            selections={productSelectionDetails}
-                            summary={
+                          <ProductOptions
+                            options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                            emptyLabel={
                               productSummary ??
                               t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
                             }
@@ -1270,9 +1280,9 @@ export function MarketplaceSellerRegistrationSection({
                 {
                   key: t("discovery.routes.itemDetail.product"),
                   value: (
-                    <ProductSelectionSummary
-                      selections={productSelectionDetails}
-                      summary={
+                    <ProductOptions
+                      options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                      emptyLabel={
                         productSummary ??
                         t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
                       }
@@ -1291,7 +1301,8 @@ export function MarketplaceSellerRegistrationSection({
             />
             {!selectedOffer && productSummary ? (
               <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.start.with")}{productSummary}
+                {t("discovery.routes.itemDetail.start.with")}
+                <ProductOptions options={productOptionsFromSummary(productSummary)} variant="compact" />
               </Text>
             ) : !selectedOffer ? (
               <Text size="sm" tone="secondary">
@@ -1433,9 +1444,9 @@ export function MarketplaceListingSubmissionSection({
               {listing ? t("discovery.routes.itemDetail.update.your.listing") : t("discovery.routes.itemDetail.list.at.price.2")}
             </Text>
             {productSelectionDetails.length > 0 ? (
-              <ProductSelectionSummary
-                selections={productSelectionDetails}
-                summary={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.list.matching.inventory")}
+              <ProductOptions
+                options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                emptyLabel={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.list.matching.inventory")}
               />
             ) : (
               <Text size="sm" tone="secondary">
@@ -1540,10 +1551,10 @@ function ItemDetailActionCard<TAction extends string>({
           <Text weight="semibold">{title}</Text>
           <Text size="sm" tone="secondary">{description}</Text>
           {showProductSummary ? (
-            <ProductSelectionSummary
-              selections={productSelectionDetails}
-              summary={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.select.product")}
-              summaryAsChip={productSelectionDetails.length === 0}
+            <ProductOptions
+              options={productOptionsFromSelectionDetails(productSelectionDetails)}
+              emptyLabel={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.select.product")}
+              variant={productSelectionDetails.length === 0 ? "chips" : "inline"}
             />
           ) : null}
         </Stack>

@@ -4,8 +4,10 @@ import {
   Card,
   NumberInput,
   PageSection,
+  ProductOptions,
   Stack,
   Text,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 
 export function CheckoutAddToCartSection({
@@ -37,9 +39,13 @@ export function CheckoutAddToCartSection({
             <input type="hidden" name="productSummary" value={productSummary ?? ""} />
             <Stack gap={1}>
               <Text weight="semibold">{itemTitle}</Text>
-              <Text size="sm" tone="secondary">
-                {productSummary ?? t("checkout.features.cart.ui.addToCartSection.standard.product")}
-              </Text>
+              {productSummary ? (
+                <ProductOptions options={productOptionsFromSummary(productSummary)} variant="compact" />
+              ) : (
+                <Text size="sm" tone="secondary">
+                  {t("checkout.features.cart.ui.addToCartSection.standard.product")}
+                </Text>
+              )}
               <Text size="sm" tone="secondary">
                 {t("checkout.features.cart.ui.addToCartSection.matching.visible.listings.right.now")}{visibleListingCount}
               </Text>

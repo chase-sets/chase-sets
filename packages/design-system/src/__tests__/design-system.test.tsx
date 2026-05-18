@@ -63,7 +63,7 @@ import {
   OrderIntentSummary,
   OfferCard,
   PaymentRecoveryPanel,
-  ProductSelectionSummary,
+  ProductOptions,
   ProductMediaModule,
   ResponsiveEditSheet,
   ReviewCard,
@@ -81,6 +81,9 @@ import {
   UiTextarea as Textarea,
   UiTooltip as Tooltip,
   TextInput,
+  formatProductImageAltText,
+  formatProductOptionsAriaLabel,
+  productOptionsFromSummary,
   formatMarketplaceNumber
 } from "../index";
 
@@ -363,32 +366,51 @@ describe("design-system", () => {
     expect(formatMarketplaceNumber("12", "Unavailable")).toBe("12");
   });
 
-  it("renders selected product details as structured marketplace chips", () => {
+  it("renders selected product details as option-only text with dimension-aware accessibility", () => {
     render(
-      <ProductSelectionSummary
-        selections={[
-          { label: "Form", value: "Raw" },
-          { label: "Condition", value: "Near Mint" },
+      <ProductOptions
+        options={[
+          { dimensionLabel: "Form", optionLabel: "Raw" },
+          { dimensionLabel: "Condition", optionLabel: "Near Mint" },
         ]}
-        summary="Raw / Near Mint"
       />
     );
 
-    expect(screen.getByText("Form: Raw")).toBeTruthy();
-    expect(screen.getByText("Condition: Near Mint")).toBeTruthy();
+    expect(screen.getByText("Raw")).toBeTruthy();
+    expect(screen.getByText("Near Mint")).toBeTruthy();
+    expect(screen.getByLabelText("Product options: Form Raw, Condition Near Mint")).toBeTruthy();
+    expect(screen.queryByText("Form: Raw")).toBeNull();
     expect(screen.queryByText("Raw / Near Mint")).toBeNull();
   });
 
-  it("can render an empty selected product summary as a chip", () => {
+  it("maps persisted product summaries into explicit option-only display values", () => {
+    const options = productOptionsFromSummary("Form: Graded | Grading Company: PSA | Grade: 10 Gem Mint");
+
+    expect(formatProductOptionsAriaLabel(options)).toBe(
+      "Product options: Form Graded, Grading Company PSA, Grade 10 Gem Mint",
+    );
+    expect(formatProductImageAltText({ title: "Pikachu", options })).toBe(
+      "Pikachu, Graded, PSA, 10 Gem Mint",
+    );
+
+    render(<ProductOptions options={options} />);
+
+    expect(screen.getByText("Graded")).toBeTruthy();
+    expect(screen.getByText("PSA")).toBeTruthy();
+    expect(screen.getByText("10 Gem Mint")).toBeTruthy();
+    expect(screen.queryByText("Form: Graded")).toBeNull();
+  });
+
+  it("can render empty product options with fallback copy", () => {
     render(
-      <ProductSelectionSummary
-        selections={[]}
-        summary="All listings"
-        summaryAsChip
+      <ProductOptions
+        options={[]}
+        emptyLabel="All listings"
+        variant="chips"
       />
     );
 
-    expect(screen.getByText("All listings").className).toContain("rounded");
+    expect(screen.getByText("All listings")).toBeTruthy();
   });
 
   it("renders responsive marketplace cart lines with media, product, quantity, and actions", () => {
@@ -400,10 +422,10 @@ describe("design-system", () => {
         subtitle="Base Set 4/102 Holo Rare"
         productLabel="Product"
         productSummary={
-          <ProductSelectionSummary
-            selections={[
-              { label: "Form", value: "Raw" },
-              { label: "Condition", value: "Near Mint" },
+          <ProductOptions
+            options={[
+              { dimensionLabel: "Form", optionLabel: "Raw" },
+              { dimensionLabel: "Condition", optionLabel: "Near Mint" },
             ]}
           />
         }

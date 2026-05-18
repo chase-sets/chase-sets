@@ -12,12 +12,12 @@ import {
   PageHeader,
   PageSection,
   PriceBreakdown,
-  ProductSelectionSummary,
+  ProductOptions,
   SecurePaymentIndicator,
   Stack,
   Surface,
   Text,
-  productSelectionDetailsFromSummary,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
@@ -60,16 +60,6 @@ function formatSourceType(sourceType: string) {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(" ");
   }
-}
-
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
 }
 
 export function OrderingOrderDetailPage({
@@ -226,7 +216,10 @@ export function OrderingOrderDetailPage({
                           {line.item_subtitle}
                         </Text>
                       ) : null}
-                      <ProductSummaryChips summary={line.product_summary ?? t("ordering.features.orders.ui.orderDetailPage.standard")} />
+                      <ProductOptions
+                        options={productOptionsFromSummary(line.product_summary ?? t("ordering.features.orders.ui.orderDetailPage.standard"))}
+                        variant="chips"
+                      />
                     </Stack>
                     <Stack gap={1}>
                       <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.quantity")}</Text>

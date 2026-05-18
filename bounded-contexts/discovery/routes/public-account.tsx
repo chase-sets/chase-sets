@@ -11,9 +11,12 @@ import {
   MarketplaceEmptyState,
   AccountCredibilityHeader,
   PageSection,
+  ProductOptions,
   RatingSummary,
   Stack,
   Text,
+  formatProductImageAltText,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
@@ -318,7 +321,11 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   key={listing.listing_id}
                   title={listing.item_title ?? t("discovery.routes.publicAccount.marketplace.listing")}
                   imageSrc={discoveryAssetUrls.defaultProductImage}
-                  imageAlt={listing.item_title ?? t("discovery.routes.publicAccount.pokemon.card.back")}
+                  imageAlt={formatProductImageAltText({
+                    title: listing.item_title,
+                    options: productOptionsFromSummary(listing.product_summary),
+                    fallback: t("discovery.routes.publicAccount.pokemon.card.back"),
+                  })}
                   price={formatMoney(listing.price_amount)}
                   priceDetail={availabilityDetail}
                   sellerName={account.account_display_name ?? t("discovery.routes.publicAccount.account")}
@@ -338,7 +345,16 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   reviewCount={accountReviewCount}
                   fulfillment={buyerFulfillmentLabel(listing.ship_from_code)}
                   availability={availabilityDetail}
-                  condition={listing.product_summary ?? t("discovery.routes.publicAccount.standard.product")}
+                  condition={
+                    listing.product_summary ? (
+                      <ProductOptions
+                        options={productOptionsFromSummary(listing.product_summary)}
+                        variant="compact"
+                      />
+                    ) : (
+                      t("discovery.routes.publicAccount.standard.product")
+                    )
+                  }
                   valueCue={t("discovery.routes.publicAccount.price.quantity.and.account.visible")}
                   protection={t("discovery.routes.publicAccount.buyer.protected")}
                   primaryAction={

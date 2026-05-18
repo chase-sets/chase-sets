@@ -21,8 +21,8 @@ import {
   Text,
   TextInput,
   NumberInput,
-  ProductSelectionSummary,
-  productSelectionDetailsFromSummary,
+  ProductOptions,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type {
   MarketplaceListingDetail,
@@ -124,16 +124,6 @@ function listingPurchaseLimitSummary(listing: MarketplaceListingDetail) {
     : t("marketplace.features.listings.ui.listingDetailPage.no.seller.purchase.limits");
 }
 
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
-}
-
 export function MarketplaceListingDetailPage({
   listing,
   feeHistory,
@@ -190,7 +180,7 @@ export function MarketplaceListingDetailPage({
                   <Text tone="secondary">{listing.item_subtitle}</Text>
                 ) : null}
                 {listing.product_summary ? (
-                  <ProductSummaryChips summary={listing.product_summary} />
+                  <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
                 ) : null}
                 <Text size="lg" weight="semibold">{formatMoney(listing.price_amount)}</Text>
                 <Text size="sm" tone="secondary">
