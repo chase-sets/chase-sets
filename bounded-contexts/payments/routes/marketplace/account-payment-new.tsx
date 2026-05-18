@@ -21,7 +21,7 @@ import {
 } from "@chase-sets/platform-runtime/http";
 import {
   Badge,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Button,
   CheckoutLayout,
   Divider,
@@ -284,7 +284,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
               totalLabel={t("payments.routes.marketplace.accountPaymentNew.total.due")}
               reassurance={<SecurePaymentIndicator label={t("payments.routes.marketplace.accountPaymentNew.secure.payment")} />}
             />
-            <BuyerProtectionModule
+            <OrderProtectionModule
               title={t("payments.routes.marketplace.accountPaymentNew.checkout.confidence")}
               items={[
                 {

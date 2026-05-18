@@ -153,7 +153,7 @@ export interface DiscoveryItemDetail {
   product_schema: ProductSchema | null;
   market_summary: DiscoveryMarketSummary | null;
   market_listings: DiscoveryMarketListing[];
-  buyer_offer_matches: DiscoveryOffer[];
+  offer_demand_matches: DiscoveryOffer[];
   updated_at: string;
 }
 

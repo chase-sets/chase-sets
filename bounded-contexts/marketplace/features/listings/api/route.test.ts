@@ -179,7 +179,7 @@ describe("marketplace listing routes", () => {
     });
   });
 
-  it("returns seller fee lock report rows", async () => {
+  it("returns marketplace sales fee lock report rows", async () => {
     const services = createServices();
     const app = buildApp({
       actor: {

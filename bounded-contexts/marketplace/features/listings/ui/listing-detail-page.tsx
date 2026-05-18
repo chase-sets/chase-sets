@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   Badge,
   Button,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Card,
   Inline,
   KeyValueList,
@@ -254,7 +254,7 @@ export function MarketplaceListingDetailPage({
             totalLabel={t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
           />
 
-          <BuyerProtectionModule
+          <OrderProtectionModule
             title={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
             items={[
               {

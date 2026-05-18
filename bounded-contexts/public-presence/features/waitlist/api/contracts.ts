@@ -1,12 +1,12 @@
 import type {
   WaitlistInterest,
-  WaitlistRole,
+  WaitlistCommerceIntent,
   WaitlistSource,
 } from "../domain/common";
 
 export type SubmitWaitlistSignupRequest = Readonly<{
   email: string;
-  role: WaitlistRole;
+  role: WaitlistCommerceIntent;
   interests: readonly WaitlistInterest[];
   emailConsent: boolean;
   source: WaitlistSource;
@@ -16,7 +16,7 @@ export type SubmitWaitlistSignupRequest = Readonly<{
 export type WaitlistSignupListItem = Readonly<{
   signup_id: string;
   email: string;
-  role: WaitlistRole;
+  role: WaitlistCommerceIntent;
   interests: readonly WaitlistInterest[];
   email_consent_accepted_at: string;
   page_path: string;

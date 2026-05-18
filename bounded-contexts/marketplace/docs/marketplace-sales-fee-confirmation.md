@@ -1,17 +1,17 @@
-# Seller Fee Confirmation
+# Marketplace Sales Fee Confirmation
 
-Marketplace listing fees are seller-confirmed, per-unit snapshots. A listing keeps the fee snapshot that was confirmed when it was first published. Partial sales, pause, resume, and sold-out availability changes do not recalculate fees.
+Marketplace listing fees are account-confirmed, per-unit sales fee snapshots. A listing keeps the fee snapshot that was confirmed when it was first published. Partial sales, pause, resume, and sold-out availability changes do not recalculate fees.
 
 ## Fee Ownership
 
-Commercial Terms owns seller-side marketplace sales fee policy only. Buyer marketplace checkout fees are owned by Payments and documented in [Marketplace Checkout Fee Policy](../../payments/docs/marketplace-checkout-fee-policy.md).
+Commercial Terms owns marketplace sales fee policy only. Marketplace checkout fees charged to the purchasing side are owned by Payments and documented in [Marketplace Checkout Fee Policy](../../payments/docs/marketplace-checkout-fee-policy.md).
 
 Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots and does not call Commercial Terms for normal listing purchases.
 
 ## Listing Flow
 
 1. Draft creation stores the latest non-binding marketplace sales fee quote.
-2. Publish requires the seller to submit the current `feeQuoteFingerprint`.
+2. Publish requires the listing account to submit the current `feeQuoteFingerprint`.
 3. If the fingerprint is missing or stale, Marketplace returns `409 fee_quote_stale` with `currentQuote`.
 4. First publish locks the quote as the listing's per-unit marketplace sales fee snapshot.
 5. Active price edits and quantity-cap edits require the same confirmed quote flow and replace the locked snapshot.
@@ -19,7 +19,7 @@ Marketplace owns seller confirmation. Ordering consumes Marketplace snapshots an
 
 ## Offer Flow
 
-Accepted offers use current Commercial Terms at offer acceptance time, but Marketplace still owns the seller confirmation. The accepted-offer event carries the confirmed per-unit marketplace sales fee and seller net for Ordering.
+Accepted offers use current Commercial Terms at offer acceptance time, but Marketplace still owns sales fee confirmation. The accepted-offer event carries the confirmed per-unit marketplace sales fee and seller net for Ordering.
 
 ## API Examples
 

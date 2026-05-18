@@ -22,7 +22,7 @@ describe("waitlist admin page", () => {
               signup_id: "wls_test",
               email: "todd@example.com",
               role: "both",
-              interests: ["low-seller-fees"],
+              interests: ["low-sales-fees"],
               email_consent_accepted_at: "2026-05-07T12:00:00.000Z",
               page_path: "/",
               referrer: null,

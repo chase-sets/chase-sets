@@ -31,7 +31,7 @@ Each MCP tool descriptor includes:
 
 ## Guardrails
 
-Read tools may be public only when they expose buyer-visible discovery data.
+Read tools may be public only when they expose public marketplace discovery data.
 Account-scoped reads require an authenticated actor and the matching view
 permission.
 
@@ -54,7 +54,7 @@ payout workflows, and Fulfillment for postage label workflows.
 | Auth | bounded context | Resolve actor context, inspect sessions, revoke sessions. |
 | Identity | bounded context | Inspect accounts and memberships, invite members, revoke API keys. |
 | Catalog | bounded context | Search catalog records, inspect blueprints, publish catalog items. |
-| Discovery | bounded context | Search buyer-visible market supply and item detail resources. |
+| Discovery | bounded context | Search public marketplace supply and item detail resources. |
 | Inventory | bounded context | Inspect stock, adjust inventory, archive storage locations. |
 | Marketplace | bounded context | Inspect listings/offers, publish listings, accept offers. |
 | Pricing | bounded context | Recommend prices and explain pricing signals. |

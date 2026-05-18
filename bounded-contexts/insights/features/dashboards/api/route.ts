@@ -9,8 +9,8 @@ export type DashboardRouteContract = Readonly<{
 export function createDashboardRouteContracts(): readonly DashboardRouteContract[] {
   return [
     {
-      path: insightsDashboardRoutes.sellerPerformanceKpi,
-      queryContractName: "getSellerPerformanceKpi",
+      path: insightsDashboardRoutes.salesPerformanceKpi,
+      queryContractName: "getSalesPerformanceKpi",
     },
     {
       path: insightsDashboardRoutes.fulfillmentLatencyKpi,
@@ -28,8 +28,8 @@ export async function resolveDashboardRoute(
   routePath: string,
   accountId: string,
 ) {
-  if (routePath === insightsDashboardRoutes.sellerPerformanceKpi) {
-    return queryService.getSellerPerformanceKpi({ accountId });
+  if (routePath === insightsDashboardRoutes.salesPerformanceKpi) {
+    return queryService.getSalesPerformanceKpi({ accountId });
   }
 
   if (routePath === insightsDashboardRoutes.fulfillmentLatencyKpi) {

@@ -11,7 +11,7 @@ import {
   ListingPurchasePanel,
   PageSection,
   ProductSelectionSummary,
-  SellerTrustCard,
+  AccountTrustCard,
   Stack,
   Text,
 } from "@chase-sets/design-system";
@@ -302,7 +302,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           </Stack>
 
           <Stack gap={4}>
-            <SellerTrustCard
+            <AccountTrustCard
               name={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
               verified={listing.status === "active" && sellerListingsAvailable}
               rating={sellerRating}

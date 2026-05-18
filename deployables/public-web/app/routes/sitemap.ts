@@ -8,8 +8,8 @@ const STABLE_PUBLIC_PATHS = [
   "/terms",
   "/privacy",
   "/refunds-and-returns",
-  "/buyer-protection",
-  "/seller-fees",
+  "/order-protection",
+  "/sales-fees",
 ];
 
 function escapeXml(value: string) {

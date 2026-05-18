@@ -95,7 +95,7 @@ Selling-account marketplace economics:
 - Ordering consumes confirmed Marketplace snapshots when creating orders.
 - Fees should be predictable, transparent, and sustainable for low-value-card selling accounts.
 
-See [Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md) for implementation rules.
+See [Marketplace Sales Fee Confirmation](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md) for implementation rules.
 
 Purchasing-account responsibilities:
 

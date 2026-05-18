@@ -7,7 +7,7 @@ export const meta: MetaFunction = () => [
   { name: "description", content: t("publicPresence.routes.sellerFees.meta.description") },
 ];
 
-export default function SellerFeesRoute() {
+export default function SalesFeesRoute() {
   return (
     <PublicInfoPage
       content={{

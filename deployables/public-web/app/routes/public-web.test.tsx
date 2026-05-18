@@ -21,8 +21,8 @@ describe("public web deployable", () => {
       "terms",
       "privacy",
       "refunds-and-returns",
-      "buyer-protection",
-      "seller-fees",
+      "order-protection",
+      "sales-fees",
     ]);
     expect(routePaths).not.toContain("search");
     expect(routePaths).not.toContain("items/:id");

@@ -59,7 +59,7 @@ function adminAppFor(
 const validSignup = {
   email: "todd@example.com",
   role: "both",
-  interests: ["low-seller-fees"],
+  interests: ["low-sales-fees"],
   emailConsent: true,
   source: {
     pagePath: "/",
@@ -92,7 +92,7 @@ describe("public presence API", () => {
       expect.objectContaining({
         email: "todd@example.com",
         role: "both",
-        interests: ["low-seller-fees"],
+        interests: ["low-sales-fees"],
         emailConsent: true,
       }),
       expect.objectContaining({
@@ -155,7 +155,7 @@ describe("public presence API", () => {
     await expect(forbidden).resolves.toHaveProperty("status", 403);
 
     const app = adminAppFor(services);
-    const list = await app.request("/waitlist?role=both&interest=low-seller-fees&search=todd");
+    const list = await app.request("/waitlist?role=both&interest=low-sales-fees&search=todd");
     const metrics = await app.request("/waitlist/metrics");
     const exportResponse = await app.request("/waitlist/export");
 
@@ -166,7 +166,7 @@ describe("public presence API", () => {
       limit: 100,
       offset: 0,
       role: "both",
-      interest: "low-seller-fees",
+      interest: "low-sales-fees",
       search: "todd",
     });
   });

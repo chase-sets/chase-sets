@@ -15,7 +15,7 @@
     "/catalog/search": {
       "post": {
         "tags": ["Catalog"],
-        "summary": "Search buyer-visible products.",
+        "summary": "Search public marketplace products.",
         "responses": { "200": { "$ref": "#/components/responses/UcpEnvelope" } }
       }
     },

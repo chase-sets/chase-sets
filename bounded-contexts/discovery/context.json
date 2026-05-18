@@ -322,7 +322,7 @@
         "discovery_market_accounts",
         "discovery_market_account_reviews",
         "discovery_market_listings",
-        "discovery_buyer_offer_matches"
+        "discovery_offer_demand_matches"
       ],
       "requiredDuringBootstrap": true
     },
@@ -560,7 +560,7 @@
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Discovery-owned Universal Commerce Protocol catalog adapters for buyer-visible search and lookup.",
+      "purpose": "Provide Discovery-owned Universal Commerce Protocol catalog adapters for public marketplace search and lookup.",
       "allowedWhen": "Allowed for standards-facing protocol adapters that map UCP catalog operations to Discovery-owned read models.",
       "expectedConsumers": [
         "platform-api UCP route composition"

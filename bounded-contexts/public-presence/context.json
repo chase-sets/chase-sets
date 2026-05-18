@@ -157,17 +157,17 @@
           "placement": "root"
         },
         {
-          "routeId": "buyer-protection",
-          "routePath": "buyer-protection",
-          "fileExport": "./routes/marketplace/buyer-protection",
+          "routeId": "order-protection",
+          "routePath": "order-protection",
+          "fileExport": "./routes/marketplace/order-protection",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"
         },
         {
-          "routeId": "seller-fees",
-          "routePath": "seller-fees",
-          "fileExport": "./routes/marketplace/seller-fees",
+          "routeId": "sales-fees",
+          "routePath": "sales-fees",
+          "fileExport": "./routes/marketplace/sales-fees",
           "routeType": "route",
           "sourceContext": "public-presence",
           "placement": "root"

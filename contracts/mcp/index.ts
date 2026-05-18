@@ -419,22 +419,22 @@ export const mcpServiceCatalog = [
     }),
     tools: [
       {
-        ...readTool("discovery", "search-market", "Search Market", "Search buyer-visible marketplace supply.", "accounts.view", objectSchema({ query: stringProperty("Buyer search term."), filters: arrayProperty("Optional marketplace filters.", stringProperty("Filter expression.")) }), "market-search", [
-          "Use to compare buyer-visible options without exposing seller-private data.",
+        ...readTool("discovery", "search-market", "Search Market", "Search public marketplace supply.", "accounts.view", objectSchema({ query: stringProperty("Marketplace search term."), filters: arrayProperty("Optional marketplace filters.", stringProperty("Filter expression.")) }), "market-search", [
+          "Use to compare public marketplace options without exposing account-private data.",
         ]),
         permissionBoundary: publicBoundary,
       },
       {
-        ...readTool("discovery", "get-item-detail", "Get Item Detail", "Read buyer-visible item detail, listing options, and offer affordances.", "accounts.view", objectSchema({ itemSlug: stringProperty("Buyer-visible item slug.") }, ["itemSlug"]), "item-detail", [
-          "Use to inspect what a buyer can see before adding to cart or submitting an offer.",
+        ...readTool("discovery", "get-item-detail", "Get Item Detail", "Read public marketplace item detail, listing options, and offer affordances.", "accounts.view", objectSchema({ itemSlug: stringProperty("Public marketplace item slug.") }, ["itemSlug"]), "item-detail", [
+          "Use to inspect public item detail before adding to cart or submitting an offer.",
         ]),
         permissionBoundary: publicBoundary,
       },
     ],
     resources: [
       {
-        ...resource("discovery", "chase-sets://discovery/items/{itemSlug}", "Item Detail", "Buyer-visible item detail composition.", "accounts.view", [
-          "Use for public product discovery and buyer comparison.",
+        ...resource("discovery", "chase-sets://discovery/items/{itemSlug}", "Item Detail", "Public marketplace item detail composition.", "accounts.view", [
+          "Use for public product discovery and marketplace comparison.",
         ]),
         permissionBoundary: publicBoundary,
       },

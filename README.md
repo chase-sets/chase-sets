@@ -10,7 +10,7 @@ Chase Sets prioritizes:
 
 - Competitive product pricing and transparent marketplace economics.
 - Efficient buying workflows for collectors, players, bulk buyers, and resellers.
-- Seller workflows that support bulk inventory, low-friction fulfillment, repricing, and better low-value card margins.
+- Sales workflows that support bulk inventory, low-friction fulfillment, repricing, and better low-value card margins.
 - A scalable catalog and listing model where downstream commerce references resolved products, not ambiguous labels.
 - Natural language that matches both internal implementation and external product surfaces.
 
@@ -55,7 +55,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `insights`: analytical projections, dashboards, metrics, and forecasting views.
 - `inventory`: account-held stock, storage, availability, and resolved product inventory.
 - `marketplace`: listings, offers, product-scoped supply, and product-scoped demand before orders exist.
-- `ordering`: buyer and seller commercial commitments after checkout creates orders.
+- `ordering`: commercial commitments between purchasing and selling accounts after checkout creates orders.
 - `payments`: external charge, authorization, capture, refund, and payment processor references.
 - `pricing`: product-scoped value estimation, repricing intelligence, and liquidity modeling.
 - `public-presence`: public product pages, prelaunch policy surfaces, waitlist behavior, and internal waitlist review.
@@ -65,7 +65,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 
 ## Deployables
 
-- `deployables/marketplace`: buyer and seller marketplace web app.
+- `deployables/marketplace`: marketplace web app for every account.
 - `deployables/admin-web`: internal admin web app.
 - `deployables/platform-api`: Hono-based platform API and HTTP composition root.
 - `deployables/platform-worker`: background worker composition root.
@@ -230,7 +230,7 @@ Key references:
 - [docs/PRODUCT.md](docs/PRODUCT.md): product vision, users, and marketplace economics.
 - [docs/GLOSSARY.md](docs/GLOSSARY.md): canonical marketplace language and account-role naming rules.
 - [docs/architecture/bounded-context-structure.md](docs/architecture/bounded-context-structure.md): bounded-context directory, export, and composition rules.
-- [bounded-contexts/marketplace/docs/seller-fee-confirmation.md](bounded-contexts/marketplace/docs/seller-fee-confirmation.md): seller fee snapshot rules.
+- [bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md](bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md): marketplace sales fee snapshot rules.
 - [bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md](bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md): buyer-side marketplace checkout fee policy.
 - [docs/runbooks/money-operations.md](docs/runbooks/money-operations.md): money operations guidance, launch checks, and Stripe smoke tests.
 - [docs/runbooks/observability.md](docs/runbooks/observability.md): local observability stack.

@@ -24,7 +24,7 @@ export type InsightsDashboardIntegrationEvent =
       latencyHours: number;
     }>;
 
-export type SellerPerformanceKpiReadModel = Readonly<{
+export type SalesPerformanceKpiReadModel = Readonly<{
   accountId: string;
   acceptedOfferCount: number;
   paidOrderCount: number;
@@ -45,7 +45,7 @@ export type ConversionOrderKpiReadModel = Readonly<{
 }>;
 
 export type DashboardKpiReadModels = Readonly<{
-  sellerPerformanceKpi: SellerPerformanceKpiReadModel;
+  salesPerformanceKpi: SalesPerformanceKpiReadModel;
   fulfillmentLatencyKpi: FulfillmentLatencyKpiReadModel;
   conversionOrderKpi: ConversionOrderKpiReadModel;
 }>;
@@ -102,7 +102,7 @@ export function projectDashboardKpis(
     listingViewCount === 0 ? 0 : Number((orderPlacedCount / listingViewCount).toFixed(4));
 
   return {
-    sellerPerformanceKpi: {
+    salesPerformanceKpi: {
       accountId,
       acceptedOfferCount,
       paidOrderCount,

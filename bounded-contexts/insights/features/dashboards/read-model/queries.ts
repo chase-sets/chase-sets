@@ -2,7 +2,7 @@ import type {
   ConversionOrderKpiReadModel,
   DashboardKpiReadModels,
   FulfillmentLatencyKpiReadModel,
-  SellerPerformanceKpiReadModel,
+  SalesPerformanceKpiReadModel,
 } from "./projection";
 
 export type DashboardQueryParams = Readonly<{
@@ -10,7 +10,7 @@ export type DashboardQueryParams = Readonly<{
 }>;
 
 export type InsightsDashboardQueryService = Readonly<{
-  getSellerPerformanceKpi(params: DashboardQueryParams): Promise<SellerPerformanceKpiReadModel>;
+  getSalesPerformanceKpi(params: DashboardQueryParams): Promise<SalesPerformanceKpiReadModel>;
   getFulfillmentLatencyKpi(params: DashboardQueryParams): Promise<FulfillmentLatencyKpiReadModel>;
   getConversionOrderKpi(params: DashboardQueryParams): Promise<ConversionOrderKpiReadModel>;
 }>;
@@ -19,9 +19,9 @@ export function createDashboardQueryService(
   readModelByAccountId: ReadonlyMap<string, DashboardKpiReadModels>,
 ): InsightsDashboardQueryService {
   return {
-    async getSellerPerformanceKpi(params) {
+    async getSalesPerformanceKpi(params) {
       return (
-        readModelByAccountId.get(params.accountId)?.sellerPerformanceKpi ?? {
+        readModelByAccountId.get(params.accountId)?.salesPerformanceKpi ?? {
           accountId: params.accountId,
           acceptedOfferCount: 0,
           paidOrderCount: 0,

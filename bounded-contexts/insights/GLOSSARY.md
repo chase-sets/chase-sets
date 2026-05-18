@@ -14,7 +14,7 @@ The canonical KPI terms and code contracts are:
 
 | KPI term | Query contract | Route contract |
 | --- | --- | --- |
-| Seller Performance KPI | `insights.dashboards.seller-performance-kpi.query` | `/dashboards/seller-performance-kpi` |
+| Sales Performance KPI | `insights.dashboards.sales-performance-kpi.query` | `/dashboards/sales-performance-kpi` |
 | Fulfillment Latency KPI | `insights.dashboards.fulfillment-latency-kpi.query` | `/dashboards/fulfillment-latency-kpi` |
 | Conversion Order KPI | `insights.dashboards.conversion-order-kpi.query` | `/dashboards/conversion-order-kpi` |
 

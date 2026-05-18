@@ -118,7 +118,7 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
        account.seller_display_name AS buyer_display_name,
        account.average_rating::text AS buyer_average_rating,
        account.review_count AS buyer_review_count
-     FROM discovery_buyer_offer_matches AS offer
+     FROM discovery_offer_demand_matches AS offer
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
      WHERE offer.offer_id = $1`,
@@ -710,7 +710,7 @@ export function buildDiscoveryMarketProjectionHandlers(
       };
 
       await db.query(
-        `INSERT INTO discovery_buyer_offer_matches (
+        `INSERT INTO discovery_offer_demand_matches (
           offer_id,
           buyer_account_id,
           catalog_catalog_item_id,
@@ -767,7 +767,7 @@ export function buildDiscoveryMarketProjectionHandlers(
       };
 
       await db.query(
-        `UPDATE discovery_buyer_offer_matches
+        `UPDATE discovery_offer_demand_matches
          SET status = 'accepted',
              accepted_seller_account_id = $2,
              accepted_at = $3,
@@ -925,7 +925,7 @@ async function emitAccountReputationPatches(
 
   const offers = await db.query<{ offer_id: string }>(
     `SELECT offer_id
-     FROM discovery_buyer_offer_matches
+     FROM discovery_offer_demand_matches
      WHERE buyer_account_id = $1
        AND status = 'submitted'`,
     [accountId],

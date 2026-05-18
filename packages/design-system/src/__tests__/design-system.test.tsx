@@ -10,7 +10,6 @@ import {
   AppliedFilterChips,
   BottomSheet,
   BottomNav,
-  BuyerProtectionBadge,
   BulkActionBar,
   CommerceSheet,
   UiBadge as Badge,
@@ -24,18 +23,19 @@ import {
   Inline,
   NavigationHeader,
   AccountReputationSummary,
+  OrderProtectionBadge,
   TopNav,
   ThemeToggle,
   ListingCard,
   TrustBadge,
-  VerifiedSellerBadge,
+  VerifiedAccountBadge,
   SecurePaymentCue,
-  SellerTrustCard,
+  AccountTrustCard,
   SideSheet,
   PriceBreakdown,
   ActivitySheet,
   AssistantSheet,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   ComparisonModule,
   FilterArea,
   FilterBar,
@@ -68,8 +68,8 @@ import {
   ResponsiveEditSheet,
   ReviewCard,
   SearchControlBar,
-  SellerProfileHeader,
-  SellerCredibilityHeader,
+  AccountProfileHeader,
+  AccountCredibilityHeader,
   UiSelect as Select,
   UiTable as Table,
   UiTableBody as TableBody,
@@ -209,22 +209,22 @@ describe("design-system", () => {
         priceDetail="Free insured shipping"
         condition="PSA 10"
         sellerName="Vaulted Collectibles"
-        sellerTrustLabel="Verified seller"
+        sellerTrustLabel="Verified account"
         sellerVerified
         sellerMeta="1,248 sales"
         fulfillment="Arrives May 9-11"
         availability="1 available"
         rating={4.9}
         reviewCount="824"
-        protection="Buyer protected"
+        protection="Order protected"
         primaryAction={<Button>Buy now</Button>}
       />
     );
 
     expect(markup).toContain("2020 Pikachu VMAX");
     expect(markup).toContain("$1,250.00");
-    expect(markup).toContain("Verified seller");
-    expect(markup).toContain("Buyer protected");
+    expect(markup).toContain("Verified account");
+    expect(markup).toContain("Order protected");
     expect(markup).toContain("Arrives May 9-11");
   });
 
@@ -257,7 +257,7 @@ describe("design-system", () => {
         title="2020 Pikachu VMAX"
         price="$1,250.00"
         sellerName="Vaulted Collectibles"
-        sellerTrustLabel="Verified seller"
+        sellerTrustLabel="Verified account"
         sellerVerified
         fulfillment="Arrives May 9-11"
         availability="1 available"
@@ -268,7 +268,7 @@ describe("design-system", () => {
     );
 
     expect(screen.getByText("Vaulted Collectibles")).toBeTruthy();
-    expect(screen.getByText("Verified seller")).toBeTruthy();
+    expect(screen.getByText("Verified account")).toBeTruthy();
     expect(screen.getAllByText("4.9")).toHaveLength(1);
     expect(screen.getAllByText("(824)")).toHaveLength(1);
   });
@@ -279,8 +279,8 @@ describe("design-system", () => {
         title="1999 Base Set Charizard"
         price="$428.00"
         sellerName="Mint Table Cards"
-        sellerTrustLabel="Verified seller"
-        sellerTrust={<VerifiedSellerBadge label="Verified seller" />}
+        sellerTrustLabel="Verified account"
+        sellerTrust={<VerifiedAccountBadge label="Verified account" />}
         fulfillment="Ships tomorrow"
         availability="1 available"
         primaryAction={<Button>Buy now</Button>}
@@ -292,39 +292,39 @@ describe("design-system", () => {
     expect(markup).not.toContain("View details");
   });
 
-  it("surfaces an explicit seller trust signal even when the seller is not verified", () => {
+  it("surfaces an explicit account trust signal even when the seller is not verified", () => {
     const markup = renderToString(
       <ListingCard
         title="Raw Squirtle lot"
         price="$18.00"
-        sellerName="New seller"
-        sellerTrustLabel="Seller details visible"
+        sellerName="New account"
+        sellerTrustLabel="Account details visible"
         fulfillment="Pickup or shipping confirmed before checkout"
         availability="4 available"
         primaryAction={<Button>View details</Button>}
       />
     );
 
-    expect(markup).toContain("Seller details visible");
+    expect(markup).toContain("Account details visible");
     expect(markup).toContain("Pickup or shipping confirmed before checkout");
   });
 
   it("renders named trust components with visible text and icons", () => {
     const markup = renderToString(
       <div>
-        <VerifiedSellerBadge label="Verified seller" />
-        <BuyerProtectionBadge label="Buyer protected" />
+        <VerifiedAccountBadge label="Verified account" />
+        <OrderProtectionBadge label="Order protected" />
         <SecurePaymentCue label="Secure payment" />
       </div>
     );
 
-    expect(markup).toContain("Verified seller");
-    expect(markup).toContain("Buyer protected");
+    expect(markup).toContain("Verified account");
+    expect(markup).toContain("Order protected");
     expect(markup).toContain("Secure payment");
     expect(markup).toContain("<svg");
   });
 
-  it("renders role-neutral account reputation summaries for buyer and seller accounts", () => {
+  it("renders role-neutral account reputation summaries for transaction accounts", () => {
     const markup = renderToString(
       <div>
         <div>
@@ -332,9 +332,9 @@ describe("design-system", () => {
             accountName="Chase Sets"
             averageRating={5}
             reviewCount={1}
-            ratingLabel="Seller account reputation"
+            ratingLabel="Account reputation"
           />
-          <Badge variant="success">Seller account</Badge>
+          <Badge variant="success">Account</Badge>
         </div>
         <OfferCard
           title="Offer pending"
@@ -344,15 +344,15 @@ describe("design-system", () => {
               accountName="Ash Ketchum"
               averageRating={4.8}
               reviewCount={12}
-              ratingLabel="Buyer account reputation"
+              ratingLabel="Ordering account reputation"
             />
           }
         />
       </div>
     );
 
-    expect(markup).toContain("Seller account");
-    expect(markup).toContain("Buyer account");
+    expect(markup).toContain("Account");
+    expect(markup).toContain("Ordering account");
     expect(markup).not.toContain("View feedback");
     expect(markup).toContain("Ash Ketchum");
   });
@@ -425,11 +425,11 @@ describe("design-system", () => {
         title="Ready to buy this listing"
         price="$42.00"
         seller="Card Vault"
-        trust="Verified seller"
+        trust="Verified account"
         availability="3 available"
         fulfillment="Ships from TX"
         policy="Return policy reviewed before payment"
-        protection="Buyer protected"
+        protection="Order protected"
         reassurance="Final totals appear before payment."
         primaryAction={<Button>Buy now</Button>}
         secondaryAction={<Button variant="secondary">Compare market</Button>}
@@ -451,7 +451,7 @@ describe("design-system", () => {
         seller="Verified Card Shop"
         availability="Available"
         fulfillment="Ships from IL"
-        protection="Buyer protection included"
+        protection="Order protection included"
         paymentStatus="Not charged yet"
       />
     );
@@ -602,11 +602,11 @@ describe("design-system", () => {
   it("renders seller credibility and payment recovery contracts", () => {
     const markup = renderToString(
       <>
-        <SellerCredibilityHeader
+        <AccountCredibilityHeader
           name="Card Vault"
-          verification="Verified seller"
+          verification="Verified account"
           facts={[{ label: "Response time", value: "Fast" }]}
-          policies={[{ label: "Buyer protection", value: "Included" }]}
+          policies={[{ label: "Order protection", value: "Included" }]}
           contactAction={<Button>Contact seller</Button>}
         />
         <PaymentRecoveryPanel
@@ -627,14 +627,14 @@ describe("design-system", () => {
   it("renders trust, seller, protection, and price modules", () => {
     const markup = renderToString(
       <div>
-        <TrustBadge>Verified seller</TrustBadge>
-        <SellerTrustCard
+        <TrustBadge>Verified account</TrustBadge>
+        <AccountTrustCard
           name="Vaulted Collectibles"
           verified
           completedSales="1,248"
           responseTime="< 2 hours"
         />
-        <BuyerProtectionModule
+        <OrderProtectionModule
           items={[{ title: "Secure payment", description: "Funds are held safely." }]}
         />
         <PriceBreakdown
@@ -645,7 +645,7 @@ describe("design-system", () => {
       </div>
     );
 
-    expect(markup).toContain("Verified seller");
+    expect(markup).toContain("Verified account");
     expect(markup).toContain("Vaulted Collectibles");
     expect(markup).toContain("Secure payment");
     expect(markup).toContain("$1,420.78");
@@ -661,10 +661,10 @@ describe("design-system", () => {
           clearLabel="Clear all"
           placeholder="Search listings"
           resultCount="12 results"
-          appliedFilters={["Verified sellers"]}
+          appliedFilters={["Verified accounts"]}
         />
         <AppliedFilterChips
-          filters={[{ id: "verified", label: "Verified sellers" }]}
+          filters={[{ id: "verified", label: "Verified accounts" }]}
           clearAction={<Button variant="ghost">Clear all</Button>}
         />
         <AppliedFilterChips
@@ -681,7 +681,7 @@ describe("design-system", () => {
 
     expect(screen.getByLabelText("Search marketplace")).toBeTruthy();
     expect(screen.getByLabelText("Remove Ships today")).toBeTruthy();
-    expect(screen.getAllByText("Verified sellers").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("Verified accounts").length).toBeGreaterThan(1);
     expect(screen.getByText("Save this search")).toBeTruthy();
   });
 
@@ -1091,7 +1091,7 @@ describe("design-system", () => {
     const markup = renderToString(
       <div>
         <ProductMediaModule title="Pikachu VMAX" media={[{ alt: "Front scan", label: "Front" }]} />
-        <SellerProfileHeader
+        <AccountProfileHeader
           name="Vaulted Collectibles"
           verified
           stats={[{ label: "Completed sales", value: "1,248" }]}

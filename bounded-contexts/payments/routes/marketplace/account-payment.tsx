@@ -32,7 +32,7 @@ import { appendClearedGuestCheckoutCookie } from "@chase-sets/checkout/server";
 import {
   Badge,
   Banner,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Button,
   CheckoutLayout,
   Divider,
@@ -832,7 +832,7 @@ export default function MarketplaceAccountPaymentRoute() {
               totalLabel={t("payments.routes.marketplace.accountPayment.payment.summary")}
               reassurance={<SecurePaymentIndicator label={t("payments.routes.marketplace.accountPayment.secure.payment")} />}
             />
-            <BuyerProtectionModule
+            <OrderProtectionModule
               title={t("payments.routes.marketplace.accountPayment.checkout.confidence")}
               items={[
                 {

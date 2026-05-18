@@ -13,7 +13,7 @@ function createEvent(type: string, data: Record<string, unknown>, recordedAt: st
 }
 
 describe("item detail offer matches", () => {
-  it("projects public review feedback comments for seller feedback pages", async () => {
+  it("projects public review feedback comments for account feedback pages", async () => {
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const db = {
       query: async (sql: string, params?: unknown[]) => {
@@ -91,7 +91,7 @@ describe("item detail offer matches", () => {
       ) as never,
     );
 
-    expect(calls[0].sql).toContain("INSERT INTO discovery_buyer_offer_matches");
+    expect(calls[0].sql).toContain("INSERT INTO discovery_offer_demand_matches");
     expect(calls[0].params).toEqual([
       "offer_charizard",
       "buyer_1",
@@ -159,7 +159,7 @@ describe("item detail offer matches", () => {
           return { rows: [] };
         }
 
-        if (sql.includes("FROM discovery_buyer_offer_matches")) {
+        if (sql.includes("FROM discovery_offer_demand_matches")) {
           offerQueries.push(sql);
           return {
             rows: [
@@ -191,7 +191,7 @@ describe("item detail offer matches", () => {
 
     const item = await getDiscoveryItemDetail(db, "cat_charizard");
 
-    expect(item?.buyer_offer_matches).toEqual([
+    expect(item?.offer_demand_matches).toEqual([
       expect.objectContaining({
         offer_id: "offer_charizard",
         buyer_display_name: "Ash Ketchum",

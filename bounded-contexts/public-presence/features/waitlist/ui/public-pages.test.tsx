@@ -27,7 +27,7 @@ describe("public presence homepage", () => {
     );
 
     expect(screen.getByRole("heading", {
-      name: "Finish sets. Sell cards faster.",
+      name: "Finish sets. List cards faster.",
     })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });
@@ -46,7 +46,7 @@ describe("public presence homepage", () => {
     expect(container.querySelector("form")?.getAttribute("action")).toBe("?index");
   });
 
-  it("sets beta notification expectations and seller fee lock terms", () => {
+  it("sets beta notification expectations and sales fee lock terms", () => {
     const { container } = render(
       <MemoryRouter>
         <PublicPresenceHomePage
@@ -59,9 +59,9 @@ describe("public presence homepage", () => {
 
     expect(container.querySelectorAll("form")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Join the waitlist" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Answer three quick questions so early invites reach the collectors and sellers most likely to use the beta.").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Know seller costs before listing" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Buyers earn 5% of item value toward shipping on every order").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Answer three quick questions so early invites reach the accounts most likely to use the beta.").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Know sales costs before listing" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Orders earn 5% of item value toward shipping").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Accepting offers earns a 5% shipping rebate").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$0.48 tracked shipping").length).toBeGreaterThan(0);
     expect(screen.getAllByText("-$4.17 applied").length).toBeGreaterThan(0);

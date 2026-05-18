@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Button,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Card,
   DetailConfidenceModule,
   LinkButton,
@@ -168,7 +168,7 @@ export function FulfillmentShipmentDetailPage({
             ]}
           />
 
-          <BuyerProtectionModule
+          <OrderProtectionModule
             title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}
             items={[
               {

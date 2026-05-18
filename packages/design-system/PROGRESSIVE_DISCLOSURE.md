@@ -10,7 +10,7 @@ Do not hide required marketplace decision facts behind disclosure:
 
 - item identity, condition, availability, and quantity
 - price, fees, shipping, tax, discounts, wallet credit, and final total
-- seller identity, seller trust, and buyer-protection cues
+- account identity, account trust, and order-protection cues
 - fulfillment expectations and pickup or delivery commitments
 - current status, blocking errors, and primary recovery actions
 - the primary action for the current decision area

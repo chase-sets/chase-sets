@@ -299,11 +299,11 @@ export interface NamedTrustBadgeProps {
   className?: string;
 }
 
-export function VerifiedSellerBadge({ label, className }: NamedTrustBadgeProps) {
+export function VerifiedAccountBadge({ label, className }: NamedTrustBadgeProps) {
   return <TrustBadge className={className}>{label}</TrustBadge>;
 }
 
-export function BuyerProtectionBadge({ label, className }: NamedTrustBadgeProps) {
+export function OrderProtectionBadge({ label, className }: NamedTrustBadgeProps) {
   return <TrustBadge tone="protection" className={className}>{label}</TrustBadge>;
 }
 
@@ -346,13 +346,13 @@ export function DisputeResolutionNotice({ title, description, action }: DisputeR
   );
 }
 
-export interface SellerQualityIndicatorProps {
+export interface AccountQualityIndicatorProps {
   label: ReactNode;
   value: ReactNode;
   detail?: ReactNode;
 }
 
-export function SellerQualityIndicator({ label, value, detail }: SellerQualityIndicatorProps) {
+export function AccountQualityIndicator({ label, value, detail }: AccountQualityIndicatorProps) {
   return (
     <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
       <div className="text-xs font-medium text-[var(--muted-foreground)]">{label}</div>
@@ -595,7 +595,7 @@ export function ListingCard({
   const isLinked = Boolean(href);
   const resolvedSellerTrust = sellerTrust ?? (
     sellerVerified
-      ? <VerifiedSellerBadge label={sellerTrustLabel} />
+      ? <VerifiedAccountBadge label={sellerTrustLabel} />
       : <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
   );
   const sellerHasAccountReputation =
@@ -624,7 +624,7 @@ export function ListingCard({
       ) : null}
     </div>
   );
-  const resolvedProtection = protection ? <BuyerProtectionBadge label={protection} /> : null;
+  const resolvedProtection = protection ? <OrderProtectionBadge label={protection} /> : null;
   const canUseFallbackAsImage = Boolean(imageFallbackSrc) && imageFallbackMode === "permanent";
   const resolvedImageSrc = imageSrc && !imageFailed
     ? imageSrc
@@ -939,7 +939,7 @@ export function ComparisonCard({ title, price, signals, action, selected = false
   );
 }
 
-export interface SellerTrustCardProps {
+export interface AccountTrustCardProps {
   name: string;
   verified?: boolean;
   rating?: number;
@@ -952,7 +952,7 @@ export interface SellerTrustCardProps {
   actions?: ReactNode;
 }
 
-export function SellerTrustCard({
+export function AccountTrustCard({
   name,
   verified = false,
   rating,
@@ -963,12 +963,12 @@ export function SellerTrustCard({
   joined,
   policies = [],
   actions
-}: SellerTrustCardProps) {
+}: AccountTrustCardProps) {
   const facts = [
     completedSales ? { icon: PackageCheck, label: "Completed", value: completedSales } : null,
     responseTime ? { icon: Clock, label: "Response", value: responseTime } : null,
     shipsFrom ? { icon: MapPin, label: "Ships from", value: shipsFrom } : null,
-    joined ? { icon: BadgeCheck, label: "Seller since", value: joined } : null
+    joined ? { icon: BadgeCheck, label: "Account since", value: joined } : null
   ].filter(Boolean) as Array<{ icon: typeof PackageCheck; label: string; value: ReactNode }>;
   const reputationRating = normalizeRatingValue(rating);
   const hasReputation = reputationRating !== null && hasReviewCount(reviewCount);
@@ -980,7 +980,7 @@ export function SellerTrustCard({
           <div className="grid min-w-0 gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <CardTitle>{name}</CardTitle>
-              {verified ? <TrustBadge>Verified seller</TrustBadge> : <Badge variant="outline">New seller</Badge>}
+              {verified ? <TrustBadge>Verified account</TrustBadge> : <Badge variant="outline">New account</Badge>}
             </div>
             {hasReputation ? (
               <RatingSummary value={reputationRating} count={reviewCount} compact />
@@ -1421,12 +1421,12 @@ export function OrderIntentSummary({
   );
 }
 
-export interface BuyerProtectionModuleProps {
+export interface OrderProtectionModuleProps {
   title?: ReactNode;
   items: Array<{ title: ReactNode; description: ReactNode; icon?: ReactNode }>;
 }
 
-export function BuyerProtectionModule({ title, items }: BuyerProtectionModuleProps) {
+export function OrderProtectionModule({ title, items }: OrderProtectionModuleProps) {
   return (
     <Card className="border-[color-mix(in_srgb,var(--trust)_28%,var(--border))] bg-[var(--trust-soft)]">
       {title ? (
@@ -1899,7 +1899,7 @@ export function ComparisonModule({ title, description, signalLabel, columns, row
   );
 }
 
-export interface SellerProfileHeaderProps {
+export interface AccountProfileHeaderProps {
   name: string;
   verified?: boolean;
   tagline?: ReactNode;
@@ -1907,13 +1907,13 @@ export interface SellerProfileHeaderProps {
   actions?: ReactNode;
 }
 
-export function SellerProfileHeader({ name, verified = false, tagline, stats = [], actions }: SellerProfileHeaderProps) {
+export function AccountProfileHeader({ name, verified = false, tagline, stats = [], actions }: AccountProfileHeaderProps) {
   return (
     <section className="ds-panel grid gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] p-4 md:grid-cols-[1fr_auto] md:items-end">
       <div className="grid gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="m-0 text-2xl font-bold leading-8 text-[var(--foreground)]">{name}</h2>
-          {verified ? <TrustBadge>Verified seller</TrustBadge> : <Badge variant="outline">Building trust</Badge>}
+          {verified ? <TrustBadge>Verified account</TrustBadge> : <Badge variant="outline">Building trust</Badge>}
         </div>
         {tagline ? <p className="m-0 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{tagline}</p> : null}
         {stats.length ? (
@@ -1932,7 +1932,7 @@ export function SellerProfileHeader({ name, verified = false, tagline, stats = [
   );
 }
 
-export interface SellerCredibilityHeaderProps {
+export interface AccountCredibilityHeaderProps {
   name: ReactNode;
   verification: ReactNode;
   summary?: ReactNode;
@@ -1942,7 +1942,7 @@ export interface SellerCredibilityHeaderProps {
   reportAction?: ReactNode;
 }
 
-export function SellerCredibilityHeader({
+export function AccountCredibilityHeader({
   name,
   verification,
   summary,
@@ -1950,7 +1950,7 @@ export function SellerCredibilityHeader({
   policies = [],
   contactAction,
   reportAction
-}: SellerCredibilityHeaderProps) {
+}: AccountCredibilityHeaderProps) {
   return (
     <section className="ds-panel grid gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] p-4">
       <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-start">
@@ -2136,7 +2136,7 @@ export function CheckoutSummarySkeleton() {
   );
 }
 
-export function SellerProfileSkeleton() {
+export function AccountProfileSkeleton() {
   return (
     <div className="grid gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-4" aria-hidden="true">
       <Skeleton className="h-8 w-56" />
@@ -2325,7 +2325,7 @@ export const marketplacePageTemplates = [
   "Cart or order summary page",
   "Checkout page",
   "Confirmation page",
-  "Buyer dashboard",
+  "Account dashboard",
   "Messages/negotiation page",
   "Empty search results page",
   "Error state page"

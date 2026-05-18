@@ -110,7 +110,7 @@
     "/api/marketplace/account/checkout/recovery": { "get": { "tags": ["Payments and Settlement"], "summary": "Get checkout recovery options.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/payments/{id}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/payments/{id}/timeline": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment money timeline.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/marketplace/account/payments/{paymentId}/refunds": { "post": { "tags": ["Payments and Settlement"], "summary": "Issue a buyer-visible refund.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/payments/{paymentId}/refunds": { "post": { "tags": ["Payments and Settlement"], "summary": "Issue an order-visible refund.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/provider-events/{providerEventId}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment provider event.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/provider-idempotency": { "get": { "tags": ["Payments and Settlement"], "summary": "List payment provider idempotency keys.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/reconciliation/runs": { "get": { "tags": ["Payments and Settlement"], "summary": "List payment reconciliation runs.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
@@ -199,7 +199,7 @@
               "message": { "type": "string" },
               "currentQuote": {
                 "type": "object",
-                "description": "Current seller fee quote returned with fee_quote_stale responses."
+                "description": "Current marketplace sales fee quote returned with fee_quote_stale responses."
               },
               "details": {
                 "type": "array",
@@ -326,7 +326,7 @@
       "List": { "description": "List response.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListResponse" } } } },
       "ListingTermsPreview": { "description": "Seller-confirmed fee preview.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MarketplaceListingTermsPreview" } } } },
       "ListingFeeHistory": { "description": "Listing fee lock history.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeHistoryResponse" } } } },
-      "ListingFeeLockReport": { "description": "Seller fee lock report.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeLockReportResponse" } } } },
+      "ListingFeeLockReport": { "description": "Marketplace sales fee lock report.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeLockReportResponse" } } } },
       "Command": { "description": "Command accepted.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommandResponse" } } } },
       "AuthenticationRequired": { "description": "Authentication required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Forbidden.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
