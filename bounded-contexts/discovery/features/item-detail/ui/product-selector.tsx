@@ -78,6 +78,7 @@ export function ProductSelector({
                   };
                 })}
                 value={selected}
+                fullWidth={items.length <= 3}
                 onValueChange={onValueChange}
               />
             </Stack>
