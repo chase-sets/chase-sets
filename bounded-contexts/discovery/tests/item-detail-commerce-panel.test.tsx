@@ -457,6 +457,32 @@ describe("item detail commerce panel", () => {
     expect(container.querySelector('[class*="before:absolute"]')).toBeNull();
   });
 
+  it("lets mobile buy action accordions bleed to the sheet edge", () => {
+    const { container } = render(
+      <BuyActionCard
+        formIdPrefix="mobile-buy-card"
+        panelVariant="plain"
+        accordionBleed="sheet"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        productSelectionDetails={[]}
+        visibleListingCount={1}
+        renderBuyNow={() => <div>Buy now form</div>}
+        renderAddToCart={() => <div>Add to cart form</div>}
+        renderOffer={() => <div>Make offer form</div>}
+        renderAlert={() => <div>Set alert form</div>}
+      />,
+    );
+
+    const accordion = container.querySelector('[class*="-mx-5"]');
+    const activeTrigger = screen.getByRole("button", { name: /Buy now/ });
+
+    expect(accordion).toBeTruthy();
+    expect(accordion?.className).toContain("rounded-b-tokenXl");
+    expect(activeTrigger.className).toContain("px-5");
+    expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
+  });
+
   it("keeps sell actions in the same compact section-list pattern as buy actions", () => {
     const { container } = render(
       <SellActionCard
