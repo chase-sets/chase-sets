@@ -478,6 +478,8 @@ describe("item detail commerce panel", () => {
     const activeTrigger = screen.getByRole("button", { name: /Buy now/ });
 
     expect(accordion).toBeTruthy();
+    expect(accordion?.className).toContain("w-[calc(100%+2.5rem)]");
+    expect(accordion?.className).toContain("self-stretch");
     expect(accordion?.className).toContain("rounded-b-tokenXl");
     expect(activeTrigger.className).toContain("px-5");
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
