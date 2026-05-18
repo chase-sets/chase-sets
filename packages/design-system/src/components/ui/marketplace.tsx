@@ -483,7 +483,7 @@ export function AccountReputationSummary({
   return (
     <span
       className={cn(
-        "inline-flex min-w-0 max-w-full items-baseline gap-1.5 text-left",
+        "inline-flex min-w-0 max-w-full flex-col items-start gap-0.5 text-left",
         variant === "framed"
           ? "rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 shadow-[var(--shadow-sm)]"
           : null,
