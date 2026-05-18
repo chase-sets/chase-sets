@@ -1,6 +1,8 @@
 # Headless Marketplace API
 
-The headless marketplace API is the REST surface used by `marketplace-web` and external clients. Most buyer, seller, order, payment, fulfillment, and review flows are mounted at `/api/marketplace`. Identity, inventory, notifications, and settlement keep their canonical context-owned base paths (`/api/identity`, `/api/inventory`, `/api/notifications`, and `/api/settlement`) because those contexts already own the behavior and route clients.
+The headless marketplace API is the REST surface used by `marketplace-web` and external clients. Most account commerce, order, payment, fulfillment, and review flows are mounted at `/api/marketplace`. Identity, inventory, notifications, and settlement keep their canonical context-owned base paths (`/api/identity`, `/api/inventory`, `/api/notifications`, and `/api/settlement`) because those contexts already own the behavior and route clients.
+
+Every account can participate on both sides of the marketplace. API names should use account language for identity, setup, inventory, listings, wallet, and settings; buyer/seller language is reserved for transaction roles and role-specific projections such as purchases, sales, buyer-paid refunds, seller net, and seller-confirmed fee snapshots. Selling enablement such as terms acceptance, payout readiness, tax setup, or provider onboarding is an account capability, not a separate seller account identity.
 
 The canonical machine-readable contract is [`marketplace.openapi.json`](./marketplace.openapi.json). Keep endpoint coverage in the OpenAPI contract and generated route manifests rather than maintaining a separate manual parity matrix.
 
@@ -63,9 +65,9 @@ Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a
 - Catalog browsing and public reputation reads are anonymous unless a route needs account-specific state.
 - Cart, checkout, purchases, and payment checkout recovery use `orders.view` or `orders.manage`.
 - Listings use `listings.view` or `listings.manage`.
-- Offers use `offers.view` or `offers.manage`; seller match acceptance also requires listing access.
+- Offers use `offers.view` or `offers.manage`; offer match acceptance also requires listing access.
 - Inventory intake and stock actions use `inventory.view` or `inventory.manage`.
-- Seller shipment operations use `orders.view` plus seller/listing permissions where enforced by the owning route.
+- Shipment operations for sales use `orders.view` plus listing permissions where enforced by the owning route.
 - Payout and wallet workflows use `payouts.view`, `payouts.setup`, `payouts.request`, `payouts.reconcile`, or `payouts.manage`.
 - Notification center feed and settings workflows use `accounts.view`.
 - Account team, invitations, and API keys use the identity permissions projected into Auth, including `memberships.*` and `security.manage`.
@@ -88,7 +90,7 @@ Cart to checkout:
 5. `POST /api/marketplace/account/checkout-sessions/{sessionId}/confirm`
 6. `GET /api/marketplace/account/payments/{id}`
 
-Seller listing:
+Listing publication:
 
 1. `POST /api/inventory/items/listing-stock/ensure`
 2. `GET /api/marketplace/account/listing-availability`
@@ -100,9 +102,9 @@ Seller listing:
 8. `GET /api/marketplace/account/listings/fee-lock-report`
 9. `GET /api/marketplace/account/listings/{id}/fee-history`
 
-Advanced seller inventory workflows may still call `GET /api/inventory/items` and `GET /api/marketplace/account/listing-inventory` before binding a Listing to a specific existing Inventory Item.
+Advanced inventory workflows may still call `GET /api/inventory/items` and `GET /api/marketplace/account/listing-inventory` before binding a Listing to a specific existing Inventory Item.
 
-Seller shipment printing:
+Sale shipment printing:
 
 1. `GET /api/marketplace/account/sales/shipments`
 2. `GET /api/marketplace/account/sales/shipments/packing-slips?shipmentIds=shp_1,shp_2`
@@ -169,9 +171,9 @@ The full policy and confirmation flow lives in [Marketplace Seller Fee Confirmat
 
 ## Seller Listing Availability
 
-Seller Listing Availability is an account-level Marketplace overlay for pausing new seller commitments without changing individual Listing Status values. `GET /api/marketplace/account/listing-availability` returns the current overlay. `POST /api/marketplace/account/listing-availability/disable` accepts optional `reasonCategory` (`travel`, `audit`, `operations`, or `other`) and optional `availableAgainOn` (`YYYY-MM-DD`) for seller-facing context. `POST /api/marketplace/account/listing-availability/enable` restores the account's listings to public availability.
+Seller Listing Availability is the legacy name for an account-level Marketplace overlay that pauses new selling commitments without changing individual Listing Status values. `GET /api/marketplace/account/listing-availability` returns the current overlay. `POST /api/marketplace/account/listing-availability/disable` accepts optional `reasonCategory` (`travel`, `audit`, `operations`, or `other`) and optional `availableAgainOn` (`YYYY-MM-DD`) for account-facing context. `POST /api/marketplace/account/listing-availability/enable` restores the account's listings to public availability.
 
-When the overlay is off, Marketplace blocks checkout confirmation and offer acceptance for the seller's listings. Discovery hides affected listings from browse, search, item detail market supply, account pages, and sitemap surfaces, while direct listing URLs remain reachable with no buy action. The durable behavior model lives in [Marketplace Seller Listing Availability](../../bounded-contexts/marketplace/docs/seller-listing-availability.md).
+When the overlay is off, Marketplace blocks checkout confirmation and offer acceptance for the account's listings. Discovery hides affected listings from browse, search, item detail market supply, account pages, and sitemap surfaces, while direct listing URLs remain reachable with no buy action. The durable behavior model lives in [Marketplace Seller Listing Availability](../../bounded-contexts/marketplace/docs/seller-listing-availability.md).
 
 ## Marketplace Checkout Fee Confirmation
 
@@ -181,7 +183,7 @@ Payment creation must submit the confirmed `marketplaceCheckoutFeeQuoteFingerpri
 
 `GET /api/marketplace/account/marketplace-checkout-fee-policy` exposes the active policy version, method adjustments, enabled jurisdictions, and quote audit fields for payment operations. The current fee policy lives in [Payments Marketplace Checkout Fee Policy](../../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md).
 
-Seller payout setup:
+Payout setup:
 
 1. `GET /api/settlement/account-status`
 2. `POST /api/settlement/payout-setup/onboarding-session`

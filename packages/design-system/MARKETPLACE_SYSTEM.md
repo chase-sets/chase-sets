@@ -8,6 +8,8 @@ Trust -> Clarity -> Speed -> Comparison -> Aesthetic polish -> Delight
 
 When tradeoffs appear, choose the option that helps buyers make confident purchasing decisions faster.
 
+Design for accounts that can both buy and sell. Buyer and seller labels are contextual transaction roles; account identity, navigation, setup, reputation, profile, inventory, wallet, and onboarding patterns should use account language.
+
 ## Design Principles
 
 1. Trust before persuasion.
@@ -32,14 +34,14 @@ Use `packages/design-system/src/` as the canonical component inventory. Marketpl
 
 - Listing comparison, filtering, sorting, and saved-search recovery.
 - Product detail confidence, media, specifications, pricing context, and policy disclosure.
-- Seller trust, reviews, account reputation, and buyer-protection cues.
+- Account trust, reviews, account reputation, and buyer-protection cues.
 - Checkout, payment confidence, cost breakdowns, editable order sections, and post-purchase support.
 - Negotiation, offer management, status timelines, empty states, loading states, and recovery paths.
 - Marketplace dashboards and route templates that compose the same primitives without local overrides.
 
 ## Listing Card Contract
 
-`ListingCard` is the primary marketplace comparison primitive. Every card must show price, seller name, seller trust, availability, fulfillment, and one primary action. Save, compare, and watchlist are secondary affordances and should never compete visually with the primary action.
+`ListingCard` is the primary marketplace comparison primitive. Every card must show price, listing account name, account trust, availability, fulfillment, and one primary action. Save, compare, and watchlist are secondary affordances and should never compete visually with the primary action.
 
 Cards may adapt to products, services, rentals, bookings, digital goods, quotes, and local listings, but the signal hierarchy stays stable: item identity, price, account trust, fulfillment, availability, risk reduction, then action.
 
@@ -111,7 +113,7 @@ Use progressive disclosure for advanced marketplace depth, not for required acco
 Good disclosure candidates:
 
 - optional search depth, saved-search recovery, and dense comparison controls
-- seller listing limits, offer matching thresholds, fulfillment exceptions, and publishing recovery detail
+- listing limits, offer matching thresholds, fulfillment exceptions, and publishing recovery detail
 - product specification depth, grading population context, certification extras, and market-history detail
 - checkout support diagnostics and provider-safe payment explanations after the final total is visible
 - payout verification reason detail, ledger context, and provider-safe settlement explanations
@@ -120,8 +122,8 @@ Do not disclose the current price, final total, account trust, availability, ful
 
 Recommended first flows:
 
-1. Marketplace seller listing creation and listing management.
-   Keep inventory identity, price, quantity cap, fee preview, status, and publish controls visible. Move optional seller limits, fee-lock history, stale quote recovery detail, grading population depth, and certification extras into disclosure.
+1. Marketplace listing creation and listing management.
+   Keep inventory identity, price, quantity cap, fee preview, status, and publish controls visible. Move optional listing limits, fee-lock history, stale quote recovery detail, grading population depth, and certification extras into disclosure.
 2. Discovery search and item detail.
    Keep primary filters, ranked dynamic facets, applied filter chips, result count, item identity, listing/offer comparison, and commerce actions visible. Move optional specification depth, policy explanation, market-history detail, and saved-search recovery into disclosure.
 3. Checkout session and payment recovery.
@@ -145,7 +147,7 @@ Recommended first flows:
 1. Adopt marketplace tokens and `ThemeToggle` across marketplace-facing routes.
 2. Replace listing grids with `ListingCard`, `SearchFilterPanel`, `FilterRail`, and mobile-card table behavior.
 3. Replace listing detail pages with media, price, account attribution, protection, policy, review, specification, comparison, and sticky CTA modules.
-4. Replace public seller-profile language with account profiles that use `AccountReputationSummary`, account listings, `ReviewCard`, and trust-building empty states.
+4. Replace public seller-profile language with account profiles that use `AccountReputationSummary`, account listings, `ReviewCard`, and trust-building empty states; add contextual seller labels only inside listing, sale, or transaction modules.
 5. Move checkout to transparent `PriceBreakdown`, editable sections, secure-payment messaging, and recovery notices.
 6. Add messaging, offer, dashboard, empty, error, and status timeline patterns to post-purchase and negotiation flows.
 7. Remove custom deployable overrides once each screen is backed by design-system primitives.
