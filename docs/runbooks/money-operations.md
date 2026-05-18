@@ -1,11 +1,11 @@
 # Money Operations Runbook
 
-This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfers, provider webhooks, launch checks, and smoke tests. Settlement remains the wallet source of truth; Payments owns buyer payment and refund state; Stripe owns payment method handling, hosted payout setup, external account collection, transfers, payouts, and provider risk controls.
+This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfers, provider webhooks, launch checks, and smoke tests. Settlement remains the wallet source of truth; Payments owns payment and refund state for purchasing accounts; Stripe owns payment method handling, hosted payout setup, external account collection, transfers, payouts, and provider risk controls.
 
 ## System Boundaries
 
-- `@chase-sets/payment-processing` defines the provider-neutral buyer payment processor port.
-- `@chase-sets/money-movement` defines the provider-neutral seller payout and Connect money movement port.
+- `@chase-sets/payment-processing` defines the provider-neutral payment processor port.
+- `@chase-sets/money-movement` defines the provider-neutral payout and Connect money movement port.
 - Fake adapters are local/test only. Production must use the Stripe payment and Stripe Connect money-movement adapters.
 - Stripe adapters live in infrastructure packages. Deployables compose adapters into bounded-context runtimes.
 - Bounded contexts store provider references, statuses, and support-safe failure messages, not bank account numbers, tax identity details, card data, secrets, webhook signatures, raw provider payloads, processor client secrets, hosted setup URLs after creation, or internal auth context.
@@ -13,12 +13,12 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 
 ## Charge And Funds Strategy
 
-- Buyer checkout creates one provider-managed payment session per internal payment, with wallet balance credit applied before the external payment amount is sent to the processor.
-- Buyer checkout defaults to embedded processor-managed confirmation and can fall back to hosted Checkout with `STRIPE_CHECKOUT_UI_MODE=hosted`.
-- Platform-held funds are intentional for v1: buyer payments settle to the platform balance, settlement records seller wallet credit, and money moves to the connected seller account only when the seller requests an on-demand payout.
-- Seller sale credits are pending first. The default hold is two days, after which the internal funds release job marks matured sale credits available for wallet spending or payout.
-- Do not mix direct connected-account charges, destination charges, and platform-held charges in the same seller wallet flow. A future charge strategy change should be a migration with explicit ledger and reconciliation rules.
-- Payout requests transfer from the platform balance to the connected account first, then create the connected-account payout. The seller-facing source of truth remains the settlement wallet ledger.
+- Checkout creates one provider-managed payment session per internal payment, with wallet balance credit applied before the external payment amount is sent to the processor.
+- Checkout defaults to embedded processor-managed confirmation and can fall back to hosted Checkout with `STRIPE_CHECKOUT_UI_MODE=hosted`.
+- Platform-held funds are intentional for v1: purchase payments settle to the platform balance, settlement records sale wallet credit, and money moves to the connected payout account only when the account requests an on-demand payout.
+- Sale credits are pending first. The default hold is two days, after which the internal funds release job marks matured sale credits available for wallet spending or payout.
+- Do not mix direct connected-account charges, destination charges, and platform-held charges in the same account wallet flow. A future charge strategy change should be a migration with explicit ledger and reconciliation rules.
+- Payout requests transfer from the platform balance to the connected account first, then create the connected-account payout. The account-facing source of truth remains the settlement wallet ledger.
 
 ## Launch Readiness
 
@@ -51,7 +51,7 @@ When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized
 
 - Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without both.
 - Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; account payout routes can also pass request-specific return and refresh URLs when creating setup sessions.
-- Account setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
+- Payout setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
 - Stripe-connected accounts are configured for manual payout schedules by the Stripe adapter so marketplace payouts remain account-requested and settlement-triggered.
 - Public account payout APIs can start onboarding, open hosted account management, refresh readiness, and request payouts. Provider readiness cannot be manually overwritten through public account routes.
 - Payout requests use a preview/confirmation step, enforce USD-only amount policy, and keep payout destination details in hosted account management.
@@ -74,7 +74,7 @@ Required environment:
 - `STRIPE_CONNECT_RETURN_URL`
 - `STRIPE_CONNECT_REFRESH_URL`
 
-For authenticated seller-flow checks, set one of:
+For authenticated payout-flow checks, set one of:
 
 - `PLATFORM_API_AUTHORIZATION`
 - `PLATFORM_API_COOKIE`
@@ -82,19 +82,19 @@ For authenticated seller-flow checks, set one of:
 If a bearer token or cookie is not already available, the smoke test can sign in
 with `SMOKE_SELLER_EMAIL`, `SMOKE_SELLER_PASSWORD`, and
 `PLATFORM_AUTH_BASE_URL`. In disposable preview environments, set
-`SMOKE_REGISTER_SELLER=true` with those seller credentials to create a
-throwaway owner account before running seller money checks. The legacy
+`SMOKE_REGISTER_SELLER=true` with those credentials to create a
+throwaway owner account before running payout checks. The legacy
 `PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_PASSWORD` fallback is only useful
-when that account has seller money permissions.
+when that account has payout permissions.
 
 Optional authenticated preview checks:
 
-- `SMOKE_REGISTER_SELLER=true`: registers the smoke seller as a new owner account before checking seller flows.
-- `SMOKE_AUTH_READY_ATTEMPTS`: number of sign-in retries after disposable seller registration. Defaults to `24`.
+- `SMOKE_REGISTER_SELLER=true`: legacy smoke variable name; registers a new owner account before checking payout flows.
+- `SMOKE_AUTH_READY_ATTEMPTS`: number of sign-in retries after disposable account registration. Defaults to `24`.
 - `SMOKE_AUTH_READY_RETRY_DELAY_MS`: delay between post-registration sign-in retries. Defaults to `5000`.
-- `SMOKE_SELLER_EMAIL`: preview seller email for sign-in or registration.
-- `SMOKE_SELLER_PASSWORD`: preview seller password for sign-in or registration.
-- `SMOKE_SELLER_ACCOUNT_ID`: account to select when the seller user has multiple memberships.
+- `SMOKE_SELLER_EMAIL`: legacy smoke variable name for the preview account email used for sign-in or registration.
+- `SMOKE_SELLER_PASSWORD`: legacy smoke variable name for the preview account password used for sign-in or registration.
+- `SMOKE_SELLER_ACCOUNT_ID`: legacy smoke variable name for the account to select when the user has multiple memberships.
 - `SMOKE_ORDER_IDS`: comma-separated pending-payment order ids to probe checkout payment status.
 - `SMOKE_BALANCE_CREDIT_AMOUNT`: wallet credit amount to apply in checkout status and optional payment creation.
 - `SMOKE_PAYMENT_METHOD_CATEGORY`: `card`, `bank-account`, or `platform-credit`.
@@ -110,6 +110,8 @@ pnpm run stripe:money-smoke -- --edge-check
 pnpm run stripe:money-smoke -- --seller-flow
 ```
 
+`--seller-flow` is the existing command name for the authenticated payout-readiness smoke path; it does not create a separate seller account identity.
+
 Expected results:
 
 - `/health` returns `200`.
@@ -120,7 +122,7 @@ Expected results:
 - Marketplace Checkout Fee policy returns successfully.
 - When `SMOKE_ORDER_IDS` is set, checkout status returns wallet credit and Marketplace Checkout Fee details.
 - When `SMOKE_CREATE_PAYMENT=true`, payment creation returns `201`.
-- Payout readiness returns `200` for an authenticated seller.
+- Payout readiness returns `200` for an authenticated account with payout permissions.
 - Hosted payout setup returns a one-time HTTPS URL from Stripe.
 - Payout setup refresh returns the provider-neutral readiness shape.
 - Payout preview returns either `200` with `can_request` details or a validation `400` with a user-safe reason.
@@ -133,12 +135,12 @@ Stripe Dashboard checks:
 - Configure payment webhook delivery for `checkout.session.completed`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`, and `charge.dispute.created`.
 - Configure Connect webhook delivery for `account.updated`, `payout.paid`, and `payout.failed`.
 - Create a test checkout and confirm the internal payment id appears in Stripe Checkout Session and PaymentIntent metadata.
-- Request a seller payout and confirm Stripe shows a transfer with transfer group `payout:<internal payout id>` followed by a connected-account payout.
+- Request a payout and confirm Stripe shows a transfer with transfer group `payout:<internal payout id>` followed by a connected-account payout.
 - Replay the same webhook event from the Stripe Dashboard and confirm the API reports it as ignored without duplicate ledger entries.
 
 ## Ownership
 
-- Product owns seller-facing copy, natural-language status labels, and support escalation paths.
+- Product owns account-facing payout copy, natural-language status labels, and support escalation paths.
 - Support owns first-response triage using account payment, payout, wallet, and money health views.
 - Operations owns reconciliation runs, platform balance monitoring, and Stripe Dashboard checks.
 - Engineering owns adapter behavior, webhook signature verification, idempotency, schema rollout, and incident fixes.
@@ -150,14 +152,14 @@ Stripe Dashboard checks:
 2. Check the provider-neutral timeline before opening Stripe payload details.
 3. Check idempotency records before retrying any payment, transfer, payout, refund, or dispute action.
 4. Use reconciliation before manual correction when provider state is already available.
-5. Use wallet operator actions only with a target seller account, idempotency key, and audit reason.
+5. Use wallet operator actions only with a target account, idempotency key, and audit reason.
 
 ## Failed Payout
 
 1. Open the payout timeline and confirm whether failure came from transfer submission, connected-account payout submission, or a provider webhook.
 2. Confirm the payout has exactly one reversal ledger entry.
 3. Run payout reconciliation if the provider payout reference exists and the local status is stale.
-4. If Stripe reports an external account or requirement issue, ask the seller to continue payout setup through the hosted setup action.
+4. If Stripe reports an external account or requirement issue, ask the account operator to continue payout setup through the hosted setup action.
 5. Retry only after readiness shows transfer capability, payout capability, and payout destination are ready.
 
 ## Duplicate Webhook
@@ -171,15 +173,15 @@ Stripe Dashboard checks:
 
 1. Confirm the payout preview platform balance forecast.
 2. Confirm the Stripe Dashboard available balance for the payout currency.
-3. Do not debit the seller wallet if platform balance is already insufficient.
+3. Do not debit the account wallet if platform balance is already insufficient.
 4. If a payout failed after debit, confirm the fail-fast reversal restored wallet available balance.
-5. Finance decides whether to fund Stripe balance or ask the seller to retry later.
+5. Finance decides whether to fund Stripe balance or ask the account operator to retry later.
 
 ## Stuck Payout Setup
 
 1. Refresh payout setup readiness.
 2. If requirements remain missing, create a fresh hosted setup session.
-3. If the setup URL expired, send the seller through the refresh URL flow so a new account link is generated after authentication.
+3. If the setup URL expired, send the account operator through the refresh URL flow so a new account link is generated after authentication.
 4. Do not collect bank account, tax, identity, or other sensitive payout details in the app.
 
 ## Stuck Checkout
@@ -207,7 +209,7 @@ Stripe Dashboard checks:
 
 ## Rollback
 
-- Disable seller payout request actions first.
+- Disable payout request actions first.
 - Keep webhook endpoints online.
 - Keep reconciliation available.
 - Do not remove read-model columns during rollback.

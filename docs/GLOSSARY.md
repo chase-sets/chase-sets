@@ -12,6 +12,8 @@ Use **Buyer** and **Seller** only when naming transaction endpoints: the buyer a
 
 Preferred account-language examples include account cart, account inventory, listing owner, inventory owner, purchasing account, selling account, and payout-ready account. Avoid language that implies separate buyer-capable or seller-capable account classes.
 
+Do not create buyer-specific or seller-specific account profiles, onboarding identities, or endpoint families. Public profile and trust surfaces should be account profile/reputation surfaces, with buyer or seller labels added only inside a concrete transaction, listing, offer, purchase, sale, shipment, support, fee, or payout context.
+
 Do not rename durable event fields, persisted columns, provider metadata, or transaction projections merely to remove buyer or seller. Rename only when the term describes account identity or account capability rather than the endpoint role inside a commerce transaction.
 
 ## Term Ownership

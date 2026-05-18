@@ -70,7 +70,7 @@ Standard listing Inventory disclosure is documented in [Standard Listing Invento
 2. Marketplace may expose product quantity but does not own inventory truth.
 3. Submitted offers remain marketplace-wide demand until a seller accepts one.
 4. Offer submission is a signed-in account capability, not a seller workflow capability.
-5. Buyer and Seller are account roles, not Marketplace-specific entities.
+5. Buyer and Seller are transaction roles played by accounts, not Marketplace-specific entities or account classes.
 
 ## Open Extraction Candidates
 

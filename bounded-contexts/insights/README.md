@@ -7,8 +7,8 @@ Insights owns cross-context reporting, analytics, and forecasting views.
 ## Owns
 
 - Analytical projections
-- Seller dashboards
-- Buyer and seller performance metrics
+- Sales dashboards
+- Purchase and sale performance metrics
 - Forecast models
 - Operational KPIs
 

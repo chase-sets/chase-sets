@@ -90,7 +90,7 @@ OAuth identity linking requires Authorization Code with PKCE S256. Token refresh
 - `/ucp/oauth/revoke`: access-token or refresh-token revocation
 - `/ucp/oauth/authorizations`: signed-in account list and consent revocation
 
-Order reads are available through the linked buyer or seller account:
+Order reads are available through the linked account when that account is the buyer or seller on the order:
 
 ```powershell
 Invoke-RestMethod http://localhost:7712/ucp/v1/orders/<order-id> -Headers @{ Authorization = "Bearer <ucp-access-token>" }
