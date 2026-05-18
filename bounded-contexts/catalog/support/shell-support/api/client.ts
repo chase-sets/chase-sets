@@ -704,6 +704,26 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async listTcgdexLanguages<T>(): Promise<T> {
+      const response = await client["source-observations"].tcgdex.languages.$get({
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async listTcgdexSeries<T>(query: string): Promise<T> {
+      const response = await client["source-observations"].tcgdex.series.$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async listTcgdexExpansions<T>(query: string): Promise<T> {
+      const response = await client["source-observations"].tcgdex.expansions.$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async bulkPromoteSourceObservations<T>(observationIds: string[]): Promise<T> {
       const response = await client["source-observations"]["bulk-promote"].$post({
         json: { observationIds },

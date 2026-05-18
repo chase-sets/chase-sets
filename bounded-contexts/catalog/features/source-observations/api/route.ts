@@ -32,6 +32,24 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result, 201);
   });
 
+  app.get("/tcgdex/languages", async (c) => {
+    const items = await services.listTcgdexLanguages();
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/tcgdex/series", async (c) => {
+    const languageCode = String(c.req.query("languageCode") ?? c.req.query("language") ?? "en");
+    const items = await services.listTcgdexSeries({ languageCode });
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/tcgdex/expansions", async (c) => {
+    const languageCode = String(c.req.query("languageCode") ?? c.req.query("language") ?? "en");
+    const seriesId = c.req.query("seriesId") ?? c.req.query("series");
+    const items = await services.listTcgdexExpansions({ languageCode, seriesId });
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
   app.post("/bulk-promote/preview", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       scope?: unknown;

@@ -24,6 +24,9 @@ import {
   bulkPromoteSourceObservations,
   importTcgdexSet,
   previewBulkPromoteSourceObservations,
+  useTcgdexExpansions,
+  useTcgdexLanguages,
+  useTcgdexSeries,
 } from "./use-source-observations";
 import type {
   SourceObservationPromotionPreview,
@@ -66,13 +69,6 @@ const statusOptions = [
   { label: t("catalog.features.sourceObservations.ui.list.rejected"), value: "rejected" },
 ];
 
-const languageOptions = [
-  { label: t("catalog.features.sourceObservations.ui.list.english"), value: "en" },
-  { label: t("catalog.features.sourceObservations.ui.list.japanese"), value: "ja" },
-  { label: t("catalog.features.sourceObservations.ui.list.korean"), value: "ko" },
-  { label: t("catalog.features.sourceObservations.ui.list.chinese"), value: "zh" },
-];
-
 const ALL_LANGUAGES = "__all__";
 
 export function SourceObservationListPage({
@@ -85,7 +81,8 @@ export function SourceObservationListPage({
   const { addToast } = useToasts();
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
-  const [setId, setSetId] = useState("");
+  const [seriesId, setSeriesId] = useState("");
+  const [expansionId, setExpansionId] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkPromoting, setBulkPromoting] = useState(false);
   const [promoteAllScope, setPromoteAllScope] =
@@ -95,6 +92,36 @@ export function SourceObservationListPage({
   const [previewingPromoteAll, setPreviewingPromoteAll] = useState(false);
   const [promoteAllRunning, setPromoteAllRunning] = useState(false);
   const [showPromoteAll, setShowPromoteAll] = useState(false);
+  const tcgdexLanguages = useTcgdexLanguages();
+  const tcgdexSeries = useTcgdexSeries(languageCode);
+  const tcgdexExpansions = useTcgdexExpansions(languageCode, seriesId);
+  const importLanguageOptions = useMemo(
+    () =>
+      (tcgdexLanguages.data?.items ?? []).map((item) => ({
+        label: formatLanguageCodeLabel(item.languageCode),
+        value: item.languageCode,
+      })),
+    [tcgdexLanguages.data],
+  );
+  const seriesOptions = useMemo(
+    () =>
+      (tcgdexSeries.data?.items ?? []).map((item) => ({
+        label: item.name,
+        value: item.seriesId,
+      })),
+    [tcgdexSeries.data],
+  );
+  const expansionOptions = useMemo(
+    () =>
+      (tcgdexExpansions.data?.items ?? []).map((item) => ({
+        label:
+          item.officialCardCount === null
+            ? item.name
+            : `${item.name} (${item.officialCardCount})`,
+        value: item.expansionId,
+      })),
+    [tcgdexExpansions.data],
+  );
   const eligibleIds = useMemo(
     () =>
       new Set(
@@ -111,6 +138,42 @@ export function SourceObservationListPage({
     );
   }, [eligibleIds]);
 
+  useEffect(() => {
+    if (
+      importLanguageOptions.length > 0 &&
+      !importLanguageOptions.some((item) => item.value === languageCode)
+    ) {
+      setLanguageCode(importLanguageOptions[0].value);
+    }
+  }, [importLanguageOptions, languageCode]);
+
+  useEffect(() => {
+    setSeriesId("");
+    setExpansionId("");
+  }, [languageCode]);
+
+  useEffect(() => {
+    if (seriesOptions.length === 0) {
+      setSeriesId("");
+      return;
+    }
+
+    if (!seriesOptions.some((item) => item.value === seriesId)) {
+      setSeriesId(seriesOptions[0].value);
+    }
+  }, [seriesOptions, seriesId]);
+
+  useEffect(() => {
+    if (expansionOptions.length === 0) {
+      setExpansionId("");
+      return;
+    }
+
+    if (!expansionOptions.some((item) => item.value === expansionId)) {
+      setExpansionId(expansionOptions[0].value);
+    }
+  }, [expansionOptions, expansionId]);
+
   function handleSelectionChange(keys: Set<string>) {
     setSelectedKeys(
       new Set(Array.from(keys).filter((key) => eligibleIds.has(key))),
@@ -118,7 +181,7 @@ export function SourceObservationListPage({
   }
 
   async function handleImport() {
-    const result = await importTcgdexSet({ languageCode, setId });
+    const result = await importTcgdexSet({ languageCode, setId: expansionId });
     addToast(
       t("catalog.features.sourceObservations.ui.list.import.completed", {
         count: String(result.observed),
@@ -126,7 +189,6 @@ export function SourceObservationListPage({
       "success",
     );
     setShowImport(false);
-    setSetId("");
     listControls.setFilters({
       language: result.languageCode,
       setId: result.expansionId ?? result.setId,
@@ -288,7 +350,7 @@ export function SourceObservationListPage({
                   label: t("catalog.features.sourceObservations.ui.list.all.languages"),
                   value: ALL_LANGUAGES,
                 },
-                ...languageOptions,
+                ...importLanguageOptions,
               ]}
             />
             <TextInput
@@ -319,18 +381,49 @@ export function SourceObservationListPage({
         open={showImport}
         onOpenChange={setShowImport}
         title={t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
-        footer={<Button onClick={handleImport}>{t("catalog.features.sourceObservations.ui.list.import")}</Button>}
+        footer={
+          <Button
+            onClick={handleImport}
+            disabled={
+              !languageCode ||
+              !seriesId ||
+              !expansionId ||
+              tcgdexLanguages.loading ||
+              tcgdexSeries.loading ||
+              tcgdexExpansions.loading
+            }
+          >
+            {t("catalog.features.sourceObservations.ui.list.import")}
+          </Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.language.code")}
+          <Select
+            label={t("catalog.features.sourceObservations.ui.list.language")}
             value={languageCode}
-            onChange={(event) => setLanguageCode(event.target.value)}
+            onValueChange={setLanguageCode}
+            items={importLanguageOptions}
+            disabled={tcgdexLanguages.loading || importLanguageOptions.length === 0}
+            error={tcgdexLanguages.error ?? undefined}
           />
-          <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
-            value={setId}
-            onChange={(event) => setSetId(event.target.value)}
+          <Select
+            label={t("catalog.features.sourceObservations.ui.list.series")}
+            value={seriesId}
+            onValueChange={(value) => {
+              setSeriesId(value);
+              setExpansionId("");
+            }}
+            items={seriesOptions}
+            disabled={tcgdexSeries.loading || seriesOptions.length === 0}
+            error={tcgdexSeries.error ?? undefined}
+          />
+          <Select
+            label={t("catalog.features.sourceObservations.ui.list.expansion")}
+            value={expansionId}
+            onValueChange={setExpansionId}
+            items={expansionOptions}
+            disabled={!seriesId || tcgdexExpansions.loading || expansionOptions.length === 0}
+            error={tcgdexExpansions.error ?? undefined}
           />
         </Stack>
       </Dialog>

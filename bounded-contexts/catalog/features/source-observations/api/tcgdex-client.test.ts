@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { fetchTcgdexSetObservations } from "./tcgdex-client";
+import {
+  fetchTcgdexExpansionOptions,
+  fetchTcgdexSeriesOptions,
+  fetchTcgdexSetObservations,
+  listTcgdexLanguageOptions,
+} from "./tcgdex-client";
 
 const testImageProcessor = {
   async metadata() {
@@ -15,6 +20,69 @@ const testImageProcessor = {
 };
 
 describe("TCGdex client", () => {
+  it("preloads supported language options from the Catalog-owned allowlist", () => {
+    expect(listTcgdexLanguageOptions()).toEqual(
+      expect.arrayContaining([
+        { languageCode: "en" },
+        { languageCode: "ja" },
+        { languageCode: "zh-tw" },
+      ]),
+    );
+  });
+
+  it("normalizes TCGdex series and expansion metadata for import selection", async () => {
+    const responses = new Map<string, unknown>([
+      [
+        "https://api.tcgdex.net/v2/en/series",
+        [
+          { id: "me", name: "Mega Evolution", logo: "https://assets.tcgdex.net/en/me/me01/logo" },
+          { id: "sv", name: "Scarlet & Violet" },
+        ],
+      ],
+      [
+        "https://api.tcgdex.net/v2/en/series/me",
+        {
+          id: "me",
+          name: "Mega Evolution",
+          sets: [
+            {
+              id: "me02.5",
+              name: "Ascended Heroes",
+              logo: "https://assets.tcgdex.net/en/me/me02.5/logo",
+              symbol: "https://assets.tcgdex.net/univ/me/me02.5/symbol",
+              cardCount: { total: 295, official: 217 },
+            },
+          ],
+        },
+      ],
+    ]);
+    const fetcher: typeof globalThis.fetch = async (input) => {
+      const response = responses.get(String(input));
+      return response
+        ? new Response(JSON.stringify(response), { status: 200 })
+        : new Response(null, { status: 404 });
+    };
+
+    await expect(fetchTcgdexSeriesOptions({ languageCode: "EN", fetch: fetcher }))
+      .resolves.toEqual([
+        { seriesId: "me", name: "Mega Evolution", logoUrl: "https://assets.tcgdex.net/en/me/me01/logo" },
+        { seriesId: "sv", name: "Scarlet & Violet", logoUrl: null },
+      ]);
+    await expect(fetchTcgdexExpansionOptions({ languageCode: "en", seriesId: "me", fetch: fetcher }))
+      .resolves.toEqual([
+        {
+          expansionId: "me02.5",
+          name: "Ascended Heroes",
+          seriesId: "me",
+          seriesName: "Mega Evolution",
+          logoUrl: "https://assets.tcgdex.net/en/me/me02.5/logo",
+          symbolUrl: "https://assets.tcgdex.net/univ/me/me02.5/symbol",
+          cardCount: 295,
+          officialCardCount: 217,
+        },
+      ]);
+  });
+
   it("normalizes the high quality set card asset into owned WebP variants", async () => {
     const storedAssets: Array<{
       key: string;

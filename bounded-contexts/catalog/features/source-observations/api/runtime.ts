@@ -41,7 +41,16 @@ import {
   type SourceObservationFilterScope,
   type SourceObservationPromotionPreview,
 } from "../read-model/queries";
-import { fetchTcgdexSetObservations, type TcgdexSetImportResult } from "./tcgdex-client";
+import {
+  fetchTcgdexExpansionOptions,
+  fetchTcgdexSeriesOptions,
+  fetchTcgdexSetObservations,
+  listTcgdexLanguageOptions,
+  type TcgdexExpansionOption,
+  type TcgdexLanguageOption,
+  type TcgdexSeriesOption,
+  type TcgdexSetImportResult,
+} from "./tcgdex-client";
 
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
@@ -69,6 +78,14 @@ export type SourceObservationServices = Readonly<{
     setId: string;
     context: EventStoreContext;
   }) => Promise<TcgdexSetImportResult>;
+  listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
+  listTcgdexSeries: (input: {
+    languageCode: string;
+  }) => Promise<readonly TcgdexSeriesOption[]>;
+  listTcgdexExpansions: (input: {
+    languageCode: string;
+    seriesId?: string | null;
+  }) => Promise<readonly TcgdexExpansionOption[]>;
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
@@ -234,6 +251,15 @@ export function createSourceObservationRuntime(
         assetStorage: deps.assetStorage,
       });
 
+      if (observations[0]) {
+        await ensurePokemonReferenceHierarchy({
+          deps,
+          referenceData,
+          normalized: observations[0].normalized,
+          context,
+        });
+      }
+
       for (const observation of observations) {
         await recordObservation(observation, context);
       }
@@ -247,6 +273,11 @@ export function createSourceObservationRuntime(
         observationIds: observations.map((observation) => observation.observationId),
       };
     },
+    listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
+    listTcgdexSeries: async ({ languageCode }) =>
+      fetchTcgdexSeriesOptions({ languageCode }),
+    listTcgdexExpansions: async ({ languageCode, seriesId }) =>
+      fetchTcgdexExpansionOptions({ languageCode, seriesId }),
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -439,7 +470,7 @@ const catalogFieldByKey = {
   releaseYear: catalogSeedIds.fields.releaseYear,
 } as const;
 
-async function ensurePokemonReferenceHierarchy(input: {
+export async function ensurePokemonReferenceHierarchy(input: {
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
   normalized: SourceObservationNormalized;
@@ -620,6 +651,14 @@ async function ensureReferenceRecord(
     return existing.rows[0].reference_record_id as ReferenceRecordId;
   }
 
+  const existingByProviderAttribute = await findReferenceRecordByProviderAttribute(
+    input.deps,
+    def,
+  );
+  if (existingByProviderAttribute) {
+    return existingByProviderAttribute;
+  }
+
   const streamId = `catalog.reference-record-${def.referenceRecordId}`;
   await input.referenceData.referenceRecordCommandHandler({
     streamId,
@@ -643,6 +682,39 @@ async function ensureReferenceRecord(
   await drainRuntimeProjectors(input.referenceData.projectors);
 
   return def.referenceRecordId;
+}
+
+async function findReferenceRecordByProviderAttribute(
+  deps: CatalogRuntimeDeps,
+  def: {
+    typeKey: string;
+    attributes?: Readonly<Record<string, JsonValue>>;
+  },
+): Promise<ReferenceRecordId | null> {
+  const providerAttributeKey =
+    def.typeKey === "series"
+      ? "tcgdex-series-id"
+      : def.typeKey === "expansion"
+        ? "tcgdex-set-id"
+        : null;
+  const providerAttributeValue = providerAttributeKey
+    ? def.attributes?.[providerAttributeKey]
+    : null;
+
+  if (typeof providerAttributeValue !== "string" || providerAttributeValue.trim().length === 0) {
+    return null;
+  }
+
+  const existing = await deps.db.query<{ reference_record_id: string }>(
+    `SELECT reference_record_id
+     FROM catalog_reference_records
+     WHERE type_key = $1
+       AND attributes ->> $2 = $3
+     LIMIT 1`,
+    [def.typeKey, providerAttributeKey, providerAttributeValue],
+  );
+
+  return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
 }
 
 function localizedText(value: string): LocalizedTextMap {

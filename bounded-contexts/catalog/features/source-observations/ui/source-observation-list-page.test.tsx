@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { SourceObservationListPage } from "./source-observation-list-page";
 import type { SourceObservationListItem } from "./contracts";
@@ -11,6 +11,9 @@ const {
   mockImportTcgdexSet,
   mockPreviewBulkPromoteSourceObservations,
   mockRevalidate,
+  mockUseTcgdexExpansions,
+  mockUseTcgdexLanguages,
+  mockUseTcgdexSeries,
   mockUseNavigation,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
@@ -19,6 +22,9 @@ const {
   mockImportTcgdexSet: vi.fn(),
   mockPreviewBulkPromoteSourceObservations: vi.fn(),
   mockRevalidate: vi.fn(),
+  mockUseTcgdexExpansions: vi.fn(),
+  mockUseTcgdexLanguages: vi.fn(),
+  mockUseTcgdexSeries: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
 }));
@@ -34,6 +40,9 @@ vi.mock("./use-source-observations", () => ({
   bulkPromoteSourceObservations: mockBulkPromoteSourceObservations,
   importTcgdexSet: mockImportTcgdexSet,
   previewBulkPromoteSourceObservations: mockPreviewBulkPromoteSourceObservations,
+  useTcgdexExpansions: mockUseTcgdexExpansions,
+  useTcgdexLanguages: mockUseTcgdexLanguages,
+  useTcgdexSeries: mockUseTcgdexSeries,
 }));
 
 const query: CatalogListQuery = {
@@ -58,13 +67,58 @@ const promoted = sourceObservation({
 });
 
 describe("SourceObservationListPage", () => {
+  beforeEach(() => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockUseTcgdexLanguages.mockReturnValue({
+      data: {
+        items: [{ languageCode: "en" }],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseTcgdexSeries.mockReturnValue({
+      data: {
+        items: [{ seriesId: "me", name: "Mega Evolution", logoUrl: null }],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseTcgdexExpansions.mockReturnValue({
+      data: {
+        items: [
+          {
+            expansionId: "me02.5",
+            name: "Ascended Heroes",
+            seriesId: "me",
+            seriesName: "Mega Evolution",
+            logoUrl: null,
+            symbolUrl: null,
+            cardCount: 295,
+            officialCardCount: 217,
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+  });
+
   afterEach(() => {
+    cleanup();
     vi.clearAllMocks();
   });
 
   it("bulk promotes only selected observed rows", async () => {
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
     mockBulkPromoteSourceObservations.mockResolvedValue({
       requested: 1,
       promoted: 1,
@@ -101,8 +155,6 @@ describe("SourceObservationListPage", () => {
   });
 
   it("previews and promotes all matching observations across the current filters", async () => {
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
     mockPreviewBulkPromoteSourceObservations.mockResolvedValue({
       matched: 125,
       eligible: 123,
@@ -160,6 +212,39 @@ describe("SourceObservationListPage", () => {
       }),
     );
     expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("imports a TCGdex expansion selected from preloaded metadata", async () => {
+    mockImportTcgdexSet.mockResolvedValue({
+      setId: "me02.5",
+      expansionId: "me02.5",
+      languageCode: "en",
+      observed: 217,
+      observationIds: [],
+    });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <SourceObservationListPage
+        data={{ items: [observed], total: 1, count: 1 }}
+        query={query}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Import TCGdex expansion/i }));
+
+    const importButton = screen.getByRole("button", { name: /^Import$/i });
+    await waitFor(() =>
+      expect((importButton as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(importButton);
+
+    await waitFor(() =>
+      expect(mockImportTcgdexSet).toHaveBeenCalledWith({
+        languageCode: "en",
+        setId: "me02.5",
+      }),
+    );
   });
 });
 

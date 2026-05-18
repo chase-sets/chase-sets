@@ -120,6 +120,61 @@ describe("source observation routes", () => {
     });
   });
 
+  it("lists TCGdex metadata for language, series, and expansion selectors", async () => {
+    const listTcgdexLanguages = vi.fn(async () => [
+      { languageCode: "en" },
+    ]);
+    const listTcgdexSeries = vi.fn(async () => [
+      { seriesId: "me", name: "Mega Evolution", logoUrl: null },
+    ]);
+    const listTcgdexExpansions = vi.fn(async () => [
+      {
+        expansionId: "me02.5",
+        name: "Ascended Heroes",
+        seriesId: "me",
+        seriesName: "Mega Evolution",
+        logoUrl: null,
+        symbolUrl: null,
+        cardCount: 295,
+        officialCardCount: 217,
+      },
+    ]);
+    const services = {
+      listTcgdexLanguages,
+      listTcgdexSeries,
+      listTcgdexExpansions,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const languagesResponse = await app.request("/source-observations/tcgdex/languages");
+    const seriesResponse = await app.request("/source-observations/tcgdex/series?languageCode=en");
+    const expansionsResponse = await app.request("/source-observations/tcgdex/expansions?languageCode=en&seriesId=me");
+
+    expect(languagesResponse.status).toBe(200);
+    await expect(languagesResponse.json()).resolves.toMatchObject({
+      items: [{ languageCode: "en" }],
+      total: 1,
+      count: 1,
+    });
+    expect(seriesResponse.status).toBe(200);
+    await expect(seriesResponse.json()).resolves.toMatchObject({
+      items: [{ seriesId: "me", name: "Mega Evolution" }],
+      total: 1,
+      count: 1,
+    });
+    expect(expansionsResponse.status).toBe(200);
+    await expect(expansionsResponse.json()).resolves.toMatchObject({
+      items: [{ expansionId: "me02.5", name: "Ascended Heroes" }],
+      total: 1,
+      count: 1,
+    });
+    expect(listTcgdexSeries).toHaveBeenCalledWith({ languageCode: "en" });
+    expect(listTcgdexExpansions).toHaveBeenCalledWith({
+      languageCode: "en",
+      seriesId: "me",
+    });
+  });
+
   it("bulk promotes observations matching an explicit filter scope", async () => {
     const promoteObservationScope = vi.fn(async () => ({
       requested: 100,

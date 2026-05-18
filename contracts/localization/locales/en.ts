@@ -224,6 +224,7 @@ export const englishTranslations = {
   "catalog.features.sourceObservations.ui.list.source.observation": "Source Observation",
   "catalog.features.sourceObservations.ui.list.source.observations": "Source Observations",
   "catalog.features.sourceObservations.ui.list.status": "Status",
+  "catalog.features.sourceObservations.ui.list.series": "Series",
   "catalog.features.sourceObservations.ui.list.tcgdex.expansion.id": "TCGdex Expansion ID",
   "catalog.routes.admin.sourceObservations.source.observations.catalog.admin": "Source Observations | Catalog Admin",
   "catalog.routes.admin.sourceObservationsDetail.named.title": "{name} | Catalog Admin",

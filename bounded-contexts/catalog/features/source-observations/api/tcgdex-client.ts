@@ -21,6 +21,27 @@ export type TcgdexCardBrief = Readonly<{
   image?: string;
 }>;
 
+export type TcgdexLanguageOption = Readonly<{
+  languageCode: string;
+}>;
+
+export type TcgdexSeriesOption = Readonly<{
+  seriesId: string;
+  name: string;
+  logoUrl: string | null;
+}>;
+
+export type TcgdexExpansionOption = Readonly<{
+  expansionId: string;
+  name: string;
+  seriesId: string | null;
+  seriesName: string | null;
+  logoUrl: string | null;
+  symbolUrl: string | null;
+  cardCount: number | null;
+  officialCardCount: number | null;
+}>;
+
 export type TcgdexSet = Readonly<{
   id: string;
   name: string;
@@ -39,6 +60,24 @@ export type TcgdexSet = Readonly<{
     name: string;
   }>;
   cards: readonly TcgdexCardBrief[];
+}>;
+
+export type TcgdexSetBrief = Readonly<{
+  id: string;
+  name: string;
+  logo?: string;
+  symbol?: string;
+  cardCount?: Readonly<{
+    official?: number;
+    total?: number;
+  }>;
+}>;
+
+export type TcgdexSeries = Readonly<{
+  id: string;
+  name: string;
+  logo?: string;
+  sets: readonly TcgdexSetBrief[];
 }>;
 
 export type TcgdexCard = Readonly<{
@@ -78,6 +117,70 @@ export type TcgdexSetImportResult = Readonly<{
   observationIds: readonly string[];
 }>;
 
+const TCGDEX_LANGUAGE_OPTIONS: readonly TcgdexLanguageOption[] = [
+  { languageCode: "en" },
+  { languageCode: "fr" },
+  { languageCode: "es" },
+  { languageCode: "it" },
+  { languageCode: "pt" },
+  { languageCode: "pt-br" },
+  { languageCode: "pt-pt" },
+  { languageCode: "de" },
+  { languageCode: "nl" },
+  { languageCode: "pl" },
+  { languageCode: "ru" },
+  { languageCode: "ja" },
+  { languageCode: "ko" },
+  { languageCode: "zh-tw" },
+  { languageCode: "id" },
+  { languageCode: "th" },
+  { languageCode: "zh-cn" },
+];
+
+export function listTcgdexLanguageOptions(): readonly TcgdexLanguageOption[] {
+  return TCGDEX_LANGUAGE_OPTIONS;
+}
+
+export async function fetchTcgdexSeriesOptions(input: {
+  languageCode: string;
+  fetch?: typeof globalThis.fetch;
+}): Promise<readonly TcgdexSeriesOption[]> {
+  const languageCode = normalizeKey(input.languageCode || "en");
+  const fetcher = input.fetch ?? globalThis.fetch;
+  const url = `${TCGDEX_BASE_URL}/${languageCode}/series`;
+  const series = await fetchJson<readonly Omit<TcgdexSeries, "sets">[]>(fetcher, url);
+
+  return series
+    .map((item) => ({
+      seriesId: item.id,
+      name: item.name,
+      logoUrl: item.logo ?? null,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function fetchTcgdexExpansionOptions(input: {
+  languageCode: string;
+  seriesId?: string | null;
+  fetch?: typeof globalThis.fetch;
+}): Promise<readonly TcgdexExpansionOption[]> {
+  const languageCode = normalizeKey(input.languageCode || "en");
+  const seriesId = input.seriesId?.trim();
+  const fetcher = input.fetch ?? globalThis.fetch;
+
+  if (seriesId) {
+    const url = `${TCGDEX_BASE_URL}/${languageCode}/series/${encodeURIComponent(seriesId)}`;
+    const series = await fetchJson<TcgdexSeries>(fetcher, url);
+
+    return series.sets.map((item) => toExpansionOption(item, series));
+  }
+
+  const url = `${TCGDEX_BASE_URL}/${languageCode}/sets`;
+  const sets = await fetchJson<readonly TcgdexSetBrief[]>(fetcher, url);
+
+  return sets.map((item) => toExpansionOption(item, null));
+}
+
 export async function fetchTcgdexSetObservations(input: {
   languageCode: string;
   setId: string;
@@ -111,6 +214,22 @@ export async function fetchTcgdexSetObservations(input: {
   }
 
   return observations;
+}
+
+function toExpansionOption(
+  set: TcgdexSetBrief,
+  series: Pick<TcgdexSeries, "id" | "name"> | null,
+): TcgdexExpansionOption {
+  return {
+    expansionId: set.id,
+    name: set.name,
+    seriesId: series?.id ?? null,
+    seriesName: series?.name ?? null,
+    logoUrl: set.logo ?? null,
+    symbolUrl: set.symbol ?? null,
+    cardCount: set.cardCount?.total ?? set.cardCount?.official ?? null,
+    officialCardCount: set.cardCount?.official ?? null,
+  };
 }
 
 async function toObservation(input: {
