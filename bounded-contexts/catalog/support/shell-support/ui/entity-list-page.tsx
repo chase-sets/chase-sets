@@ -140,7 +140,7 @@ export function EntityListPage<T>({
         actions={createButton}
       />
       <Stack gap={4}>
-        {filterControls.length > 0 && (
+        {(filterControls.length > 0 || filterActions) && (
           <FilterArea
             filters={filterControls}
             actions={filterActions}

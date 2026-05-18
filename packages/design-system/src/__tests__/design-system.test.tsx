@@ -21,6 +21,7 @@ import {
   UiCardTitle as CardTitle,
   UiDialog as Dialog,
   Input,
+  Inline,
   NavigationHeader,
   AccountReputationSummary,
   TopNav,
@@ -485,17 +486,36 @@ describe("design-system", () => {
     expect(markup).toContain("Save this search");
   });
 
-  it("bottom-aligns filter fields and actions in data-heavy admin filter bars", () => {
+  it("bottom-aligns filter fields and action groups in data-heavy admin filter bars", () => {
     const markup = renderToString(
-      <FilterBar actions={<Button variant="secondary">Promote all matching</Button>} sticky={false}>
-        <TextInput label="Search" defaultValue="Pikachu" />
-        <Select label="Status" items={[{ label: "Observed", value: "observed" }]} />
-      </FilterBar>,
+      <FilterArea
+        filters={[
+          <TextInput key="search" label="Search" defaultValue="Pikachu" />,
+          <Select key="status" label="Status" items={[{ label: "Observed", value: "observed" }]} />,
+          <TextInput key="provider" label="Provider" defaultValue="tcgdex" />,
+        ]}
+        activeFilterCount={3}
+        overflowTriggerLabel="More filters"
+        actions={
+          <Inline>
+            <Button variant="secondary">Promote all matching</Button>
+            <TextInput label="Reject reason" defaultValue="" />
+            <Button variant="destructive">Reject matching</Button>
+          </Inline>
+        }
+        sticky={false}
+      />,
     );
 
-    expect(markup).toContain("flex-1 flex-wrap items-end gap-3");
-    expect(markup).toContain("flex flex-wrap items-end gap-2 md:self-end");
+    expect(markup).toContain("lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end");
+    expect(markup).toContain("flex min-w-0 flex-1 flex-wrap items-end gap-3");
+    expect(markup).toContain("min-w-[12rem] max-w-full");
+    expect(markup).toContain("lg:ml-auto lg:justify-end lg:self-end");
+    expect(markup).toContain("lg:[&amp;&gt;div]:items-end");
+    expect(markup).toContain("More filters (3 active)");
     expect(markup).toContain("Promote all matching");
+    expect(markup).toContain("Reject reason");
+    expect(markup).toContain("Reject matching");
   });
 
   it("bottom-aligns controls and buttons in admin bulk action bars", () => {
