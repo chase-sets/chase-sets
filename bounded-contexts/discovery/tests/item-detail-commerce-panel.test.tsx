@@ -730,9 +730,14 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    const sellerReputationLink = screen.getByRole("link", { name: /Chase Sets/ });
-    expect(within(sellerReputationLink).getByText("4.8")).toBeTruthy();
-    expect(within(sellerReputationLink).getByText("(12)")).toBeTruthy();
+    const sellerListingRow = screen.getByRole("article", {
+      name: "Listing $399.99 from Chase Sets",
+    });
+    expect(within(sellerListingRow).getByText("4.8")).toBeTruthy();
+    expect(within(sellerListingRow).getByText("(12)")).toBeTruthy();
+    const sellerReputationLink = within(sellerListingRow).getByRole("link", {
+      name: "View feedback",
+    });
     expect(sellerReputationLink.getAttribute("href")).toBe("/sellers/chase-sets-seller#feedback");
 
     fireEvent.click(
@@ -770,8 +775,16 @@ describe("item detail commerce panel", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /Chase Sets/ }).getAttribute("aria-pressed"),
+      screen
+        .getByRole("button", {
+          name: "Selected Chase Sets listing at $399.99",
+        })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
+    expect(screen.getByText("Lowest price")).toBeTruthy();
+    expect(screen.getByText("Selected for checkout")).toBeTruthy();
+    expect(screen.getAllByText("No feedback yet")).toHaveLength(2);
+    expect(screen.getByText("2 available")).toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",
       "listing_charizard",
@@ -904,7 +917,11 @@ describe("item detail commerce panel", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /Best Price Cards/ }).getAttribute("aria-pressed"),
+      screen
+        .getByRole("button", {
+          name: "Selected Best Price Cards listing at $300.00",
+        })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",
@@ -915,11 +932,13 @@ describe("item detail commerce panel", () => {
       "listing_charizard_cheapest",
     );
     expect(
-      screen.getAllByRole("button", { name: /\$/ }).map((button) => button.textContent),
+      screen
+        .getAllByRole("button", { name: /listing at \$/ })
+        .map((button) => button.getAttribute("aria-label")),
     ).toEqual([
-      expect.stringContaining("$300.00"),
-      expect.stringContaining("$399.99"),
-      expect.stringContaining("$410.00"),
+      "Selected Best Price Cards listing at $300.00",
+      "Select Chase Sets listing at $399.99",
+      "Select Card Vault listing at $410.00",
     ]);
   });
 
@@ -994,10 +1013,18 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Card Vault/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select Card Vault listing at $410.00",
+      }),
+    );
 
     expect(
-      screen.getByRole("button", { name: /Card Vault/ }).getAttribute("aria-pressed"),
+      screen
+        .getByRole("button", {
+          name: "Selected Card Vault listing at $410.00",
+        })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",
@@ -1379,7 +1406,11 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Card Vault/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select Card Vault listing at $410.00",
+      }),
+    );
 
     expect(screen.getByText("Selected product Graded")).toBeTruthy();
     expect(screen.getByTestId("selected-options")).toHaveProperty(
