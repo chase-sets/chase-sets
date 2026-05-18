@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { redirect, useActionData, useFetcher, useLoaderData } from "react-router";
 import {
   AccordionOptionTrigger,
+  AccountReputationSummary,
   Badge,
   Banner,
   Button,
@@ -113,31 +114,6 @@ function productOptionsFromSelectionDetails(
     dimensionLabel: selection.label,
     optionLabel: selection.value,
   }));
-}
-
-function ProductCriteriaText({
-  selections,
-  summary,
-  fallback,
-}: {
-  selections: readonly ProductSelectionDisplayDetail[];
-  summary: ReactNode;
-  fallback: ReactNode;
-}) {
-  if (selections.length === 0) {
-    return <>{summary ?? fallback}</>;
-  }
-
-  return (
-    <>
-      {selections.map((selection, index) => (
-        <span key={index}>
-          {index > 0 ? " · " : null}
-          {selection.value}
-        </span>
-      ))}
-    </>
-  );
 }
 
 type AddToCartActionData = Readonly<{
@@ -461,13 +437,10 @@ function ProductAlertCreationSection({
                 <Text size="sm" tone="secondary">
                   {t("discovery.routes.itemDetail.product.criteria")}
                 </Text>
-                <Text size="sm">
-                  <ProductCriteriaText
-                    selections={productSelectionDetails}
-                    summary={productSummary}
-                    fallback={t("discovery.routes.itemDetail.selected.product")}
-                  />
-                </Text>
+                <ProductOptions
+                  options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                  emptyLabel={productSummary ?? "Selected product"}
+                />
               </Stack>
             </Stack>
           ) : null}
@@ -540,13 +513,10 @@ function MarketplaceOfferSubmissionSection({
               <Text size="sm" tone="secondary">
                 {t("discovery.routes.itemDetail.product.criteria")}
               </Text>
-              <Text size="sm">
-                <ProductCriteriaText
-                  selections={productSelectionDetails}
-                  summary={productSummary}
-                  fallback={itemTitle}
-                />
-              </Text>
+              <ProductOptions
+                options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                emptyLabel={productSummary ?? itemTitle}
+              />
               <Text size="sm" tone="secondary">
                 {productId
                   ? t("discovery.routes.itemDetail.listing.match.count", {
@@ -689,6 +659,9 @@ export function CheckoutPurchaseIntentSection({
     shipping_allowance_percentage_bps: number;
     visible_quantity?: number | null;
     quantity_cap?: number | null;
+    seller_slug?: string | null;
+    seller_average_rating?: string | null;
+    seller_review_count?: number;
   } | null;
   itemTitle: string;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
@@ -709,6 +682,9 @@ export function CheckoutPurchaseIntentSection({
     selectedListing
       ? selectedListing.seller_display_name ?? t("discovery.routes.itemDetail.seller")
       : "No active seller";
+  const selectedListingSellerHref = selectedListing?.seller_slug
+    ? `/accounts/${selectedListing.seller_slug}#feedback`
+    : null;
   const selectedListingAvailability = selectedListing
     ? t("discovery.routes.itemDetail.quantity.available.count", {
         count: selectedListingQuantity,
@@ -847,20 +823,27 @@ export function CheckoutPurchaseIntentSection({
               <Text size="lg" weight="bold">
                 {selectedListingPrice}
               </Text>
-              <Text size="sm" tone="secondary">
-                {selectedListingSeller} · {selectedListingAvailability}
-              </Text>
-              <Text size="sm" tone="secondary">
-                <ProductCriteriaText
-                  selections={productSelectionDetails}
-                  summary={productSummary}
-                  fallback={
-                    productId
-                      ? itemTitle
-                      : t("discovery.routes.itemDetail.choose.options.to.add.this.product")
-                  }
+              <Inline gap={2}>
+                <AccountReputationSummary
+                  accountName={selectedListingSeller}
+                  href={selectedListingSellerHref}
+                  averageRating={selectedListing?.seller_average_rating}
+                  reviewCount={selectedListing?.seller_review_count ?? 0}
+                  ratingLabel="Seller account reputation"
                 />
-              </Text>
+                <Text size="sm" tone="secondary">
+                  {selectedListingAvailability}
+                </Text>
+              </Inline>
+              <ProductOptions
+                options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                emptyLabel={
+                  productSummary ??
+                  (productId
+                    ? itemTitle
+                    : t("discovery.routes.itemDetail.choose.options.to.add.this.product"))
+                }
+              />
             </Stack>
             {productId && visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
@@ -918,6 +901,8 @@ export function MarketplaceOfferMatchSection({
   actionMode = "all",
   selectedOffer,
   productId,
+  productSelectionDetails = [],
+  productSummary,
   matchingOfferCount,
   errorMessage,
 }: {
@@ -935,9 +920,15 @@ export function MarketplaceOfferMatchSection({
     seller_available_quantity: number;
     can_fulfill: boolean;
     in_sell_list: boolean;
+    product_summary?: string | null;
+    buyer_slug?: string | null;
+    buyer_average_rating?: string | null;
+    buyer_review_count?: number;
     acceptance_terms?: MarketplaceListingTermsPreview | null;
   } | null;
   productId: string | null;
+  productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
+  productSummary?: string | null;
   matchingOfferCount: number;
   errorMessage?: string | null;
 }) {
@@ -966,6 +957,13 @@ export function MarketplaceOfferMatchSection({
       : null;
   const quoteTime = acceptanceTerms
     ? new Date(acceptanceTerms.resolved_at).toLocaleString()
+    : null;
+  const selectedOfferBuyer =
+    selectedOffer?.buyer_display_name ??
+    selectedOffer?.buyer_account_id ??
+    "Buyer account";
+  const selectedOfferBuyerHref = selectedOffer?.buyer_slug
+    ? `/accounts/${selectedOffer.buyer_slug}#feedback`
     : null;
   const sellNowAction = (
     <Button
@@ -1025,11 +1023,21 @@ export function MarketplaceOfferMatchSection({
                       {selectedOffer.can_fulfill ? t("discovery.routes.itemDetail.can.fulfill") : t("discovery.routes.itemDetail.needs.supply")}
                     </Badge>
                   </Inline>
-                  <Text size="sm" tone="secondary">
-                    {t("discovery.routes.itemDetail.offer.from.buyer", {
-                      buyer: selectedOffer.buyer_display_name ?? selectedOffer.buyer_account_id,
-                    })}
-                  </Text>
+                  <AccountReputationSummary
+                    accountName={selectedOfferBuyer}
+                    href={selectedOfferBuyerHref}
+                    averageRating={selectedOffer.buyer_average_rating}
+                    reviewCount={selectedOffer.buyer_review_count ?? 0}
+                    ratingLabel="Buyer account reputation"
+                  />
+                  <ProductOptions
+                    options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                    emptyLabel={
+                      selectedOffer.product_summary ??
+                      productSummary ??
+                      "Selected product"
+                    }
+                  />
                 </Stack>
                 {acceptanceTerms ? (
                   <>
@@ -2376,6 +2384,8 @@ function DiscoveryItemDetailRealtimeView({
                   actionMode={actionMode}
                   selectedOffer={context.selectedAccountOfferMatch}
                   productId={context.selectedProductId}
+                  productSelectionDetails={context.selectedProductSelectionDetails}
+                  productSummary={context.selectedProductSummary}
                   matchingOfferCount={context.visibleAccountOfferMatches.length}
                   errorMessage={actionErrorMessage}
                 />
