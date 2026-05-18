@@ -11,7 +11,7 @@ only compose context stores into `/api/realtime/events`.
 Publish `projection.patch` messages only. Do not stream raw domain events.
 
 - `topics` are route-derived client topics such as `public:market`, `item:{id}`,
-  `listing:{id}`, `seller:{id}`, `account:{id}:listings`, and
+  `listing:{id}`, `public-account:{id}`, `account:{id}:listings`, and
   `account:{id}:offers`.
 - `changes` use `upsert`, `remove`, or `summary`.
 - `projection` must match the emitting outbox projection name.

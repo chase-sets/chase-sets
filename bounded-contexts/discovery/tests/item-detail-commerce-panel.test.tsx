@@ -793,9 +793,9 @@ describe("item detail commerce panel", () => {
     expect(within(sellerListingRow).getByText("4.8")).toBeTruthy();
     expect(within(sellerListingRow).getByText("(12)")).toBeTruthy();
     const sellerReputationLink = within(sellerListingRow).getByRole("link", {
-      name: "View feedback",
+      name: /Chase Sets.*View feedback/,
     });
-    expect(sellerReputationLink.getAttribute("href")).toBe("/sellers/chase-sets-seller#feedback");
+    expect(sellerReputationLink.getAttribute("href")).toBe("/accounts/chase-sets-seller#feedback");
 
     fireEvent.click(
       within(
@@ -806,7 +806,7 @@ describe("item detail commerce panel", () => {
     const buyerReputationLink = screen.getByRole("link", { name: /Ash Ketchum/ });
     expect(within(buyerReputationLink).getByText("4.2")).toBeTruthy();
     expect(within(buyerReputationLink).getByText("(5)")).toBeTruthy();
-    expect(buyerReputationLink.getAttribute("href")).toBe("/sellers/ash-ketchum#feedback");
+    expect(buyerReputationLink.getAttribute("href")).toBe("/accounts/ash-ketchum#feedback");
   });
 
   it("highlights the initial selected listing and attributes the buy panel to it", () => {

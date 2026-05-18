@@ -269,7 +269,7 @@ export function CheckoutCartPage({
                                     option.seller_account_id ??
                                     t("checkout.features.cart.ui.cartPage.marketplace.seller")
                                   }
-                                  href={option.seller_slug ? `/sellers/${option.seller_slug}#feedback` : null}
+                                  href={option.seller_slug ? `/accounts/${option.seller_slug}#feedback` : null}
                                   averageRating={option.seller_average_rating}
                                   reviewCount={option.seller_review_count ?? 0}
                                   emptyLabel={t("checkout.features.cart.ui.cartPage.no.seller.feedback.yet")}

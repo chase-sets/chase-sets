@@ -13,7 +13,7 @@ import type {
 export type {
   DiscoveryItemDetail,
   DiscoveryPublicListing,
-  DiscoveryPublicSeller,
+  DiscoveryPublicAccount,
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
@@ -31,7 +31,7 @@ export type { ProductAlertPageRow } from "./features/product-alerts/read-model/q
 import type {
   DiscoveryItemDetail,
   DiscoveryPublicListing,
-  DiscoveryPublicSeller,
+  DiscoveryPublicAccount,
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
@@ -172,9 +172,9 @@ export function createDiscoveryApiClient({
         }),
       );
     },
-    async getPublicSellerBySlug(slug: string): Promise<DiscoveryPublicSeller> {
+    async getPublicAccountBySlug(slug: string): Promise<DiscoveryPublicAccount> {
       return parseJsonResponse(
-        await client.sellers[":slug"].$get({
+        await client.accounts[":slug"].$get({
           param: { slug },
           header: headers,
         }),

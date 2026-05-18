@@ -3,7 +3,7 @@ import type { DiscoveryRuntimeDeps } from "../runtime-support";
 import { buildDiscoveryMarketProjectionHandlers } from "./projection";
 import {
   getDiscoveryPublicListingBySlug,
-  getDiscoveryPublicSellerBySlug,
+  getDiscoveryPublicAccountBySlug,
   listDiscoveryPublicSitemapUrls,
 } from "./queries";
 
@@ -11,9 +11,9 @@ export type DiscoveryMarketServices = Readonly<{
   getPublicListingBySlug: (
     slug: string,
   ) => ReturnType<typeof getDiscoveryPublicListingBySlug>;
-  getPublicSellerBySlug: (
+  getPublicAccountBySlug: (
     slug: string,
-  ) => ReturnType<typeof getDiscoveryPublicSellerBySlug>;
+  ) => ReturnType<typeof getDiscoveryPublicAccountBySlug>;
   listPublicSitemapUrls: () => ReturnType<typeof listDiscoveryPublicSitemapUrls>;
   projectors: readonly Projector[];
 }>;
@@ -23,7 +23,7 @@ export function createDiscoveryMarketRuntime(
 ): DiscoveryMarketServices {
   return {
     getPublicListingBySlug: (slug) => getDiscoveryPublicListingBySlug(deps.db, slug),
-    getPublicSellerBySlug: (slug) => getDiscoveryPublicSellerBySlug(deps.db, slug),
+    getPublicAccountBySlug: (slug) => getDiscoveryPublicAccountBySlug(deps.db, slug),
     listPublicSitemapUrls: () => listDiscoveryPublicSitemapUrls(deps.db),
     projectors: [
       createProjector({

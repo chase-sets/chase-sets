@@ -3,8 +3,8 @@ import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
   DiscoveryOffer,
+  DiscoveryPublicAccount,
   DiscoveryPublicListing,
-  DiscoveryPublicSeller,
   DiscoverySearchResponse,
 } from "./contracts";
 
@@ -111,15 +111,15 @@ export function applyDiscoveryPublicListingPatch(
   return next;
 }
 
-export function applyDiscoveryPublicSellerPatch(
-  seller: DiscoveryPublicSeller | null,
+export function applyDiscoveryPublicAccountPatch(
+  account: DiscoveryPublicAccount | null,
   patch: RealtimeProjectionPatch,
-): DiscoveryPublicSeller | null {
-  if (!seller) {
-    return seller;
+): DiscoveryPublicAccount | null {
+  if (!account) {
+    return account;
   }
 
-  let next = seller;
+  let next = account;
   for (const change of patch.changes) {
     if (
       change.entity === "discovery.marketListing" &&
@@ -137,7 +137,7 @@ export function applyDiscoveryPublicSellerPatch(
       };
     }
 
-    if (change.entity === "discovery.publicSeller" && change.id === seller.account_id) {
+    if (change.entity === "discovery.publicAccount" && change.id === account.account_id) {
       if (change.op === "remove") {
         return null;
       }
@@ -145,7 +145,7 @@ export function applyDiscoveryPublicSellerPatch(
       if (change.op === "upsert") {
         next = {
           ...next,
-          ...(change.value as Partial<DiscoveryPublicSeller>),
+          ...(change.value as Partial<DiscoveryPublicAccount>),
         };
       }
     }

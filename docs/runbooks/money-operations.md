@@ -50,10 +50,10 @@ When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized
 ## Stripe Connect Notes
 
 - Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without both.
-- Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; seller routes can also pass request-specific return and refresh URLs when creating setup sessions.
-- Seller setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
-- Stripe-connected accounts are configured for manual payout schedules by the Stripe adapter so marketplace payouts remain seller-requested and settlement-triggered.
-- Public seller APIs can start onboarding, open hosted account management, refresh readiness, and request payouts. Provider readiness cannot be manually overwritten through public seller routes.
+- Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; account payout routes can also pass request-specific return and refresh URLs when creating setup sessions.
+- Account setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
+- Stripe-connected accounts are configured for manual payout schedules by the Stripe adapter so marketplace payouts remain account-requested and settlement-triggered.
+- Public account payout APIs can start onboarding, open hosted account management, refresh readiness, and request payouts. Provider readiness cannot be manually overwritten through public account routes.
 - Payout requests use a preview/confirmation step, enforce USD-only amount policy, and keep payout destination details in hosted account management.
 - Hosted setup redirects must stay on the marketplace origin, and provider webhook signatures are verified with a timestamp tolerance to reduce replay risk.
 - Processed provider webhook event ids are stored so duplicate provider events are ignored and auditable.

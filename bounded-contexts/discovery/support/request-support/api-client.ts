@@ -13,7 +13,7 @@ export type {
   DiscoveryCategoryItem,
   DiscoveryItemDetail,
   DiscoveryPublicListing,
-  DiscoveryPublicSeller,
+  DiscoveryPublicAccount,
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
   DiscoveryBulkCartPreview,

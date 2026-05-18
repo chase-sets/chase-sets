@@ -171,7 +171,7 @@ The full policy and confirmation flow lives in [Marketplace Seller Fee Confirmat
 
 Seller Listing Availability is an account-level Marketplace overlay for pausing new seller commitments without changing individual Listing Status values. `GET /api/marketplace/account/listing-availability` returns the current overlay. `POST /api/marketplace/account/listing-availability/disable` accepts optional `reasonCategory` (`travel`, `audit`, `operations`, or `other`) and optional `availableAgainOn` (`YYYY-MM-DD`) for seller-facing context. `POST /api/marketplace/account/listing-availability/enable` restores the account's listings to public availability.
 
-When the overlay is off, Marketplace blocks checkout confirmation and offer acceptance for the seller's listings. Discovery hides affected listings from browse, search, item detail market supply, seller pages, and sitemap surfaces, while direct listing URLs remain reachable with no buy action. The durable behavior model lives in [Marketplace Seller Listing Availability](../../bounded-contexts/marketplace/docs/seller-listing-availability.md).
+When the overlay is off, Marketplace blocks checkout confirmation and offer acceptance for the seller's listings. Discovery hides affected listings from browse, search, item detail market supply, account pages, and sitemap surfaces, while direct listing URLs remain reachable with no buy action. The durable behavior model lives in [Marketplace Seller Listing Availability](../../bounded-contexts/marketplace/docs/seller-listing-availability.md).
 
 ## Marketplace Checkout Fee Confirmation
 

@@ -5,7 +5,7 @@ export type DiscoverySlugEntityKind =
   | "item"
   | "listing"
   | "product"
-  | "seller";
+  | "account";
 
 const ID_SUFFIX_LABEL_LENGTH = 24;
 
