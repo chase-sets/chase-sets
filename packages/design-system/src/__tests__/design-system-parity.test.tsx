@@ -812,7 +812,9 @@ describe("design system", () => {
     expect(accordion.className).toContain("overflow-hidden");
     expect(accordion.className).toContain("-mx-4");
     expect(accordion.className).toContain("first:-mt-4");
+    expect(accordion.className).toContain("first:rounded-t-tokenLg");
     expect(accordion.className).toContain("last:-mb-4");
+    expect(accordion.className).toContain("last:rounded-b-tokenLg");
     expect(accordion.className).not.toContain("modern-surface");
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
   });

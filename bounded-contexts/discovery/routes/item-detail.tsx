@@ -1520,8 +1520,8 @@ function ItemDetailActionCard<TAction extends string>({
   productSummary: string | null;
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
   options: readonly CommerceActionOption<TAction>[];
-  selectedAction: TAction;
-  onSelectedActionChange: (action: TAction) => void;
+  selectedAction: TAction | "";
+  onSelectedActionChange: (action: TAction | "") => void;
   children: ReactNode;
   panelVariant?: FormPanelVariant;
   glow?: boolean;
@@ -1547,11 +1547,10 @@ function ItemDetailActionCard<TAction extends string>({
           type="single"
           variant="sectionList"
           bleed={panelVariant === "plain" ? "compact" : "card"}
-          collapsible={false}
           value={selectedAction}
           onValueChange={(value) => {
-            if (typeof value === "string" && value) {
-              onSelectedActionChange(value as TAction);
+            if (typeof value === "string") {
+              onSelectedActionChange(value as TAction | "");
             }
           }}
           items={options.map((option) => ({
@@ -1602,7 +1601,7 @@ export function BuyActionCard({
       : productId
         ? "make-offer"
         : "set-alert";
-  const [selectedAction, setSelectedAction] = useState<BuyAction>(defaultAction);
+  const [selectedAction, setSelectedAction] = useState<BuyAction | "">(defaultAction);
 
   useEffect(() => {
     setSelectedAction(defaultAction);
@@ -1697,7 +1696,7 @@ export function SellActionCard({
     : productId
       ? "list-for-sale"
       : "set-alert";
-  const [selectedAction, setSelectedAction] = useState<SellAction>(defaultAction);
+  const [selectedAction, setSelectedAction] = useState<SellAction | "">(defaultAction);
 
   useEffect(() => {
     setSelectedAction(defaultAction);
