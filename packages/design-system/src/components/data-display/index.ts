@@ -19,10 +19,10 @@ export {
 export {
   FilterBar,
   type FilterBarProps,
+  FilterArea,
+  type FilterAreaProps,
   FilterBottomSheet,
   type FilterBottomSheetProps,
-  FilterDrawer,
-  type FilterDrawerProps,
   BulkActionBar,
   type BulkActionBarProps,
 } from "./filter";

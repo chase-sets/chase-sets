@@ -3,6 +3,7 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { CategoryDetail, CategoryListItem } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useCategoryList(query: string, initialData?: ListResponse<CategoryListItem> | null) {
   return useFetch(() => api.listCategories<ListResponse<CategoryListItem>>(query), [query], initialData);
@@ -45,6 +46,13 @@ export function archiveCategory(id: string) {
   return api.archiveCategory<CommandResponse>(id);
 }
 
+export function previewBulkCategoryLifecycle(action: string, selection: unknown) {
+  return api.previewBulkCategoryLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkCategoryLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkCategoryLifecycle<BulkLifecycleResult>(action, selection);
+}
 
 
 

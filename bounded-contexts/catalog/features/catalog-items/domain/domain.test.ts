@@ -294,23 +294,35 @@ describe("CatalogItem aggregate", () => {
       expect(events[0].type).toBe("catalog.catalog-item.metadata-revised");
     });
 
-    it("lifecycle: active -> retired -> archived", () => {
-      const events = decide(decideCatalogItem, activeState(), { type: "RetireCatalogItem" as const });
-
-      expect(events[0].type).toBe("catalog.catalog-item.retired");
-
-      const retiredState = givenEvents(activeState(), evolveCatalogItem, [
-        { type: "catalog.catalog-item.retired", data: {} },
-      ] as CatalogItemEvent[]);
-
-      const archiveEvents = decide(decideCatalogItem, retiredState, { type: "ArchiveCatalogItem" as const });
+    it("lifecycle: active -> archived", () => {
+      const archiveEvents = decide(decideCatalogItem, activeState(), { type: "ArchiveCatalogItem" as const });
 
       expect(archiveEvents[0].type).toBe("catalog.catalog-item.archived");
     });
 
+    it("replays historical retired events as archived", () => {
+      const state = givenEvents(activeState(), evolveCatalogItem, [
+        { type: "catalog.catalog-item.retired", data: {} },
+      ] as CatalogItemEvent[]);
+
+      expect(state.status).toBe("archived");
+    });
+
+    it("removes draft items", () => {
+      const events = decide(decideCatalogItem, createdState(), { type: "RemoveDraftCatalogItem" as const });
+
+      expect(events[0].type).toBe("catalog.catalog-item.draft-removed");
+    });
+
+    it("rejects removing active items", () => {
+      expectDomainError(
+        () => decide(decideCatalogItem, activeState(), { type: "RemoveDraftCatalogItem" as const }),
+        "Only draft items can be removed.",
+      );
+    });
+
     it("rejects modifications to archived items", () => {
       const archivedState = givenEvents(activeState(), evolveCatalogItem, [
-        { type: "catalog.catalog-item.retired", data: {} },
         { type: "catalog.catalog-item.archived", data: {} },
       ] as CatalogItemEvent[]);
 
@@ -360,6 +372,15 @@ describe("CatalogItem aggregate", () => {
       });
 
       expect(state.status).toBe("active");
+    });
+
+    it("evolves draft removed event", () => {
+      const state = evolveCatalogItem(createdState(), {
+        type: "catalog.catalog-item.draft-removed",
+        data: {},
+      });
+
+      expect(state.status).toBe("removed");
     });
   });
 });

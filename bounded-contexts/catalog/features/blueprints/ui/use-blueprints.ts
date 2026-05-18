@@ -3,6 +3,7 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Blueprint, BlueprintDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useBlueprintList(query: string, initialData?: ListResponse<Blueprint> | null) {
   return useFetch(() => api.listBlueprints<ListResponse<Blueprint>>(query), [query], initialData);
@@ -52,6 +53,13 @@ export function archiveBlueprint(id: string) {
   return api.archiveBlueprint<CommandResponse>(id);
 }
 
+export function previewBulkBlueprintLifecycle(action: string, selection: unknown) {
+  return api.previewBulkBlueprintLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkBlueprintLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkBlueprintLifecycle<BulkLifecycleResult>(action, selection);
+}
 
 
 

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  AccountReputationSummary,
   Badge,
   Banner,
   Button,
@@ -306,9 +307,13 @@ export function MarketplaceOfferMatchListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{formatMoney(row.price_amount)}</Text>
-                  <Text size="sm" tone="secondary">
-                    {row.buyer_display_name ?? row.buyer_account_id}
-                  </Text>
+                  <AccountReputationSummary
+                    accountName={row.buyer_display_name ?? row.buyer_account_id}
+                    averageRating={row.buyer_average_rating}
+                    reviewCount={row.buyer_review_count ?? 0}
+                    emptyLabel={t("marketplace.features.offers.ui.offerMatchListPage.no.buyer.feedback.yet")}
+                    ratingLabel={t("marketplace.features.offers.ui.offerMatchListPage.buyer.reputation")}
+                  />
                 </Stack>
               ),
             },

@@ -20,6 +20,8 @@ import { EntityListPage } from "../../../support/shell-support/ui/entity-list-pa
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type { SourceObservationListItem } from "./contracts";
 import {
+  bulkRejectSourceObservationsByScope,
+  bulkRejectSourceObservations,
   bulkPromoteSourceObservationsByScope,
   bulkPromoteSourceObservations,
   importTcgdexSet,
@@ -83,6 +85,7 @@ export function SourceObservationListPage({
   const [languageCode, setLanguageCode] = useState("en");
   const [seriesId, setSeriesId] = useState("");
   const [expansionId, setExpansionId] = useState("");
+  const [importing, setImporting] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkPromoting, setBulkPromoting] = useState(false);
   const [promoteAllScope, setPromoteAllScope] =
@@ -92,6 +95,8 @@ export function SourceObservationListPage({
   const [previewingPromoteAll, setPreviewingPromoteAll] = useState(false);
   const [promoteAllRunning, setPromoteAllRunning] = useState(false);
   const [showPromoteAll, setShowPromoteAll] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [bulkRejecting, setBulkRejecting] = useState(false);
   const tcgdexLanguages = useTcgdexLanguages();
   const tcgdexSeries = useTcgdexSeries(languageCode);
   const tcgdexExpansions = useTcgdexExpansions(languageCode, seriesId);
@@ -131,6 +136,13 @@ export function SourceObservationListPage({
       ),
     [data.items],
   );
+  const activeFilterCount = [
+    listControls.search,
+    listControls.status,
+    listControls.language,
+    listControls.source,
+    listControls.setId,
+  ].filter(Boolean).length;
 
   useEffect(() => {
     setSelectedKeys((current) =>
@@ -181,20 +193,37 @@ export function SourceObservationListPage({
   }
 
   async function handleImport() {
-    const result = await importTcgdexSet({ languageCode, setId: expansionId });
-    addToast(
-      t("catalog.features.sourceObservations.ui.list.import.completed", {
-        count: String(result.observed),
-      }),
-      "success",
-    );
-    setShowImport(false);
-    listControls.setFilters({
-      language: result.languageCode,
-      setId: result.expansionId ?? result.setId,
-      status: "observed",
-    });
-    revalidator.revalidate();
+    if (!expansionId) {
+      return;
+    }
+
+    setImporting(true);
+
+    try {
+      const result = await importTcgdexSet({ languageCode, setId: expansionId });
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.import.completed", {
+          count: String(result.observed),
+        }),
+        "success",
+      );
+      setShowImport(false);
+      listControls.setFilters({
+        language: result.languageCode,
+        setId: result.expansionId ?? result.setId,
+        status: "observed",
+      });
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.list.import.failed"),
+        "danger",
+      );
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function handleBulkPromote() {
@@ -222,6 +251,62 @@ export function SourceObservationListPage({
       );
     } finally {
       setBulkPromoting(false);
+    }
+  }
+
+  async function handleBulkReject() {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      addToast(t("catalog.features.sourceObservations.ui.list.bulk.reject.reason.required"), "danger");
+      return;
+    }
+
+    setBulkRejecting(true);
+    try {
+      const result = await bulkRejectSourceObservations(Array.from(selectedKeys), reason);
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.bulk.reject.completed", {
+          rejected: String(result.rejected ?? 0),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }),
+        result.failed > 0 ? "warning" : "success",
+      );
+      setSelectedKeys(new Set());
+      setRejectReason("");
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkRejecting(false);
+    }
+  }
+
+  async function handleRejectAllMatching() {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      addToast(t("catalog.features.sourceObservations.ui.list.bulk.reject.reason.required"), "danger");
+      return;
+    }
+
+    setBulkRejecting(true);
+    try {
+      const result = await bulkRejectSourceObservationsByScope(currentPromotionScope(), reason);
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.bulk.reject.completed", {
+          rejected: String(result.rejected ?? 0),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }),
+        result.failed > 0 ? "warning" : "success",
+      );
+      setRejectReason("");
+      setSelectedKeys(new Set());
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkRejecting(false);
     }
   }
 
@@ -302,6 +387,7 @@ export function SourceObservationListPage({
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        activeFilterCount={activeFilterCount}
         selectedKeys={selectedKeys}
         onSelectionChange={handleSelectionChange}
         isRowSelectable={(row) => row.status === "observed"}
@@ -314,23 +400,40 @@ export function SourceObservationListPage({
                   count: String(count),
                 })
               }
-              actions={
+              primaryActions={
+                <Button
+                  size="sm"
+                  leadingIcon="badgeCheck"
+                  loading={bulkPromoting}
+                  disabled={bulkRejecting}
+                  onClick={handleBulkPromote}
+                >
+                  {t("catalog.features.sourceObservations.ui.list.bulk.promote")}
+                </Button>
+              }
+              secondaryActions={
                 <>
                   <Button
                     tone="secondary"
                     size="sm"
                     onClick={() => setSelectedKeys(new Set())}
-                    disabled={bulkPromoting}
+                    disabled={bulkPromoting || bulkRejecting}
                   >
                     {t("catalog.features.sourceObservations.ui.list.clear.selection")}
                   </Button>
+                  <TextInput
+                    label={t("catalog.features.sourceObservations.ui.list.reject.reason")}
+                    value={rejectReason}
+                    onChange={(event) => setRejectReason(event.target.value)}
+                  />
                   <Button
+                    tone="danger"
                     size="sm"
-                    leadingIcon="badgeCheck"
-                    loading={bulkPromoting}
-                    onClick={handleBulkPromote}
+                    loading={bulkRejecting}
+                    disabled={bulkPromoting || bulkRejecting}
+                    onClick={handleBulkReject}
                   >
-                    {t("catalog.features.sourceObservations.ui.list.bulk.promote")}
+                    {t("catalog.features.sourceObservations.ui.list.bulk.reject")}
                   </Button>
                 </>
               }
@@ -354,10 +457,19 @@ export function SourceObservationListPage({
               ]}
             />
             <TextInput
+              label={t("catalog.features.sourceObservations.ui.list.provider")}
+              value={listControls.source}
+              onChange={(event) => listControls.setSource(event.target.value)}
+            />
+            <TextInput
               label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
               value={listControls.setId}
               onChange={(event) => listControls.setSetId(event.target.value)}
             />
+          </>
+        }
+        filterActions={
+          <Inline gap={2}>
             <Button
               tone="secondary"
               leadingIcon="badgeCheck"
@@ -367,14 +479,28 @@ export function SourceObservationListPage({
             >
               {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.matching")}
             </Button>
-          </>
+            <TextInput
+              label={t("catalog.features.sourceObservations.ui.list.reject.reason")}
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+            />
+            <Button
+              tone="danger"
+              loading={bulkRejecting}
+              disabled={bulkRejecting}
+              onClick={handleRejectAllMatching}
+            >
+              {t("catalog.features.sourceObservations.ui.list.bulk.reject.all.matching")}
+            </Button>
+          </Inline>
         }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
         createButton={
           <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
-            {t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}</Button>
+            {t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
+          </Button>
         }
       />
       <Dialog
@@ -383,11 +509,13 @@ export function SourceObservationListPage({
         title={t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
         footer={
           <Button
+            loading={importing}
             onClick={handleImport}
             disabled={
               !languageCode ||
               !seriesId ||
               !expansionId ||
+              importing ||
               tcgdexLanguages.loading ||
               tcgdexSeries.loading ||
               tcgdexExpansions.loading

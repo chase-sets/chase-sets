@@ -1,5 +1,6 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
+  AccountReputationSummary,
   Badge,
   Banner,
   Button,
@@ -259,6 +260,30 @@ export function CheckoutCartPage({
                         </Button>
                       ) : line.seller_options.length > 0 ? (
                         <>
+                          <Stack gap={2}>
+                            {line.seller_options.map((option) => (
+                              <Inline key={`seller-summary:${option.listing_id}`} align="center">
+                                <AccountReputationSummary
+                                  accountName={
+                                    option.seller_display_name ??
+                                    option.seller_account_id ??
+                                    t("checkout.features.cart.ui.cartPage.marketplace.seller")
+                                  }
+                                  href={option.seller_slug ? `/sellers/${option.seller_slug}#feedback` : null}
+                                  averageRating={option.seller_average_rating}
+                                  reviewCount={option.seller_review_count ?? 0}
+                                  emptyLabel={t("checkout.features.cart.ui.cartPage.no.seller.feedback.yet")}
+                                  ratingLabel={t("checkout.features.cart.ui.cartPage.seller.reputation")}
+                                />
+                                <Text size="sm" tone="secondary">
+                                  {t("checkout.features.cart.ui.cartPage.seller.option.summary", {
+                                    price: `$${option.price_amount}`,
+                                    quantity: option.available_quantity,
+                                  })}
+                                </Text>
+                              </Inline>
+                            ))}
+                          </Stack>
                           <NativeSelect
                             label={t("checkout.features.cart.ui.cartPage.seller.option")}
                             name="lockedListingId"
@@ -330,6 +355,7 @@ export function CheckoutCartPage({
       {cartLineGroups.length > 0 ? (
         <CheckoutLayout
           summaryMobile="hidden"
+          summaryLabel="Cart summary"
           summary={
             <Stack gap={4}>
               <PriceBreakdown

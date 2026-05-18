@@ -35,10 +35,12 @@ import { buildSourceObservationProjectionHandlers } from "../read-model/projecti
 import {
   getSourceObservationDetail,
   listSourceObservationIdsForPromotion,
+  listSourceObservationIntegrationScopes,
   listSourceObservations,
   previewSourceObservationPromotionScope,
   type SourceObservationDetailRow,
   type SourceObservationFilterScope,
+  type SourceObservationIntegrationScopeRow,
   type SourceObservationPromotionPreview,
 } from "../read-model/queries";
 import {
@@ -54,7 +56,7 @@ import {
 
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
-  status: "promoted" | "skipped" | "failed";
+  status: "promoted" | "rejected" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
   reason: string | null;
 }>;
@@ -62,6 +64,7 @@ export type BulkSourceObservationPromotionOutcome = Readonly<{
 export type BulkSourceObservationPromotionResult = Readonly<{
   requested: number;
   promoted: number;
+  rejected?: number;
   skipped: number;
   failed: number;
   outcomes: readonly BulkSourceObservationPromotionOutcome[];
@@ -101,6 +104,16 @@ export type SourceObservationServices = Readonly<{
     scope: SourceObservationFilterScope;
     context: EventStoreContext;
   }) => Promise<BulkSourceObservationPromotionResult>;
+  rejectObservations: (input: {
+    observationIds: readonly string[];
+    reason: string;
+    context: EventStoreContext;
+  }) => Promise<BulkSourceObservationPromotionResult>;
+  rejectObservationScope: (input: {
+    scope: SourceObservationFilterScope;
+    reason: string;
+    context: EventStoreContext;
+  }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservation: (input: {
     observationId: string;
     reason: string;
@@ -109,6 +122,11 @@ export type SourceObservationServices = Readonly<{
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
+  listIntegrationScopes: (params?: {
+    provider?: string;
+    language?: string;
+    setId?: string;
+  }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
   getSourceObservationDetail: (
     observationId: string,
   ) => ReturnType<typeof getSourceObservationDetail>;
@@ -242,6 +260,67 @@ export function createSourceObservationRuntime(
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
 
+  async function rejectObservationIds(input: {
+    observationIds: readonly string[];
+    reason: string;
+    context: EventStoreContext;
+  }): Promise<BulkSourceObservationPromotionResult> {
+    const requestedIds = uniqueObservationIds(input.observationIds);
+    const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+
+    for (const observationId of requestedIds) {
+      try {
+        const observation = await getSourceObservationDetail(deps.db, observationId);
+
+        if (!observation) {
+          outcomes.push({
+            observationId,
+            status: "failed",
+            catalogItemId: null,
+            reason: "Source observation was not found.",
+          });
+          continue;
+        }
+
+        if (observation.status !== "observed") {
+          outcomes.push({
+            observationId,
+            status: "skipped",
+            catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+            reason: `Source observation is already ${observation.status}.`,
+          });
+          continue;
+        }
+
+        await commandHandler({
+          streamId: sourceObservationStreamId(observationId),
+          command: {
+            type: "RejectSourceObservation",
+            reason: input.reason,
+          },
+          context: input.context,
+        });
+        outcomes.push({
+          observationId,
+          status: "rejected",
+          catalogItemId: null,
+          reason: null,
+        });
+      } catch (error) {
+        outcomes.push({
+          observationId,
+          status: "failed",
+          catalogItemId: null,
+          reason: error instanceof Error ? error.message : "Rejection failed.",
+        });
+      }
+    }
+
+    await drainRuntimeProjectors(projectors);
+
+    return summarizePromotionOutcomes(requestedIds.length, outcomes);
+  }
+
   return {
     commandHandler,
     importTcgdexSet: async ({ languageCode, setId, context }) => {
@@ -303,6 +382,15 @@ export function createSourceObservationRuntime(
         context,
       });
     },
+    rejectObservations: rejectObservationIds,
+    rejectObservationScope: async ({ scope, reason, context }) => {
+      const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
+      return rejectObservationIds({
+        observationIds,
+        reason,
+        context,
+      });
+    },
     rejectObservation: async ({ observationId, reason, context }) => {
       await commandHandler({
         streamId: sourceObservationStreamId(observationId),
@@ -317,6 +405,8 @@ export function createSourceObservationRuntime(
       return { observationId, status: "rejected" };
     },
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
+    listIntegrationScopes: (params) =>
+      listSourceObservationIntegrationScopes(deps.db, params),
     getSourceObservationDetail: (observationId) =>
       getSourceObservationDetail(deps.db, observationId),
     projectors,
@@ -760,6 +850,7 @@ function summarizePromotionOutcomes(
   return {
     requested,
     promoted: outcomes.filter((outcome) => outcome.status === "promoted").length,
+    rejected: outcomes.filter((outcome) => outcome.status === "rejected").length,
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,

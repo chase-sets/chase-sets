@@ -8,6 +8,8 @@ const offer: OfferMatchListItem = {
   offer_id: "off_1",
   buyer_account_id: "acc_buyer",
   buyer_display_name: "Ash Ketchum",
+  buyer_average_rating: "4.60",
+  buyer_review_count: 7,
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::condition:raw",
   item_title: "Charizard",
@@ -75,5 +77,20 @@ describe("MarketplaceOfferMatchListPage", () => {
     expect(markup).toContain("$22.00");
     expect(markup).toContain("$20.00");
     expect(markup).toContain("$2.00 below ask");
+    expect(markup).toContain("Ash Ketchum");
+    expect(markup).toContain("Buyer reputation");
+  });
+
+  it("shows buyer reputation on offer match rows", () => {
+    const markup = renderToString(
+      <MarketplaceOfferMatchListPage
+        data={{ items: [offer] }}
+        cartData={{ items: [] }}
+      />,
+    );
+
+    expect(markup).toContain("Buyer reputation");
+    expect(markup).toContain("4.6");
+    expect(markup).toContain("(<!-- -->7<!-- -->)");
   });
 });

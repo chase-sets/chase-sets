@@ -7,6 +7,11 @@ import {
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
+  createBulkLifecycleOperations,
+  type BulkLifecycleOperations,
+  type BulkSelection,
+} from "../../../support/runtime-support/bulk-lifecycle";
+import {
   decideReferenceRecord,
   decideReferenceType,
   evolveReferenceRecord,
@@ -23,8 +28,14 @@ import {
 import {
   getReferenceRecord,
   getReferenceType,
+  listReferenceRecordBulkRows,
+  listReferenceRecordIds,
   listReferenceRecords,
+  listReferenceTypeBulkRows,
+  listReferenceTypeIds,
   listReferenceTypes,
+  type ReferenceRecordListParams,
+  type ReferenceTypeListParams,
 } from "../read-model/queries";
 import { buildReferenceDataProjectionHandlers } from "../read-model/projection";
 
@@ -49,6 +60,8 @@ export type ReferenceDataServices = Readonly<{
   getReferenceRecord: (
     referenceRecordId: string,
   ) => ReturnType<typeof getReferenceRecord>;
+  referenceTypeBulkLifecycle: BulkLifecycleOperations<ReferenceTypeListParams, ReferenceTypeCommand, ReferenceTypeState, ReferenceTypeEvent>;
+  referenceRecordBulkLifecycle: BulkLifecycleOperations<ReferenceRecordListParams, ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>;
   projectors: readonly Projector[];
 }>;
 
@@ -76,6 +89,75 @@ export function createReferenceDataRuntime(
     decide: decideReferenceRecord,
   });
 
+  const projectors = [
+    createProjector({
+      projectorName: "catalog-reference-data-projection",
+      eventStore: deps.eventStore,
+      checkpointStore: deps.checkpointStore,
+      handlers: buildReferenceDataProjectionHandlers(deps.db),
+    }),
+  ];
+  const referenceTypeBulkLifecycle = createBulkLifecycleOperations<ReferenceTypeListParams, ReferenceTypeCommand, ReferenceTypeState, ReferenceTypeEvent>({
+    actions: [
+      {
+        action: "publish",
+        readyStatus: "draft",
+        command: { type: "PublishReferenceType" },
+        streamId: (id) => `catalog.reference-type-${id}`,
+        blockedReason: (status) => `Only draft Reference Types can be published. Current status: ${status}.`,
+      },
+      {
+        action: "deprecate",
+        readyStatus: "active",
+        command: { type: "DeprecateReferenceType" },
+        streamId: (id) => `catalog.reference-type-${id}`,
+        blockedReason: (status) => `Only active Reference Types can be deprecated. Current status: ${status}.`,
+      },
+      {
+        action: "archive",
+        readyStatus: "deprecated",
+        command: { type: "ArchiveReferenceType" },
+        streamId: (id) => `catalog.reference-type-${id}`,
+        blockedReason: (status) => `Only deprecated Reference Types can be archived. Current status: ${status}.`,
+      },
+    ],
+    commandHandler: referenceTypeCommandHandler,
+    resolveIds: (selection: BulkSelection<ReferenceTypeListParams>) =>
+      selection.mode === "ids" ? Promise.resolve(selection.ids) : listReferenceTypeIds(deps.db, selection.query),
+    loadRows: (ids) => listReferenceTypeBulkRows(deps.db, ids),
+    projectors,
+  });
+  const referenceRecordBulkLifecycle = createBulkLifecycleOperations<ReferenceRecordListParams, ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>({
+    actions: [
+      {
+        action: "publish",
+        readyStatus: "draft",
+        command: { type: "PublishReferenceRecord" },
+        streamId: (id) => `catalog.reference-record-${id}`,
+        blockedReason: (status) => `Only draft Reference Records can be published. Current status: ${status}.`,
+      },
+      {
+        action: "deprecate",
+        readyStatus: "active",
+        command: { type: "DeprecateReferenceRecord" },
+        streamId: (id) => `catalog.reference-record-${id}`,
+        blockedReason: (status) => `Only active Reference Records can be deprecated. Current status: ${status}.`,
+      },
+      {
+        action: "archive",
+        readyStatus: "deprecated",
+        command: { type: "ArchiveReferenceRecord" },
+        streamId: (id) => `catalog.reference-record-${id}`,
+        blockedReason: (status) => `Only deprecated Reference Records can be archived. Current status: ${status}.`,
+      },
+    ],
+    commandHandler: referenceRecordCommandHandler,
+    resolveIds: (selection: BulkSelection<ReferenceRecordListParams>) =>
+      selection.mode === "ids" ? Promise.resolve(selection.ids) : listReferenceRecordIds(deps.db, selection.query),
+    loadRows: (ids) => listReferenceRecordBulkRows(deps.db, ids),
+    projectors,
+  });
+
   return {
     referenceTypeCommandHandler,
     referenceRecordCommandHandler,
@@ -83,13 +165,8 @@ export function createReferenceDataRuntime(
     getReferenceType: (referenceTypeId) => getReferenceType(deps.db, referenceTypeId),
     listReferenceRecords: (params) => listReferenceRecords(deps.db, params),
     getReferenceRecord: (referenceRecordId) => getReferenceRecord(deps.db, referenceRecordId),
-    projectors: [
-      createProjector({
-        projectorName: "catalog-reference-data-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
-        handlers: buildReferenceDataProjectionHandlers(deps.db),
-      }),
-    ],
+    referenceTypeBulkLifecycle,
+    referenceRecordBulkLifecycle,
+    projectors,
   };
 }

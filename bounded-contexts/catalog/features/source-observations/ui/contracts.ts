@@ -22,6 +22,22 @@ export interface SourceObservationDetail extends SourceObservationListItem {
   source_payload: JsonValue;
 }
 
+export interface SourceObservationIntegrationScope {
+  provider_key: string;
+  language_code: string;
+  expansion_id: string;
+  expansion_name: string;
+  series_id: string;
+  series_name: string;
+  total_observations: number;
+  observed_observations: number;
+  promoted_observations: number;
+  rejected_observations: number;
+  first_observed_at: string;
+  latest_observed_at: string;
+  latest_source_updated_at: string | null;
+}
+
 export interface TcgdexSetImportResult {
   setId: string;
   expansionId: string;
@@ -68,6 +84,7 @@ export interface SourceObservationPromotionPreview {
 
 export type BulkSourceObservationPromotionStatus =
   | "promoted"
+  | "rejected"
   | "skipped"
   | "failed";
 
@@ -81,6 +98,7 @@ export interface BulkSourceObservationPromotionOutcome {
 export interface BulkSourceObservationPromotionResult {
   requested: number;
   promoted: number;
+  rejected?: number;
   skipped: number;
   failed: number;
   outcomes: BulkSourceObservationPromotionOutcome[];

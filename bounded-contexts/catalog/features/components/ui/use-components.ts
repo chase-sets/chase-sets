@@ -3,6 +3,7 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Component, ComponentDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useComponentList(query: string, initialData?: ListResponse<Component> | null) {
   return useFetch(() => api.listComponents<ListResponse<Component>>(query), [query], initialData);
@@ -54,6 +55,13 @@ export function archiveComponent(id: string) {
   return api.archiveComponent<CommandResponse>(id);
 }
 
+export function previewBulkComponentLifecycle(action: string, selection: unknown) {
+  return api.previewBulkComponentLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkComponentLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkComponentLifecycle<BulkLifecycleResult>(action, selection);
+}
 
 
 

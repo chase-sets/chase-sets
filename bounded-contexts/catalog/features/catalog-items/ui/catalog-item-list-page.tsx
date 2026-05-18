@@ -3,6 +3,8 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo } from "react";
 import { useRevalidator } from "react-router";
 import {
+  AlertDialog,
+  BottomSheet,
   BulkActionBar,
   Button,
   DataTable,
@@ -18,16 +20,37 @@ import {
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import {
+  BulkLifecycleActionBar,
+  type BulkLifecycleCandidate,
+  type BulkLifecyclePreview,
+  type BulkLifecycleResult,
+  type BulkLifecycleSelection,
+} from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
 import {
   confirmBulkPublishCatalogItems,
+  confirmBulkCatalogItemEdit,
+  confirmBulkCatalogItemLifecycle,
   createCatalogItem,
   localizedTextMapFromEnglish,
+  previewBulkCatalogItemEdit,
+  previewBulkCatalogItemLifecycle,
   previewBulkPublishCatalogItems,
+  removeDraftCatalogItem,
 } from "./use-catalog-items";
-import type { BulkPublishCandidate, BulkPublishPreview, BulkPublishResult, CatalogItemListItem } from "./contracts";
+import type {
+  BulkEditCatalogItemCandidate,
+  BulkEditCatalogItemOperation,
+  BulkEditCatalogItemPreview,
+  BulkEditCatalogItemResult,
+  BulkPublishCandidate,
+  BulkPublishPreview,
+  BulkPublishResult,
+  CatalogItemListItem,
+} from "./contracts";
 
 function buildColumns(): DataColumn<CatalogItemListItem>[] {
   return [
@@ -54,6 +77,35 @@ function buildBulkPreviewColumns(): DataColumn<BulkPublishCandidate>[] {
   ];
 }
 
+function buildBulkEditColumns(): DataColumn<BulkEditCatalogItemCandidate>[] {
+  return [
+    { key: "title", header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"), cell: (row) => row.title },
+    { key: "status", header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"), cell: (row) => row.status },
+    { key: "blueprint", header: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id"), cell: (row) => row.blueprint_id ?? "—" },
+    {
+      key: "categories",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.category.ids"),
+      cell: (row) => row.category_ids.join(", ") || "—",
+    },
+    {
+      key: "tags",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.tags"),
+      cell: (row) => row.tags.join(", ") || "—",
+    },
+    { key: "outcome", header: t("catalog.features.catalogItems.ui.catalogItemListPage.result"), cell: (row) => <StatusPill>{row.outcome}</StatusPill> },
+    { key: "reason", header: t("catalog.features.catalogItems.ui.catalogItemListPage.reason"), cell: (row) => row.reason ?? "—" },
+  ];
+}
+
+function buildBulkLifecycleColumns(): DataColumn<BulkLifecycleCandidate>[] {
+  return [
+    { key: "label", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.record"), cell: (row) => row.label },
+    { key: "status", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.status"), cell: (row) => row.status },
+    { key: "outcome", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.outcome"), cell: (row) => <StatusPill>{row.outcome}</StatusPill> },
+    { key: "reason", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.reason"), cell: (row) => row.reason ?? "—" },
+  ];
+}
+
 const statusOptions = [
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.draft"), value: "draft" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.active"), value: "active" },
@@ -62,11 +114,62 @@ const statusOptions = [
 ];
 
 const ALL_LANGUAGES = "__all__";
+const ALL_FILTER_VALUES = "__all__";
 
 const languageOptions = [
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.english"), value: "en" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.japanese"), value: "ja" },
 ];
+const booleanOptions = [
+  { label: t("catalog.support.shellSupport.ui.entityListPage.all"), value: ALL_FILTER_VALUES },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.yes"), value: "true" },
+  { label: t("catalog.support.shellSupport.ui.entityListPage.no"), value: "false" },
+];
+const blueprintStateOptions = [
+  { label: t("catalog.support.shellSupport.ui.entityListPage.all"), value: ALL_FILTER_VALUES },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.assigned"), value: "assigned" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.missing"), value: "missing" },
+];
+const lifecycleActions = [
+  { value: "retire", label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.retire") },
+  { value: "archive", label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.archive") },
+];
+const bulkEditActions = [
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.assign.blueprint"), value: "assignBlueprint" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.assign.category"), value: "assignCategory" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.remove.category"), value: "removeCategory" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.set.tags"), value: "setTags" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.merge.tags"), value: "mergeTags" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.clear.tags"), value: "clearTags" },
+];
+
+type CatalogItemSelectedOperation =
+  | "publish"
+  | "retire"
+  | "archive"
+  | "removeDrafts"
+  | BulkEditCatalogItemOperation["action"];
+
+const selectedOperationOptions = [
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.publish"), value: "publish" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.retire"), value: "retire" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.archive"), value: "archive" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.remove.drafts"), value: "removeDrafts" },
+  ...bulkEditActions,
+];
+
+function isBulkEditOperation(action: CatalogItemSelectedOperation): action is BulkEditCatalogItemOperation["action"] {
+  return action === "assignBlueprint"
+    || action === "assignCategory"
+    || action === "removeCategory"
+    || action === "setTags"
+    || action === "mergeTags"
+    || action === "clearTags";
+}
+
+function isLifecycleOperation(action: CatalogItemSelectedOperation): action is "retire" | "archive" {
+  return action === "retire" || action === "archive";
+}
 
 export function CatalogItemListPage({ data, query }: CatalogListRouteData<CatalogItemListItem>) {
   const listControls = useCatalogListQueryControls(query);
@@ -83,8 +186,130 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   const [bulkResult, setBulkResult] = useState<BulkPublishResult | null>(null);
   const [bulkScopeLabel, setBulkScopeLabel] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [showRemoveDrafts, setShowRemoveDrafts] = useState(false);
   const bulkColumns = useMemo(() => buildBulkPreviewColumns(), []);
   const bulkRows = (bulkResult?.candidates ?? bulkPreview?.candidates ?? []).slice(0, 20);
+  const selectedItems = useMemo(
+    () => data.items.filter((item) => selectedKeys.has(item.catalog_item_id)),
+    [data.items, selectedKeys],
+  );
+  const selectedDraftIds = selectedItems
+    .filter((item) => item.status === "draft")
+    .map((item) => item.catalog_item_id);
+  const canRemoveSelectedDrafts =
+    selectedKeys.size > 0 && selectedDraftIds.length === selectedKeys.size;
+  const [selectedOperation, setSelectedOperation] = useState<CatalogItemSelectedOperation>("publish");
+  const [bulkLifecycleSelection, setBulkLifecycleSelection] = useState<BulkLifecycleSelection | null>(null);
+  const [bulkLifecyclePreview, setBulkLifecyclePreview] = useState<BulkLifecyclePreview | null>(null);
+  const [bulkLifecycleResult, setBulkLifecycleResult] = useState<BulkLifecycleResult | null>(null);
+  const [bulkLifecycleBusy, setBulkLifecycleBusy] = useState(false);
+  const bulkLifecycleColumns = useMemo(() => buildBulkLifecycleColumns(), []);
+  const bulkLifecycleRows = (bulkLifecycleResult?.candidates ?? bulkLifecyclePreview?.candidates ?? []).slice(0, 20);
+  const [bulkEditAction, setBulkEditAction] = useState<BulkEditCatalogItemOperation["action"]>("assignBlueprint");
+  const [bulkEditBlueprintId, setBulkEditBlueprintId] = useState("");
+  const [bulkEditCategoryId, setBulkEditCategoryId] = useState("");
+  const [bulkEditTags, setBulkEditTags] = useState("");
+  const [bulkEditSelection, setBulkEditSelection] = useState<unknown | null>(null);
+  const [bulkEditOperation, setBulkEditOperation] = useState<BulkEditCatalogItemOperation | null>(null);
+  const [bulkEditPreview, setBulkEditPreview] = useState<BulkEditCatalogItemPreview | null>(null);
+  const [bulkEditResult, setBulkEditResult] = useState<BulkEditCatalogItemResult | null>(null);
+  const [bulkEditBusy, setBulkEditBusy] = useState(false);
+  const bulkEditColumns = useMemo(() => buildBulkEditColumns(), []);
+  const bulkEditRows = (bulkEditResult?.candidates ?? bulkEditPreview?.candidates ?? []).slice(0, 20);
+  const dialogBulkEditAction = bulkEditResult?.action ?? bulkEditPreview?.action ?? bulkEditOperation?.action ?? bulkEditAction;
+  const bulkEditActionLabel = getBulkEditActionLabel(dialogBulkEditAction);
+  const canPreviewBulkEdit = canPreviewBulkEditAction(bulkEditAction);
+  const canPreviewSelectedOperation = selectedOperation === "publish"
+    || isLifecycleOperation(selectedOperation)
+    || (isBulkEditOperation(selectedOperation) && canPreviewBulkEditAction(selectedOperation));
+  const selectedOperationBusy = bulkBusy || bulkLifecycleBusy || bulkEditBusy;
+  const canApplySelectedOperation = selectedOperation === "removeDrafts" ? canRemoveSelectedDrafts : canPreviewSelectedOperation;
+  const selectedPreviewLabel = getSelectedOperationPreviewLabel(selectedOperation);
+  const selectedApplyLabel = getSelectedOperationApplyLabel(selectedOperation);
+  const bulkLifecycleActionLabel = lifecycleActions.find((action) => action.value === (bulkLifecycleResult?.action ?? bulkLifecyclePreview?.action))?.label
+    ?? bulkLifecyclePreview?.action
+    ?? selectedOperation;
+  const activeFilterCount = [
+    listControls.search,
+    listControls.status,
+    listControls.language,
+    listControls.source,
+    listControls.blueprintId,
+    listControls.tag,
+    listControls.blueprintState,
+    listControls.hasImages,
+    listControls.hasSourceReferences,
+    listControls.missingRequiredFields,
+  ].filter(Boolean).length;
+
+  function getBulkEditActionLabel(action: BulkEditCatalogItemOperation["action"]) {
+    return bulkEditActions.find((option) => option.value === action)?.label ?? action;
+  }
+
+  function canPreviewBulkEditAction(action: BulkEditCatalogItemOperation["action"]) {
+    return action === "clearTags"
+      || (action === "assignBlueprint" && bulkEditBlueprintId.trim().length > 0)
+      || ((action === "assignCategory" || action === "removeCategory") && bulkEditCategoryId.trim().length > 0)
+      || ((action === "setTags" || action === "mergeTags") && tagsFromInput(bulkEditTags).length > 0);
+  }
+
+  function getSelectedOperationPreviewLabel(action: CatalogItemSelectedOperation) {
+    if (action === "publish") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.publish");
+    }
+
+    if (action === "archive") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.archive");
+    }
+
+    if (action === "retire") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.retire");
+    }
+
+    if (action === "assignBlueprint") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.blueprint.assignment");
+    }
+
+    if (action === "assignCategory") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.category.assignment");
+    }
+
+    if (action === "removeCategory") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.category.removal");
+    }
+
+    if (action === "clearTags") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.tag.clear");
+    }
+
+    if (action === "removeDrafts") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.preview.draft.removal");
+    }
+
+    return t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.selected", {
+      action: getBulkEditActionLabel(action).toLowerCase(),
+    });
+  }
+
+  function getSelectedOperationApplyLabel(action: CatalogItemSelectedOperation) {
+    if (action === "publish") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.publish.selected");
+    }
+
+    if (action === "archive") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.archive.selected");
+    }
+
+    if (action === "retire") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.retire.selected");
+    }
+
+    if (action === "removeDrafts") {
+      return t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected");
+    }
+
+    return getBulkEditActionLabel(action);
+  }
 
   async function handleCreate() {
     const itemId = createId("cat");
@@ -104,13 +329,6 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     revalidator.revalidate();
   }
 
-  async function handlePreviewSelected() {
-    await handlePreviewBulkPublish(
-      { mode: "ids", ids: [...selectedKeys] },
-      t("catalog.features.catalogItems.ui.catalogItemListPage.selected.items"),
-    );
-  }
-
   async function handlePreviewFilteredDrafts() {
     await handlePreviewBulkPublish(
       {
@@ -120,6 +338,8 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
           status: "draft",
           language: listControls.language,
           source: listControls.source,
+          blueprintId: listControls.blueprintId,
+          tag: listControls.tag,
         },
       },
       t("catalog.features.catalogItems.ui.catalogItemListPage.filtered.drafts"),
@@ -159,6 +379,279 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     }
   }
 
+  async function handleRemoveSelectedDrafts() {
+    setBulkBusy(true);
+    try {
+      for (const itemId of selectedDraftIds) {
+        await removeDraftCatalogItem(itemId);
+      }
+
+      addToast(
+        t("catalog.features.catalogItems.ui.catalogItemListPage.draft.catalog.items.removed", {
+          count: selectedDraftIds.length,
+        }),
+        "success",
+      );
+      setSelectedKeys(new Set());
+      setShowRemoveDrafts(false);
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function buildBulkEditOperation(action: BulkEditCatalogItemOperation["action"]): BulkEditCatalogItemOperation {
+    if (action === "assignBlueprint") {
+      return { action, blueprintId: bulkEditBlueprintId.trim() };
+    }
+
+    if (action === "assignCategory" || action === "removeCategory") {
+      return { action, categoryId: bulkEditCategoryId.trim() };
+    }
+
+    if (action === "setTags" || action === "mergeTags") {
+      return { action, tags: tagsFromInput(bulkEditTags) };
+    }
+
+    return { action: "clearTags" };
+  }
+
+  async function handlePreviewBulkEdit(selection: unknown, action: BulkEditCatalogItemOperation["action"] = bulkEditAction) {
+    const operation = buildBulkEditOperation(action);
+    setBulkEditBusy(true);
+    setBulkEditResult(null);
+
+    try {
+      const preview = await previewBulkCatalogItemEdit(operation, selection);
+      setBulkEditSelection(selection);
+      setBulkEditOperation(operation);
+      setBulkEditPreview(preview);
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkEditBusy(false);
+    }
+  }
+
+  async function handleConfirmBulkEdit() {
+    if (!bulkEditSelection || !bulkEditOperation) {
+      return;
+    }
+
+    setBulkEditBusy(true);
+    try {
+      const result = await confirmBulkCatalogItemEdit(bulkEditOperation, bulkEditSelection);
+      setBulkEditResult(result);
+      addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.completed"), "success");
+      setSelectedKeys(new Set());
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkEditBusy(false);
+    }
+  }
+
+  function resetBulkEditDialog() {
+    setBulkEditSelection(null);
+    setBulkEditOperation(null);
+    setBulkEditPreview(null);
+    setBulkEditResult(null);
+  }
+
+  async function handlePreviewBulkLifecycle(action: "retire" | "archive", selection: BulkLifecycleSelection) {
+    setBulkLifecycleBusy(true);
+    setBulkLifecycleResult(null);
+
+    try {
+      const preview = await previewBulkCatalogItemLifecycle(action, selection);
+      setBulkLifecycleSelection(selection);
+      setBulkLifecyclePreview(preview);
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkLifecycleBusy(false);
+    }
+  }
+
+  async function handleConfirmBulkLifecycle() {
+    if (!bulkLifecycleSelection || !bulkLifecyclePreview) {
+      return;
+    }
+
+    setBulkLifecycleBusy(true);
+    try {
+      const result = await confirmBulkCatalogItemLifecycle(bulkLifecyclePreview.action, bulkLifecycleSelection);
+      setBulkLifecycleResult(result);
+      setSelectedKeys(new Set());
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setBulkLifecycleBusy(false);
+    }
+  }
+
+  function resetBulkLifecycleDialog() {
+    setBulkLifecycleSelection(null);
+    setBulkLifecyclePreview(null);
+    setBulkLifecycleResult(null);
+  }
+
+  async function handlePreviewSelectedOperation() {
+    const selection = { mode: "ids" as const, ids: [...selectedKeys] };
+
+    if (selectedOperation === "publish") {
+      await handlePreviewBulkPublish(selection, t("catalog.features.catalogItems.ui.catalogItemListPage.selected.items"));
+      return;
+    }
+
+    if (isLifecycleOperation(selectedOperation)) {
+      await handlePreviewBulkLifecycle(selectedOperation, selection);
+      return;
+    }
+
+    if (selectedOperation === "removeDrafts") {
+      setShowRemoveDrafts(true);
+      return;
+    }
+
+    await handlePreviewBulkEdit(selection, selectedOperation);
+  }
+
+  function renderBulkEditFields(action: BulkEditCatalogItemOperation["action"]) {
+    if (action === "assignBlueprint") {
+      return (
+        <TextInput
+          label={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id.or.slug")}
+          value={bulkEditBlueprintId}
+          onChange={(event) => setBulkEditBlueprintId(event.target.value)}
+        />
+      );
+    }
+
+    if (action === "assignCategory" || action === "removeCategory") {
+      return (
+        <TextInput
+          label={t("catalog.features.catalogItems.ui.catalogItemListPage.category.id")}
+          value={bulkEditCategoryId}
+          onChange={(event) => setBulkEditCategoryId(event.target.value)}
+        />
+      );
+    }
+
+    if (action === "setTags" || action === "mergeTags") {
+      return (
+        <TextInput
+          label={t("catalog.features.catalogItems.ui.catalogItemListPage.tags")}
+          value={bulkEditTags}
+          onChange={(event) => setBulkEditTags(event.target.value)}
+          placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.tags.placeholder")}
+        />
+      );
+    }
+
+    return null;
+  }
+
+  function renderSelectedOperationControls(layout: "desktop" | "sheet") {
+    const fields = isBulkEditOperation(selectedOperation) ? renderBulkEditFields(selectedOperation) : null;
+    const controls = (
+      <>
+        <Select
+          label={t("catalog.features.catalogItems.ui.catalogItemListPage.operation")}
+          value={selectedOperation}
+          onValueChange={(value) => setSelectedOperation(value as CatalogItemSelectedOperation)}
+          items={selectedOperationOptions}
+        />
+        {fields}
+        {selectedOperation !== "removeDrafts" && (
+          <Button
+            size="sm"
+            tone="secondary"
+            onClick={handlePreviewSelectedOperation}
+            loading={selectedOperationBusy}
+            disabled={selectedKeys.size === 0 || !canPreviewSelectedOperation}
+          >
+            {selectedPreviewLabel}
+          </Button>
+        )}
+        {selectedOperation === "removeDrafts" ? (
+          <AlertDialog
+            open={showRemoveDrafts}
+            onOpenChange={setShowRemoveDrafts}
+            title={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items")}
+            description={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items.description", {
+              count: selectedDraftIds.length,
+            })}
+            confirmLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected")}
+            cancelLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.cancel")}
+            tone="danger"
+            onConfirm={handleRemoveSelectedDrafts}
+            trigger={
+              <Button
+                size="sm"
+                tone="danger"
+                loading={selectedOperationBusy}
+                disabled={selectedKeys.size === 0 || !canApplySelectedOperation}
+              >
+                {selectedApplyLabel}
+              </Button>
+            }
+          />
+        ) : (
+          <Button
+            size="sm"
+            tone={selectedOperation === "archive" ? "danger" : "primary"}
+            onClick={handlePreviewSelectedOperation}
+            loading={selectedOperationBusy}
+            disabled={selectedKeys.size === 0 || !canApplySelectedOperation}
+          >
+            {selectedApplyLabel}
+          </Button>
+        )}
+      </>
+    );
+
+    return layout === "desktop" ? <Inline gap={2}>{controls}</Inline> : <Stack gap={3}>{controls}</Stack>;
+  }
+
+  function renderSelectedBulkActionBar() {
+    return (
+      <BulkActionBar
+        count={selectedKeys.size}
+        formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count })}
+        actions={
+          <>
+            <div className="hidden flex-wrap items-end gap-2 md:flex">
+              <Button size="sm" tone="secondary" onClick={() => setSelectedKeys(new Set())} disabled={selectedOperationBusy}>
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.clear.selection")}</Button>
+              {renderSelectedOperationControls("desktop")}
+            </div>
+            <div className="flex items-center gap-2 md:hidden">
+              <Button size="sm" tone="secondary" onClick={() => setSelectedKeys(new Set())} disabled={selectedOperationBusy}>
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.clear")}</Button>
+              <BottomSheet
+                title={t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count: selectedKeys.size })}
+                description={t("catalog.features.catalogItems.ui.catalogItemListPage.selected.scope.description")}
+                trigger={<Button size="sm">{t("catalog.features.catalogItems.ui.catalogItemListPage.actions")}</Button>}
+                height="expanded"
+              >
+                <Stack gap={4}>
+                  {renderSelectedOperationControls("sheet")}
+                  <Button tone="secondary" block onClick={() => setSelectedKeys(new Set())} disabled={selectedOperationBusy}>
+                    {t("catalog.features.catalogItems.ui.catalogItemListPage.clear.selection")}</Button>
+                </Stack>
+              </BottomSheet>
+            </div>
+          </>
+        }
+      />
+    );
+  }
+
   return (
     <>
       <EntityListPage
@@ -176,6 +669,7 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        activeFilterCount={activeFilterCount}
         extraFilters={
           <>
             <Select
@@ -193,25 +687,88 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
               onChange={(event) => listControls.setSource(event.target.value)}
               placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.source.placeholder")}
             />
+            <TextInput
+              label={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id")}
+              value={listControls.blueprintId}
+              onChange={(event) => listControls.setBlueprintId(event.target.value)}
+              placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id.placeholder")}
+            />
+            <TextInput
+              label={t("catalog.features.catalogItems.ui.catalogItemListPage.tag")}
+              value={listControls.tag}
+              onChange={(event) => listControls.setTag(event.target.value)}
+              placeholder={t("catalog.features.catalogItems.ui.catalogItemListPage.tag.placeholder")}
+            />
+            <Select
+              label={t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint")}
+              value={listControls.blueprintState || ALL_FILTER_VALUES}
+              onValueChange={(value) => listControls.setBlueprintState(value === ALL_FILTER_VALUES ? "" : value)}
+              items={blueprintStateOptions}
+            />
+            <Select
+              label={t("catalog.features.catalogItems.ui.catalogItemListPage.has.images")}
+              value={listControls.hasImages || ALL_FILTER_VALUES}
+              onValueChange={(value) => listControls.setHasImages(value === ALL_FILTER_VALUES ? "" : value)}
+              items={booleanOptions}
+            />
+            <Select
+              label={t("catalog.features.catalogItems.ui.catalogItemListPage.has.source.references")}
+              value={listControls.hasSourceReferences || ALL_FILTER_VALUES}
+              onValueChange={(value) => listControls.setHasSourceReferences(value === ALL_FILTER_VALUES ? "" : value)}
+              items={booleanOptions}
+            />
+            <Select
+              label={t("catalog.features.catalogItems.ui.catalogItemListPage.missing.required.fields")}
+              value={listControls.missingRequiredFields || ALL_FILTER_VALUES}
+              onValueChange={(value) => listControls.setMissingRequiredFields(value === ALL_FILTER_VALUES ? "" : value)}
+              items={booleanOptions}
+            />
           </>
         }
         selectedKeys={selectedKeys}
         onSelectionChange={setSelectedKeys}
         bulkActionBar={
-          selectedKeys.size > 0 ? (
-            <BulkActionBar
-              count={selectedKeys.size}
-              formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count })}
-              actions={
-                <Inline gap={2}>
-                  <Button size="sm" onClick={handlePreviewSelected} disabled={bulkBusy}>
-                    {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.publish")}</Button>
-                  <Button size="sm" tone="secondary" onClick={() => setSelectedKeys(new Set())}>
-                    {t("catalog.features.catalogItems.ui.catalogItemListPage.clear.selection")}</Button>
-                </Inline>
-              }
-            />
-          ) : null
+          <>
+            {selectedKeys.size > 0 ? renderSelectedBulkActionBar() : (
+              <BulkLifecycleActionBar
+                entityName="Catalog Items"
+                selectedKeys={selectedKeys}
+                filterSelection={{ mode: "filter", query }}
+                filterCount={data.total}
+                actions={lifecycleActions}
+                clearSelection={() => setSelectedKeys(new Set())}
+                preview={previewBulkCatalogItemLifecycle}
+                confirm={confirmBulkCatalogItemLifecycle}
+                onCompleted={revalidator.revalidate}
+              />
+            )}
+            {selectedKeys.size === 0 && data.total > 0 && (
+              <BulkActionBar
+                count={data.total}
+                formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count })}
+                actions={
+                  <Inline gap={2}>
+                    <Select
+                      label={t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.action")}
+                      value={bulkEditAction}
+                      onValueChange={(value) => setBulkEditAction(value as BulkEditCatalogItemOperation["action"])}
+                      items={bulkEditActions}
+                    />
+                    {renderBulkEditFields(bulkEditAction)}
+                    <Button
+                      size="sm"
+                      tone="secondary"
+                      onClick={() => handlePreviewBulkEdit({ mode: "filter", query })}
+                      loading={bulkEditBusy}
+                      disabled={data.total === 0 || !canPreviewBulkEdit}
+                    >
+                      {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.matching.items")}
+                    </Button>
+                  </Inline>
+                }
+              />
+            )}
+          </>
         }
         page={listControls.page}
         pageSize={listControls.pageSize}
@@ -313,6 +870,150 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
           )}
         </Stack>
       </Dialog>
+      <Dialog
+        open={bulkLifecyclePreview !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetBulkLifecycleDialog();
+          }
+        }}
+        title={
+          bulkLifecycleResult
+            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.title", { action: bulkLifecycleActionLabel })
+            : t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.title", { action: bulkLifecycleActionLabel })
+        }
+        description={
+          bulkLifecycleResult
+            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.description", {
+                succeeded: bulkLifecycleResult.succeeded_count,
+                skipped: bulkLifecycleResult.skipped_count,
+                failed: bulkLifecycleResult.failed_count,
+              })
+            : bulkLifecyclePreview
+              ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.description", {
+                  ready: bulkLifecyclePreview.ready_count,
+                  blocked: bulkLifecyclePreview.blocked_count,
+                })
+              : undefined
+        }
+        footer={
+          bulkLifecycleResult ? (
+            <Button onClick={resetBulkLifecycleDialog}>
+              {t("catalog.support.shellSupport.ui.bulkLifecycleActions.close")}
+            </Button>
+          ) : (
+            <Inline gap={2}>
+              <Button
+                onClick={handleConfirmBulkLifecycle}
+                loading={bulkLifecycleBusy}
+                disabled={!bulkLifecyclePreview || bulkLifecyclePreview.ready_count === 0}
+              >
+                {t("catalog.support.shellSupport.ui.bulkLifecycleActions.confirm")}
+              </Button>
+              <Button tone="secondary" onClick={resetBulkLifecycleDialog} disabled={bulkLifecycleBusy}>
+                {t("catalog.support.shellSupport.ui.bulkLifecycleActions.cancel")}
+              </Button>
+            </Inline>
+          )
+        }
+      >
+        <Stack gap={3}>
+          <DataTable
+            rows={bulkLifecycleRows}
+            columns={bulkLifecycleColumns}
+            getRowId={(row) => row.id}
+            density="compact"
+            emptyTitle={t("catalog.support.shellSupport.ui.bulkLifecycleActions.no.records")}
+          />
+          {(bulkLifecycleResult?.candidates.length ?? bulkLifecyclePreview?.candidates.length ?? 0) > bulkLifecycleRows.length && (
+            <Text tone="secondary">
+              {t("catalog.support.shellSupport.ui.bulkLifecycleActions.truncated", {
+                shown: bulkLifecycleRows.length,
+                total: bulkLifecycleResult?.candidates.length ?? bulkLifecyclePreview?.candidates.length ?? 0,
+              })}
+            </Text>
+          )}
+        </Stack>
+      </Dialog>
+      <Dialog
+        open={bulkEditPreview !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetBulkEditDialog();
+          }
+        }}
+        title={
+          bulkEditResult
+            ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.result.title", { action: bulkEditActionLabel })
+            : t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.title", { action: bulkEditActionLabel })
+        }
+        description={
+          bulkEditResult
+            ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.result.description", {
+                succeeded: bulkEditResult.succeeded_count,
+                skipped: bulkEditResult.skipped_count,
+                failed: bulkEditResult.failed_count,
+              })
+            : bulkEditPreview
+              ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.description", {
+                  ready: bulkEditPreview.ready_count,
+                  blocked: bulkEditPreview.blocked_count,
+                })
+              : undefined
+        }
+        footer={
+          bulkEditResult ? (
+            <Button onClick={resetBulkEditDialog}>
+              {t("catalog.features.catalogItems.ui.catalogItemListPage.close")}
+            </Button>
+          ) : (
+            <Inline gap={2}>
+              <Button
+                onClick={handleConfirmBulkEdit}
+                loading={bulkEditBusy}
+                disabled={!bulkEditPreview || bulkEditPreview.ready_count === 0}
+              >
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.confirm")}
+              </Button>
+              <Button tone="secondary" onClick={resetBulkEditDialog} disabled={bulkEditBusy}>
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.cancel")}
+              </Button>
+            </Inline>
+          )
+        }
+      >
+        <Stack gap={3}>
+          <Text tone="secondary">
+            {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.partial.success.note")}
+          </Text>
+          <DataTable
+            rows={bulkEditRows}
+            columns={bulkEditColumns}
+            getRowId={(row) => row.catalog_item_id}
+            emptyTitle={t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.no.items")}
+            density="compact"
+          />
+          {(bulkEditResult?.candidates.length ?? bulkEditPreview?.candidates.length ?? 0) > bulkEditRows.length && (
+            <Text tone="secondary">
+              {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.preview.truncated", {
+                shown: bulkEditRows.length,
+                total: bulkEditResult?.candidates.length ?? bulkEditPreview?.candidates.length ?? 0,
+              })}
+            </Text>
+          )}
+        </Stack>
+      </Dialog>
     </>
   );
+}
+
+function tagsFromInput(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
 }

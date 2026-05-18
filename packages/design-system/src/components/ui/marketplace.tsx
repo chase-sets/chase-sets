@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type MouseEventHandler, type ReactNode } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -38,7 +38,6 @@ import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { Input } from "./input";
 import { Progress, Skeleton } from "./progress";
-import { BottomSheet } from "../feedback";
 
 export type MarketplaceDensity = "compact" | "comfortable" | "focused";
 export type ListingModel = "product" | "service" | "rental" | "booking" | "digital" | "quote" | "local";
@@ -400,6 +399,93 @@ export function RatingSummary({ value, count, label, compact = false }: RatingSu
   );
 }
 
+export interface AccountReputationSummaryProps {
+  accountName: ReactNode;
+  href?: string | null;
+  averageRating?: number | string | null;
+  reviewCount?: number | string | null;
+  emptyLabel?: ReactNode;
+  ratingLabel?: string;
+  onLinkClick?: MouseEventHandler<HTMLAnchorElement>;
+  className?: string;
+}
+
+function normalizeRatingValue(value: number | string | null | undefined): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function hasReviewCount(value: number | string | null | undefined): value is number | string {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0;
+  }
+
+  return false;
+}
+
+export function AccountReputationSummary({
+  accountName,
+  href,
+  averageRating,
+  reviewCount,
+  emptyLabel = "No feedback yet",
+  ratingLabel,
+  onLinkClick,
+  className,
+}: AccountReputationSummaryProps) {
+  const rating = normalizeRatingValue(averageRating);
+  const hasReputation = rating !== null && hasReviewCount(reviewCount);
+  const content = (
+    <>
+      <span className="font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
+      {hasReputation ? (
+        <RatingSummary
+          value={rating}
+          count={reviewCount}
+          label={ratingLabel}
+          compact
+        />
+      ) : (
+        <span className="text-xs leading-4 text-[var(--muted-foreground)]">{emptyLabel}</span>
+      )}
+    </>
+  );
+  const classes = cn(
+    "inline-grid min-w-0 max-w-full justify-items-start gap-1 text-left",
+    className,
+  );
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        onClick={onLinkClick}
+        className={cn(
+          classes,
+          "ds-focus rounded-[var(--radius-sm)] hover:text-[var(--foreground)]",
+        )}
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return <span className={classes}>{content}</span>;
+}
+
 export interface ListingCardProps {
   href?: string;
   title: string;
@@ -424,6 +510,7 @@ export interface ListingCardProps {
   sellerTrustLabel: ReactNode;
   sellerVerified?: boolean;
   sellerMeta?: ReactNode;
+  sellerFeedbackAction?: ReactNode;
   fulfillment: ReactNode;
   availability: ReactNode;
   condition?: ReactNode;
@@ -469,6 +556,7 @@ export function ListingCard({
   sellerTrustLabel,
   sellerVerified = false,
   sellerMeta,
+  sellerFeedbackAction,
   fulfillment,
   availability,
   condition,
@@ -497,6 +585,25 @@ export function ListingCard({
     sellerVerified
       ? <VerifiedSellerBadge label={sellerTrustLabel} />
       : <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
+  );
+  const sellerTrustSummary = (
+    <div className="grid min-w-0 gap-1">
+      <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
+        <AccountReputationSummary
+          accountName={sellerName}
+          averageRating={rating}
+          reviewCount={reviewCount}
+          className="min-w-0"
+        />
+        {resolvedSellerTrust}
+      </div>
+      {sellerMeta || sellerFeedbackAction ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-secondary)]">
+          {sellerMeta ? <span>{sellerMeta}</span> : null}
+          {sellerFeedbackAction}
+        </div>
+      ) : null}
+    </div>
   );
   const resolvedProtection = protection ? <BuyerProtectionBadge label={protection} /> : null;
   const canUseFallbackAsImage = Boolean(imageFallbackSrc) && imageFallbackMode === "permanent";
@@ -604,15 +711,10 @@ export function ListingCard({
             {priceDetail ? <div className="text-xs leading-4 text-[var(--muted-foreground)]">{priceDetail}</div> : null}
             {priceExplanation ? <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div> : null}
           </div>
-          {rating ? <RatingSummary value={rating} count={reviewCount} compact /> : null}
         </div>
 
         <div className="grid gap-2 text-sm text-[var(--text-secondary)]">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-[var(--foreground)]">{sellerName}</span>
-            {resolvedSellerTrust}
-            {sellerMeta ? <span>{sellerMeta}</span> : null}
-          </div>
+          {sellerTrustSummary}
           <div className="flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-1.5">
               <Truck className="h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
@@ -823,6 +925,7 @@ export interface SellerTrustCardProps {
   verified?: boolean;
   rating?: number;
   reviewCount?: number | string;
+  feedbackAction?: ReactNode;
   completedSales?: ReactNode;
   responseTime?: ReactNode;
   shipsFrom?: ReactNode;
@@ -836,6 +939,7 @@ export function SellerTrustCard({
   verified = false,
   rating,
   reviewCount,
+  feedbackAction,
   completedSales,
   responseTime,
   shipsFrom,
@@ -854,11 +958,18 @@ export function SellerTrustCard({
     <Card className="p-0">
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
-          <div className="grid gap-2">
-            <CardTitle>{name}</CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="grid min-w-0 gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <CardTitle>{name}</CardTitle>
               {verified ? <TrustBadge>Verified seller</TrustBadge> : <Badge variant="outline">New seller</Badge>}
-              {rating ? <RatingSummary value={rating} count={reviewCount} compact /> : null}
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <AccountReputationSummary
+                accountName={name}
+                averageRating={rating}
+                reviewCount={reviewCount}
+              />
+              {feedbackAction}
             </div>
           </div>
           {actions}
@@ -1091,48 +1202,6 @@ export function SortSelector({ label, value, options, onChange }: SortSelectorPr
   );
 }
 
-export interface MarketplaceUiFilterBottomSheetProps {
-  title: ReactNode;
-  open: boolean;
-  children: ReactNode;
-  footer?: ReactNode;
-  description?: ReactNode;
-  closeLabel?: string;
-  onOpenChange?: (open: boolean) => void;
-}
-
-export function MarketplaceUiFilterBottomSheet({
-  title,
-  open,
-  children,
-  footer,
-  description,
-  closeLabel,
-  onOpenChange
-}: MarketplaceUiFilterBottomSheetProps) {
-  return (
-    <BottomSheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title={title}
-      description={description}
-      closeLabel={closeLabel}
-      height="expanded"
-      footer={footer}
-    >
-      <div className="grid gap-4">{children}</div>
-    </BottomSheet>
-  );
-}
-
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export interface MarketplaceFilterDrawerProps extends MarketplaceUiFilterBottomSheetProps {}
-
-/** @deprecated Use the canonical MarketplaceFilterBottomSheet from the app-shell patterns. Drawers are reserved for navigation. */
-export function MarketplaceFilterDrawer(props: MarketplaceFilterDrawerProps) {
-  return <MarketplaceUiFilterBottomSheet {...props} />;
-}
-
 export interface NoResultsRecoveryProps {
   title: ReactNode;
   description: ReactNode;
@@ -1212,6 +1281,7 @@ export interface ListingPurchasePanelProps {
   price: ReactNode;
   seller: ReactNode;
   trust: ReactNode;
+  accountTrust?: ReactNode;
   availability: ReactNode;
   fulfillment: ReactNode;
   policy: ReactNode;
@@ -1226,6 +1296,7 @@ export function ListingPurchasePanel({
   price,
   seller,
   trust,
+  accountTrust,
   availability,
   fulfillment,
   policy,
@@ -1249,11 +1320,11 @@ export function ListingPurchasePanel({
               </div>
               <div className="text-3xl font-bold tabular-nums text-[var(--foreground)]">{price}</div>
             </div>
-            <TrustBadge>{trust}</TrustBadge>
+            {accountTrust ? null : <TrustBadge>{trust}</TrustBadge>}
           </div>
           <div className="grid gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
             {[
-              ["Seller", seller],
+              ["Seller", accountTrust ?? seller],
               ["Availability", availability],
               ["Fulfillment", fulfillment],
               ["Returns", policy],
@@ -1261,7 +1332,7 @@ export function ListingPurchasePanel({
             ].map(([label, value]) => (
               <div key={String(label)} className="flex justify-between gap-4">
                 <span className="text-[var(--text-secondary)]">{label}</span>
-                <span className="text-right font-semibold text-[var(--foreground)]">{value}</span>
+                <div className="text-right font-semibold text-[var(--foreground)]">{value}</div>
               </div>
             ))}
           </div>
@@ -2100,11 +2171,12 @@ export interface OfferCardProps {
   title: ReactNode;
   amount: ReactNode;
   status?: ReactNode;
+  accountTrust?: ReactNode;
   details?: ReactNode;
   actions?: ReactNode;
 }
 
-export function OfferCard({ title, amount, status, details, actions }: OfferCardProps) {
+export function OfferCard({ title, amount, status, accountTrust, details, actions }: OfferCardProps) {
   return (
     <Card>
       <CardHeader>
@@ -2112,6 +2184,7 @@ export function OfferCard({ title, amount, status, details, actions }: OfferCard
           <div>
             <CardTitle>{title}</CardTitle>
             {status ? <CardDescription>{status}</CardDescription> : null}
+            {accountTrust ? <div className="mt-2">{accountTrust}</div> : null}
           </div>
           <div className="text-right text-2xl font-bold tabular-nums text-[var(--foreground)]">{amount}</div>
         </div>

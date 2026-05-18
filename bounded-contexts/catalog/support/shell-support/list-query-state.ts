@@ -12,6 +12,26 @@ export type CatalogListQuery = Readonly<{
   source: string;
   setId: string;
   typeKey: string;
+  valueKind: string;
+  valueType: string;
+  filterable: string;
+  searchable: string;
+  sortable: string;
+  hasFieldRules: string;
+  hasDimensionRules: string;
+  hasComponents: string;
+  parentCategoryId: string;
+  hierarchy: string;
+  blueprintId: string;
+  blueprintState: string;
+  tag: string;
+  hasImages: string;
+  hasSourceReferences: string;
+  missingRequiredFields: string;
+  attributeKey: string;
+  attributeValue: string;
+  relationshipType: string;
+  relatedReferenceId: string;
   page: number;
   pageSize: number;
 }>;
@@ -21,7 +41,31 @@ export type CatalogListRouteData<T> = Readonly<{
   query: CatalogListQuery;
 }>;
 
-type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "setId" | "typeKey" | "page">>;
+const EXTRA_FILTER_KEYS = [
+  "valueKind",
+  "valueType",
+  "filterable",
+  "searchable",
+  "sortable",
+  "hasFieldRules",
+  "hasDimensionRules",
+  "hasComponents",
+  "parentCategoryId",
+  "hierarchy",
+  "blueprintId",
+  "blueprintState",
+  "tag",
+  "hasImages",
+  "hasSourceReferences",
+  "missingRequiredFields",
+  "attributeKey",
+  "attributeValue",
+  "relationshipType",
+  "relatedReferenceId",
+] as const;
+
+type ExtraFilterKey = (typeof EXTRA_FILTER_KEYS)[number];
+type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "setId" | "typeKey" | "page" | ExtraFilterKey>>;
 
 export function readCatalogListQuery(request: Request): CatalogListQuery {
   const url = new URL(request.url);
@@ -34,6 +78,26 @@ export function readCatalogListQuery(request: Request): CatalogListQuery {
     source: url.searchParams.get("source")?.trim() ?? "",
     setId: url.searchParams.get("setId")?.trim() ?? "",
     typeKey: url.searchParams.get("typeKey")?.trim() ?? "",
+    valueKind: url.searchParams.get("valueKind")?.trim() ?? "",
+    valueType: url.searchParams.get("valueType")?.trim() ?? "",
+    filterable: url.searchParams.get("filterable")?.trim() ?? "",
+    searchable: url.searchParams.get("searchable")?.trim() ?? "",
+    sortable: url.searchParams.get("sortable")?.trim() ?? "",
+    hasFieldRules: url.searchParams.get("hasFieldRules")?.trim() ?? "",
+    hasDimensionRules: url.searchParams.get("hasDimensionRules")?.trim() ?? "",
+    hasComponents: url.searchParams.get("hasComponents")?.trim() ?? "",
+    parentCategoryId: url.searchParams.get("parentCategoryId")?.trim() ?? "",
+    hierarchy: url.searchParams.get("hierarchy")?.trim() ?? "",
+    blueprintId: url.searchParams.get("blueprintId")?.trim() ?? "",
+    blueprintState: url.searchParams.get("blueprintState")?.trim() ?? "",
+    tag: url.searchParams.get("tag")?.trim() ?? "",
+    hasImages: url.searchParams.get("hasImages")?.trim() ?? "",
+    hasSourceReferences: url.searchParams.get("hasSourceReferences")?.trim() ?? "",
+    missingRequiredFields: url.searchParams.get("missingRequiredFields")?.trim() ?? "",
+    attributeKey: url.searchParams.get("attributeKey")?.trim() ?? "",
+    attributeValue: url.searchParams.get("attributeValue")?.trim() ?? "",
+    relationshipType: url.searchParams.get("relationshipType")?.trim() ?? "",
+    relatedReferenceId: url.searchParams.get("relatedReferenceId")?.trim() ?? "",
     page: Number.isFinite(pageFromUrl) ? Math.max(0, pageFromUrl - 1) : 0,
     pageSize: CATALOG_LIST_PAGE_SIZE,
   };
@@ -58,6 +122,11 @@ export function buildCatalogListApiQuery(query: CatalogListQuery): string {
   }
   if (query.typeKey) {
     params.set("typeKey", query.typeKey);
+  }
+  for (const key of EXTRA_FILTER_KEYS) {
+    if (query[key]) {
+      params.set(key, query[key]);
+    }
   }
   params.set("limit", String(query.pageSize));
   params.set("offset", String(query.page * query.pageSize));
@@ -128,6 +197,18 @@ export function applyCatalogListQueryToSearchParams(
       next.delete("typeKey");
     }
     next.delete("page");
+  }
+
+  for (const key of EXTRA_FILTER_KEYS) {
+    if (update[key] !== undefined) {
+      const value = update[key].trim();
+      if (value) {
+        next.set(key, value);
+      } else {
+        next.delete(key);
+      }
+      next.delete("page");
+    }
   }
 
   if (update.page !== undefined) {
@@ -219,6 +300,26 @@ export function useCatalogListQueryControls(
     source: query.source,
     setId: query.setId,
     typeKey: query.typeKey,
+    valueKind: query.valueKind,
+    valueType: query.valueType,
+    filterable: query.filterable,
+    searchable: query.searchable,
+    sortable: query.sortable,
+    hasFieldRules: query.hasFieldRules,
+    hasDimensionRules: query.hasDimensionRules,
+    hasComponents: query.hasComponents,
+    parentCategoryId: query.parentCategoryId,
+    hierarchy: query.hierarchy,
+    blueprintId: query.blueprintId,
+    blueprintState: query.blueprintState,
+    tag: query.tag,
+    hasImages: query.hasImages,
+    hasSourceReferences: query.hasSourceReferences,
+    missingRequiredFields: query.missingRequiredFields,
+    attributeKey: query.attributeKey,
+    attributeValue: query.attributeValue,
+    relationshipType: query.relationshipType,
+    relatedReferenceId: query.relatedReferenceId,
     page: query.page,
     pageSize: query.pageSize,
     loading: navigation.state !== "idle",
@@ -228,6 +329,26 @@ export function useCatalogListQueryControls(
     setSource: (source: string) => commitWithCurrentSearch({ source }),
     setSetId: (setId: string) => commitWithCurrentSearch({ setId }),
     setTypeKey: (typeKey: string) => commitWithCurrentSearch({ typeKey }),
+    setValueKind: (valueKind: string) => commitWithCurrentSearch({ valueKind }),
+    setValueType: (valueType: string) => commitWithCurrentSearch({ valueType }),
+    setFilterable: (filterable: string) => commitWithCurrentSearch({ filterable }),
+    setSearchable: (searchable: string) => commitWithCurrentSearch({ searchable }),
+    setSortable: (sortable: string) => commitWithCurrentSearch({ sortable }),
+    setHasFieldRules: (hasFieldRules: string) => commitWithCurrentSearch({ hasFieldRules }),
+    setHasDimensionRules: (hasDimensionRules: string) => commitWithCurrentSearch({ hasDimensionRules }),
+    setHasComponents: (hasComponents: string) => commitWithCurrentSearch({ hasComponents }),
+    setParentCategoryId: (parentCategoryId: string) => commitWithCurrentSearch({ parentCategoryId }),
+    setHierarchy: (hierarchy: string) => commitWithCurrentSearch({ hierarchy }),
+    setBlueprintId: (blueprintId: string) => commitWithCurrentSearch({ blueprintId }),
+    setBlueprintState: (blueprintState: string) => commitWithCurrentSearch({ blueprintState }),
+    setTag: (tag: string) => commitWithCurrentSearch({ tag }),
+    setHasImages: (hasImages: string) => commitWithCurrentSearch({ hasImages }),
+    setHasSourceReferences: (hasSourceReferences: string) => commitWithCurrentSearch({ hasSourceReferences }),
+    setMissingRequiredFields: (missingRequiredFields: string) => commitWithCurrentSearch({ missingRequiredFields }),
+    setAttributeKey: (attributeKey: string) => commitWithCurrentSearch({ attributeKey }),
+    setAttributeValue: (attributeValue: string) => commitWithCurrentSearch({ attributeValue }),
+    setRelationshipType: (relationshipType: string) => commitWithCurrentSearch({ relationshipType }),
+    setRelatedReferenceId: (relatedReferenceId: string) => commitWithCurrentSearch({ relatedReferenceId }),
     setFilters: (filters: Omit<CatalogListQueryUpdate, "page">) =>
       commitWithCurrentSearch(filters),
     setPage: (page: number) => commitWithCurrentSearch({ page }),

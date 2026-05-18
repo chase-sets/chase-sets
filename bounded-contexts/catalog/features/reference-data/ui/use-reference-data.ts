@@ -3,6 +3,7 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { ReferenceRecord, ReferenceRelationship, ReferenceType } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useReferenceTypeList(query: string, initialData?: ListResponse<ReferenceType> | null) {
   return useFetch(() => api.listReferenceTypes<ListResponse<ReferenceType>>(query), [query], initialData);
@@ -51,6 +52,14 @@ export function archiveReferenceType(id: string) {
   return api.archiveReferenceType<CommandResponse>(id);
 }
 
+export function previewBulkReferenceTypeLifecycle(action: string, selection: unknown) {
+  return api.previewBulkReferenceTypeLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkReferenceTypeLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkReferenceTypeLifecycle<BulkLifecycleResult>(action, selection);
+}
+
 export function createReferenceRecord(body: {
   referenceRecordId: string;
   typeKey: string;
@@ -84,4 +93,12 @@ export function deprecateReferenceRecord(id: string) {
 
 export function archiveReferenceRecord(id: string) {
   return api.archiveReferenceRecord<CommandResponse>(id);
+}
+
+export function previewBulkReferenceRecordLifecycle(action: string, selection: unknown) {
+  return api.previewBulkReferenceRecordLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkReferenceRecordLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkReferenceRecordLifecycle<BulkLifecycleResult>(action, selection);
 }

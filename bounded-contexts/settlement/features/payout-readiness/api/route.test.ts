@@ -137,6 +137,38 @@ describe("settlement payout setup routes", () => {
     expect(createOnboardingSession).not.toHaveBeenCalled();
   });
 
+  it("accepts payout setup redirects that match the forwarded public origin", async () => {
+    const createOnboardingSession = vi.fn(async () => ({
+      providerReference: "acct_test",
+      url: "https://connect.test/setup",
+      expiresAt: null,
+    }));
+    const app = createApp({ createOnboardingSession }, ["payouts.setup"]);
+
+    const response = await app.request("http://internal-app/payout-setup/onboarding-session", {
+      method: "POST",
+      body: JSON.stringify({
+        returnUrl: "https://marketplace.preview.test/account/payouts",
+        refreshUrl: "https://marketplace.preview.test/account/payouts/setup",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-Host": "marketplace.preview.test",
+        "X-Forwarded-Proto": "https",
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect(createOnboardingSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        returnUrl: "https://marketplace.preview.test/account/payouts",
+        refreshUrl: "https://marketplace.preview.test/account/payouts/setup",
+      }),
+      context,
+    );
+  });
+
   it("creates account management sessions through the payout adapter", async () => {
     const createAccountManagementSession = vi.fn(async () => ({
       providerReference: "acct_test",
@@ -176,13 +208,16 @@ describe("settlement payout setup routes", () => {
 
     const response = await app.request("/payout-setup/refresh", {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ contactEmail: "seller@example.test" }),
       headers: { "Content-Type": "application/json" },
     });
 
     expect(response.status).toBe(200);
     expect(refreshProviderReadiness).toHaveBeenCalledWith(
-      { accountId: "acc_seller" },
+      expect.objectContaining({
+        accountId: "acc_seller",
+        contactEmail: "seller@example.test",
+      }),
       context,
     );
   });

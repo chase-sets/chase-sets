@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
+  AccountReputationSummary,
   Badge,
   Container,
   Grid,
@@ -26,6 +27,15 @@ import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics
 
 function formatMoney(value: string): string {
   return `$${value}`;
+}
+
+function parseRating(value: string | null | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const rating = Number(value);
+  return Number.isFinite(rating) ? rating : undefined;
 }
 
 function titleForListing(listing: {
@@ -215,6 +225,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
     (listing.seller_listing_availability_status ?? "available") === "available";
   const limitLabel = purchaseLimitLabel(listing);
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
+  const sellerRating = parseRating(listing.seller_average_rating);
 
   return (
     <Container width="content">
@@ -249,6 +260,21 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   ? t("discovery.routes.publicListing.verified.seller")
                   : t("discovery.routes.publicListing.seller.details.visible")
               }
+              accountTrust={
+                <Stack gap={1}>
+                  <AccountReputationSummary
+                    accountName={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
+                    averageRating={sellerRating}
+                    reviewCount={listing.seller_review_count ?? 0}
+                    className="justify-items-end text-right"
+                  />
+                  <Badge tone={listing.status === "active" && sellerListingsAvailable ? "success" : "neutral"}>
+                    {listing.status === "active" && sellerListingsAvailable
+                      ? t("discovery.routes.publicListing.verified.seller")
+                      : t("discovery.routes.publicListing.seller.details.visible")}
+                  </Badge>
+                </Stack>
+              }
               availability={
                 sellerListingsAvailable
                   ? availability
@@ -278,6 +304,8 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
             <SellerTrustCard
               name={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
               verified={listing.status === "active" && sellerListingsAvailable}
+              rating={sellerRating}
+              reviewCount={listing.seller_review_count ?? 0}
               completedSales={t("discovery.routes.publicListing.active.listing")}
               shipsFrom={fulfillment}
               policies={[
@@ -306,7 +334,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               ]}
               actions={
                 listing.seller_slug ? (
-                  <LinkButton href={`/sellers/${listing.seller_slug}`} tone="secondary">
+                  <LinkButton href={`/sellers/${listing.seller_slug}#feedback`} tone="secondary">
                     {t("discovery.routes.publicListing.view.seller")}
                   </LinkButton>
                 ) : null

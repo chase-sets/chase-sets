@@ -28,10 +28,11 @@ Application code should not introduce:
 - `ChaseRoot` owns reduced-motion policy through `reducedMotion="user" | "always" | "never"` and all component motion should flow through that root contract.
 - Layout should be built from primitives such as `Page`, `Grid`, `Stack`, `SplitPane`, `Surface`, and shell components.
 - Form screens should use `Field`, `FormSection`, and field controls rather than direct inputs.
-- Panel interactions should use the canonical pattern taxonomy from [Panel Interaction Patterns](./PANEL_INTERACTIONS.md): `NavigationDrawer`, `Sidebar`, `SideSheet`, `BottomSheet`, `ModalDialog`, `Popover`/`Menu`, and `FullPage`. Existing low-level `Drawer` exports remain for compatibility and specialized composition, not as a generic product pattern name.
+- Panel interactions must use the canonical pattern taxonomy from [Panel Interaction Patterns](./PANEL_INTERACTIONS.md): `NavigationDrawer`, `Sidebar`, `SideSheet`, `BottomSheet`, `ModalDialog`, `Popover`/`Menu`, and `FullPage`. The package does not expose generic drawer or legacy dropdown aliases.
 - Overlays should use design-system Dialog, Sheet, Popover, Tooltip, Menu, and AlertDialog primitives instead of route-local overlay CSS.
 - Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionBar`, and `MetricStrip`.
+- `BulkActionBar` should keep the selected-count fact visible, place the most likely safe action in `primaryActions`, place supporting actions such as clearing selection in `secondaryActions`, and move advanced, rare, or risky choices into `overflowActions`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
 
 ## Progressive Disclosure

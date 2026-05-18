@@ -185,10 +185,13 @@ export interface DiscoveryMarketListing {
   max_units_per_day?: number | null;
   max_units_per_customer_account?: number | null;
   status: string;
+  seller_slug?: string | null;
   seller_listing_availability_status?: "available" | "unavailable";
   seller_listing_availability_reason_category?: string | null;
   seller_listing_available_again_on?: string | null;
   seller_display_name: string | null;
+  seller_average_rating?: string | null;
+  seller_review_count?: number;
   visible_quantity: number;
   created_at: string;
   updated_at: string;
@@ -197,6 +200,8 @@ export interface DiscoveryMarketListing {
 export interface DiscoveryPublicListing extends DiscoveryMarketListing {
   seller_slug: string | null;
   seller_display_name: string | null;
+  seller_average_rating?: string | null;
+  seller_review_count?: number;
 }
 
 export interface DiscoveryPublicSeller {
@@ -204,9 +209,23 @@ export interface DiscoveryPublicSeller {
   seller_slug: string;
   seller_display_name: string | null;
   status: string;
+  average_rating?: string | null;
+  review_count?: number;
   active_listing_count: number;
   updated_at: string;
+  recent_reviews: DiscoveryPublicSellerReview[];
   listings: DiscoveryPublicListing[];
+}
+
+export interface DiscoveryPublicSellerReview {
+  review_id: string;
+  author_account_id: string;
+  author_display_name: string | null;
+  author_role: string;
+  rating: number;
+  feedback: string | null;
+  submitted_at: string | null;
+  updated_at: string;
 }
 
 export interface DiscoverySitemapUrl {
@@ -229,6 +248,9 @@ export interface DiscoveryAccountOfferMatch {
   status: string;
   accepted_seller_account_id: string | null;
   accepted_at: string | null;
+  buyer_slug?: string | null;
+  buyer_average_rating?: string | null;
+  buyer_review_count?: number;
   seller_available_quantity: number;
   can_fulfill: boolean;
   in_sell_list: boolean;
@@ -251,6 +273,9 @@ export interface DiscoveryOffer {
   status: string;
   accepted_seller_account_id: string | null;
   accepted_at: string | null;
+  buyer_slug?: string | null;
+  buyer_average_rating?: string | null;
+  buyer_review_count?: number;
   created_at: string;
   updated_at: string;
 }

@@ -5,6 +5,7 @@ import {
   type ListParams,
   type ListResult,
 } from "../../../support/projection-support/list-query";
+import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type BlueprintRow = Readonly<{
   blueprint_id: string;
@@ -36,12 +37,64 @@ export type BlueprintDetailRow = Readonly<{
   updated_at: string;
 }>;
 
+export type BlueprintListParams = ListParams & Readonly<{
+  hasComponents?: string;
+  hasFieldRules?: string;
+  hasDimensionRules?: string;
+}>;
+
 export async function listBlueprints(
   db: PgQueryable,
-  params: ListParams = {},
+  params: BlueprintListParams = {},
 ): Promise<ListResult<BlueprintRow>> {
-  const query = buildFilteredQuery("catalog_blueprints", params, ["key", "name"], "key ASC");
+  const extraConditions: string[] = [];
+
+  if (params.hasComponents === "true") {
+    extraConditions.push("jsonb_array_length(component_ids) > 0");
+  } else if (params.hasComponents === "false") {
+    extraConditions.push("jsonb_array_length(component_ids) = 0");
+  }
+  if (params.hasFieldRules === "true") {
+    extraConditions.push("jsonb_array_length(field_rules) > 0");
+  } else if (params.hasFieldRules === "false") {
+    extraConditions.push("jsonb_array_length(field_rules) = 0");
+  }
+  if (params.hasDimensionRules === "true") {
+    extraConditions.push("jsonb_array_length(dimension_rules) > 0");
+  } else if (params.hasDimensionRules === "false") {
+    extraConditions.push("jsonb_array_length(dimension_rules) = 0");
+  }
+
+  const query = buildFilteredQuery("catalog_blueprints", params, ["key", "name"], "key ASC", extraConditions);
   return executeListQuery<BlueprintRow>(db, query.countSql, query.listSql, query.values);
+}
+
+export async function listBlueprintIds(
+  db: PgQueryable,
+  params: BlueprintListParams = {},
+): Promise<string[]> {
+  const result = await listBlueprints(db, { ...params, limit: undefined, offset: undefined });
+  return result.items.map((row) => row.blueprint_id);
+}
+
+export async function listBlueprintBulkRows(
+  db: PgQueryable,
+  blueprintIds: readonly string[],
+): Promise<BulkLifecycleRow[]> {
+  if (blueprintIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<BlueprintRow>(
+    `SELECT * FROM catalog_blueprints WHERE blueprint_id = ANY($1::text[])`,
+    [[...blueprintIds]],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.blueprint_id,
+    label: row.name || row.key,
+    status: row.status,
+  }));
 }
 
 export async function getBlueprintDetail(db: PgQueryable, blueprintId: string) {
@@ -52,4 +105,3 @@ export async function getBlueprintDetail(db: PgQueryable, blueprintId: string) {
 
   return result.rows[0] ?? null;
 }
-

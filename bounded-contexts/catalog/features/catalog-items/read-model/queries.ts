@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { type ListParams, type ListResult } from "../../../support/projection-support/list-query";
+import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type CatalogItemListRow = Readonly<{
   catalog_item_id: string;
@@ -52,11 +53,24 @@ export type BulkPublishCatalogItemRow = Readonly<{
   updated_at: string;
 }>;
 
+export type BulkEditCatalogItemRow = Readonly<{
+  catalog_item_id: string;
+  title: string;
+  blueprint_id: string | null;
+  status: string;
+  category_ids: unknown;
+  tags: unknown;
+}>;
+
 export type CatalogItemListParams = ListParams & {
   blueprintId?: string;
   tag?: string;
   language?: string;
   source?: string;
+  blueprintState?: string;
+  hasImages?: string;
+  hasSourceReferences?: string;
+  missingRequiredFields?: string;
 };
 
 export async function listCatalogItems(
@@ -126,6 +140,50 @@ export async function listCatalogItemIdsForBulkPublishFilter(
   return result.rows.map((row) => row.catalog_item_id);
 }
 
+export async function listCatalogItemIds(
+  db: PgQueryable,
+  params: CatalogItemListParams = {},
+): Promise<string[]> {
+  const { where, values } = buildCatalogItemConditions(params);
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM catalog_admin_catalog_item_list_pages AS item
+     ${where}
+     ORDER BY item.title ASC`,
+    values,
+  );
+
+  return result.rows.map((row) => row.catalog_item_id);
+}
+
+export async function listCatalogItemBulkRows(
+  db: PgQueryable,
+  itemIds: readonly string[],
+): Promise<BulkLifecycleRow[]> {
+  if (itemIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<CatalogItemListRow>(
+    `SELECT item.*,
+       COALESCE(source_refs.source_providers, '[]'::jsonb) AS source_providers
+     FROM catalog_admin_catalog_item_list_pages AS item
+     LEFT JOIN LATERAL (
+       SELECT jsonb_agg(DISTINCT reference.provider_key ORDER BY reference.provider_key) AS source_providers
+       FROM catalog_external_product_references AS reference
+       WHERE reference.catalog_item_id = item.catalog_item_id
+     ) AS source_refs ON true
+     WHERE item.catalog_item_id = ANY($1::text[])`,
+    [[...itemIds]],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.catalog_item_id,
+    label: row.title,
+    status: row.status,
+  }));
+}
+
 export async function listCatalogItemsForBulkPublish(
   db: PgQueryable,
   itemIds: readonly string[],
@@ -162,6 +220,30 @@ export async function listCatalogItemsForBulkPublish(
   return result.rows;
 }
 
+export async function listCatalogItemsForBulkEdit(
+  db: PgQueryable,
+  itemIds: readonly string[],
+): Promise<BulkEditCatalogItemRow[]> {
+  if (itemIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<BulkEditCatalogItemRow>(
+    `SELECT catalog_item_id,
+       title,
+       blueprint_id,
+       status,
+       category_ids,
+       tags
+     FROM catalog_items
+     WHERE catalog_item_id = ANY($1::text[])
+     ORDER BY array_position($1::text[], catalog_item_id)`,
+    [[...itemIds]],
+  );
+
+  return result.rows;
+}
+
 function buildCatalogItemConditions(params: CatalogItemListParams): { where: string; values: unknown[] } {
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -185,6 +267,12 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
     paramIndex++;
   }
 
+  if (params.blueprintState === "missing") {
+    conditions.push("item.blueprint_id IS NULL");
+  } else if (params.blueprintState === "assigned") {
+    conditions.push("item.blueprint_id IS NOT NULL");
+  }
+
   if (params.source) {
     conditions.push(
       `EXISTS (
@@ -198,6 +286,84 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
     paramIndex++;
   }
 
+  if (params.hasSourceReferences === "true") {
+    conditions.push(
+      `EXISTS (
+        SELECT 1
+        FROM catalog_external_product_references AS source_presence
+        WHERE source_presence.catalog_item_id = item.catalog_item_id
+      )`,
+    );
+  } else if (params.hasSourceReferences === "false") {
+    conditions.push(
+      `NOT EXISTS (
+        SELECT 1
+        FROM catalog_external_product_references AS source_presence
+        WHERE source_presence.catalog_item_id = item.catalog_item_id
+      )`,
+    );
+  }
+
+  if (params.hasImages === "true") {
+    conditions.push(
+      `EXISTS (
+        SELECT 1
+        FROM catalog_admin_catalog_item_detail_pages AS detail
+        WHERE detail.catalog_item_id = item.catalog_item_id
+          AND jsonb_array_length(detail.image_urls) > 0
+      )`,
+    );
+  } else if (params.hasImages === "false") {
+    conditions.push(
+      `NOT EXISTS (
+        SELECT 1
+        FROM catalog_admin_catalog_item_detail_pages AS detail
+        WHERE detail.catalog_item_id = item.catalog_item_id
+          AND jsonb_array_length(detail.image_urls) > 0
+      )`,
+    );
+  }
+
+  if (params.missingRequiredFields === "true") {
+    conditions.push(
+      `EXISTS (
+        SELECT 1
+        FROM catalog_admin_catalog_item_detail_pages AS detail
+        JOIN catalog_blueprints AS blueprint ON blueprint.blueprint_id = detail.blueprint_id
+        WHERE detail.catalog_item_id = item.catalog_item_id
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(blueprint.field_rules) AS rule
+            WHERE (rule->>'required')::boolean IS TRUE
+              AND NOT EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(detail.field_values) AS field_value
+                WHERE field_value->>'fieldId' = rule->>'fieldId'
+              )
+          )
+      )`,
+    );
+  } else if (params.missingRequiredFields === "false") {
+    conditions.push(
+      `NOT EXISTS (
+        SELECT 1
+        FROM catalog_admin_catalog_item_detail_pages AS detail
+        JOIN catalog_blueprints AS blueprint ON blueprint.blueprint_id = detail.blueprint_id
+        WHERE detail.catalog_item_id = item.catalog_item_id
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(blueprint.field_rules) AS rule
+            WHERE (rule->>'required')::boolean IS TRUE
+              AND NOT EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(detail.field_values) AS field_value
+                WHERE field_value->>'fieldId' = rule->>'fieldId'
+              )
+          )
+      )`,
+    );
+  }
+
   if (params.status) {
     conditions.push(`item.status = $${paramIndex}`);
     values.push(params.status);
@@ -205,7 +371,17 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
   }
 
   if (params.search) {
-    conditions.push(`(item.title ILIKE $${paramIndex} OR item.subtitle ILIKE $${paramIndex})`);
+    conditions.push(
+      `(item.title ILIKE $${paramIndex}
+        OR item.subtitle ILIKE $${paramIndex}
+        OR item.tags::text ILIKE $${paramIndex}
+        OR EXISTS (
+          SELECT 1
+          FROM catalog_external_product_references AS source_search
+          WHERE source_search.catalog_item_id = item.catalog_item_id
+            AND (source_search.provider_key ILIKE $${paramIndex} OR source_search.external_key ILIKE $${paramIndex})
+        ))`,
+    );
     values.push(`%${params.search}%`);
   }
 

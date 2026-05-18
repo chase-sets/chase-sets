@@ -715,6 +715,33 @@ jobs:
           cd ../../..
           pnpm run smoke:platform -- "https://${landing_domain}" "https://${admin_domain}" "https://${marketplace_domain}"
 
+      - name: Stripe money smoke
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          SMOKE_REGISTER_SELLER: "true"
+          SMOKE_SELLER_EMAIL: stripe-preview+pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
+          SMOKE_SELLER_PASSWORD: preview-stripe-${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_SELLER_DISPLAY_NAME: Stripe Preview Smoke Seller
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_CONNECT_RETURN_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts
+          STRIPE_CONNECT_REFRESH_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts/setup
+        run: |
+          set -euo pipefail
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
+            echo "Required preview Stripe smoke domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          PLATFORM_API_BASE_URL="https://${marketplace_domain}" \
+            PLATFORM_AUTH_BASE_URL="https://${marketplace_domain}" \
+            pnpm run stripe:money-smoke -- --edge-check --seller-flow
+
   pr-required:
     name: PR Required
     runs-on: ubuntu-latest

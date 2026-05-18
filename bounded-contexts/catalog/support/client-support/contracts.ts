@@ -17,6 +17,7 @@ export type { ReferenceRecord, ReferenceType } from "../../features/reference-da
 export type {
   BulkSourceObservationPromotionOutcome,
   BulkSourceObservationPromotionResult,
+  SourceObservationIntegrationScope,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationDetail,

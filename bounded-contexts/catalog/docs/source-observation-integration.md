@@ -63,6 +63,8 @@ Operators may also promote all eligible Source Observations matching the current
 
 The Source Observations list exposes the TCGdex set ID as a durable filter so large set imports can be reviewed and promoted by explicit scope instead of page selection. TCGdex import sets the reviewed scope to the imported language, set ID, and `observed` status.
 
+The Catalog Integrations admin surface summarizes Source Observations by provider, language, Expansion, and Series. It is a read-model view over Catalog-owned observations, not a separate provider configuration aggregate. Operators use it to see what has already been pulled, how many records still need review, and to jump into the exact Source Observation scope for promotion or rejection. Future provider integrations should appear in the same summary once they record Source Observations with stable provider, language, and source-scope facts.
+
 ## Conflict Pressure Tests
 
 - Re-importing an observed source record updates the Source Observation while it remains `observed`.

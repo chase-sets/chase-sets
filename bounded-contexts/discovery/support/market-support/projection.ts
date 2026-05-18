@@ -38,6 +38,8 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     seller_listing_availability_status: "available" | "unavailable";
     seller_listing_availability_reason_category: string | null;
     seller_listing_available_again_on: string | null;
+    seller_average_rating: string | null;
+    seller_review_count: number;
     inventory_item_id: string;
     catalog_catalog_item_id: string;
     catalog_item_slug: string | null;
@@ -65,7 +67,9 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
        account.seller_display_name,
        account.seller_listing_availability_status,
        account.seller_listing_availability_reason_category,
-       account.seller_listing_available_again_on::text AS seller_listing_available_again_on
+       account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+       account.average_rating::text AS seller_average_rating,
+       account.review_count AS seller_review_count
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
@@ -90,7 +94,10 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
   const result = await db.query<{
     offer_id: string;
     buyer_account_id: string;
+    buyer_slug: string | null;
     buyer_display_name: string | null;
+    buyer_average_rating: string | null;
+    buyer_review_count: number;
     catalog_catalog_item_id: string;
     product_id: string;
     item_title: string;
@@ -107,7 +114,10 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
   }>(
     `SELECT
        offer.*,
-       account.seller_display_name AS buyer_display_name
+       account.seller_slug AS buyer_slug,
+       account.seller_display_name AS buyer_display_name,
+       account.average_rating::text AS buyer_average_rating,
+       account.review_count AS buyer_review_count
      FROM discovery_buyer_offer_matches AS offer
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = offer.buyer_account_id
@@ -767,5 +777,161 @@ export function buildDiscoveryMarketProjectionHandlers(
       );
       await emitOfferPatch(db, event, data.offerId);
     },
+    "reputation.review.submitted": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        authorAccountId: string;
+        subjectAccountId: string;
+        authorRole: string;
+        rating: number;
+        feedback: string | null;
+        submittedAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO discovery_market_account_reviews (
+           review_id,
+           author_account_id,
+           subject_account_id,
+           author_role,
+           rating,
+           feedback,
+           status,
+           submitted_at,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7)
+         ON CONFLICT (review_id) DO UPDATE SET
+           author_account_id = EXCLUDED.author_account_id,
+           subject_account_id = EXCLUDED.subject_account_id,
+           author_role = EXCLUDED.author_role,
+           rating = EXCLUDED.rating,
+           feedback = EXCLUDED.feedback,
+           status = EXCLUDED.status,
+           submitted_at = COALESCE(discovery_market_account_reviews.submitted_at, EXCLUDED.submitted_at),
+           updated_at = EXCLUDED.updated_at`,
+        [
+          data.reviewId,
+          data.authorAccountId,
+          data.subjectAccountId,
+          data.authorRole,
+          data.rating,
+          data.feedback,
+          data.submittedAt,
+        ],
+      );
+      await refreshAccountReputation(db, data.subjectAccountId, data.submittedAt);
+      await emitAccountReputationPatches(db, event, data.subjectAccountId);
+    },
+    "reputation.review.updated": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        rating: number;
+        feedback: string | null;
+        updatedAt: string;
+      };
+      const subjectResult = await db.query<{ subject_account_id: string }>(
+        `UPDATE discovery_market_account_reviews
+         SET rating = $2,
+             feedback = $3,
+             updated_at = $4
+         WHERE review_id = $1
+         RETURNING subject_account_id`,
+        [data.reviewId, data.rating, data.feedback, data.updatedAt],
+      );
+      const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
+      if (!subjectAccountId) {
+        return;
+      }
+
+      await refreshAccountReputation(db, subjectAccountId, data.updatedAt);
+      await emitAccountReputationPatches(db, event, subjectAccountId);
+    },
+    "reputation.review.withdrawn": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        withdrawnAt: string;
+      };
+      const subjectResult = await db.query<{ subject_account_id: string }>(
+        `UPDATE discovery_market_account_reviews
+         SET status = 'withdrawn',
+             updated_at = $2
+         WHERE review_id = $1
+         RETURNING subject_account_id`,
+        [data.reviewId, data.withdrawnAt],
+      );
+      const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
+      if (!subjectAccountId) {
+        return;
+      }
+
+      await refreshAccountReputation(db, subjectAccountId, data.withdrawnAt);
+      await emitAccountReputationPatches(db, event, subjectAccountId);
+    },
   };
+}
+
+async function refreshAccountReputation(
+  db: PgQueryable,
+  accountId: string,
+  updatedAt: string,
+) {
+  await db.query(
+    `INSERT INTO discovery_market_accounts (
+       account_id,
+       average_rating,
+       review_count,
+       rating_1_count,
+       rating_2_count,
+       rating_3_count,
+       rating_4_count,
+       rating_5_count,
+       reputation_updated_at,
+       updated_at
+     )
+     SELECT
+       $1,
+       CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
+       COUNT(*)::integer,
+       COUNT(*) FILTER (WHERE rating = 1)::integer,
+       COUNT(*) FILTER (WHERE rating = 2)::integer,
+       COUNT(*) FILTER (WHERE rating = 3)::integer,
+       COUNT(*) FILTER (WHERE rating = 4)::integer,
+       COUNT(*) FILTER (WHERE rating = 5)::integer,
+       $2,
+       $2
+     FROM discovery_market_account_reviews
+     WHERE subject_account_id = $1
+       AND status = 'active'
+     ON CONFLICT (account_id) DO UPDATE SET
+       average_rating = EXCLUDED.average_rating,
+       review_count = EXCLUDED.review_count,
+       rating_1_count = EXCLUDED.rating_1_count,
+       rating_2_count = EXCLUDED.rating_2_count,
+       rating_3_count = EXCLUDED.rating_3_count,
+       rating_4_count = EXCLUDED.rating_4_count,
+       rating_5_count = EXCLUDED.rating_5_count,
+       reputation_updated_at = EXCLUDED.reputation_updated_at,
+       updated_at = EXCLUDED.updated_at`,
+    [accountId, updatedAt],
+  );
+}
+
+async function emitAccountReputationPatches(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  accountId: string,
+) {
+  await emitSellerListingPatches(db, event, accountId);
+
+  const offers = await db.query<{ offer_id: string }>(
+    `SELECT offer_id
+     FROM discovery_buyer_offer_matches
+     WHERE buyer_account_id = $1
+       AND status = 'submitted'`,
+    [accountId],
+  );
+
+  await Promise.all(
+    offers.rows.map((row) => emitOfferPatch(db, event, row.offer_id)),
+  );
 }

@@ -17,11 +17,12 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
+import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createReferenceRecord } from "./use-reference-data";
+import { confirmBulkReferenceRecordLifecycle, createReferenceRecord, previewBulkReferenceRecordLifecycle } from "./use-reference-data";
 import type { ReferenceRecord, ReferenceRelationship, ReferenceType } from "./contracts";
 import { parseAttributesInput } from "./reference-data-form";
 
@@ -39,6 +40,11 @@ const statusOptions = [
   { label: t("catalog.features.referenceData.ui.referenceRecordListPage.active"), value: "active" },
   { label: t("catalog.features.referenceData.ui.referenceRecordListPage.deprecated"), value: "deprecated" },
   { label: t("catalog.features.referenceData.ui.referenceRecordListPage.archived"), value: "archived" },
+];
+const lifecycleActions = [
+  { value: "publish", label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.publish") },
+  { value: "deprecate", label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.deprecate") },
+  { value: "archive", label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.archive") },
 ];
 
 const relationshipColumns: DataColumn<ReferenceRelationship>[] = [
@@ -83,6 +89,7 @@ export function ReferenceRecordListPage({
   const [relationships, setRelationships] = useState<ReferenceRelationship[]>([]);
   const [relationshipType, setRelationshipType] = useState("");
   const [relationshipReferenceId, setRelationshipReferenceId] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   const typeOptions = useMemo(
     () => referenceTypes.map((type) => ({
@@ -165,14 +172,46 @@ export function ReferenceRecordListPage({
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
         extraFilters={
-          <Select
-            label={t("catalog.features.referenceData.ui.referenceRecordListPage.reference.type")}
-            value={listControls.typeKey || ALL_TYPES}
-            onValueChange={(value) => listControls.setTypeKey(value === ALL_TYPES ? "" : value)}
-            items={[
-              { label: t("catalog.features.referenceData.ui.referenceRecordListPage.all.reference.types"), value: ALL_TYPES },
-              ...typeOptions,
-            ]}
+          <>
+            <Select
+              label={t("catalog.features.referenceData.ui.referenceRecordListPage.reference.type")}
+              value={listControls.typeKey || ALL_TYPES}
+              onValueChange={(value) => listControls.setTypeKey(value === ALL_TYPES ? "" : value)}
+              items={[
+                { label: t("catalog.features.referenceData.ui.referenceRecordListPage.all.reference.types"), value: ALL_TYPES },
+                ...typeOptions,
+              ]}
+            />
+            <TextInput
+              label={t("catalog.features.referenceData.ui.referenceRecordListPage.relationship")}
+              value={listControls.relationshipType}
+              onChange={(event) => listControls.setRelationshipType(event.target.value)}
+            />
+            <TextInput
+              label={t("catalog.features.referenceData.ui.referenceTypeListPage.attribute.key")}
+              value={listControls.attributeKey}
+              onChange={(event) => listControls.setAttributeKey(event.target.value)}
+            />
+            <TextInput
+              label={t("catalog.features.referenceData.ui.referenceRecordListPage.attribute.value")}
+              value={listControls.attributeValue}
+              onChange={(event) => listControls.setAttributeValue(event.target.value)}
+            />
+          </>
+        }
+        selectedKeys={selectedKeys}
+        onSelectionChange={setSelectedKeys}
+        bulkActionBar={
+          <BulkLifecycleActionBar
+            entityName="Reference Records"
+            selectedKeys={selectedKeys}
+            filterSelection={{ mode: "filter", query }}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkReferenceRecordLifecycle}
+            confirm={confirmBulkReferenceRecordLifecycle}
+            onCompleted={revalidator.revalidate}
           />
         }
         page={listControls.page}

@@ -6,6 +6,8 @@ import { SourceObservationListPage } from "./source-observation-list-page";
 import type { SourceObservationListItem } from "./contracts";
 
 const {
+  mockBulkRejectSourceObservationsByScope,
+  mockBulkRejectSourceObservations,
   mockBulkPromoteSourceObservationsByScope,
   mockBulkPromoteSourceObservations,
   mockImportTcgdexSet,
@@ -17,6 +19,8 @@ const {
   mockUseNavigation,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
+  mockBulkRejectSourceObservationsByScope: vi.fn(),
+  mockBulkRejectSourceObservations: vi.fn(),
   mockBulkPromoteSourceObservationsByScope: vi.fn(),
   mockBulkPromoteSourceObservations: vi.fn(),
   mockImportTcgdexSet: vi.fn(),
@@ -36,6 +40,8 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./use-source-observations", () => ({
+  bulkRejectSourceObservationsByScope: mockBulkRejectSourceObservationsByScope,
+  bulkRejectSourceObservations: mockBulkRejectSourceObservations,
   bulkPromoteSourceObservationsByScope: mockBulkPromoteSourceObservationsByScope,
   bulkPromoteSourceObservations: mockBulkPromoteSourceObservations,
   importTcgdexSet: mockImportTcgdexSet,
@@ -50,7 +56,10 @@ const query: CatalogListQuery = {
   status: "",
   language: "",
   source: "",
+  blueprintId: "",
+  tag: "",
   setId: "",
+  typeKey: "",
   page: 0,
   pageSize: 50,
 };
@@ -222,7 +231,6 @@ describe("SourceObservationListPage", () => {
       observed: 217,
       observationIds: [],
     });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
 
     render(
       <SourceObservationListPage
@@ -233,6 +241,7 @@ describe("SourceObservationListPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Import TCGdex expansion/i }));
 
+    expect(screen.queryByLabelText("Other TCGdex Expansion ID")).toBeNull();
     const importButton = screen.getByRole("button", { name: /^Import$/i });
     await waitFor(() =>
       expect((importButton as HTMLButtonElement).disabled).toBe(false),
@@ -245,6 +254,7 @@ describe("SourceObservationListPage", () => {
         setId: "me02.5",
       }),
     );
+    expect(mockRevalidate).toHaveBeenCalled();
   });
 });
 

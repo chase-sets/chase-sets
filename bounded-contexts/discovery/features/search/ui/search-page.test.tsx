@@ -165,10 +165,10 @@ describe("SearchPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
-    const drawer = screen.getByRole("dialog", { name: "Filters" });
-    expect(within(drawer).getByText("Browse categories")).toBeTruthy();
+    const filterSheet = screen.getByRole("dialog", { name: "Filters" });
+    expect(within(filterSheet).getByText("Browse categories")).toBeTruthy();
 
-    fireEvent.click(within(drawer).getByRole("button", { name: "Singles (7)" }));
+    fireEvent.click(within(filterSheet).getByRole("button", { name: "Singles (7)" }));
 
     expect(props.onCategoryChange).toHaveBeenCalledWith("singles");
   });
@@ -227,20 +227,69 @@ describe("SearchPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
-    const drawer = screen.getByRole("dialog", { name: "Filters" });
-    expect(within(drawer).getByText("Condition")).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Any Condition" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Near Mint (3)" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(drawer).getByRole("button", { name: "Lightly Played (2)" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(within(drawer).getByRole("button", { name: "Excellent (1)" }));
+    const filterSheet = screen.getByRole("dialog", { name: "Filters" });
+    expect(within(filterSheet).queryByText("Advanced filters")).toBeNull();
+    expect(within(filterSheet).getByText("Condition")).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Any Condition" })).toBeTruthy();
+    expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(filterSheet).getByRole("button", { name: "Excellent (1)" }));
 
     expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
       kind: "dimension",
       id: "dim_condition",
       value: "opt_excellent",
     });
+  });
+
+  it("searches within large dynamic facet option sets", () => {
+    renderSearchPage({
+      category: "booster-packs",
+      data: {
+        items: [searchResult],
+        facets: [{
+          id: "dim_condition",
+          kind: "dimension",
+          label: "Condition",
+          values: Array.from({ length: 9 }, (_, index) => ({
+            id: `opt_${index + 1}`,
+            label: `Condition ${index + 1}`,
+            count: 10 - index,
+            selected: index === 0,
+          })),
+        }],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Condition 1 (10)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Condition 9 (2)" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(screen.getByRole("button", { name: "Condition 9 (2)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.queryByRole("button", { name: "Condition 9 (2)" })).toBeNull();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search Condition options" }), {
+      target: { value: "Condition 9" },
+    });
+
+    expect(screen.getByRole("button", { name: "Condition 1 (10)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Condition 9 (2)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Condition 2 (9)" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
+
+    const drawer = screen.getByRole("dialog", { name: "Filters" });
+    fireEvent.change(within(drawer).getByRole("searchbox", { name: "Search Condition options" }), {
+      target: { value: "missing" },
+    });
+
+    expect(within(drawer).getByText("No matching Condition options")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Condition 1 (10)" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("carries dimension filters into item detail links without field filters", () => {

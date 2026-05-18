@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  AccountReputationSummary,
   Badge,
   BuyerProtectionModule,
   LinkButton,
@@ -50,6 +51,9 @@ export function MarketplaceSubmittedOfferDetailPage({
   errorMessage?: string | null;
   feedbackPrompt?: ReactNode;
 }) {
+  const showAcceptedSellerReputation =
+    offer.accepted_seller_account_id !== null && offer.status === "accepted";
+
   return (
     <Page>
       <PageHeader
@@ -82,6 +86,15 @@ export function MarketplaceSubmittedOfferDetailPage({
                 ) : null}
                 <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
                 <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide")}</Text>
+                {showAcceptedSellerReputation ? (
+                  <AccountReputationSummary
+                    accountName={offer.accepted_seller_account_id}
+                    averageRating={offer.accepted_seller_average_rating}
+                    reviewCount={offer.accepted_seller_review_count ?? 0}
+                    emptyLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.no.seller.feedback.yet")}
+                    ratingLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.seller.reputation")}
+                  />
+                ) : null}
               </Stack>
             }
           />

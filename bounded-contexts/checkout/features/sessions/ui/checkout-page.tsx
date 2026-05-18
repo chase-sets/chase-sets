@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  AccountReputationSummary,
   Badge,
   Banner,
   Button,
@@ -222,7 +223,7 @@ export function CheckoutSessionPage({
           recoveryActions={<LinkButton href="/search">{t("checkout.features.sessions.ui.checkoutPage.browse.marketplace")}</LinkButton>}
         />
       ) : (
-        <CheckoutLayout summary={summary}>
+        <CheckoutLayout summary={summary} summaryLabel="Checkout summary">
           <Stack gap={4}>
             {errorMessage ? (
               <Surface tone="subtle" elevated>
@@ -294,7 +295,17 @@ export function CheckoutSessionPage({
                         <Stack gap={3}>
                           <Inline gap={2}>
                             <Badge tone="accent">{t("checkout.features.sessions.ui.checkoutPage.seller.group")}</Badge>
-                            <Text weight="semibold">{sellerGroupLabel(group)}</Text>
+                            <AccountReputationSummary
+                              accountName={sellerGroupLabel(group)}
+                              averageRating={
+                                (group as typeof group & { sellerAverageRating?: string | null }).sellerAverageRating
+                              }
+                              reviewCount={
+                                (group as typeof group & { sellerReviewCount?: number }).sellerReviewCount ?? 0
+                              }
+                              emptyLabel={t("checkout.features.sessions.ui.checkoutPage.no.seller.feedback.yet")}
+                              ratingLabel={t("checkout.features.sessions.ui.checkoutPage.seller.reputation")}
+                            />
                             <Text tone="secondary">${group.totalAmount}</Text>
                           </Inline>
                           {group.lines.map((line) => (

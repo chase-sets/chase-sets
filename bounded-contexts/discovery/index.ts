@@ -80,6 +80,10 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
       "marketplace",
       "discovery-market-projection",
     );
+    const reputationSubscription = getEventSubscription(
+      "reputation",
+      "discovery-market-projection",
+    );
     const productAlertSubscription = getEventSubscription(
       "marketplace",
       "discovery-product-alert-notification-projection",
@@ -145,6 +149,16 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
         eventTypes: marketplaceSubscription.eventTypes,
         streamPrefixes: marketplaceSubscription.streamPrefixes,
         order: marketplaceSubscription.order,
+      },
+      {
+        subscriptionName: "discovery.reputation-market-projection",
+        sourceContextName: "reputation",
+        projectionName: reputationSubscription.projectionName,
+        subscriptionVersion: reputationSubscription.subscriptionVersion,
+        handlers: buildDiscoveryMarketProjectionHandlers(services.db),
+        eventTypes: reputationSubscription.eventTypes,
+        streamPrefixes: reputationSubscription.streamPrefixes,
+        order: reputationSubscription.order,
       },
       {
         subscriptionName: "discovery.marketplace-product-alert-notifications",

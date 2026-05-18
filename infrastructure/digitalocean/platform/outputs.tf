@@ -31,6 +31,10 @@ output "marketplace_domains" {
   value = local.marketplace_domains
 }
 
+output "staging_root_marketplace_domains" {
+  value = local.staging_root_marketplace_domains
+}
+
 output "admin_domain" {
   value = local.admin_domain
 }

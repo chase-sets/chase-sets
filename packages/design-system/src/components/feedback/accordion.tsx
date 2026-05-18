@@ -44,21 +44,32 @@ export interface AccordionProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "defaultValue" | "dir"> {
   items: AccordionItem[];
   type?: "single" | "multiple";
+  value?: string | string[];
   defaultValue?: string | string[];
+  onValueChange?: (value: string | string[]) => void;
   collapsible?: boolean;
 }
 
 export function Accordion({
   items,
   type = "single",
+  value,
   defaultValue,
+  onValueChange,
   collapsible = true,
   ...rest
 }: AccordionProps) {
+  const controlledValue =
+    value === undefined
+      ? undefined
+      : Array.isArray(value)
+        ? value
+        : [value];
   const rootProps =
     type === "multiple"
       ? {
           multiple: true,
+          value: controlledValue,
           defaultValue: Array.isArray(defaultValue)
             ? defaultValue
             : defaultValue
@@ -67,13 +78,22 @@ export function Accordion({
         }
       : {
           multiple: false,
+          value: controlledValue,
           defaultValue: typeof defaultValue === "string" ? [defaultValue] : undefined
         };
+  const handleValueChange = (nextValue: string[]) => {
+    if (!collapsible && nextValue.length === 0) {
+      return;
+    }
+
+    onValueChange?.(type === "multiple" ? nextValue : nextValue[0] ?? "");
+  };
 
   return (
     <AccordionPrimitive.Root
       {...rootProps}
       {...rest}
+      onValueChange={handleValueChange}
       className="modern-surface rounded-tokenLg border border-muted shadow-tokenSm"
     >
       {items.map((item, index) => (

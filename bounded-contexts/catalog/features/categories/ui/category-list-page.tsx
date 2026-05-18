@@ -5,7 +5,7 @@ import { useRevalidator } from "react-router";
 import {
   Button,
   Dialog,
-  NumberInput,
+  Select,
   Stack,
   StatusPill,
   TextInput,
@@ -13,11 +13,12 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
+import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { createCategory } from "./use-categories";
+import { confirmBulkCategoryLifecycle, createCategory, previewBulkCategoryLifecycle } from "./use-categories";
 import type { CategoryListItem } from "./contracts";
 
 function buildColumns(): DataColumn<CategoryListItem>[] {
@@ -36,6 +37,17 @@ const statusOptions = [
   { label: t("catalog.features.categories.ui.categoryListPage.deprecated"), value: "deprecated" },
   { label: t("catalog.features.categories.ui.categoryListPage.archived"), value: "archived" },
 ];
+const ALL_HIERARCHIES = "__all__";
+const hierarchyOptions = [
+  { label: t("catalog.support.shellSupport.ui.entityListPage.all"), value: ALL_HIERARCHIES },
+  { label: t("catalog.features.categories.ui.categoryListPage.root.categories"), value: "root" },
+  { label: t("catalog.features.categories.ui.categoryListPage.child.categories"), value: "child" },
+];
+const lifecycleActions = [
+  { value: "publish", label: t("catalog.features.categories.ui.categoryDetailPage.publish") },
+  { value: "deprecate", label: t("catalog.features.categories.ui.categoryDetailPage.deprecate") },
+  { value: "archive", label: t("catalog.features.categories.ui.categoryDetailPage.archive") },
+];
 
 export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryListItem>) {
   const listControls = useCatalogListQueryControls(query);
@@ -48,6 +60,7 @@ export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryL
   const [description, setDescription] = useState("");
   const [parentId, setParentId] = useState("");
   const [displayOrder, setDisplayOrder] = useState("0");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   async function handleCreate() {
     const categoryId = createId("ctg");
@@ -86,6 +99,36 @@ export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryL
         statusFilter={listControls.status}
         onStatusFilterChange={listControls.setStatus}
         statusOptions={statusOptions}
+        extraFilters={
+          <>
+            <Select
+              label={t("catalog.features.categories.ui.categoryListPage.hierarchy")}
+              value={listControls.hierarchy || ALL_HIERARCHIES}
+              onValueChange={(value) => listControls.setHierarchy(value === ALL_HIERARCHIES ? "" : value)}
+              items={hierarchyOptions}
+            />
+            <TextInput
+              label={t("catalog.features.categories.ui.categoryListPage.parent.category.id.optional")}
+              value={listControls.parentCategoryId}
+              onChange={(event) => listControls.setParentCategoryId(event.target.value)}
+            />
+          </>
+        }
+        selectedKeys={selectedKeys}
+        onSelectionChange={setSelectedKeys}
+        bulkActionBar={
+          <BulkLifecycleActionBar
+            entityName="Categories"
+            selectedKeys={selectedKeys}
+            filterSelection={{ mode: "filter", query }}
+            filterCount={data.total}
+            actions={lifecycleActions}
+            clearSelection={() => setSelectedKeys(new Set())}
+            preview={previewBulkCategoryLifecycle}
+            confirm={confirmBulkCategoryLifecycle}
+            onCompleted={revalidator.revalidate}
+          />
+        }
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
@@ -110,6 +153,4 @@ export function CategoryListPage({ data, query }: CatalogListRouteData<CategoryL
     </>
   );
 }
-
-
 

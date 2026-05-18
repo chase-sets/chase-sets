@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { ComponentId, FieldId, DimensionId, OptionId } from "../../../ids";
+import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 
 export function componentRoutes(services: ComponentServices) {
@@ -26,6 +27,27 @@ export function componentRoutes(services: ComponentServices) {
     });
 
     return c.json({ id: componentId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, componentListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.bulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, componentListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
   });
 
   app.post("/:id/field-rules", async (c) => {
@@ -159,8 +181,8 @@ export function componentRoutes(services: ComponentServices) {
   });
 
   app.get("/", async (c) => {
-    const { search, status, limit, offset } = c.req.query();
-    const result = await services.listComponents({ search, status, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const { search, status, limit, offset, hasFieldRules, hasDimensionRules } = c.req.query();
+    const result = await services.listComponents({ search, status, hasFieldRules, hasDimensionRules, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -178,6 +200,14 @@ export function componentRoutes(services: ComponentServices) {
   return app;
 }
 
+function componentListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: toOptionalString(record.search),
+    status: toOptionalString(record.status),
+    hasFieldRules: toOptionalString(record.hasFieldRules),
+    hasDimensionRules: toOptionalString(record.hasDimensionRules),
+  };
+}
 
 
 

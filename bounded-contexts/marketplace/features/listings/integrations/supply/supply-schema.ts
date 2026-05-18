@@ -3,8 +3,37 @@ CREATE TABLE IF NOT EXISTS marketplace_account_pages (
   account_id text PRIMARY KEY,
   display_name text NOT NULL,
   status text NOT NULL,
+  average_rating numeric(4, 2) NULL,
+  review_count integer NOT NULL DEFAULT 0,
+  rating_1_count integer NOT NULL DEFAULT 0,
+  rating_2_count integer NOT NULL DEFAULT 0,
+  rating_3_count integer NOT NULL DEFAULT 0,
+  rating_4_count integer NOT NULL DEFAULT 0,
+  rating_5_count integer NOT NULL DEFAULT 0,
+  reputation_updated_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE marketplace_account_pages
+  ADD COLUMN IF NOT EXISTS average_rating numeric(4, 2) NULL,
+  ADD COLUMN IF NOT EXISTS review_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_1_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_2_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_3_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_4_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS rating_5_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS reputation_updated_at timestamptz NULL;
+
+CREATE TABLE IF NOT EXISTS marketplace_account_reviews (
+  review_id text PRIMARY KEY,
+  subject_account_id text NOT NULL,
+  rating integer NOT NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS marketplace_account_reviews_subject_idx
+  ON marketplace_account_reviews (subject_account_id, status);
 
 CREATE TABLE IF NOT EXISTS marketplace_catalog_items (
   catalog_item_id text PRIMARY KEY,

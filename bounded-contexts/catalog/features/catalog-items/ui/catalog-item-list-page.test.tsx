@@ -1,16 +1,21 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogItemListItem } from "./contracts";
 
 const {
+  mockPreviewBulkCatalogItemEdit,
   mockPreviewBulkPublishCatalogItems,
+  mockRemoveDraftCatalogItem,
   mockUseNavigation,
   mockUseRevalidator,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
+  mockPreviewBulkCatalogItemEdit: vi.fn(),
   mockPreviewBulkPublishCatalogItems: vi.fn(),
+  mockRemoveDraftCatalogItem: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseRevalidator: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -23,10 +28,15 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./use-catalog-items", () => ({
+  confirmBulkCatalogItemEdit: vi.fn(),
+  confirmBulkCatalogItemLifecycle: vi.fn(),
   confirmBulkPublishCatalogItems: vi.fn(),
   createCatalogItem: vi.fn(),
   localizedTextMapFromEnglish: (value: string) => ({ defaultLocale: "en", values: { en: value } }),
+  previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
+  previewBulkCatalogItemLifecycle: vi.fn(),
   previewBulkPublishCatalogItems: mockPreviewBulkPublishCatalogItems,
+  removeDraftCatalogItem: mockRemoveDraftCatalogItem,
 }));
 
 const catalogItem: CatalogItemListItem = {
@@ -44,6 +54,11 @@ const catalogItem: CatalogItemListItem = {
 };
 
 describe("CatalogItemListPage", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
   it("selects rows and previews bulk publish from the list", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
@@ -73,17 +88,19 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{ search: "", status: "draft", language: "", source: "tcgplayer", blueprintId: "", tag: "", setId: "", typeKey: "", page: 0, pageSize: 50 }}
       />,
     );
 
     expect(screen.getAllByText("tcgplayer").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Preview Filtered Drafts" })).toBeTruthy();
+    expect(screen.getAllByText("1 matching Catalog Items").length).toBeGreaterThan(0);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     expect(selectRow).toBeTruthy();
     fireEvent.click(selectRow!);
-    fireEvent.click(screen.getByRole("button", { name: "Preview Publish" }));
+    expect(screen.getAllByText("1 Catalog Items selected")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Preview publish" }));
 
     await waitFor(() => {
       expect(mockPreviewBulkPublishCatalogItems).toHaveBeenCalledWith({
@@ -92,5 +109,110 @@ describe("CatalogItemListPage", () => {
       });
     });
     expect(await screen.findByText("Bulk Publish Preview")).toBeTruthy();
+  });
+
+  it("previews selected shared bulk edits from the list", async () => {
+    const user = userEvent.setup();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockPreviewBulkCatalogItemEdit.mockResolvedValue({
+      mode: "ids",
+      action: "assignBlueprint",
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "draft",
+          blueprint_id: null,
+          category_ids: [],
+          tags: [],
+          outcome: "ready",
+          reason: null,
+        },
+      ],
+    });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    const [selectRow] = screen.getAllByLabelText("Select row cat_1");
+    fireEvent.click(selectRow!);
+    await user.click(screen.getByRole("combobox", { name: "Operation" }));
+    await user.click(await screen.findByRole("option", { name: "Assign Blueprint" }));
+    const blueprintInputs = screen.getAllByLabelText("Blueprint ID or slug");
+    fireEvent.change(blueprintInputs[blueprintInputs.length - 1]!, { target: { value: "bpr_card" } });
+    const previewEdit = screen.getByRole("button", { name: "Preview blueprint assignment" });
+    await waitFor(() => {
+      expect((previewEdit as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(previewEdit);
+
+    await waitFor(() => {
+      expect(mockPreviewBulkCatalogItemEdit).toHaveBeenCalledWith(
+        { action: "assignBlueprint", blueprintId: "bpr_card" },
+        { mode: "ids", ids: ["cat_1"] },
+      );
+    });
+    expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();
+  });
+
+  it("hides matching bulk actions once rows are selected", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    expect(screen.getAllByText("1 matching Catalog Items").length).toBeGreaterThan(0);
+
+    const [selectRow] = screen.getAllByLabelText("Select row cat_1");
+    fireEvent.click(selectRow!);
+
+    expect(screen.getAllByText("1 Catalog Items selected").length).toBeGreaterThan(0);
+    expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+  });
+
+  it("removes selected draft items from the grid", async () => {
+    const user = userEvent.setup();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    const revalidate = vi.fn();
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockRemoveDraftCatalogItem.mockResolvedValue({ id: "cat_1", version: 2, status: "removed" });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "draft", language: "", source: "", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    const [selectRow] = screen.getAllByLabelText("Select row cat_1");
+    fireEvent.click(selectRow!);
+    await user.click(screen.getByRole("combobox", { name: "Operation" }));
+    await user.click(await screen.findByRole("option", { name: "Remove drafts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove drafts from selected" }));
+
+    const confirmButtons = await screen.findAllByRole("button", { name: "Remove drafts from selected" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    await waitFor(() => {
+      expect(mockRemoveDraftCatalogItem).toHaveBeenCalledWith("cat_1");
+      expect(revalidate).toHaveBeenCalled();
+    });
   });
 });

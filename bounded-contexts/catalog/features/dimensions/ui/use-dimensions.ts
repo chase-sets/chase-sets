@@ -3,6 +3,7 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Dimension, DimensionDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
+import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useDimensionList(query: string, initialData?: ListResponse<Dimension> | null) {
   return useFetch(() => api.listDimensions<ListResponse<Dimension>>(query), [query], initialData);
@@ -32,6 +33,14 @@ export function archiveDimension(id: string) {
   return api.archiveDimension<CommandResponse>(id);
 }
 
+export function previewBulkDimensionLifecycle(action: string, selection: unknown) {
+  return api.previewBulkDimensionLifecycle<BulkLifecyclePreview>(action, selection);
+}
+
+export function confirmBulkDimensionLifecycle(action: string, selection: unknown) {
+  return api.confirmBulkDimensionLifecycle<BulkLifecycleResult>(action, selection);
+}
+
 export function addOption(dimensionId: string, body: { optionId: string; code: string; label: LocalizedTextMap; numericValue?: number }) {
   return api.addOption<CommandResponse>(dimensionId, body);
 }
@@ -51,6 +60,5 @@ export function reactivateOption(dimensionId: string, optionId: string) {
 export function reorderOptions(dimensionId: string, optionIds: string[]) {
   return api.reorderOptions<CommandResponse>(dimensionId, optionIds);
 }
-
 
 

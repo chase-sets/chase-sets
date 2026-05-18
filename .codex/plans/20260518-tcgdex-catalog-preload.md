@@ -104,12 +104,13 @@ None blocking. Recommended default is to preload metadata from TCGDex into Catal
 Verification so far:
 
 - `pnpm run check:localization`
-- `pnpm exec vitest run --config ./tests/vitest.config.mjs features/source-observations/api/runtime.test.ts features/source-observations/api/tcgdex-client.test.ts features/source-observations/api/route.test.ts features/source-observations/ui/source-observation-list-page.test.tsx`
+- `pnpm --filter @chase-sets/catalog run test -- features/source-observations/api/runtime.test.ts features/source-observations/api/tcgdex-client.test.ts features/source-observations/api/route.test.ts features/source-observations/ui/source-observation-list-page.test.tsx`
 - `pnpm run typecheck`
 - `pnpm --filter @chase-sets/catalog run test`
 - `pnpm run check:structure`
 - `pnpm run check:no-any`
 - `git diff --check`
+- Merged `origin/main` and reran the focused Source Observation tests, Catalog tests, static checks, and workspace typecheck.
 
 ## Goal Completion Criteria
 

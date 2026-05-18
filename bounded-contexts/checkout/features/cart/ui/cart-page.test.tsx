@@ -25,14 +25,22 @@ const cartLine: CheckoutCartLine = {
   seller_options: [
     {
       listing_id: "lst_card_vault",
+      seller_account_id: "acc_card_vault",
+      seller_slug: "card-vault",
       seller_display_name: "Card Vault",
+      seller_average_rating: "4.90",
+      seller_review_count: 12,
       price_amount: "389.00",
       available_quantity: 2,
       product_summary: "Form: Raw | Condition: Near Mint",
     },
     {
       listing_id: "lst_hobby_shop",
+      seller_account_id: "acc_hobby_shop",
+      seller_slug: "hobby-shop",
       seller_display_name: "Hobby Shop",
+      seller_average_rating: null,
+      seller_review_count: 0,
       price_amount: "395.00",
       available_quantity: 1,
       product_summary: "Form: Raw | Condition: Near Mint",
@@ -52,6 +60,9 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Shipping credit grows with same-seller cards");
     expect(markup).toContain("Listings earn 5% of item value toward shipping");
     expect(markup).toContain("Seller option");
+    expect(markup).toContain('href="/sellers/card-vault#feedback"');
+    expect(markup).toContain("4.9");
+    expect(markup).toContain("No seller feedback yet");
     expect(markup).toContain("Card Vault - $389.00 - 2 available");
     expect(markup).toContain("Lock seller");
     expect(markup).toContain("Start checkout");

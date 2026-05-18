@@ -20,5 +20,10 @@ export const meta: MetaFunction = () => [
 
 export default function SourceObservationsRoute() {
   const routeData = useLoaderData<typeof loader>();
-  return <SourceObservationListPage data={routeData.data} query={routeData.query} />;
+  return (
+    <SourceObservationListPage
+      data={routeData.data}
+      query={routeData.query}
+    />
+  );
 }

@@ -154,7 +154,6 @@ Initial integration surface:
 
 - `CatalogItemPublished`
 - `CatalogItemUpdated`
-- `CatalogItemRetired`
 - `CatalogItemArchived`
 
 Those events should carry the Catalog Item snapshot plus the `product_schema` downstream consumers need to validate `selected_options` and compute `product_id`.

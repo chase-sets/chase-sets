@@ -5,6 +5,7 @@ import {
   type ListParams,
   type ListResult,
 } from "../../../support/projection-support/list-query";
+import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type DimensionRow = Readonly<{
   dimension_id: string;
@@ -29,12 +30,52 @@ export type DimensionOptionRow = Readonly<{
   status: string;
 }>;
 
+export type DimensionListParams = ListParams & Readonly<{
+  valueKind?: string;
+}>;
+
 export async function listDimensions(
   db: PgQueryable,
-  params: ListParams = {},
+  params: DimensionListParams = {},
 ): Promise<ListResult<DimensionRow>> {
-  const query = buildFilteredQuery("catalog_dimensions", params, ["key", "name"], "key ASC");
+  const extraConditions: string[] = [];
+  const extraValues: unknown[] = [];
+
+  if (params.valueKind) {
+    extraConditions.push("value_kind = $1");
+    extraValues.push(params.valueKind);
+  }
+
+  const query = buildFilteredQuery("catalog_dimensions", params, ["key", "name"], "key ASC", extraConditions, extraValues);
   return executeListQuery<DimensionRow>(db, query.countSql, query.listSql, query.values);
+}
+
+export async function listDimensionIds(
+  db: PgQueryable,
+  params: DimensionListParams = {},
+): Promise<string[]> {
+  const result = await listDimensions(db, { ...params, limit: undefined, offset: undefined });
+  return result.items.map((row) => row.dimension_id);
+}
+
+export async function listDimensionBulkRows(
+  db: PgQueryable,
+  dimensionIds: readonly string[],
+): Promise<BulkLifecycleRow[]> {
+  if (dimensionIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<DimensionRow>(
+    `SELECT * FROM catalog_dimensions WHERE dimension_id = ANY($1::text[])`,
+    [[...dimensionIds]],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.dimension_id,
+    label: row.name || row.key,
+    status: row.status,
+  }));
 }
 
 export async function getDimension(db: PgQueryable, dimensionId: string) {

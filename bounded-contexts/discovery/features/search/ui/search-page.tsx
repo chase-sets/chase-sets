@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AppliedFilterChips,
   Button,
-  CommerceBottomSheet,
+  CommerceSheet,
   SearchInput,
   Select,
   LoadingSpinner,
@@ -17,7 +17,6 @@ import {
   NoResultsRecovery,
   PlatformCredibilityCue,
   PromoStrip,
-  ProgressiveDisclosureGroup,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
@@ -41,6 +40,7 @@ import {
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
+const FACET_OPTION_SEARCH_THRESHOLD = 8;
 
 const sortOptions = [
   { label: t("discovery.features.search.ui.searchPage.relevance"), value: "relevance" },
@@ -125,6 +125,21 @@ function formatFacetDescription(facet: DiscoveryFacetGroup): string {
   return facet.kind === "dimension"
     ? t("discovery.features.search.ui.searchPage.dimension.facet.description")
     : t("discovery.features.search.ui.searchPage.field.facet.description");
+}
+
+function facetOptionSearchProps(facet: DiscoveryFacetGroup) {
+  return {
+    searchable: facet.values.length > FACET_OPTION_SEARCH_THRESHOLD,
+    searchLabel: t("discovery.features.search.ui.searchPage.facet.option.search.label", {
+      facet: facet.label,
+    }),
+    searchPlaceholder: t("discovery.features.search.ui.searchPage.facet.option.search.placeholder", {
+      facet: facet.label,
+    }),
+    searchEmptyLabel: t("discovery.features.search.ui.searchPage.facet.option.search.empty", {
+      facet: facet.label,
+    }),
+  };
 }
 
 function buildDynamicAppliedFilters(
@@ -257,7 +272,7 @@ export function SearchPage({
 }: SearchPageProps) {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const [bulkDrawerOpen, setBulkDrawerOpen] = useState(false);
+  const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
   const exactTotal = data?.total ?? data?.items.length ?? 0;
   const featuredCategories = categories.slice(0, 5);
   const liveListingItems =
@@ -284,6 +299,10 @@ export function SearchPage({
     dynamicFilters,
     onDynamicFilterChange,
   );
+  const progressiveFacetLabels = {
+    showMoreLabel: t("discovery.features.search.ui.searchPage.facet.option.show.more"),
+    showLessLabel: t("discovery.features.search.ui.searchPage.facet.option.show.less"),
+  };
   const appliedFilters = [
     ...(committedSearch.trim()
       ? [{
@@ -342,6 +361,7 @@ export function SearchPage({
         }))}
         selectedId={category}
         onSelect={onCategoryChange}
+        {...progressiveFacetLabels}
       />
       <MarketplaceFacetRail
         title={t("discovery.features.search.ui.searchPage.language")}
@@ -353,6 +373,7 @@ export function SearchPage({
         }))}
         selectedId={language}
         onSelect={onLanguageChange}
+        {...progressiveFacetLabels}
       />
       {dynamicFacets.map((facet) => {
         const selectedValues = selectedFacetValues(facet).map((value) => value.id);
@@ -368,6 +389,7 @@ export function SearchPage({
               label: value.label,
               count: value.count,
             }))}
+            {...facetOptionSearchProps(facet)}
             selectedIds={selectedValues}
             selectionMode="multiple"
             onSelect={(value) => {
@@ -377,6 +399,7 @@ export function SearchPage({
                 onDynamicFilterClear({ kind: facet.kind, id: facet.id });
               }
             }}
+            {...progressiveFacetLabels}
           />
         );
       })}
@@ -396,7 +419,7 @@ export function SearchPage({
 
   useEffect(() => {
     if (bulkActionData) {
-      setBulkDrawerOpen(true);
+      setBulkSheetOpen(true);
     }
     if (bulkActionData?.status === "bulk-added") {
       notifyCartCountChanged(bulkActionData.addedLineCount + bulkActionData.mergedLineCount);
@@ -585,6 +608,7 @@ export function SearchPage({
                 }))}
                 selectedId={category}
                 onSelect={onCategoryChange}
+                {...progressiveFacetLabels}
               />
               <MarketplaceFacetChoiceGroup
                 title={t("discovery.features.search.ui.searchPage.language")}
@@ -598,51 +622,36 @@ export function SearchPage({
                 onSelect={(value) => onLanguageChange(value)}
                 allLeadingIcon="book"
                 itemLeadingIcon="book"
+                {...progressiveFacetLabels}
               />
-              {dynamicFacets.length > 0 ? (
-                <ProgressiveDisclosureGroup
-                  title={t("discovery.features.search.ui.searchPage.advanced.filters")}
-                  description={t("discovery.features.search.ui.searchPage.mobile.filters.description")}
-                  defaultValue={dynamicFacets
-                    .filter((facet) => selectedFacetValues(facet).length > 0)
-                    .map((facet) => `${facet.kind}:${facet.id}`)}
-                  items={dynamicFacets.map((facet) => {
-                    const selectedValues = selectedFacetValues(facet).map((value) => value.id);
+              {dynamicFacets.map((facet) => {
+                const selectedValues = selectedFacetValues(facet).map((value) => value.id);
 
-                    return {
-                      value: `${facet.kind}:${facet.id}`,
-                      title: facet.label,
-                      description: formatFacetDescription(facet),
-                      summary: selectedValues.length > 0
-                        ? t("discovery.features.search.ui.searchPage.selected.facet.values", {
-                            count: selectedValues.length,
-                          })
-                        : undefined,
-                      content: (
-                        <MarketplaceFacetChoiceGroup
-                          title={t("discovery.features.search.ui.searchPage.facet.choices", { facet: facet.label })}
-                          description={formatFacetDescription(facet)}
-                          allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
-                          items={facet.values.map((value) => ({
-                            id: value.id,
-                            label: value.label,
-                            count: value.count,
-                          }))}
-                          selectedIds={selectedValues}
-                          selectionMode="multiple"
-                          onSelect={(value) => {
-                            if (value) {
-                              onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
-                            } else {
-                              onDynamicFilterClear({ kind: facet.kind, id: facet.id });
-                            }
-                          }}
-                        />
-                      ),
-                    };
-                  })}
-                />
-              ) : null}
+                return (
+                  <MarketplaceFacetChoiceGroup
+                    key={`${facet.kind}:${facet.id}`}
+                    title={facet.label}
+                    description={formatFacetDescription(facet)}
+                    allLabel={t("discovery.features.search.ui.searchPage.any.facet", { facet: facet.label })}
+                    items={facet.values.map((value) => ({
+                      id: value.id,
+                      label: value.label,
+                      count: value.count,
+                    }))}
+                    {...facetOptionSearchProps(facet)}
+                    selectedIds={selectedValues}
+                    selectionMode="multiple"
+                    onSelect={(value) => {
+                      if (value) {
+                        onDynamicFilterChange({ kind: facet.kind, id: facet.id, value });
+                      } else {
+                        onDynamicFilterClear({ kind: facet.kind, id: facet.id });
+                      }
+                    }}
+                    {...progressiveFacetLabels}
+                  />
+                );
+              })}
             </MarketplaceFilterBottomSheet>
           </>
         ) : null}
@@ -787,9 +796,9 @@ export function SearchPage({
         ) : null}
       </Stack>
       {bulkAdd && bulkPreview ? (
-        <CommerceBottomSheet
-          open={bulkDrawerOpen}
-          onOpenChange={setBulkDrawerOpen}
+        <CommerceSheet
+          open={bulkSheetOpen}
+          onOpenChange={setBulkSheetOpen}
           title={
             bulkActionData?.status === "bulk-added"
               ? t("discovery.features.search.ui.searchPage.bulk.added.title")
@@ -804,7 +813,7 @@ export function SearchPage({
               <Button
                 type="button"
                 tone="ghost"
-                onClick={() => setBulkDrawerOpen(false)}
+                onClick={() => setBulkSheetOpen(false)}
               >
                 {t("discovery.features.search.ui.searchPage.close")}
               </Button>
@@ -869,7 +878,7 @@ export function SearchPage({
               />
             ) : null}
           </Stack>
-        </CommerceBottomSheet>
+        </CommerceSheet>
       ) : null}
     </SearchResultsLayout>
   );

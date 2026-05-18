@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { ReferenceDataServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
+import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
 export function referenceDataRoutes(services: ReferenceDataServices) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -26,6 +27,27 @@ export function referenceDataRoutes(services: ReferenceDataServices) {
     });
 
     return c.json({ id: referenceTypeId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/reference-types/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.referenceTypeBulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, referenceTypeListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/reference-types/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.referenceTypeBulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, referenceTypeListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
   });
 
   app.put("/reference-types/:id", async (c) => {
@@ -88,10 +110,11 @@ export function referenceDataRoutes(services: ReferenceDataServices) {
   });
 
   app.get("/reference-types", async (c) => {
-    const { search, status, limit, offset } = c.req.query();
+    const { search, status, limit, offset, attributeKey } = c.req.query();
     const result = await services.listReferenceTypes({
       search,
       status,
+      attributeKey,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
     });
@@ -138,6 +161,27 @@ export function referenceDataRoutes(services: ReferenceDataServices) {
     });
 
     return c.json({ id: referenceRecordId, version: result.version, status: result.state.status }, 201);
+  });
+
+  app.post("/reference-records/bulk-lifecycle/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.referenceRecordBulkLifecycle.preview(
+      normalizeBulkSelection(body.selection, referenceRecordListQueryFromRecord),
+      String(body.action ?? ""),
+    );
+
+    return c.json(result);
+  });
+
+  app.post("/reference-records/bulk-lifecycle/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.referenceRecordBulkLifecycle.execute(
+      normalizeBulkSelection(body.selection, referenceRecordListQueryFromRecord),
+      String(body.action ?? ""),
+      c.get("context"),
+    );
+
+    return c.json(result);
   });
 
   app.put("/reference-records/:id", async (c) => {
@@ -202,13 +246,17 @@ export function referenceDataRoutes(services: ReferenceDataServices) {
   });
 
   app.get("/reference-records", async (c) => {
-    const { search, status, limit, offset, typeKey } = c.req.query();
+    const { search, status, limit, offset, typeKey, relationshipType, relatedReferenceId, attributeKey, attributeValue } = c.req.query();
     const result = await services.listReferenceRecords({
       search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
       typeKey,
+      relationshipType,
+      relatedReferenceId,
+      attributeKey,
+      attributeValue,
     });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
@@ -233,6 +281,26 @@ export function referenceDataRoutes(services: ReferenceDataServices) {
   });
 
   return app;
+}
+
+function referenceTypeListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: toOptionalString(record.search),
+    status: toOptionalString(record.status),
+    attributeKey: toOptionalString(record.attributeKey),
+  };
+}
+
+function referenceRecordListQueryFromRecord(record: Record<string, unknown>) {
+  return {
+    search: toOptionalString(record.search),
+    status: toOptionalString(record.status),
+    typeKey: toOptionalString(record.typeKey),
+    relationshipType: toOptionalString(record.relationshipType),
+    relatedReferenceId: toOptionalString(record.relatedReferenceId),
+    attributeKey: toOptionalString(record.attributeKey),
+    attributeValue: toOptionalString(record.attributeValue),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
