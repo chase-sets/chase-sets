@@ -450,8 +450,8 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Buy now form")).toBeNull();
   });
 
-  it("keeps sell actions in one accordion card with sell-list batching", () => {
-    render(
+  it("keeps sell actions in the same compact section-list pattern as buy actions", () => {
+    const { container } = render(
       <SellActionCard
         formIdPrefix="sell-card"
         productId="cat_charizard::"
@@ -474,6 +474,10 @@ describe("item detail commerce panel", () => {
     expect(
       screen.getByText("Same-buyer offer batching can improve the 5% shipping allowance."),
     ).toBeTruthy();
+    expect(container.querySelector(".modern-surface")).toBeNull();
+    expect(container.querySelector('[class*="-mx-4"]')).toBeTruthy();
+    expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
+    expect(screen.queryByText("Raw / Near Mint")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Add to sell list/ }));
 
