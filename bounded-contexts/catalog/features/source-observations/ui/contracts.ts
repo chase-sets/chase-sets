@@ -67,6 +67,17 @@ export interface TcgdexExpansionOption {
   officialCardCount: number | null;
 }
 
+export interface SourceObservationIntegrationOption {
+  providerKey: string;
+  queryKind: string;
+  value: string;
+  label: string;
+  description: string | null;
+  parentValue: string | null;
+  imageUrl: string | null;
+  metadata: Record<string, JsonValue>;
+}
+
 export interface SourceObservationPromotionScope {
   search?: string;
   status?: string;

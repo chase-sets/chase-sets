@@ -1,5 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
   Button,
@@ -14,29 +14,29 @@ import {
   Stack,
   Stat,
   StatGrid,
-  TextInput,
   type DataColumn,
+  type SelectItem,
 } from "@chase-sets/design-system";
 import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
-import type { SourceObservationIntegrationScope } from "./contracts";
-import { importTcgdexSet } from "./use-source-observations";
+import type {
+  SourceObservationIntegrationOption,
+  SourceObservationIntegrationScope,
+} from "./contracts";
+import {
+  importTcgdexSet,
+  useSourceObservationIntegrationOptions,
+} from "./use-source-observations";
 
 const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
+const ALL_EXPANSIONS = "__all__";
 
 const providerOptions = [
   { label: t("catalog.features.sourceObservations.ui.integrations.provider.tcgdex"), value: "tcgdex" },
-];
-
-const languageOptions = [
-  { label: t("catalog.features.sourceObservations.ui.list.english"), value: "en" },
-  { label: t("catalog.features.sourceObservations.ui.list.japanese"), value: "ja" },
-  { label: t("catalog.features.sourceObservations.ui.list.korean"), value: "ko" },
-  { label: t("catalog.features.sourceObservations.ui.list.chinese"), value: "zh" },
 ];
 
 export function IntegrationManagementPage({
@@ -48,16 +48,100 @@ export function IntegrationManagementPage({
   const { addToast } = useToasts();
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
-  const [setId, setSetId] = useState("");
+  const [seriesId, setSeriesId] = useState("");
+  const [expansionId, setExpansionId] = useState("");
   const [importing, setImporting] = useState(false);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const columns = useMemo(() => buildColumns(), []);
+  const importLanguages = useSourceObservationIntegrationOptions({
+    providerKey: "tcgdex",
+    queryKind: "languages",
+  });
+  const importSeries = useSourceObservationIntegrationOptions({
+    providerKey: "tcgdex",
+    queryKind: "series",
+    languageCode,
+  });
+  const importExpansions = useSourceObservationIntegrationOptions({
+    providerKey: "tcgdex",
+    queryKind: "expansions",
+    languageCode,
+    parentValue: seriesId,
+    enabled: !!seriesId,
+  });
+  const filterExpansionLanguage = listControls.language || languageCode || "en";
+  const filterExpansions = useSourceObservationIntegrationOptions({
+    providerKey: listControls.source || "tcgdex",
+    queryKind: "expansions",
+    languageCode: filterExpansionLanguage,
+    enabled: !listControls.source || listControls.source === "tcgdex",
+  });
+  const languageOptions = useMemo(
+    () =>
+      (importLanguages.data?.items ?? []).map((item) => ({
+        label: formatLanguageCodeLabel(metadataString(item.metadata.languageCode) ?? item.value),
+        value: item.value,
+      })),
+    [importLanguages.data],
+  );
+  const seriesOptions = useMemo(
+    () => toSelectItems(importSeries.data?.items ?? []),
+    [importSeries.data],
+  );
+  const expansionOptions = useMemo(
+    () => toSelectItems(importExpansions.data?.items ?? []),
+    [importExpansions.data],
+  );
+  const filterExpansionOptions = useMemo(
+    () => toSelectItems(filterExpansions.data?.items ?? []),
+    [filterExpansions.data],
+  );
+
+  useEffect(() => {
+    if (
+      languageOptions.length > 0 &&
+      !languageOptions.some((item) => item.value === languageCode)
+    ) {
+      setLanguageCode(languageOptions[0].value);
+    }
+  }, [languageOptions, languageCode]);
+
+  useEffect(() => {
+    setSeriesId("");
+    setExpansionId("");
+  }, [languageCode]);
+
+  useEffect(() => {
+    if (seriesOptions.length === 0) {
+      setSeriesId("");
+      return;
+    }
+
+    if (!seriesOptions.some((item) => item.value === seriesId)) {
+      setSeriesId(seriesOptions[0].value);
+    }
+  }, [seriesOptions, seriesId]);
+
+  useEffect(() => {
+    if (expansionOptions.length === 0) {
+      setExpansionId("");
+      return;
+    }
+
+    if (!expansionOptions.some((item) => item.value === expansionId)) {
+      setExpansionId(expansionOptions[0].value);
+    }
+  }, [expansionOptions, expansionId]);
 
   async function handleImport() {
+    if (!expansionId) {
+      return;
+    }
+
     setImporting(true);
 
     try {
-      const result = await importTcgdexSet({ languageCode, setId });
+      const result = await importTcgdexSet({ languageCode, setId: expansionId });
       addToast(
         t("catalog.features.sourceObservations.ui.list.import.completed", {
           count: String(result.observed),
@@ -65,7 +149,7 @@ export function IntegrationManagementPage({
         "success",
       );
       setShowImport(false);
-      setSetId("");
+      setExpansionId("");
       listControls.setFilters({
         source: "tcgdex",
         language: result.languageCode,
@@ -119,7 +203,10 @@ export function IntegrationManagementPage({
             label={t("catalog.features.sourceObservations.ui.integrations.provider")}
             value={listControls.source || ALL_PROVIDERS}
             onValueChange={(value) =>
-              listControls.setSource(value === ALL_PROVIDERS ? "" : value)
+              listControls.setFilters({
+                source: value === ALL_PROVIDERS ? "" : value,
+                setId: "",
+              })
             }
             items={[
               {
@@ -133,7 +220,10 @@ export function IntegrationManagementPage({
             label={t("catalog.features.sourceObservations.ui.list.language")}
             value={listControls.language || ALL_LANGUAGES}
             onValueChange={(value) =>
-              listControls.setLanguage(value === ALL_LANGUAGES ? "" : value)
+              listControls.setFilters({
+                language: value === ALL_LANGUAGES ? "" : value,
+                setId: "",
+              })
             }
             items={[
               {
@@ -143,10 +233,24 @@ export function IntegrationManagementPage({
               ...languageOptions,
             ]}
           />
-          <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
-            value={listControls.setId}
-            onChange={(event) => listControls.setSetId(event.target.value)}
+          <Select
+            label={t("catalog.features.sourceObservations.ui.list.expansion")}
+            value={listControls.setId || ALL_EXPANSIONS}
+            onValueChange={(value) =>
+              listControls.setSetId(value === ALL_EXPANSIONS ? "" : value)
+            }
+            items={[
+              {
+                label: t("catalog.features.sourceObservations.ui.integrations.all.expansions"),
+                value: ALL_EXPANSIONS,
+              },
+              ...withSelectedFallback(filterExpansionOptions, listControls.setId),
+            ]}
+            disabled={
+              (!!listControls.source && listControls.source !== "tcgdex") ||
+              filterExpansions.loading
+            }
+            error={filterExpansions.error ?? undefined}
           />
         </FilterBar>
 
@@ -178,22 +282,51 @@ export function IntegrationManagementPage({
             >
               {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
-            <Button onClick={handleImport} loading={importing}>
+            <Button
+              onClick={handleImport}
+              loading={importing}
+              disabled={
+                !languageCode ||
+                !seriesId ||
+                !expansionId ||
+                importing ||
+                importLanguages.loading ||
+                importSeries.loading ||
+                importExpansions.loading
+              }
+            >
               {t("catalog.features.sourceObservations.ui.list.import")}
             </Button>
           </Inline>
         }
       >
         <Stack gap={3}>
-          <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.language.code")}
+          <Select
+            label={t("catalog.features.sourceObservations.ui.list.language")}
             value={languageCode}
-            onChange={(event) => setLanguageCode(event.target.value)}
+            onValueChange={setLanguageCode}
+            items={languageOptions}
+            disabled={importLanguages.loading || languageOptions.length === 0}
+            error={importLanguages.error ?? undefined}
           />
-          <TextInput
-            label={t("catalog.features.sourceObservations.ui.list.tcgdex.expansion.id")}
-            value={setId}
-            onChange={(event) => setSetId(event.target.value)}
+          <Select
+            label={t("catalog.features.sourceObservations.ui.list.series")}
+            value={seriesId}
+            onValueChange={(value) => {
+              setSeriesId(value);
+              setExpansionId("");
+            }}
+            items={seriesOptions}
+            disabled={importSeries.loading || seriesOptions.length === 0}
+            error={importSeries.error ?? undefined}
+          />
+          <Select
+            label={t("catalog.features.sourceObservations.ui.list.expansion")}
+            value={expansionId}
+            onValueChange={setExpansionId}
+            items={expansionOptions}
+            disabled={!seriesId || importExpansions.loading || expansionOptions.length === 0}
+            error={importExpansions.error ?? undefined}
           />
         </Stack>
       </Dialog>
@@ -270,6 +403,37 @@ function summarizeScopes(scopes: readonly SourceObservationIntegrationScope[]) {
       promoted: 0,
     },
   );
+}
+
+function toSelectItems(
+  options: readonly SourceObservationIntegrationOption[],
+): SelectItem[] {
+  return options.map((option) => ({
+    label: option.label,
+    value: option.value,
+    description: option.description ?? undefined,
+  }));
+}
+
+function withSelectedFallback(
+  options: readonly SelectItem[],
+  selectedValue: string,
+): SelectItem[] {
+  if (!selectedValue || options.some((option) => option.value === selectedValue)) {
+    return [...options];
+  }
+
+  return [
+    {
+      label: selectedValue,
+      value: selectedValue,
+    },
+    ...options,
+  ];
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function sourceObservationScopeHref(scope: SourceObservationIntegrationScope) {

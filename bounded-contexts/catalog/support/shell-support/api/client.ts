@@ -823,6 +823,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async listSourceObservationIntegrationOptions<T>(query: string): Promise<T> {
+      const response = await client["source-observations"]["integration-options"].$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async getSourceObservation<T>(id: string): Promise<T> {
       const response = await client["source-observations"][":id"].$get({
         param: { id },

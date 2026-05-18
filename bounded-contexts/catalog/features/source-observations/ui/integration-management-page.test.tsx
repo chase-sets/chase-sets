@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { IntegrationManagementPage } from "./integration-management-page";
 import type { SourceObservationIntegrationScope } from "./contracts";
@@ -8,12 +8,14 @@ import type { SourceObservationIntegrationScope } from "./contracts";
 const {
   mockImportTcgdexSet,
   mockRevalidate,
+  mockUseSourceObservationIntegrationOptions,
   mockSetSearchParams,
   mockUseNavigation,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
   mockImportTcgdexSet: vi.fn(),
   mockRevalidate: vi.fn(),
+  mockUseSourceObservationIntegrationOptions: vi.fn(),
   mockSetSearchParams: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -27,6 +29,7 @@ vi.mock("react-router", () => ({
 
 vi.mock("./use-source-observations", () => ({
   importTcgdexSet: mockImportTcgdexSet,
+  useSourceObservationIntegrationOptions: mockUseSourceObservationIntegrationOptions,
 }));
 
 const query: CatalogListQuery = {
@@ -41,6 +44,12 @@ const query: CatalogListQuery = {
 };
 
 describe("IntegrationManagementPage", () => {
+  beforeEach(() => {
+    mockUseSourceObservationIntegrationOptions.mockImplementation((input: {
+      queryKind: string;
+    }) => integrationOptionsResult(input.queryKind));
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -84,11 +93,12 @@ describe("IntegrationManagementPage", () => {
     );
 
     fireEvent.click(screen.getAllByRole("button", { name: /Import TCGdex Expansion/i })[0]);
-    const expansionInputs = screen.getAllByLabelText("TCGdex Expansion ID");
-    fireEvent.change(expansionInputs[expansionInputs.length - 1], {
-      target: { value: "base1" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Import$/i }));
+    expect(screen.queryByLabelText("TCGdex Expansion ID")).toBeNull();
+    const importButton = screen.getByRole("button", { name: /^Import$/i });
+    await waitFor(() =>
+      expect((importButton as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(importButton);
 
     await waitFor(() =>
       expect(mockImportTcgdexSet).toHaveBeenCalledWith({
@@ -100,6 +110,78 @@ describe("IntegrationManagementPage", () => {
     expect(mockRevalidate).toHaveBeenCalled();
   });
 });
+
+function integrationOptionsResult(queryKind: string) {
+  if (queryKind === "languages") {
+    return {
+      data: {
+        items: [
+          {
+            providerKey: "tcgdex",
+            queryKind: "languages",
+            value: "en",
+            label: "en",
+            description: null,
+            parentValue: null,
+            imageUrl: null,
+            metadata: { languageCode: "en" },
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    };
+  }
+
+  if (queryKind === "series") {
+    return {
+      data: {
+        items: [
+          {
+            providerKey: "tcgdex",
+            queryKind: "series",
+            value: "base",
+            label: "Base",
+            description: null,
+            parentValue: "en",
+            imageUrl: null,
+            metadata: { seriesId: "base" },
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    };
+  }
+
+  return {
+    data: {
+      items: [
+        {
+          providerKey: "tcgdex",
+          queryKind: "expansions",
+          value: "base1",
+          label: "Base Set",
+          description: "Base - 102 official cards",
+          parentValue: "base",
+          imageUrl: null,
+          metadata: { expansionId: "base1" },
+        },
+      ],
+      total: 1,
+      count: 1,
+    },
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  };
+}
 
 function integrationScope(): SourceObservationIntegrationScope {
   return {

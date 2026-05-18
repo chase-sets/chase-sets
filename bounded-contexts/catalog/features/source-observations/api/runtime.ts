@@ -70,6 +70,17 @@ export type BulkSourceObservationPromotionResult = Readonly<{
   outcomes: readonly BulkSourceObservationPromotionOutcome[];
 }>;
 
+export type SourceObservationIntegrationOption = Readonly<{
+  providerKey: string;
+  queryKind: string;
+  value: string;
+  label: string;
+  description: string | null;
+  parentValue: string | null;
+  imageUrl: string | null;
+  metadata: Readonly<Record<string, JsonValue>>;
+}>;
+
 export type SourceObservationServices = Readonly<{
   commandHandler: CommandHandler<
     SourceObservationCommand,
@@ -89,6 +100,12 @@ export type SourceObservationServices = Readonly<{
     languageCode: string;
     seriesId?: string | null;
   }) => Promise<readonly TcgdexExpansionOption[]>;
+  listIntegrationOptions: (input: {
+    providerKey: string;
+    queryKind: string;
+    languageCode?: string | null;
+    parentValue?: string | null;
+  }) => Promise<readonly SourceObservationIntegrationOption[]>;
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
@@ -357,6 +374,7 @@ export function createSourceObservationRuntime(
       fetchTcgdexSeriesOptions({ languageCode }),
     listTcgdexExpansions: async ({ languageCode, seriesId }) =>
       fetchTcgdexExpansionOptions({ languageCode, seriesId }),
+    listIntegrationOptions: listProviderIntegrationOptions,
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -411,6 +429,98 @@ export function createSourceObservationRuntime(
       getSourceObservationDetail(deps.db, observationId),
     projectors,
   };
+}
+
+async function listProviderIntegrationOptions(input: {
+  providerKey: string;
+  queryKind: string;
+  languageCode?: string | null;
+  parentValue?: string | null;
+}): Promise<readonly SourceObservationIntegrationOption[]> {
+  const providerKey = normalizeIntegrationKey(input.providerKey || "tcgdex");
+  const queryKind = normalizeIntegrationKey(input.queryKind);
+  const languageCode = normalizeIntegrationKey(input.languageCode || "en");
+  const parentValue = input.parentValue?.trim() || null;
+
+  if (providerKey !== "tcgdex") {
+    throw new Error(`Unsupported Catalog integration provider: ${providerKey}.`);
+  }
+
+  if (queryKind === "languages" || queryKind === "language") {
+    return listTcgdexLanguageOptions().map((item) => ({
+      providerKey,
+      queryKind: "languages",
+      value: item.languageCode,
+      label: item.languageCode,
+      description: null,
+      parentValue: null,
+      imageUrl: null,
+      metadata: { languageCode: item.languageCode },
+    }));
+  }
+
+  if (queryKind === "series") {
+    const series = await fetchTcgdexSeriesOptions({ languageCode });
+    return series.map((item) => ({
+      providerKey,
+      queryKind: "series",
+      value: item.seriesId,
+      label: item.name,
+      description: null,
+      parentValue: languageCode,
+      imageUrl: item.logoUrl,
+      metadata: {
+        languageCode,
+        seriesId: item.seriesId,
+        logoUrl: item.logoUrl,
+      },
+    }));
+  }
+
+  if (queryKind === "expansions" || queryKind === "expansion") {
+    const expansions = await fetchTcgdexExpansionOptions({
+      languageCode,
+      seriesId: parentValue,
+    });
+    return expansions.map((item) => ({
+      providerKey,
+      queryKind: "expansions",
+      value: item.expansionId,
+      label: item.name,
+      description: formatExpansionOptionDescription(item),
+      parentValue: item.seriesId ?? parentValue,
+      imageUrl: item.symbolUrl ?? item.logoUrl,
+      metadata: {
+        languageCode,
+        expansionId: item.expansionId,
+        seriesId: item.seriesId,
+        seriesName: item.seriesName,
+        logoUrl: item.logoUrl,
+        symbolUrl: item.symbolUrl,
+        cardCount: item.cardCount,
+        officialCardCount: item.officialCardCount,
+      },
+    }));
+  }
+
+  throw new Error(`Unsupported Catalog integration query: ${queryKind}.`);
+}
+
+function formatExpansionOptionDescription(item: TcgdexExpansionOption): string | null {
+  if (item.officialCardCount === null && item.cardCount === null) {
+    return item.seriesName;
+  }
+
+  const count =
+    item.officialCardCount !== null
+      ? `${item.officialCardCount} official cards`
+      : `${item.cardCount} cards`;
+
+  return item.seriesName ? `${item.seriesName} - ${count}` : count;
+}
+
+function normalizeIntegrationKey(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 async function drainRuntimeProjectors(projectors: readonly Projector[]) {
