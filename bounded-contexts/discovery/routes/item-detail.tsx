@@ -360,6 +360,7 @@ function shipFromAddressFromForm(formData: FormData) {
 
 function ProductAlertCreationSection({
   formId,
+  panelVariant = "card",
   marketSide,
   productId,
   catalogItemId,
@@ -368,6 +369,7 @@ function ProductAlertCreationSection({
   productSummary,
 }: {
   formId: string;
+  panelVariant?: FormPanelVariant;
   marketSide: "listing" | "offer";
   productId: string | null;
   catalogItemId: string;
@@ -381,52 +383,60 @@ function ProductAlertCreationSection({
     ? "Web alert when supply appears at or below your price."
     : "Web alert when offer demand appears at or above your price.";
 
-  return (
-    <ProgressiveDisclosure
-      title={title}
-      description={description}
-      summary={productSummary ?? "Selected product"}
-      tone="info"
-      icon="bell"
-    >
-      <form id={formId} method="post">
-        <Stack gap={3}>
-          <input type="hidden" name="intent" value="create-product-alert" />
-          <input type="hidden" name="marketSide" value={marketSide} />
-          <input type="hidden" name="catalogItemId" value={catalogItemId} />
-          <input type="hidden" name="productId" value={productId ?? ""} />
-          <input
-            type="hidden"
-            name="selectedOptions"
-            value={JSON.stringify(selectedOptions)}
+  const form = (
+    <form id={formId} method="post">
+      <Stack gap={3}>
+        <input type="hidden" name="intent" value="create-product-alert" />
+        <input type="hidden" name="marketSide" value={marketSide} />
+        <input type="hidden" name="catalogItemId" value={catalogItemId} />
+        <input type="hidden" name="productId" value={productId ?? ""} />
+        <input
+          type="hidden"
+          name="selectedOptions"
+          value={JSON.stringify(selectedOptions)}
+        />
+        <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+        <Stack gap={1}>
+          <ProductSelectionSummary
+            selections={productSelectionDetails}
+            summary={productSummary ?? "Selected product"}
+            summaryAsChip={productSelectionDetails.length === 0}
           />
-          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-          <Stack gap={1}>
-            <ProductSelectionSummary
-              selections={productSelectionDetails}
-              summary={productSummary ?? "Selected product"}
-              summaryAsChip={productSelectionDetails.length === 0}
-            />
-            <Text size="sm" tone="secondary">
-              {isListingAlert
-                ? "Get a web notification when a matching listing appears at your price."
-                : "Get a web notification when matching offer demand appears at your price."}
-            </Text>
-          </Stack>
-          <CurrencyInput
-            label={isListingAlert ? "Maximum listing price" : "Minimum offer price"}
-            name="thresholdAmount"
-            placeholder={isListingAlert ? "25.00" : "15.00"}
-            min="0"
-            step="0.01"
-          />
-          <Button type="submit" tone="secondary" disabled={!productId} block>
-            {t("discovery.routes.itemDetail.create.product.alert")}
-          </Button>
+          <Text size="sm" tone="secondary">
+            {isListingAlert
+              ? "Get a web notification when a matching listing appears at your price."
+              : "Get a web notification when matching offer demand appears at your price."}
+          </Text>
         </Stack>
-      </form>
-    </ProgressiveDisclosure>
+        <CurrencyInput
+          label={isListingAlert ? "Maximum listing price" : "Minimum offer price"}
+          name="thresholdAmount"
+          placeholder={isListingAlert ? "25.00" : "15.00"}
+          min="0"
+          step="0.01"
+        />
+        <Button type="submit" tone="secondary" disabled={!productId} block>
+          {t("discovery.routes.itemDetail.set.alert")}
+        </Button>
+      </Stack>
+    </form>
   );
+
+  if (panelVariant === "card") {
+    return (
+      <ProgressiveDisclosure
+        title={title}
+        description={description}
+        summary={productSummary ?? "Selected product"}
+        tone="info"
+        icon="bell"
+      >
+        {form}
+      </ProgressiveDisclosure>
+    );
+  }
+
+  return <FormPanel variant={panelVariant}>{form}</FormPanel>;
 }
 
 function MarketplaceOfferSubmissionSection({
@@ -598,6 +608,7 @@ export function CheckoutPurchaseIntentSection({
   panelVariant = "card",
   showSummary = panelVariant === "card",
   actions,
+  actionMode = "all",
   catalogItemId,
   productId,
   selectedListing,
@@ -612,6 +623,7 @@ export function CheckoutPurchaseIntentSection({
   panelVariant?: FormPanelVariant;
   showSummary?: boolean;
   actions?: ReactNode;
+  actionMode?: "all" | "buy-now" | "add-to-cart";
   catalogItemId: string;
   productId: string | null;
   selectedListing: {
@@ -651,11 +663,25 @@ export function CheckoutPurchaseIntentSection({
     : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
-  const productIntentGuidance = productId
-    ? visibleListingCount === 0
-        ? t("discovery.routes.itemDetail.product.intent.no.supply.guidance")
-        : t("discovery.routes.itemDetail.product.intent.buy.guidance")
-      : t("discovery.routes.itemDetail.product.intent.choose.options.guidance");
+  function getProductIntentGuidance() {
+    if (actionMode === "buy-now") {
+      return t("discovery.routes.itemDetail.buy.now.selected.action.guidance");
+    }
+
+    if (actionMode === "add-to-cart") {
+      return t("discovery.routes.itemDetail.add.to.cart.selected.action.guidance");
+    }
+
+    if (!productId) {
+      return t("discovery.routes.itemDetail.product.intent.choose.options.guidance");
+    }
+
+    return visibleListingCount === 0
+      ? t("discovery.routes.itemDetail.product.intent.no.supply.guidance")
+      : t("discovery.routes.itemDetail.product.intent.buy.guidance");
+  }
+
+  const productIntentGuidance = getProductIntentGuidance();
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
@@ -671,40 +697,54 @@ export function CheckoutPurchaseIntentSection({
     formData.set("intent", "add-to-cart");
     addToCartFetcher.submit(formData, { method: "post" });
   }
-  const defaultActions = (
+  const buyNowAction = (
+    <Button
+      type="submit"
+      name="intent"
+      value="buy-now"
+      tone={productId ? "primary" : "secondary"}
+      disabled={!productId}
+      block
+    >
+      {t("discovery.routes.itemDetail.buy.optimized")}
+    </Button>
+  );
+  const lockedListingAction = (
+    <Button
+      type="submit"
+      name="intent"
+      value="buy-this-listing"
+      tone="secondary"
+      disabled={!productId || !selectedListing}
+      block
+    >
+      {t("discovery.routes.itemDetail.buy.locked.to.this.seller")}
+    </Button>
+  );
+  const addToCartAction = (
+    <Button
+      type="button"
+      tone={actionMode === "add-to-cart" && productId ? "primary" : "secondary"}
+      disabled={!productId || Boolean(addToCartPending)}
+      onClick={() => {
+        void handleAddToCart();
+      }}
+      block
+    >
+      {addToCartPending
+        ? t("discovery.routes.itemDetail.adding.to.cart")
+        : t("discovery.routes.itemDetail.add.product.to.cart")}
+    </Button>
+  );
+  const defaultActions = actionMode === "buy-now" ? (
+    buyNowAction
+  ) : actionMode === "add-to-cart" ? (
+    addToCartAction
+  ) : (
     <>
-      <Button
-        type="submit"
-        name="intent"
-        value="buy-now"
-        tone={productId ? "primary" : "secondary"}
-        disabled={!productId}
-        block
-      >
-        {t("discovery.routes.itemDetail.buy.optimized")}
-      </Button>
-      <Button
-        type="submit"
-        name="intent"
-        value="buy-this-listing"
-        tone="secondary"
-        disabled={!productId || !selectedListing}
-        block
-      >
-        {t("discovery.routes.itemDetail.buy.locked.to.this.seller")}
-      </Button>
-      <Button
-        type="button"
-        tone="secondary"
-        disabled={!productId || Boolean(addToCartPending)}
-        onClick={() => {
-          void handleAddToCart();
-        }}
-        block
-      >
-        {addToCartPending
-            ? t("discovery.routes.itemDetail.adding.to.cart")
-            : t("discovery.routes.itemDetail.add.product.to.cart")}</Button>
+      {buyNowAction}
+      {lockedListingAction}
+      {addToCartAction}
     </>
   );
   const form = (
@@ -824,6 +864,7 @@ export function MarketplaceOfferMatchSection({
   panelVariant = "card",
   showSummary = panelVariant === "card",
   actions,
+  actionMode = "all",
   selectedOffer,
   productId,
   matchingOfferCount,
@@ -833,6 +874,7 @@ export function MarketplaceOfferMatchSection({
   panelVariant?: FormPanelVariant;
   showSummary?: boolean;
   actions?: ReactNode;
+  actionMode?: "all" | "sell-now" | "add-to-sell-list";
   selectedOffer: {
     offer_id: string;
     buyer_display_name: string | null;
@@ -874,26 +916,37 @@ export function MarketplaceOfferMatchSection({
   const quoteTime = acceptanceTerms
     ? new Date(acceptanceTerms.resolved_at).toLocaleString()
     : null;
-  const defaultActions = (
+  const sellNowAction = (
+    <Button
+      type="submit"
+      name="intent"
+      value="sell-now"
+      disabled={!selectedOffer?.can_fulfill}
+      block
+    >
+      {t("discovery.routes.itemDetail.sell.now")}
+    </Button>
+  );
+  const addToSellListAction = (
+    <Button
+      type="submit"
+      name="intent"
+      value="add-to-sell-list"
+      tone={actionMode === "add-to-sell-list" && selectedOffer?.can_fulfill ? "primary" : "secondary"}
+      disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
+      block
+    >
+      {selectedOffer?.in_sell_list ? t("discovery.routes.itemDetail.in.sell.list") : t("discovery.routes.itemDetail.add.to.sell.list")}
+    </Button>
+  );
+  const defaultActions = actionMode === "sell-now" ? (
+    sellNowAction
+  ) : actionMode === "add-to-sell-list" ? (
+    addToSellListAction
+  ) : (
     <>
-      <Button
-        type="submit"
-        name="intent"
-        value="sell-now"
-        disabled={!selectedOffer?.can_fulfill}
-        block
-      >
-        {t("discovery.routes.itemDetail.sell.now")}</Button>
-      <Button
-        type="submit"
-        name="intent"
-        value="add-to-sell-list"
-        tone="secondary"
-        disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
-        block
-      >
-        {selectedOffer?.in_sell_list ? t("discovery.routes.itemDetail.in.sell.list") : t("discovery.routes.itemDetail.add.to.sell.list")}
-      </Button>
+      {sellNowAction}
+      {addToSellListAction}
     </>
   );
   const form = (
@@ -1396,6 +1449,276 @@ export function MarketplaceListingSubmissionSection({
         />
       ) : null}
     </Stack>
+  );
+}
+
+type BuyAction = "buy-now" | "add-to-cart" | "make-offer" | "set-alert";
+type SellAction = "sell-now" | "add-to-sell-list" | "list-for-sale" | "set-alert";
+
+type CommerceActionOption<TAction extends string> = Readonly<{
+  value: TAction;
+  label: string;
+  description: string;
+  icon: "cart" | "bell" | "tag" | "dollar" | "store";
+  disabled?: boolean;
+}>;
+
+function CommerceActionChooser<TAction extends string>({
+  options,
+  selectedAction,
+  onSelectedActionChange,
+}: {
+  options: readonly CommerceActionOption<TAction>[];
+  selectedAction: TAction | null;
+  onSelectedActionChange: (action: TAction) => void;
+}) {
+  const selectedOption = options.find((option) => option.value === selectedAction) ?? null;
+
+  return (
+    <Stack gap={2}>
+      <Grid columns={{ base: 1 }} gap={2}>
+        {options.map((option) => (
+          <Button
+            key={option.value}
+            type="button"
+            tone={selectedAction === option.value ? "primary" : "secondary"}
+            leadingIcon={option.icon}
+            disabled={option.disabled}
+            onClick={() => onSelectedActionChange(option.value)}
+            block
+          >
+            {option.label}
+          </Button>
+        ))}
+      </Grid>
+      <Text size="sm" tone="secondary">
+        {selectedOption?.description ?? t("discovery.routes.itemDetail.choose.action.guidance")}
+      </Text>
+    </Stack>
+  );
+}
+
+function ItemDetailActionCard<TAction extends string>({
+  title,
+  description,
+  productSummary,
+  productSelectionDetails,
+  options,
+  selectedAction,
+  onSelectedActionChange,
+  children,
+  panelVariant = "card",
+  glow = false,
+  footer,
+}: {
+  title: string;
+  description: string;
+  productSummary: string | null;
+  productSelectionDetails: readonly ProductSelectionDisplayDetail[];
+  options: readonly CommerceActionOption<TAction>[];
+  selectedAction: TAction | null;
+  onSelectedActionChange: (action: TAction) => void;
+  children: ReactNode;
+  panelVariant?: FormPanelVariant;
+  glow?: boolean;
+  footer?: ReactNode;
+}) {
+  return (
+    <FormPanel variant={panelVariant} glow={glow}>
+      <Stack gap={3}>
+        <Stack gap={1}>
+          <Text weight="semibold">{title}</Text>
+          <Text size="sm" tone="secondary">{description}</Text>
+          <ProductSelectionSummary
+            selections={productSelectionDetails}
+            summary={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.select.product")}
+            summaryAsChip={productSelectionDetails.length === 0}
+          />
+        </Stack>
+        <CommerceActionChooser
+          options={options}
+          selectedAction={selectedAction}
+          onSelectedActionChange={onSelectedActionChange}
+        />
+        {footer}
+        {selectedAction ? children : null}
+      </Stack>
+    </FormPanel>
+  );
+}
+
+export function BuyActionCard({
+  formIdPrefix,
+  panelVariant = "card",
+  productId,
+  productSummary,
+  productSelectionDetails,
+  visibleListingCount,
+  renderBuyNow,
+  renderAddToCart,
+  renderOffer,
+  renderAlert,
+}: {
+  formIdPrefix: string;
+  panelVariant?: FormPanelVariant;
+  productId: string | null;
+  productSummary: string | null;
+  productSelectionDetails: readonly ProductSelectionDisplayDetail[];
+  visibleListingCount: number;
+  renderBuyNow: (formId: string) => ReactNode;
+  renderAddToCart: (formId: string) => ReactNode;
+  renderOffer: (formId: string) => ReactNode;
+  renderAlert: (formId: string) => ReactNode;
+}) {
+  const [selectedAction, setSelectedAction] = useState<BuyAction | null>(null);
+  const options = [
+    {
+      value: "buy-now",
+      label: t("discovery.routes.itemDetail.buy.optimized"),
+      description: t("discovery.routes.itemDetail.buy.now.action.description"),
+      icon: "dollar",
+      disabled: !productId || visibleListingCount === 0,
+    },
+    {
+      value: "add-to-cart",
+      label: t("discovery.routes.itemDetail.add.product.to.cart"),
+      description: t("discovery.routes.itemDetail.add.to.cart.action.description"),
+      icon: "cart",
+      disabled: !productId,
+    },
+    {
+      value: "make-offer",
+      label: t("discovery.routes.itemDetail.make.offer.action"),
+      description: t("discovery.routes.itemDetail.make.offer.action.description"),
+      icon: "tag",
+      disabled: !productId,
+    },
+    {
+      value: "set-alert",
+      label: t("discovery.routes.itemDetail.set.alert"),
+      description: t("discovery.routes.itemDetail.buy.alert.action.description"),
+      icon: "bell",
+      disabled: !productId,
+    },
+  ] satisfies readonly CommerceActionOption<BuyAction>[];
+  const selectedContent =
+    selectedAction === "buy-now"
+      ? renderBuyNow(`${formIdPrefix}-buy-now`)
+      : selectedAction === "add-to-cart"
+        ? renderAddToCart(`${formIdPrefix}-add-to-cart`)
+        : selectedAction === "make-offer"
+          ? renderOffer(`${formIdPrefix}-make-offer`)
+          : selectedAction === "set-alert"
+            ? renderAlert(`${formIdPrefix}-listing-alert`)
+            : null;
+
+  return (
+    <ItemDetailActionCard
+      title={t("discovery.routes.itemDetail.buy.card.title")}
+      description={t("discovery.routes.itemDetail.buy.card.description")}
+      productSummary={productSummary}
+      productSelectionDetails={productSelectionDetails}
+      options={options}
+      selectedAction={selectedAction}
+      onSelectedActionChange={setSelectedAction}
+      panelVariant={panelVariant}
+      glow={visibleListingCount > 0}
+    >
+      {selectedContent}
+    </ItemDetailActionCard>
+  );
+}
+
+export function SellActionCard({
+  formIdPrefix,
+  panelVariant = "card",
+  productId,
+  productSummary,
+  productSelectionDetails,
+  hasMatchingOffer,
+  canUseSellerFeatures,
+  renderSellNow,
+  renderAddToSellList,
+  renderListing,
+  renderAlert,
+}: {
+  formIdPrefix: string;
+  panelVariant?: FormPanelVariant;
+  productId: string | null;
+  productSummary: string | null;
+  productSelectionDetails: readonly ProductSelectionDisplayDetail[];
+  hasMatchingOffer: boolean;
+  canUseSellerFeatures: boolean;
+  renderSellNow: (formId: string) => ReactNode;
+  renderAddToSellList: (formId: string) => ReactNode;
+  renderListing: (formId: string) => ReactNode;
+  renderAlert: (formId: string) => ReactNode;
+}) {
+  const [selectedAction, setSelectedAction] = useState<SellAction | null>(null);
+  const options = [
+    {
+      value: "sell-now",
+      label: t("discovery.routes.itemDetail.sell.now"),
+      description: t("discovery.routes.itemDetail.sell.now.action.description"),
+      icon: "dollar",
+      disabled: !productId || !hasMatchingOffer,
+    },
+    {
+      value: "add-to-sell-list",
+      label: t("discovery.routes.itemDetail.add.to.sell.list"),
+      description: t("discovery.routes.itemDetail.add.to.sell.list.action.description"),
+      icon: "cart",
+      disabled: !productId || !hasMatchingOffer,
+    },
+    {
+      value: "list-for-sale",
+      label: t("discovery.routes.itemDetail.list.for.sale"),
+      description: t("discovery.routes.itemDetail.list.for.sale.action.description"),
+      icon: "store",
+      disabled: !productId,
+    },
+    {
+      value: "set-alert",
+      label: t("discovery.routes.itemDetail.set.alert"),
+      description: t("discovery.routes.itemDetail.sell.alert.action.description"),
+      icon: "bell",
+      disabled: !productId,
+    },
+  ] satisfies readonly CommerceActionOption<SellAction>[];
+  const selectedContent =
+    selectedAction === "sell-now"
+      ? renderSellNow(`${formIdPrefix}-sell-now`)
+      : selectedAction === "add-to-sell-list"
+        ? renderAddToSellList(`${formIdPrefix}-sell-list`)
+        : selectedAction === "list-for-sale"
+          ? renderListing(`${formIdPrefix}-list-for-sale`)
+          : selectedAction === "set-alert"
+            ? renderAlert(`${formIdPrefix}-offer-alert`)
+            : null;
+
+  return (
+    <ItemDetailActionCard
+      title={t("discovery.routes.itemDetail.sell.card.title")}
+      description={
+        canUseSellerFeatures
+          ? t("discovery.routes.itemDetail.sell.card.description")
+          : t("discovery.routes.itemDetail.sell.card.registration.description")
+      }
+      productSummary={productSummary}
+      productSelectionDetails={productSelectionDetails}
+      options={options}
+      selectedAction={selectedAction}
+      onSelectedActionChange={setSelectedAction}
+      panelVariant={panelVariant}
+      glow={hasMatchingOffer}
+      footer={
+        <Badge tone="accent">
+          {t("discovery.routes.itemDetail.same.buyer.shipping.allowance")}
+        </Badge>
+      }
+    >
+      {selectedContent}
+    </ItemDetailActionCard>
   );
 }
 
@@ -1911,12 +2234,14 @@ function DiscoveryItemDetailRealtimeView({
                 panelVariant: FormPanelVariant = "card",
                 actions?: ReactNode,
                 showSummary?: boolean,
+                actionMode?: "all" | "buy-now" | "add-to-cart",
               ) => (
                 <CheckoutPurchaseIntentSection
                   formId={formId}
                   panelVariant={panelVariant}
                   showSummary={showSummary}
                   actions={actions}
+                  actionMode={actionMode}
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   selectedListing={context.selectedListing}
@@ -1931,9 +2256,11 @@ function DiscoveryItemDetailRealtimeView({
               const renderProductAlert = (
                 formId: string,
                 marketSide: "listing" | "offer",
+                panelVariant: FormPanelVariant = "card",
               ) => (
                 <ProductAlertCreationSection
                   formId={formId}
+                  panelVariant={panelVariant}
                   marketSide={marketSide}
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
@@ -1968,12 +2295,14 @@ function DiscoveryItemDetailRealtimeView({
                 panelVariant: FormPanelVariant = "card",
                 actions?: ReactNode,
                 showSummary?: boolean,
+                actionMode?: "all" | "sell-now" | "add-to-sell-list",
               ) => (
                 <MarketplaceOfferMatchSection
                   formId={formId}
                   panelVariant={panelVariant}
                   showSummary={showSummary}
                   actions={actions}
+                  actionMode={actionMode}
                   selectedOffer={context.selectedAccountOfferMatch}
                   productId={context.selectedProductId}
                   matchingOfferCount={context.visibleAccountOfferMatches.length}
@@ -2017,73 +2346,85 @@ function DiscoveryItemDetailRealtimeView({
                   registerHref={data.registerToSellHref}
                 />
               );
-              const renderSeller = (formIdPrefix: string) =>
-                (
-                  <Stack gap={4}>
-                    {data.canUseSellerFeatures ? (
-                      <>
-                        {renderOfferMatch(`${formIdPrefix}-sell-box`)}
-                        {renderListingSubmission(`${formIdPrefix}-list-box`)}
-                      </>
-                    ) : renderSellerRegistration()}
-                    {renderProductAlert(`${formIdPrefix}-offer-product-alert`, "offer")}
-                  </Stack>
-                );
+              const renderBuyActionCard = (
+                formIdPrefix: string,
+                panelVariant: FormPanelVariant = "card",
+              ) => (
+                <BuyActionCard
+                  formIdPrefix={formIdPrefix}
+                  panelVariant={panelVariant}
+                  productId={context.selectedProductId}
+                  productSummary={context.selectedProductSummary}
+                  productSelectionDetails={context.selectedProductSelectionDetails}
+                  visibleListingCount={context.visibleListings.length}
+                  renderBuyNow={(formId) =>
+                    renderBuy(formId, "plain", undefined, true, "buy-now")
+                  }
+                  renderAddToCart={(formId) =>
+                    renderBuy(formId, "plain", undefined, true, "add-to-cart")
+                  }
+                  renderOffer={(formId) =>
+                    renderOffer(formId, "plain", undefined, true)
+                  }
+                  renderAlert={(formId) =>
+                    renderProductAlert(formId, "listing", "plain")
+                  }
+                />
+              );
+              const renderSellActionCard = (
+                formIdPrefix: string,
+                panelVariant: FormPanelVariant = "card",
+              ) => (
+                <SellActionCard
+                  formIdPrefix={formIdPrefix}
+                  panelVariant={panelVariant}
+                  productId={context.selectedProductId}
+                  productSummary={context.selectedProductSummary}
+                  productSelectionDetails={context.selectedProductSelectionDetails}
+                  hasMatchingOffer={
+                    data.canUseSellerFeatures
+                      ? Boolean(context.selectedAccountOfferMatch)
+                      : context.visibleOffers.length > 0
+                  }
+                  canUseSellerFeatures={data.canUseSellerFeatures}
+                  renderSellNow={(formId) =>
+                    data.canUseSellerFeatures
+                      ? renderOfferMatch(formId, "plain", undefined, true, "sell-now")
+                      : renderSellerRegistration("plain", true, "offer")
+                  }
+                  renderAddToSellList={(formId) =>
+                    data.canUseSellerFeatures
+                      ? renderOfferMatch(formId, "plain", undefined, true, "add-to-sell-list")
+                      : renderSellerRegistration("plain", true, "offer")
+                  }
+                  renderListing={(formId) =>
+                    data.canUseSellerFeatures
+                      ? renderListingSubmission(formId, "plain", undefined, true)
+                      : renderSellerRegistration("plain", true, "listing")
+                  }
+                  renderAlert={(formId) =>
+                    data.viewerAccountId
+                      ? renderProductAlert(formId, "offer", "plain")
+                      : renderSellerRegistration("plain", true, "offer")
+                  }
+                />
+              );
               return (
                 {
-                  buy: (
-                    <Stack gap={4}>
-                      {renderBuy("buy-box")}
-                      {renderProductAlert("listing-product-alert", "listing")}
-                    </Stack>
-                  ),
-                  offer: renderOffer("make-offer"),
-                  sell: data.showSellerTab ? renderSeller("sell") : undefined,
+                  buy: renderBuyActionCard("buy-card"),
+                  offer: null,
+                  sell: data.showSellerTab ? renderSellActionCard("sell-card") : undefined,
                   mobile: {
                     buy: {
-                      content: (
-                        <Stack gap={4}>
-                          {renderBuy("mobile-buy-box", "plain", undefined, true)}
-                          {renderProductAlert("mobile-listing-product-alert", "listing")}
-                        </Stack>
-                      ),
+                      content: renderBuyActionCard("mobile-buy-card", "plain"),
                       title: t("discovery.routes.itemDetail.buy"),
                     },
-                    offer: {
-                      content: renderOffer("mobile-make-offer", "plain", undefined, true),
-                      title: t("discovery.routes.itemDetail.make.an.offer"),
+                    sell: {
+                      content: renderSellActionCard("mobile-sell-card", "plain"),
+                      title: t("discovery.routes.itemDetail.sell.2"),
                     },
-                    sell: data.canUseSellerFeatures
-                      ? {
-                          content: (
-                            <Stack gap={4}>
-                              {renderOfferMatch("mobile-sell-box", "plain", undefined, true)}
-                              {renderProductAlert("mobile-sell-offer-product-alert", "offer")}
-                            </Stack>
-                          ),
-                          title: t("discovery.routes.itemDetail.sell.2"),
-                        }
-                      : {
-                          content: (
-                            <Stack gap={4}>
-                              {renderSellerRegistration("plain", true, "offer")}
-                              {renderProductAlert("mobile-sell-offer-product-alert", "offer")}
-                            </Stack>
-                          ),
-                          title: t("discovery.routes.itemDetail.sell.on.chase.sets.2"),
-                        },
-                    list: data.canUseSellerFeatures
-                      ? {
-                          content: renderListingSubmission("mobile-list-box", "plain", undefined, true),
-                          title: t("discovery.routes.itemDetail.list"),
-                        }
-                      : {
-                          content: renderSellerRegistration("plain", true, "listing"),
-                          title: t("discovery.routes.itemDetail.list"),
-                        },
                   },
                   sellLabel: data.canUseSellerFeatures ? t("discovery.routes.itemDetail.sell.2") : t("discovery.routes.itemDetail.sell.3"),
-                  listLabel: t("discovery.routes.itemDetail.list"),
                 }
               );
             }

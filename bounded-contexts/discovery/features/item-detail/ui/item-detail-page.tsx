@@ -84,7 +84,7 @@ export type ItemDetailMobileCommerceSection = Readonly<{
 
 export type ItemDetailCommerceSections = Readonly<{
   buy: ReactNode;
-  offer: ReactNode;
+  offer?: ReactNode;
   sell?: ReactNode;
   mobile?: Partial<Record<"buy" | "offer" | "sell" | "list", ItemDetailMobileCommerceSection>>;
   sellLabel?: string;
@@ -993,12 +993,14 @@ function LoadedItemDetailPage({
   const commerceContent = commerceSections
     ? marketIntent === "sell" && commerceSections.sell
       ? commerceSections.sell
-      : (
+      : commerceSections.offer
+        ? (
         <Stack gap={4}>
           {commerceSections.buy}
           {commerceSections.offer}
         </Stack>
-      )
+        )
+        : commerceSections.buy
     : null;
   const renderMarketIntentControl = (ariaLabel: string, fullWidth = false) => (
     <SegmentedControl
@@ -1122,18 +1124,20 @@ function LoadedItemDetailPage({
     <LinkButton href="#select-options" size="sm">
       {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}</LinkButton>
   );
-  const mobileOfferAction = selectedProductId ? (
-    <Button
-      type="button"
-      tone="secondary"
-      size="sm"
-      onClick={() => setActiveMobileCommerce("offer")}
-    >
-      {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.2")}</Button>
-  ) : (
-    <LinkButton href="#select-options" tone="secondary" size="sm">
-      {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.offer")}</LinkButton>
-  );
+  const mobileOfferAction = (commerceSections?.mobile?.offer ?? commerceSections?.offer) ? (
+    selectedProductId ? (
+      <Button
+        type="button"
+        tone="secondary"
+        size="sm"
+        onClick={() => setActiveMobileCommerce("offer")}
+      >
+        {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.2")}</Button>
+    ) : (
+      <LinkButton href="#select-options" tone="secondary" size="sm">
+        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.offer")}</LinkButton>
+    )
+  ) : null;
   const mobileSellAction = (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
     selectedProductId ? (
       <Button
