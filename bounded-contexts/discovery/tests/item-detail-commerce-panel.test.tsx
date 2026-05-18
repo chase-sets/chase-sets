@@ -193,7 +193,7 @@ function createItem(
     product_schema: null,
     market_summary: null,
     market_listings: [baseListing],
-    buyer_offer_matches: [baseOffer],
+    offer_demand_matches: [baseOffer],
     updated_at: "2026-04-28T00:00:00.000Z",
     ...overrides,
   };
@@ -582,7 +582,7 @@ describe("item detail commerce panel", () => {
         data={createItem({
           product_schema: requiredSchema,
           market_listings: [],
-          buyer_offer_matches: [],
+          offer_demand_matches: [],
         })}
         renderCommerce={() => ({
           buy: <div>Mobile buy action</div>,
@@ -775,7 +775,7 @@ describe("item detail commerce panel", () => {
             seller_average_rating: "4.80",
             seller_review_count: 12,
           }],
-          buyer_offer_matches: [{
+          offer_demand_matches: [{
             ...baseOffer,
             buyer_slug: "ash-ketchum",
             buyer_average_rating: "4.20",
@@ -1313,7 +1313,7 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          buyer_offer_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [baseOffer, alternateOffer],
         })}
         accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
         renderCommerce={(context) => ({
@@ -1363,7 +1363,7 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem({
           market_listings: [baseListing],
-          buyer_offer_matches: [baseOffer, alternateOffer],
+          offer_demand_matches: [baseOffer, alternateOffer],
         })}
         accountOfferMatches={[baseAccountOfferMatch]}
         viewerAccountId="buyer_2"
@@ -1426,7 +1426,7 @@ describe("item detail commerce panel", () => {
         data={createItem({
           product_schema: variantSchema,
           market_listings: [rawListing],
-          buyer_offer_matches: [gradedOffer],
+          offer_demand_matches: [gradedOffer],
         })}
         initialMarketIntent="sell"
         renderCommerce={(context) => ({
@@ -1484,7 +1484,7 @@ describe("item detail commerce panel", () => {
         data={createItem({
           product_schema: variantSchema,
           market_listings: [rawListing, gradedListing],
-          buyer_offer_matches: [],
+          offer_demand_matches: [],
         })}
         renderCommerce={() => ({
           buy: <div>Buy selected product</div>,
@@ -1522,7 +1522,7 @@ describe("item detail commerce panel", () => {
         data={createItem({
           product_schema: variantSchema,
           market_listings: [rawListing, gradedListing],
-          buyer_offer_matches: [],
+          offer_demand_matches: [],
         })}
         renderCommerce={(context) => ({
           buy: (

@@ -55,7 +55,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Invariants
 
 1. Checkout owns cart intent and checkout session lifecycle.
-2. Ordering consumes Marketplace sales fee snapshots and does not resolve seller fee policy at order time.
+2. Ordering consumes Marketplace sales fee snapshots and does not resolve sales fee policy at order time.
 3. Checkout lines express buyer intent for a product; concrete listing and inventory matching happen when Ordering creates orders.
 4. A checkout session may produce one or more orders grouped by seller account.
 5. Inventory holds are placed only when an order is committed and released if the order is cancelled while pending.

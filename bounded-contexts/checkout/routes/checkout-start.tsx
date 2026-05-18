@@ -8,7 +8,7 @@ import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/serve
 import {
   Banner,
   Button,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   CheckoutLayout,
   LinkButton,
   OrderIntentSummary,
@@ -485,7 +485,7 @@ export default function CheckoutStartRoute() {
               totalLabel={t("checkout.routes.checkoutStart.checkout.status")}
               reassurance={<SecurePaymentIndicator label={isOfferIntent ? t("checkout.routes.checkoutStart.no.payment.today") : t("checkout.routes.checkoutStart.secure.payment")} />}
             />
-            <BuyerProtectionModule items={checkoutStartBuyerProtectionItems(isOfferIntent)} />
+            <OrderProtectionModule items={checkoutStartBuyerProtectionItems(isOfferIntent)} />
           </Stack>
         }
       >

@@ -2,14 +2,14 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import {
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Card,
   Container,
   Grid,
   ListingCard,
   LinkButton,
   MarketplaceEmptyState,
-  SellerCredibilityHeader,
+  AccountCredibilityHeader,
   PageSection,
   ProductOptions,
   RatingSummary,
@@ -190,7 +190,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   return (
     <Container width="expanded">
       <Stack gap={6}>
-        <SellerCredibilityHeader
+        <AccountCredibilityHeader
           name={account.account_display_name ?? t("discovery.routes.publicAccount.account")}
           verification={
             account.status === "active"
@@ -290,7 +290,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           </PageSection>
         </div>
 
-        <BuyerProtectionModule
+        <OrderProtectionModule
           title={t("discovery.routes.publicAccount.buyer.confidence")}
           items={[
             {

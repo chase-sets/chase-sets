@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Button,
   CheckoutLayout,
   Divider,
@@ -138,7 +138,7 @@ export function OrderingOrderDetailPage({
               })}
               reassurance={<SecurePaymentIndicator label={t("ordering.features.orders.ui.orderDetailPage.secure.payment")} />}
             />
-            <BuyerProtectionModule
+            <OrderProtectionModule
               title={role === "buyer" ? t("ordering.features.orders.ui.orderDetailPage.buyer.protection") : t("ordering.features.orders.ui.orderDetailPage.seller.protection")}
               items={[
                 {

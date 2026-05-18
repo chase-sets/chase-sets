@@ -36,7 +36,7 @@ const roleItems = [
 
 const interestItems = [
   { value: "all", label: t("publicPresence.admin.allInterests") },
-  { value: "low-seller-fees", label: t("publicPresence.waitlist.interest.lowSellerFees") },
+  { value: "low-sales-fees", label: t("publicPresence.waitlist.interest.lowSellerFees") },
   { value: "bulk-listing", label: t("publicPresence.waitlist.interest.bulkListing") },
   { value: "set-completion", label: t("publicPresence.waitlist.interest.setCompletion") },
   { value: "pricing-tools", label: t("publicPresence.waitlist.interest.pricingTools") },

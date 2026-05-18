@@ -102,7 +102,7 @@ CREATE INDEX IF NOT EXISTS discovery_market_listings_account_idx
 CREATE INDEX IF NOT EXISTS discovery_market_listings_status_idx
   ON discovery_market_listings (status);
 
-CREATE TABLE IF NOT EXISTS discovery_buyer_offer_matches (
+CREATE TABLE IF NOT EXISTS discovery_offer_demand_matches (
   offer_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
@@ -120,11 +120,11 @@ CREATE TABLE IF NOT EXISTS discovery_buyer_offer_matches (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_catalog_item_idx
-  ON discovery_buyer_offer_matches (catalog_catalog_item_id);
-CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_product_idx
-  ON discovery_buyer_offer_matches (product_id);
-CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_buyer_idx
-  ON discovery_buyer_offer_matches (buyer_account_id);
-CREATE INDEX IF NOT EXISTS discovery_buyer_offer_matches_status_idx
-  ON discovery_buyer_offer_matches (status);`;
+CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_catalog_item_idx
+  ON discovery_offer_demand_matches (catalog_catalog_item_id);
+CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_product_idx
+  ON discovery_offer_demand_matches (product_id);
+CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_buyer_idx
+  ON discovery_offer_demand_matches (buyer_account_id);
+CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_status_idx
+  ON discovery_offer_demand_matches (status);`;

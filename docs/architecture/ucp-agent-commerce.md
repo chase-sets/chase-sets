@@ -20,7 +20,7 @@ ChatGPT Apps are remote MCP clients. Chase Sets exposes the existing UCP MCP too
 The ChatGPT app uses mixed authentication:
 
 - `initialize` and `tools/list` can run without authentication.
-- Public catalog tools use no-auth and read Discovery-owned buyer-visible data.
+- Public catalog tools use no-auth and read Discovery-owned public marketplace data.
 - Checkout and order tools use OAuth through the Auth-owned UCP authorization server and Identity-owned Linked Platform Authorization records.
 
 ChatGPT OAuth does not replace UCP request signatures. If ChatGPT calls signed checkout completion or cancellation tools without `UCP-Agent`, HTTP Message Signature, `Content-Digest`, and idempotency headers, the MCP runtime returns a trusted checkout handoff instead of invoking AP2/headless money movement. Signed UCP/AP2 agents keep the existing signed-write path and Payments-owned mandate verification.

@@ -35,7 +35,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 ## Ubiquitous Language
 
 Marketplace terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
-Seller fee confirmation rules are documented in [Seller Fee Confirmation](./docs/seller-fee-confirmation.md).
+Marketplace sales fee confirmation rules are documented in [Marketplace Sales Fee Confirmation](./docs/marketplace-sales-fee-confirmation.md).
 Limited Product Alert demand visibility is documented in [Limited Offer Demand Signals](./docs/limited-offer-demand-signals.md).
 Seller Listing Availability is documented in [Seller Listing Availability](./docs/seller-listing-availability.md).
 Standard listing Inventory disclosure is documented in [Standard Listing Inventory Disclosure](./docs/standard-listing-inventory-disclosure.md).

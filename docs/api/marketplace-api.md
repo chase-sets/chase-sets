@@ -2,7 +2,7 @@
 
 The headless marketplace API is the REST surface used by `marketplace-web` and external clients. Most account commerce, order, payment, fulfillment, and review flows are mounted at `/api/marketplace`. Identity, inventory, notifications, and settlement keep their canonical context-owned base paths (`/api/identity`, `/api/inventory`, `/api/notifications`, and `/api/settlement`) because those contexts already own the behavior and route clients.
 
-Every account can participate on both sides of the marketplace. API names should use account language for identity, setup, inventory, listings, wallet, and settings; buyer/seller language is reserved for transaction roles and role-specific projections such as purchases, sales, buyer-paid refunds, seller net, and seller-confirmed fee snapshots. Selling enablement such as terms acceptance, payout readiness, tax setup, or provider onboarding is an account capability, not a separate seller account identity.
+Every account can participate on both sides of the marketplace. API names should use account language for identity, setup, inventory, listings, wallet, and settings; buyer/seller language is reserved for transaction roles and role-specific projections such as purchases, sales, buyer-paid refunds, seller net, and account-confirmed sales fee snapshots. Selling enablement such as terms acceptance, payout readiness, tax setup, or provider onboarding is an account capability, not a separate seller account identity.
 
 The canonical machine-readable contract is [`marketplace.openapi.json`](./marketplace.openapi.json). Keep endpoint coverage in the OpenAPI contract and generated route manifests rather than maintaining a separate manual parity matrix.
 
@@ -167,7 +167,7 @@ Publish, active price edits, active quantity-cap edits, and offer acceptance mus
 
 `GET /api/marketplace/account/listings/fee-lock-report` returns the seller-visible management report of current per-unit marketplace sales fee locks across the account's listings, including source schedule/agreement ids, resolved time, fee quote fingerprint, locked fee, and seller net.
 
-The full policy and confirmation flow lives in [Marketplace Seller Fee Confirmation](../../bounded-contexts/marketplace/docs/seller-fee-confirmation.md).
+The full policy and confirmation flow lives in [Marketplace Sales Fee Confirmation](../../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md).
 
 ## Seller Listing Availability
 

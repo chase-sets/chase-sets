@@ -10,8 +10,8 @@ import {
   LinkButton,
   ListingPurchasePanel,
   PageSection,
+  AccountTrustCard,
   ProductOptions,
-  SellerTrustCard,
   Stack,
   Text,
   productOptionsFromSummary,
@@ -288,7 +288,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           </Stack>
 
           <Stack gap={4}>
-            <SellerTrustCard
+            <AccountTrustCard
               name={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
               verified={listing.status === "active" && sellerListingsAvailable}
               rating={sellerRating}

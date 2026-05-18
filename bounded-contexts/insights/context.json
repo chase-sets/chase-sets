@@ -4,7 +4,7 @@
   "contextKind": "projection-oriented",
   "transactionalOwnership": "none",
   "ownedNouns": [
-    "seller-performance-kpi",
+    "sales-performance-kpi",
     "fulfillment-latency-kpi",
     "conversion-order-kpi",
     "dashboard-read-model"

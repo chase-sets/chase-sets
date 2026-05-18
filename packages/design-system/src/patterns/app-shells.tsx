@@ -1698,7 +1698,7 @@ export interface CheckoutTrustPanelProps {
 }
 
 export function CheckoutTrustPanel({
-  title = "Buyer Protection",
+  title = "Order Protection",
   items
 }: CheckoutTrustPanelProps) {
   return (

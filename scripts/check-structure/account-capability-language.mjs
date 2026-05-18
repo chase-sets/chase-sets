@@ -28,15 +28,30 @@ export const accountCapabilityLanguageGuards = [
   { label: "seller capability", pattern: /\bseller\s+capability\b/i },
   { label: "SubmittedBuyerOffer", pattern: /\bSubmittedBuyerOffer\b/ },
   { label: "BuyerOfferMatch", pattern: /\bBuyerOfferMatch\b/ },
+  { label: "buyer_offer_matches", pattern: /\bbuyer_offer_matches\b/i },
+  { label: "discovery_buyer_offer_matches", pattern: /\bdiscovery_buyer_offer_matches\b/i },
   { label: "buyer-offer path or module name", pattern: /\bbuyer-offer\b/i },
   { label: "seller-offer path or module name", pattern: /\bseller-offer\b/i },
+  { label: "seller profile primitive", pattern: /\bSellerProfile[A-Z]\w*\b/ },
+  { label: "verified seller badge primitive", pattern: /\bVerifiedSellerBadge\b/ },
+  { label: "buyer protection badge primitive", pattern: /\bBuyerProtectionBadge\b/ },
+  { label: "buyer protection module primitive", pattern: /\bBuyerProtectionModule\b/ },
+  { label: "seller quality indicator primitive", pattern: /\bSellerQualityIndicator\b/ },
+  { label: "seller-performance-kpi", pattern: /\bseller-performance-kpi\b/i },
+  { label: "buyer-protection route or module", pattern: /\bbuyer-protection\b/i },
+  { label: "seller-fees route or module", pattern: /\bseller-fees\b/i },
+  { label: "WaitlistRole", pattern: /\bWaitlistRole\b/ },
+  { label: "low-seller-fees", pattern: /\blow-seller-fees\b/i },
+  { label: "Buyer dashboard", pattern: /\bBuyer dashboard\b/ },
   { label: "account-buyer-offers route test", pattern: /\baccount-buyer-offers\b/i },
 ];
 
 const accountCapabilityLanguageGuardRoots = [
   "bounded-contexts/",
+  "contracts/",
   "deployables/",
   "docs/",
+  "packages/",
 ];
 
 export function isAccountCapabilityLanguageGuardedFile(relativeFile, extension) {

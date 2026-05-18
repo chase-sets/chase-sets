@@ -54,7 +54,7 @@ describe("insights dashboard projection", () => {
         },
       ]),
     ).toMatchObject({
-      sellerPerformanceKpi: {
+      salesPerformanceKpi: {
         accountId: "acc_1",
         acceptedOfferCount: 1,
         paidOrderCount: 1,

@@ -4,7 +4,7 @@ import {
   AccountReputationSummary,
   Badge,
   Button,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Card,
   Inline,
   KeyValueList,
@@ -225,7 +225,7 @@ export function MarketplaceOfferMatchDetailPage({
             />
           ) : null}
 
-          <BuyerProtectionModule
+          <OrderProtectionModule
             title={t("marketplace.features.offers.ui.offerMatchDetailPage.seller.shipping.allowance")}
             items={[
               {

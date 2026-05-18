@@ -21,7 +21,7 @@ describe("waitlist signup domain", () => {
       type: "RecordWaitlistSignup",
       email: " TODD@EXAMPLE.COM ",
       role: "both",
-      interests: ["pricing-tools", "low-seller-fees"],
+      interests: ["pricing-tools", "low-sales-fees"],
       emailConsentAcceptedAt: "2026-05-07T12:00:00.000Z",
       source,
       recordedAt: "2026-05-07T12:00:00.000Z",
@@ -30,7 +30,7 @@ describe("waitlist signup domain", () => {
     expect(events).toHaveLength(1);
     expect(events[0].data.email).toBe("todd@example.com");
     expect(events[0].data.interests).toEqual([
-      "low-seller-fees",
+      "low-sales-fees",
       "pricing-tools",
     ]);
   });

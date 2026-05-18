@@ -10,17 +10,17 @@ import {
   normalizeEmail,
   normalizeSource,
   normalizeWaitlistInterests,
-  normalizeWaitlistRole,
+  normalizeWaitlistCommerceIntent,
   stableWaitlistSignupId,
   type WaitlistInterest,
-  type WaitlistRole,
+  type WaitlistCommerceIntent,
   type WaitlistSource,
 } from "./common";
 
 export type WaitlistSignupState = Readonly<{
   signupId: string | null;
   email: string | null;
-  role: WaitlistRole | null;
+  role: WaitlistCommerceIntent | null;
   interests: readonly WaitlistInterest[];
   emailConsentAcceptedAt: string | null;
   source: WaitlistSource | null;
@@ -56,7 +56,7 @@ export type WaitlistSignupRecordedEvent = DomainEvent<
   Readonly<{
     signupId: string;
     email: string;
-    role: WaitlistRole;
+    role: WaitlistCommerceIntent;
     interests: WaitlistInterest[];
     emailConsentAcceptedAt: string;
     source: WaitlistSource;
@@ -69,7 +69,7 @@ export type WaitlistSignupUpdatedEvent = DomainEvent<
   Readonly<{
     signupId: string;
     email: string;
-    role: WaitlistRole;
+    role: WaitlistCommerceIntent;
     interests: WaitlistInterest[];
     emailConsentAcceptedAt: string;
     source: WaitlistSource;
@@ -90,7 +90,7 @@ export const decideWaitlistSignup: AggregateDecider<
     case "RecordWaitlistSignup": {
       const email = normalizeEmail(command.email);
       const signupId = stableWaitlistSignupId(email);
-      const role = normalizeWaitlistRole(command.role);
+      const role = normalizeWaitlistCommerceIntent(command.role);
       const interests = normalizeWaitlistInterests(command.interests);
       const recordedAt = ensureIsoTimestamp(
         command.recordedAt,

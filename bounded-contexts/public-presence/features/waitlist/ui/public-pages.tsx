@@ -46,7 +46,7 @@ const roleItems = [
 
 const interestItems = [
   {
-    value: "low-seller-fees",
+    value: "low-sales-fees",
     label: t("publicPresence.waitlist.interest.lowSellerFees"),
     description: t("publicPresence.waitlist.interest.lowSellerFees.description"),
   },
@@ -79,8 +79,8 @@ const policyLinks = [
   { href: "/terms", label: t("publicPresence.nav.terms") },
   { href: "/privacy", label: t("publicPresence.nav.privacy") },
   { href: "/refunds-and-returns", label: t("publicPresence.nav.refunds") },
-  { href: "/buyer-protection", label: t("publicPresence.nav.buyerProtection") },
-  { href: "/seller-fees", label: t("publicPresence.nav.sellerFees") },
+  { href: "/order-protection", label: t("publicPresence.nav.buyerProtection") },
+  { href: "/sales-fees", label: t("publicPresence.nav.sellerFees") },
 ];
 
 function DiscordInviteLink({ href }: { href: string }) {
@@ -498,7 +498,7 @@ function ProductSignalPreview() {
             </LinkButton>
           )}
           secondaryAction={(
-            <LinkButton href="/buyer-protection" tone="secondary" size="sm">
+            <LinkButton href="/order-protection" tone="secondary" size="sm">
               {t("publicPresence.preview.listing.secondaryAction")}
             </LinkButton>
           )}

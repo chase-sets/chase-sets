@@ -469,7 +469,7 @@ describe("design system", () => {
             {
               value: "sell",
               label: "Sell",
-              content: <div>Seller workflows</div>
+              content: <div>Sales workflows</div>
             }
           ]}
         />
@@ -484,7 +484,7 @@ describe("design system", () => {
 
     await user.click(screen.getByRole("button", { name: "Sell" }));
 
-    expect(await screen.findByText("Seller workflows")).toBeTruthy();
+    expect(await screen.findByText("Sales workflows")).toBeTruthy();
   });
 
   it("keeps dropdown chevrons above the active top nav pill", () => {
@@ -919,7 +919,7 @@ describe("design system", () => {
               value: "policy",
               title: "Policy details",
               summary: "Return window visible",
-              content: <div>Buyer protection and return paths.</div>,
+              content: <div>Order protection and return paths.</div>,
               icon: "shield",
               tone: "accent"
             },

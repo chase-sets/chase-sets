@@ -74,7 +74,7 @@ describe("item detail buy now action", () => {
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
         market_listings: [],
-        buyer_offer_matches: [
+        offer_demand_matches: [
           {
             offer_id: "offer_charizard",
             catalog_catalog_item_id: "cat_charizard",
@@ -94,7 +94,7 @@ describe("item detail buy now action", () => {
 
     expect(result.canSubmitOffers).toBe(true);
     expect(result.viewerAccountId).toBe("acc_account");
-    expect(result.item?.buyer_offer_matches).toHaveLength(1);
+    expect(result.item?.offer_demand_matches).toHaveLength(1);
   });
 
   it("keeps anonymous item detail offer viewing but with submission disabled", async () => {
@@ -106,7 +106,7 @@ describe("item detail buy now action", () => {
         title: "Charizard",
         subtitle: "Base Set 4/102 Holo Rare",
         market_listings: [],
-        buyer_offer_matches: [
+        offer_demand_matches: [
           {
             offer_id: "offer_charizard",
             catalog_catalog_item_id: "cat_charizard",
@@ -126,7 +126,7 @@ describe("item detail buy now action", () => {
 
     expect(result.canSubmitOffers).toBe(false);
     expect(result.viewerAccountId).toBeNull();
-    expect(result.item?.buyer_offer_matches).toHaveLength(1);
+    expect(result.item?.offer_demand_matches).toHaveLength(1);
   });
 
   it("hands product offer intent to checkout without seller permissions", async () => {

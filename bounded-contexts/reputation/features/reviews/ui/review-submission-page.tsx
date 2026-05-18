@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
-  BuyerProtectionModule,
+  OrderProtectionModule,
   Button,
   Card,
   DetailConfidenceModule,
@@ -78,7 +78,7 @@ export function ReviewSubmissionPage({
               },
             ]}
           />
-          <BuyerProtectionModule
+          <OrderProtectionModule
             title={t("reputation.features.reviews.ui.reviewSubmissionPage.verified.order")}
             items={[
               {

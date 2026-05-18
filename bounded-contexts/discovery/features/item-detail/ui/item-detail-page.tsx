@@ -396,7 +396,7 @@ function getInitialSelections(
   }
 
   const sourceEntries =
-    marketIntent === "sell" ? data.buyer_offer_matches : data.market_listings;
+    marketIntent === "sell" ? data.offer_demand_matches : data.market_listings;
   const selections =
     sourceEntries.length === 1 ? selectionsFromListing(sourceEntries[0]) : {};
 
@@ -803,7 +803,7 @@ function LoadedItemDetailPage({
   const itemMarketListings = data.market_listings.filter(
     (listing) => listing.catalog_catalog_item_id === data.catalog_item_id,
   );
-  const itemBuyerOfferMatches = (data.buyer_offer_matches ?? []).filter(
+  const itemOfferDemandMatches = (data.offer_demand_matches ?? []).filter(
     (offer) => offer.catalog_catalog_item_id === data.catalog_item_id,
   );
   const categories = [
@@ -836,7 +836,7 @@ function LoadedItemDetailPage({
       }).productId
     : null;
   const matchingOffers = sortOffersBySellerPrice(
-    itemBuyerOfferMatches
+    itemOfferDemandMatches
       .filter((offer) =>
         explicitSelectedProductId
           ? offer.product_id === explicitSelectedProductId
@@ -922,7 +922,7 @@ function LoadedItemDetailPage({
       ? buildProductOptionSummaries({
         entries:
           marketIntent === "sell"
-            ? itemBuyerOfferMatches
+            ? itemOfferDemandMatches
             : buyableMarketListings,
         mode: marketIntent,
         productSchema: data.product_schema,
@@ -1661,7 +1661,7 @@ function LoadedItemDetailPage({
                         <MarketplaceEmptyState
                           title={t("discovery.features.itemDetail.ui.itemDetailPage.no.matching.offers")}
                           description={
-                            itemBuyerOfferMatches.length > 0
+                            itemOfferDemandMatches.length > 0
                               ? t("discovery.features.itemDetail.ui.itemDetailPage.no.offers.match.these.filters")
                               : t("discovery.features.itemDetail.ui.itemDetailPage.buyers.have.not.placed.offers.for")
                           }

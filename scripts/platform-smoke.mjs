@@ -344,7 +344,7 @@ async function main() {
       body: JSON.stringify({
         email: syntheticEmail,
         role: "both",
-        interests: ["low-seller-fees"],
+        interests: ["low-sales-fees"],
         emailConsent: true,
         website: "",
         source: {

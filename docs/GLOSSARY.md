@@ -47,8 +47,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Wallet | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Marketplace ledger balance container. |
 | Payout | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Transfer of eligible funds to an account. |
 | Commercial Terms Resolution | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Deterministic seller-side fee policy resolution. |
-| Marketplace Sales Fee | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Seller-side marketplace fee policy. Confirmation rules live in [Marketplace Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md). |
-| Marketplace Sales Fee Snapshot | [Marketplace](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md) | Seller-confirmed per-unit fee snapshot consumed by Ordering. |
+| Marketplace Sales Fee | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Marketplace sales fee policy. Confirmation rules live in [Marketplace Sales Fee Confirmation](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md). |
+| Marketplace Sales Fee Snapshot | [Marketplace](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md) | Account-confirmed per-unit fee snapshot consumed by Ordering. |
 | Marketplace Checkout Fee | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Buyer-side payment-level fee policy. Current policy lives in [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md). |
 | Tax Quote | [Tax](../bounded-contexts/tax/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
 | Price Signal | [Pricing](../bounded-contexts/pricing/GLOSSARY.md) | Observed input for product-scoped price estimation. |

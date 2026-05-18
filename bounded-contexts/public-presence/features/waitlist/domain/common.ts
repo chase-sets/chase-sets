@@ -1,6 +1,6 @@
-export type WaitlistRole = "buy" | "sell" | "both";
+export type WaitlistCommerceIntent = "buy" | "sell" | "both";
 export type WaitlistInterest =
-  | "low-seller-fees"
+  | "low-sales-fees"
   | "bulk-listing"
   | "set-completion"
   | "pricing-tools"
@@ -42,16 +42,16 @@ export function normalizeEmail(value: string): string {
   return email;
 }
 
-export function normalizeWaitlistRole(value: string): WaitlistRole {
+export function normalizeWaitlistCommerceIntent(value: string): WaitlistCommerceIntent {
   assert(
     value === "buy" || value === "sell" || value === "both",
-    "Choose whether you plan to buy, sell, or both.",
+    "Choose the marketplace workflow you want early access for.",
   );
   return value;
 }
 
 const allowedInterests = new Set<WaitlistInterest>([
-  "low-seller-fees",
+  "low-sales-fees",
   "bulk-listing",
   "set-completion",
   "pricing-tools",

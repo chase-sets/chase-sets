@@ -10,7 +10,6 @@ import {
   AccordionOptionTrigger,
   Badge,
   Banner,
-  BuyerProtectionBadge,
   Button,
   CurrencyInput,
   FormPanel,
@@ -23,6 +22,7 @@ import {
   PanelSectionAccordion,
   ProductOptions,
   SegmentedControl,
+  OrderProtectionBadge,
   Stack,
   SecurePaymentCue,
   Text,
@@ -872,7 +872,7 @@ export function CheckoutPurchaseIntentSection({
               </Text>
             ) : null}
             <Inline gap={2}>
-              <BuyerProtectionBadge label={t("discovery.routes.itemDetail.buyer.protection.included")} />
+              <OrderProtectionBadge label={t("discovery.routes.itemDetail.buyer.protection.included")} />
               <SecurePaymentCue label={t("discovery.routes.itemDetail.secure.checkout")} />
             </Inline>
           </Stack>
@@ -2245,7 +2245,7 @@ export default function DiscoveryItemDetailRoute() {
       key={[
         data.item?.catalog_item_id ?? "empty",
         data.item?.market_listings.map((listing) => listing.listing_id).join("|") ?? "",
-        data.item?.buyer_offer_matches.map((offer) => offer.offer_id).join("|") ?? "",
+        data.item?.offer_demand_matches.map((offer) => offer.offer_id).join("|") ?? "",
       ].join("\n")}
       data={data}
       actionData={actionData}

@@ -15,7 +15,7 @@ describe("discovery realtime market patches", () => {
     const item = {
       catalog_item_id: "item_1",
       market_listings: [],
-      buyer_offer_matches: [],
+      offer_demand_matches: [],
       market_summary: null,
     } as unknown as DiscoveryItemDetail;
     const patch = {
@@ -53,7 +53,7 @@ describe("discovery realtime market patches", () => {
     const item = {
       catalog_item_id: "item_1",
       market_listings: [],
-      buyer_offer_matches: [
+      offer_demand_matches: [
         {
           offer_id: "offer_1",
           catalog_catalog_item_id: "item_1",
@@ -78,7 +78,7 @@ describe("discovery realtime market patches", () => {
 
     const next = applyDiscoveryItemPatch(item, patch);
 
-    expect(next?.buyer_offer_matches).toEqual([]);
+    expect(next?.offer_demand_matches).toEqual([]);
   });
 
   it("emits accepted offer changes as public demand removals", () => {

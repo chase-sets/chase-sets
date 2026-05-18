@@ -7,7 +7,7 @@ export const meta: MetaFunction = () => [
   { name: "description", content: t("publicPresence.routes.buyerProtection.meta.description") },
 ];
 
-export default function BuyerProtectionRoute() {
+export default function OrderProtectionRoute() {
   return (
     <PublicInfoPage
       content={{

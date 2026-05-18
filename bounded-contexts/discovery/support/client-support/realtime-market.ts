@@ -63,8 +63,8 @@ export function applyDiscoveryItemPatch(
     if (change.entity === "discovery.buyerOffer") {
       next = {
         ...next,
-        buyer_offer_matches: applyEntityListPatch(
-          next.buyer_offer_matches,
+        offer_demand_matches: applyEntityListPatch(
+          next.offer_demand_matches,
           "offer_id",
           change,
         ),

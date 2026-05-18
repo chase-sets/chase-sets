@@ -6,7 +6,7 @@ import type { DashboardKpiReadModels } from "../read-model/projection";
 describe("insights dashboard routes", () => {
   it("resolves dashboard route contracts through the query service", async () => {
     const model: DashboardKpiReadModels = {
-      sellerPerformanceKpi: {
+      salesPerformanceKpi: {
         accountId: "acc_1",
         acceptedOfferCount: 2,
         paidOrderCount: 1,
@@ -28,7 +28,7 @@ describe("insights dashboard routes", () => {
     const [sellerRoute, fulfillmentRoute, conversionRoute] = createDashboardRouteContracts();
 
     await expect(resolveDashboardRoute(service, sellerRoute!.path, "acc_1")).resolves.toEqual(
-      model.sellerPerformanceKpi,
+      model.salesPerformanceKpi,
     );
     await expect(resolveDashboardRoute(service, fulfillmentRoute!.path, "acc_1")).resolves.toEqual(
       model.fulfillmentLatencyKpi,

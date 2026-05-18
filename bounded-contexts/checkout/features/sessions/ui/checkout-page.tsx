@@ -4,7 +4,7 @@ import {
   Badge,
   Banner,
   Button,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   CheckoutLayout,
   Divider,
   Grid,
@@ -180,7 +180,7 @@ export function CheckoutSessionPage({
           />
         }
       />
-      <BuyerProtectionModule
+      <OrderProtectionModule
         items={[
           {
             title: t("checkout.features.sessions.ui.checkoutPage.buyer.protection"),

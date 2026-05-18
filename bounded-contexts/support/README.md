@@ -1,6 +1,6 @@
 # Support
 
-Support owns structured marketplace support requests. It keeps buyer and seller workflows inside guided, auditable steps so common issues can be resolved without direct buyer-seller negotiation.
+Support owns structured marketplace support requests. It keeps order workflows inside guided, auditable steps so common issues can be resolved without direct account-to-account negotiation.
 
 The `support-requests` slice uses a flow catalog for issue-specific requirements. New support flows should add a catalog entry and tests before changing aggregate lifecycle behavior.
 

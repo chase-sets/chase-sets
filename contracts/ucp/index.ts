@@ -164,7 +164,7 @@ export const UCP_MCP_TOOLS = [
     name: "search_catalog",
     title: "Search Catalog",
     capability: UCP_CAPABILITIES.catalogSearch,
-    description: "Use this when a ChatGPT user wants to find buyer-visible Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
+    description: "Use this when a ChatGPT user wants to find public Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
@@ -196,7 +196,7 @@ export const UCP_MCP_TOOLS = [
     name: "lookup_catalog",
     title: "Lookup Catalog",
     capability: UCP_CAPABILITIES.catalogLookup,
-    description: "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs buyer-visible product details.",
+    description: "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs public marketplace product details.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
@@ -222,7 +222,7 @@ export const UCP_MCP_TOOLS = [
     name: "get_product",
     title: "Get Product",
     capability: UCP_CAPABILITIES.catalogLookup,
-    description: "Use this when a ChatGPT user needs one buyer-visible product detail, variants, seller availability, and option-selection context.",
+    description: "Use this when a ChatGPT user needs one public marketplace product detail, variants, account availability, and option-selection context.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {

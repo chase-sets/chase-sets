@@ -51,7 +51,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Discovery Product Alerts](../bounded-contexts/discovery/docs/product-alerts.md)
 - [Ordering Self-Service Purchase Cancellation](../bounded-contexts/ordering/docs/self-service-purchase-cancellation.md)
 - [Fulfillment Purchase Cancellation Cutoff](../bounded-contexts/fulfillment/docs/purchase-cancellation-cutoff.md)
-- [Marketplace Seller Fee Confirmation](../bounded-contexts/marketplace/docs/seller-fee-confirmation.md)
+- [Marketplace Sales Fee Confirmation](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md)
 - [Marketplace Limited Offer Demand Signals](../bounded-contexts/marketplace/docs/limited-offer-demand-signals.md)
 - [Marketplace Seller Listing Availability](../bounded-contexts/marketplace/docs/seller-listing-availability.md)
 - [Auth Social Login Journey Policy](../bounded-contexts/auth/docs/social-login.md)

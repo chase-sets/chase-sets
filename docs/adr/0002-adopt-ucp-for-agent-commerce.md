@@ -10,7 +10,7 @@ Chase Sets needs a standards-facing commerce surface so custom AI agents can dis
 
 The Universal Commerce Protocol (UCP) provides profile discovery at `/.well-known/ucp`, REST and MCP transports, catalog, cart, checkout, order, identity-linking, payment-handler, and signature conventions. Chase Sets already owns the underlying commerce behavior through bounded contexts:
 
-- Discovery owns search, browse, and buyer-visible product detail.
+- Discovery owns search, browse, and public marketplace product detail.
 - Catalog owns Catalog Item, Product, Dimension, and Option truth.
 - Marketplace owns Listing and Offer lifecycle.
 - Checkout owns Cart and Checkout Session lifecycle.

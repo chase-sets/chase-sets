@@ -34,7 +34,7 @@ Use `packages/design-system/src/` as the canonical component inventory. Marketpl
 
 - Listing comparison, filtering, sorting, and saved-search recovery.
 - Product detail confidence, media, specifications, pricing context, and policy disclosure.
-- Account trust, reviews, account reputation, and buyer-protection cues.
+- Account trust, reviews, account reputation, and order-protection cues.
 - Checkout, payment confidence, cost breakdowns, editable order sections, and post-purchase support.
 - Negotiation, offer management, status timelines, empty states, loading states, and recovery paths.
 - Marketplace dashboards and route templates that compose the same primitives without local overrides.
@@ -53,11 +53,11 @@ Pass Dimension labels when they are known so the component can produce accessibl
 
 ## Account Reputation Summary Contract
 
-Use `AccountReputationSummary` whenever a marketplace card, offer row, purchase panel, or trust module shows reputation for an account. Reputation is account-scoped, not seller-only: listing surfaces show the account that published the listing, and offer surfaces show the account that submitted marketplace-wide demand.
+Use `AccountReputationSummary` whenever a marketplace card, offer row, purchase panel, or trust module shows reputation for an account. Reputation is account-scoped: listing surfaces show the account that published the listing, and offer surfaces show the account that submitted marketplace-wide demand.
 
 The default account reputation presentation is compact stacked metadata, not a card: no icon, no border, no background, and no separate "View feedback" action. Render the account name on the first line and the rating, review count, or compact new-account state on the second line. Only the account name is interactive; the feedback state remains plain text. Use the framed variant only inside a dedicated trust module where a surrounding panel is not already providing structure.
 
-Do not render the same account name, rating, or review count in multiple cells of the same listing, offer, or checkout row. The account row is the canonical home for account name, feedback summary, and profile navigation. Accounts without feedback use the compact visible label `New` with accessible text that explains there is no feedback yet. Aggregate marketplace labels such as "verified supply" or "marketplace sellers" are not accounts and must not use `AccountReputationSummary`. Public profile links use `/accounts/:accountSlug`; do not introduce `/sellers/:slug` or buyer-only/seller-only profile routes.
+Do not render the same account name, rating, or review count in multiple cells of the same listing, offer, or checkout row. The account row is the canonical home for account name, feedback summary, and profile navigation. Accounts without feedback use the compact visible label `New` with accessible text that explains there is no feedback yet. Aggregate marketplace labels such as "verified supply" or "marketplace sellers" are not accounts and must not use `AccountReputationSummary`. Public profile links use `/accounts/:accountSlug`; do not introduce `/sellers/:slug` or profile routes segmented by marketplace side.
 
 ## Search And Filtering
 
@@ -86,7 +86,7 @@ Each marketplace route should keep the most decision-critical information visibl
 - Fair price: item price, fees, shipping, taxes, discounts, total.
 - Account trust: verification, rating, review count, tenure, completed transactions, response time.
 - Fulfillment: delivery estimate, pickup details, booking window, digital delivery.
-- Risk: buyer protection, return/refund/cancellation policy, secure payment, dispute path.
+- Risk: order protection, return/refund/cancellation policy, secure payment, dispute path.
 - Next action: one primary action per decision area.
 
 ## Mobile-First Rules
@@ -126,7 +126,7 @@ Good disclosure candidates:
 - checkout support diagnostics and provider-safe payment explanations after the final total is visible
 - payout verification reason detail, ledger context, and provider-safe settlement explanations
 
-Do not disclose the current price, final total, account trust, availability, fulfillment expectation, buyer-protection summary, blocking error, primary action, or result-shaping search facets. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
+Do not disclose the current price, final total, account trust, availability, fulfillment expectation, order-protection summary, blocking error, primary action, or result-shaping search facets. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
 
 Recommended first flows:
 
@@ -146,7 +146,7 @@ Recommended first flows:
 - Before: attractive components could omit delivery, account trust, policy, or total-cost context.
 - After: marketplace components require decision signals and make hidden risk explicit.
 - Before: checkout could feel like a generic SaaS form.
-- After: checkout shows final cost, secure payment, delivery, policy, and buyer protection before confirmation.
+- After: checkout shows final cost, secure payment, delivery, policy, and order protection before confirmation.
 - Before: empty and error states were mostly informational.
 - After: recovery states provide next actions, recommendations, and support paths.
 

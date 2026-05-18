@@ -65,7 +65,7 @@ Use Buyer and Seller when describing transaction endpoints: the buyer account pa
 - Discovery depends on Catalog for canonical item, category, blueprint, and field facts used to build browse/search views.
 - Inventory depends on Identity and Catalog product structure.
 - Commercial Terms depends on Identity account references and account classification facts.
-- Marketplace depends on Identity, Auth journey entry points, Catalog product identity, Inventory availability signals, and Commercial Terms seller fee resolutions.
+- Marketplace depends on Identity, Auth journey entry points, Catalog product identity, Inventory availability signals, and Commercial Terms sales fee resolutions.
 - Marketplace is downstream of Discovery for browse entry points but remains the owner of listing and offer decisions.
 - Checkout depends on Discovery entry points, Catalog product identity, Ordering order creation, and Payments payment initialization.
 - Ordering depends on Marketplace product commitments and seller-confirmed fee snapshots, Identity account references, and inventory reservation outcomes published after order commitment.

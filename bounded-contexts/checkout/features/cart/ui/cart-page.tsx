@@ -4,7 +4,7 @@ import {
   Badge,
   Banner,
   Button,
-  BuyerProtectionModule,
+  OrderProtectionModule,
   CheckoutLayout,
   Inline,
   LinkButton,
@@ -347,7 +347,7 @@ export function CheckoutCartPage({
                 totalLabel={t("checkout.features.cart.ui.cartPage.cart.status")}
                 reassurance={<SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.secure.payment")} />}
               />
-              <BuyerProtectionModule
+              <OrderProtectionModule
                 items={[
                   {
                     title: t("checkout.features.cart.ui.cartPage.buyer.protection"),
