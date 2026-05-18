@@ -281,6 +281,7 @@ export function AdminShell({
         items={[]}
         activeKey={activeKey}
         actions={actions}
+        mobileActionsLabel="Admin menu"
         width={width}
       />
       <main

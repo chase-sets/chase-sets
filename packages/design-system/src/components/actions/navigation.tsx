@@ -238,7 +238,77 @@ export interface TopNavProps
   onSelect?: (key: string) => void;
   brand?: ReactNode;
   actions?: ReactNode;
+  mobileActionsLabel?: string;
   width?: LayoutWidth;
+}
+
+function TopNavActionsMenu({
+  actions,
+  label
+}: {
+  actions: ReactNode;
+  label: string;
+}) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node | null;
+
+      if (!target || detailsRef.current?.contains(target)) {
+        return;
+      }
+
+      if (detailsRef.current) {
+        detailsRef.current.open = false;
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || !detailsRef.current) {
+        return;
+      }
+
+      detailsRef.current.open = false;
+      setOpen(false);
+      detailsRef.current.querySelector("summary")?.focus();
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <details
+      ref={detailsRef}
+      className="relative md:hidden"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary
+        aria-label={label}
+        className="focus-ring flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-tokenMd border border-muted bg-surface text-foreground shadow-tokenSm transition hover:border-accent hover:bg-surface-2 [&::-webkit-details-marker]:hidden"
+      >
+        <Icon name="menu" size="sm" tone="secondary" />
+        <span className="sr-only">{label}</span>
+      </summary>
+      <div className="modern-surface absolute right-0 top-[calc(100%+0.5rem)] z-dropdown w-[min(16rem,calc(100vw-2rem))] rounded-tokenLg border border-muted p-2 shadow-overlay">
+        <div className="flex flex-col gap-2 [&>div]:flex-col [&>div]:items-stretch [&>div]:gap-2 [&_a]:w-full [&_button]:w-full [&_form]:w-full [&_form>button]:w-full">
+          {actions}
+        </div>
+      </div>
+    </details>
+  );
 }
 
 export function TopNav({
@@ -247,6 +317,7 @@ export function TopNav({
   onSelect,
   brand,
   actions,
+  mobileActionsLabel,
   width = "full",
   ...rest
 }: TopNavProps) {
@@ -295,7 +366,12 @@ export function TopNav({
           </LayoutGroup>
         </div>
         <div className="flex items-center gap-2">
-          {actions}
+          {actions && mobileActionsLabel ? (
+            <>
+              <div className="hidden items-center gap-2 md:flex">{actions}</div>
+              <TopNavActionsMenu actions={actions} label={mobileActionsLabel} />
+            </>
+          ) : actions}
           {utilityItems.length > 0 ? (
             <LayoutGroup id={`${groupId}-utility`}>
               <div className="hidden items-center gap-1 md:flex">

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
@@ -1112,6 +1112,60 @@ describe("design-system", () => {
     );
 
     expect(screen.getByRole("link", { name: "Catalog Items" })).toBeTruthy();
+  });
+
+  it("collapses top navigation actions into an admin menu for mobile", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TopNav
+        brand={<div>Catalog Ops</div>}
+        items={[]}
+        mobileActionsLabel="Admin menu"
+        actions={
+          <>
+            <a href="/experience/waitlist">Experience</a>
+            <a href="/identity/accounts">Identity</a>
+            <form action="/catalog/sign-out" method="post">
+              <button type="submit">Sign Out</button>
+            </form>
+          </>
+        }
+      />
+    );
+
+    const trigger = screen.getByLabelText("Admin menu");
+    const details = trigger.closest("details");
+    expect(details?.className).toContain("md:hidden");
+    expect(details?.open).toBe(false);
+
+    await user.click(trigger);
+
+    expect(details?.open).toBe(true);
+    const menu = details?.querySelector(".modern-surface");
+    expect(menu).toBeTruthy();
+    expect(within(menu as HTMLElement).getByRole("link", { name: "Experience" }).getAttribute("href")).toBe(
+      "/experience/waitlist"
+    );
+    expect(within(menu as HTMLElement).getByRole("link", { name: "Identity" }).getAttribute("href")).toBe(
+      "/identity/accounts"
+    );
+    expect(within(menu as HTMLElement).getByRole("button", { name: "Sign Out" }).getAttribute("type")).toBe(
+      "submit"
+    );
+  });
+
+  it("keeps top navigation actions inline unless a mobile actions label is provided", () => {
+    render(
+      <TopNav
+        brand={<div>Chase Sets</div>}
+        items={[]}
+        actions={<a href="/sign-in">Sign In</a>}
+      />
+    );
+
+    expect(screen.queryByLabelText("Admin menu")).toBeNull();
+    expect(screen.getByRole("link", { name: "Sign In" }).getAttribute("href")).toBe("/sign-in");
   });
 
   it("closes top navigation child menus when clicking outside", async () => {
