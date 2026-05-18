@@ -32,6 +32,7 @@ import {
   Stack,
   Surface,
   Text,
+  cx,
   formatMarketplaceNumber,
 } from "@chase-sets/design-system";
 import type {
@@ -219,7 +220,11 @@ function formatListingAvailability(
 ): string {
   const availableQuantity = getListingAvailableQuantity(listing);
 
-  return availableQuantity > 0 ? String(availableQuantity) : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
+  return availableQuantity > 0
+    ? t("discovery.features.itemDetail.ui.itemDetailPage.listing.available.count", {
+        count: availableQuantity,
+      })
+    : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
 }
 
 function formatListingPurchaseLimit(
@@ -283,6 +288,44 @@ function ReputationCue({
       ) : null}
     </Stack>
   );
+}
+
+function ListingTrustSignal({
+  feedbackHref,
+  rating,
+  reviewCount = 0,
+}: {
+  feedbackHref?: string | null;
+  rating?: string | null;
+  reviewCount?: number;
+}) {
+  const parsedRating = parseRating(rating);
+  const hasFeedback = parsedRating !== null && reviewCount > 0;
+
+  return (
+    <Stack gap={1}>
+      {hasFeedback ? (
+        <RatingSummary value={parsedRating} count={reviewCount} compact />
+      ) : (
+        <Text size="sm">{t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}</Text>
+      )}
+      {feedbackHref ? (
+        <LinkButton href={feedbackHref} tone="ghost" size="sm">
+          {t("discovery.features.itemDetail.ui.itemDetailPage.view.feedback")}
+        </LinkButton>
+      ) : null}
+    </Stack>
+  );
+}
+
+function isLowestPriceListing(
+  listing: DiscoveryMarketListing,
+  listings: readonly DiscoveryMarketListing[],
+): boolean {
+  const listingPrice = toPriceNumber(listing.price_amount);
+  const lowestPrice = toPriceNumber(getLowestPrice(listings) ?? "");
+
+  return listingPrice !== null && lowestPrice !== null && listingPrice === lowestPrice;
 }
 
 function matchesSelectedOptions(
@@ -1355,87 +1398,144 @@ function LoadedItemDetailPage({
                         ) : null}
                       </Inline>
                       {visibleListings.length > 0 ? (
-                        visibleListings.map((listing) => {
-                          const isSelected =
-                            selectedListing?.listing_id === listing.listing_id;
-                          const purchaseLimit = formatListingPurchaseLimit(listing);
-                          const selectListing = () => {
-                            setSelectedListingId(listing.listing_id);
-                            if (data.product_schema) {
-                              setSelections(
-                                normalizeProductSearchOptionsForSchema(
-                                  data.product_schema,
-                                  selectionsFromListing(listing),
-                                ),
-                              );
-                            }
-                          };
-
-                          return (
-                            <Card
-                              key={listing.listing_id}
-                              glow={isSelected}
-                              interactive
-                              role="button"
-                              tabIndex={0}
-                              aria-pressed={isSelected}
-                              onClick={selectListing}
-                              onKeyDown={(event) =>
-                                handleSelectionKeyDown(event, selectListing)
+                        <div className="grid gap-3">
+                          <div
+                            className="hidden min-w-0 grid-cols-[minmax(6rem,0.9fr)_minmax(8rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(10rem,1.2fr)_minmax(7rem,auto)] items-center gap-3 px-4 text-xs font-semibold uppercase text-secondary md:grid"
+                            aria-hidden="true"
+                          >
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.seller")}</span>
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.trust")}</span>
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}</span>
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
+                            <span className="text-right">{t("discovery.features.itemDetail.ui.itemDetailPage.action")}</span>
+                          </div>
+                          {visibleListings.map((listing) => {
+                            const isSelected =
+                              selectedListing?.listing_id === listing.listing_id;
+                            const purchaseLimit = formatListingPurchaseLimit(listing);
+                            const isLowestPrice = isLowestPriceListing(
+                              listing,
+                              visibleListings,
+                            );
+                            const selectListing = () => {
+                              setSelectedListingId(listing.listing_id);
+                              if (data.product_schema) {
+                                setSelections(
+                                  normalizeProductSearchOptionsForSchema(
+                                    data.product_schema,
+                                    selectionsFromListing(listing),
+                                  ),
+                                );
                               }
-                            >
-                              <Grid columns={{ base: 1, md: 4 }} gap={3}>
-                                <Stack gap={1}>
-                                  <Inline gap={2}>
-                                    <Text weight="semibold">
-                                      {formatMoney(listing.price_amount)}
+                            };
+                            const sellerName =
+                              listing.seller_display_name ??
+                              t("discovery.features.itemDetail.ui.itemDetailPage.seller");
+                            const sellerFeedbackHref = listing.seller_slug
+                              ? `/sellers/${listing.seller_slug}#feedback`
+                              : null;
+
+                            return (
+                              <article
+                                key={listing.listing_id}
+                                className={cx(
+                                  "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-4 shadow-tokenSm transition",
+                                  isSelected
+                                    ? "border-accent bg-surface-2 glow-accent"
+                                    : "border-muted",
+                                )}
+                                aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.listing.row.label", {
+                                  price: formatMoney(listing.price_amount),
+                                  seller: sellerName,
+                                })}
+                              >
+                                {isSelected ? (
+                                  <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-accent" />
+                                ) : null}
+                                <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(6rem,0.9fr)_minmax(8rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(10rem,1.2fr)_minmax(7rem,auto)] md:items-center">
+                                  <Stack gap={1}>
+                                    <Text size="xs" weight="semibold" tone="secondary">
+                                      {t("discovery.features.itemDetail.ui.itemDetailPage.price")}
                                     </Text>
+                                    <Inline gap={2}>
+                                      <Text weight="bold">
+                                        {formatMoney(listing.price_amount)}
+                                      </Text>
+                                      {isLowestPrice ? (
+                                        <Badge tone="success">
+                                          {t("discovery.features.itemDetail.ui.itemDetailPage.lowest.price")}
+                                        </Badge>
+                                      ) : null}
+                                    </Inline>
                                     {isSelected ? (
-                                      <Badge tone="success">{t("discovery.features.itemDetail.ui.itemDetailPage.selected")}</Badge>
+                                      <Text size="xs" weight="semibold" tone="accent">
+                                        {t("discovery.features.itemDetail.ui.itemDetailPage.selected.for.checkout")}
+                                      </Text>
                                     ) : null}
-                                  </Inline>
-                                  <AccountReputationSummary
-                                    accountName={listing.seller_display_name ?? t("discovery.features.itemDetail.ui.itemDetailPage.seller")}
-                                    href={listing.seller_slug ? `/sellers/${listing.seller_slug}#feedback` : null}
-                                    averageRating={listing.seller_average_rating}
-                                    reviewCount={listing.seller_review_count ?? 0}
-                                    emptyLabel={t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}
-                                    ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.seller.reputation")}
-                                    onLinkClick={(event) => event.stopPropagation()}
-                                  />
-                                </Stack>
-                                <ReputationCue
-                                  label={t("discovery.features.itemDetail.ui.itemDetailPage.seller.reputation")}
-                                  rating={listing.seller_average_rating}
-                                  reviewCount={listing.seller_review_count ?? 0}
-                                  feedbackHref={
-                                    listing.seller_slug
-                                      ? `/sellers/${listing.seller_slug}#feedback`
-                                      : null
-                                  }
-                                />
-                                <Stack gap={1}>
-                                  <Text size="sm" tone="secondary">
-                                    {t("discovery.features.itemDetail.ui.itemDetailPage.available.2")}</Text>
-                                  <Text>
-                                    {formatListingAvailability(listing)}
-                                  </Text>
-                                  {purchaseLimit ? (
-                                    <Badge tone="neutral">{purchaseLimit}</Badge>
-                                  ) : null}
-                                </Stack>
-                                <Stack gap={1}>
-                                  <Text size="sm" tone="secondary">
-                                    {t("discovery.features.itemDetail.ui.itemDetailPage.product")}</Text>
-                                  <ProductSelectionSummary
-                                    selections={getProductSelectionDetails(listing.selected_options)}
-                                    summary={listing.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard")}
-                                  />
-                                </Stack>
-                              </Grid>
-                            </Card>
-                          );
-                        })
+                                  </Stack>
+                                  <Stack gap={1}>
+                                    <Text size="xs" weight="semibold" tone="secondary">
+                                      {t("discovery.features.itemDetail.ui.itemDetailPage.seller")}
+                                    </Text>
+                                    <Text size="sm" weight="semibold">
+                                      {sellerName}
+                                    </Text>
+                                  </Stack>
+                                  <Stack gap={1}>
+                                    <Text size="xs" weight="semibold" tone="secondary">
+                                      {t("discovery.features.itemDetail.ui.itemDetailPage.trust")}
+                                    </Text>
+                                    <ListingTrustSignal
+                                      feedbackHref={sellerFeedbackHref}
+                                      rating={listing.seller_average_rating}
+                                      reviewCount={listing.seller_review_count ?? 0}
+                                    />
+                                  </Stack>
+                                  <Stack gap={1}>
+                                    <Text size="xs" weight="semibold" tone="secondary">
+                                      {t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}
+                                    </Text>
+                                    <Text size="sm" weight="semibold">
+                                      {formatListingAvailability(listing)}
+                                    </Text>
+                                    {purchaseLimit ? (
+                                      <Badge tone="neutral">{purchaseLimit}</Badge>
+                                    ) : null}
+                                  </Stack>
+                                  <Stack gap={1}>
+                                    <Text size="xs" weight="semibold" tone="secondary">
+                                      {t("discovery.features.itemDetail.ui.itemDetailPage.product")}</Text>
+                                    <ProductSelectionSummary
+                                      selections={getProductSelectionDetails(listing.selected_options)}
+                                      summary={listing.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard")}
+                                    />
+                                  </Stack>
+                                  <div className="flex min-w-0 justify-start md:justify-end">
+                                    <Button
+                                      type="button"
+                                      tone={isSelected ? "primary" : "secondary"}
+                                      size="sm"
+                                      aria-pressed={isSelected}
+                                      aria-label={t(
+                                        isSelected
+                                          ? "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.action"
+                                          : "discovery.features.itemDetail.ui.itemDetailPage.select.listing.action",
+                                        { seller: sellerName, price: formatMoney(listing.price_amount) },
+                                      )}
+                                      leadingIcon={isSelected ? "check" : undefined}
+                                      onClick={selectListing}
+                                    >
+                                      {isSelected
+                                        ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
+                                        : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
                       ) : (
                         <MarketplaceEmptyState
                           title={t("discovery.features.itemDetail.ui.itemDetailPage.no.active.listings")}
