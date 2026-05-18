@@ -826,11 +826,6 @@ export function CheckoutPurchaseIntentSection({
           <Stack gap={3}>
             <Stack gap={1}>
               <Text weight="semibold">{t("discovery.routes.itemDetail.your.selection")}</Text>
-              {actionMode === "all" ? null : (
-                <Text size="sm" tone="secondary">
-                  {productIntentGuidance}
-                </Text>
-              )}
             </Stack>
             <Stack gap={1}>
               <Text size="sm" tone="secondary">
@@ -1579,6 +1574,13 @@ function ItemDetailActionCard<TAction extends string>({
         <Accordion
           type="single"
           variant={flatAccordion ? "sectionList" : "surface"}
+          bleed={
+            flatAccordion
+              ? panelVariant === "plain"
+                ? "compact"
+                : "card"
+              : false
+          }
           collapsible={false}
           value={selectedAction}
           onValueChange={(value) => {
@@ -2491,9 +2493,9 @@ function DiscoveryItemDetailRealtimeView({
               );
               return (
                 {
-                  buy: renderBuyActionCard("buy-card"),
+                  buy: renderBuyActionCard("buy-card", "plain"),
                   offer: null,
-                  sell: data.showSellerTab ? renderSellActionCard("sell-card") : undefined,
+                  sell: data.showSellerTab ? renderSellActionCard("sell-card", "plain") : undefined,
                   mobile: {
                     buy: {
                       content: renderBuyActionCard("mobile-buy-card", "plain"),

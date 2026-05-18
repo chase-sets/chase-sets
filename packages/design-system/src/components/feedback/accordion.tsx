@@ -45,6 +45,7 @@ export interface AccordionProps
   items: AccordionItem[];
   type?: "single" | "multiple";
   variant?: "surface" | "sectionList";
+  bleed?: boolean | "card" | "compact";
   value?: string | string[];
   defaultValue?: string | string[];
   onValueChange?: (value: string | string[]) => void;
@@ -55,6 +56,7 @@ export function Accordion({
   items,
   type = "single",
   variant = "surface",
+  bleed = false,
   value,
   defaultValue,
   onValueChange,
@@ -104,6 +106,7 @@ export function Accordion({
         ? value
         : [value];
   const isSectionList = variant === "sectionList";
+  const bleedMode = bleed === true ? "card" : bleed;
 
   return (
     <AccordionPrimitive.Root
@@ -112,8 +115,10 @@ export function Accordion({
       onValueChange={handleValueChange}
       className={cx(
         isSectionList
-          ? "overflow-hidden"
+          ? "relative overflow-hidden"
           : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",
+        isSectionList && bleedMode === "card" && "-mx-4",
+        isSectionList && bleedMode === "compact" && "-mx-3",
       )}
     >
       {items.map((item, index) => {
@@ -136,7 +141,9 @@ export function Accordion({
               <AccordionPrimitive.Trigger
                 className={cx(
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
-                  isSectionList ? "px-3 py-2.5" : "px-4 py-3",
+                  isSectionList && bleedMode === "compact" && "px-3 py-2.5",
+                  isSectionList && bleedMode !== "compact" && "px-4 py-2.5",
+                  !isSectionList && "px-4 py-3",
                   isSectionList && isOpen && "text-accent hover:bg-transparent",
                 )}
               >
@@ -164,7 +171,9 @@ export function Accordion({
               <div
                 className={cx(
                   "text-sm text-secondary",
-                  isSectionList ? "px-3 pb-5 pl-6 pt-1" : "px-4 pb-4",
+                  isSectionList && bleedMode === "compact" && "px-3 pb-5 pl-10 pt-1",
+                  isSectionList && bleedMode !== "compact" && "px-4 pb-5 pl-11 pt-1",
+                  !isSectionList && "px-4 pb-4",
                 )}
               >
                 {item.content}
