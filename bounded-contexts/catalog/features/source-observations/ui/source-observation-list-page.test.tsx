@@ -1,25 +1,34 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { SourceObservationListPage } from "./source-observation-list-page";
 import type { SourceObservationListItem } from "./contracts";
 
 const {
+  mockBulkRejectSourceObservationsByScope,
+  mockBulkRejectSourceObservations,
   mockBulkPromoteSourceObservationsByScope,
   mockBulkPromoteSourceObservations,
   mockImportTcgdexSet,
   mockPreviewBulkPromoteSourceObservations,
   mockRevalidate,
+  mockUseTcgdexExpansions,
+  mockUseTcgdexLanguages,
+  mockUseTcgdexSeries,
   mockUseNavigation,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
+  mockBulkRejectSourceObservationsByScope: vi.fn(),
+  mockBulkRejectSourceObservations: vi.fn(),
   mockBulkPromoteSourceObservationsByScope: vi.fn(),
   mockBulkPromoteSourceObservations: vi.fn(),
   mockImportTcgdexSet: vi.fn(),
   mockPreviewBulkPromoteSourceObservations: vi.fn(),
   mockRevalidate: vi.fn(),
+  mockUseTcgdexExpansions: vi.fn(),
+  mockUseTcgdexLanguages: vi.fn(),
+  mockUseTcgdexSeries: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
 }));
@@ -31,10 +40,15 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./use-source-observations", () => ({
+  bulkRejectSourceObservationsByScope: mockBulkRejectSourceObservationsByScope,
+  bulkRejectSourceObservations: mockBulkRejectSourceObservations,
   bulkPromoteSourceObservationsByScope: mockBulkPromoteSourceObservationsByScope,
   bulkPromoteSourceObservations: mockBulkPromoteSourceObservations,
   importTcgdexSet: mockImportTcgdexSet,
   previewBulkPromoteSourceObservations: mockPreviewBulkPromoteSourceObservations,
+  useTcgdexExpansions: mockUseTcgdexExpansions,
+  useTcgdexLanguages: mockUseTcgdexLanguages,
+  useTcgdexSeries: mockUseTcgdexSeries,
 }));
 
 const query: CatalogListQuery = {
@@ -62,14 +76,58 @@ const promoted = sourceObservation({
 });
 
 describe("SourceObservationListPage", () => {
+  beforeEach(() => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockUseTcgdexLanguages.mockReturnValue({
+      data: {
+        items: [{ languageCode: "en" }],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseTcgdexSeries.mockReturnValue({
+      data: {
+        items: [{ seriesId: "me", name: "Mega Evolution", logoUrl: null }],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseTcgdexExpansions.mockReturnValue({
+      data: {
+        items: [
+          {
+            expansionId: "me02.5",
+            name: "Ascended Heroes",
+            seriesId: "me",
+            seriesName: "Mega Evolution",
+            logoUrl: null,
+            symbolUrl: null,
+            cardCount: 295,
+            officialCardCount: 217,
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
   });
 
   it("bulk promotes only selected observed rows", async () => {
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
     mockBulkPromoteSourceObservations.mockResolvedValue({
       requested: 1,
       promoted: 1,
@@ -106,8 +164,6 @@ describe("SourceObservationListPage", () => {
   });
 
   it("previews and promotes all matching observations across the current filters", async () => {
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
     mockPreviewBulkPromoteSourceObservations.mockResolvedValue({
       matched: 125,
       eligible: 123,
@@ -167,15 +223,12 @@ describe("SourceObservationListPage", () => {
     expect(mockRevalidate).toHaveBeenCalled();
   });
 
-  it("imports a selected Catalog Expansion through its TCGdex mapping", async () => {
-    const user = userEvent.setup();
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+  it("imports a TCGdex expansion selected from preloaded metadata", async () => {
     mockImportTcgdexSet.mockResolvedValue({
-      setId: "base1",
-      expansionId: "base1",
+      setId: "me02.5",
+      expansionId: "me02.5",
       languageCode: "en",
-      observed: 102,
+      observed: 217,
       observationIds: [],
     });
 
@@ -183,68 +236,25 @@ describe("SourceObservationListPage", () => {
       <SourceObservationListPage
         data={{ items: [observed], total: 1, count: 1 }}
         query={query}
-        expansionReferences={[
-          {
-            reference_record_id: "ref_base_set",
-            key: "base-set",
-            name: "Base Set",
-            attributes: {
-              abbreviation: "BS",
-              "card-count": 102,
-              "release-date": "1999-01-09",
-              "tcgdex-set-id": "base1",
-            },
-          },
-        ]}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Import TCGdex Expansion/i }));
-    await user.selectOptions(screen.getByLabelText("Expansion"), "ref_base_set");
-    expect(screen.getByText("1999-01-09")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Import TCGdex expansion/i }));
 
-    fireEvent.click(screen.getByRole("button", { name: /^Import$/i }));
+    expect(screen.queryByLabelText("Other TCGdex Expansion ID")).toBeNull();
+    const importButton = screen.getByRole("button", { name: /^Import$/i });
+    await waitFor(() =>
+      expect((importButton as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(importButton);
 
     await waitFor(() =>
       expect(mockImportTcgdexSet).toHaveBeenCalledWith({
         languageCode: "en",
-        setId: "base1",
+        setId: "me02.5",
       }),
     );
     expect(mockRevalidate).toHaveBeenCalled();
-  });
-
-  it("keeps a manual TCGdex Expansion ID fallback for unseeded expansions", async () => {
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
-    mockImportTcgdexSet.mockResolvedValue({
-      setId: "sv9",
-      expansionId: "sv9",
-      languageCode: "en",
-      observed: 180,
-      observationIds: [],
-    });
-
-    render(
-      <SourceObservationListPage
-        data={{ items: [observed], total: 1, count: 1 }}
-        query={query}
-        expansionReferences={[]}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /Import TCGdex Expansion/i }));
-    fireEvent.change(screen.getByLabelText("Other TCGdex Expansion ID"), {
-      target: { value: "sv9" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Import$/i }));
-
-    await waitFor(() =>
-      expect(mockImportTcgdexSet).toHaveBeenCalledWith({
-        languageCode: "en",
-        setId: "sv9",
-      }),
-    );
   });
 });
 

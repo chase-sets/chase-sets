@@ -230,6 +230,7 @@ export const englishTranslations = {
   "catalog.features.sourceObservations.ui.list.source.observation": "Source Observation",
   "catalog.features.sourceObservations.ui.list.source.observations": "Source Observations",
   "catalog.features.sourceObservations.ui.list.status": "Status",
+  "catalog.features.sourceObservations.ui.list.series": "Series",
   "catalog.features.sourceObservations.ui.list.tcgdex.expansion.id": "TCGdex Expansion ID",
   "catalog.features.sourceObservations.ui.integrations.all.providers": "All Providers",
   "catalog.features.sourceObservations.ui.integrations.import.failed": "Import failed.",

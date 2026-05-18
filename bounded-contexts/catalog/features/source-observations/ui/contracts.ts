@@ -46,6 +46,27 @@ export interface TcgdexSetImportResult {
   observationIds: string[];
 }
 
+export interface TcgdexLanguageOption {
+  languageCode: string;
+}
+
+export interface TcgdexSeriesOption {
+  seriesId: string;
+  name: string;
+  logoUrl: string | null;
+}
+
+export interface TcgdexExpansionOption {
+  expansionId: string;
+  name: string;
+  seriesId: string | null;
+  seriesName: string | null;
+  logoUrl: string | null;
+  symbolUrl: string | null;
+  cardCount: number | null;
+  officialCardCount: number | null;
+}
+
 export interface SourceObservationPromotionScope {
   search?: string;
   status?: string;
@@ -59,13 +80,6 @@ export interface SourceObservationPromotionPreview {
   eligible: number;
   terminal: number;
   scope: Required<SourceObservationPromotionScope>;
-}
-
-export interface SourceObservationExpansionReference {
-  reference_record_id: string;
-  key: string;
-  name: string;
-  attributes: Record<string, unknown>;
 }
 
 export type BulkSourceObservationPromotionStatus =

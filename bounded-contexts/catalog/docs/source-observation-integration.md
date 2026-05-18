@@ -10,10 +10,17 @@ External providers never write canonical Catalog Items directly. Provider integr
 
 TCGdex is the first provider.
 
-The first implementation imports one configured Pokemon TCG expansion in one language from live TCGdex REST endpoints. TCGdex names this provider resource `set`; Catalog maps it to Pokemon's official `Expansion` language:
+The integration imports one configured Pokemon TCG expansion in one language from live TCGdex REST endpoints. TCGdex names this provider resource `set`; Catalog maps it to Pokemon's official `Expansion` language:
 
+- `https://api.tcgdex.net/v2/{language}/series`
+- `https://api.tcgdex.net/v2/{language}/series/{seriesId}`
+- `https://api.tcgdex.net/v2/{language}/sets`
 - `https://api.tcgdex.net/v2/{language}/sets/{setId}`
 - `https://api.tcgdex.net/v2/{language}/cards/{cardId}`
+
+The Source Observations admin import flow preloads Catalog-facing language, Series, and Expansion choices before card import. Operators choose a language, then a Series, then an Expansion; the UI submits the selected Expansion's TCGdex set ID to the existing import command. Raw expansion IDs remain accepted at the API boundary for compatibility and scripted operations, but routine admin loading should not require manually looking up provider IDs.
+
+Import also ensures the Pokemon Reference Type and Reference Record hierarchy for the selected Expansion before recording Source Observations. Promotion still verifies the same hierarchy as a replay-safe safeguard. Existing Reference Records are reused by Catalog keys or by TCGdex provider attributes so replaying imports or importing another language for the same provider Series/Expansion does not create duplicate provider reference facts.
 
 TCGdex card image asset bases are source provenance only. During import, Catalog downloads the high quality `high.webp` card image as the Source Asset, generates a Product Asset Set of Chase Sets-owned WebP variants, and records both the structured Product Asset Set and compatibility normalized image URLs. The low quality TCGdex variant is intentionally not imported in this pass.
 

@@ -8,6 +8,9 @@ import type {
   SourceObservationPromotionScope,
   SourceObservationDetail,
   SourceObservationListItem,
+  TcgdexExpansionOption,
+  TcgdexLanguageOption,
+  TcgdexSeriesOption,
   TcgdexSetImportResult,
 } from "./contracts";
 
@@ -46,6 +49,34 @@ export function useSourceObservation(
 
 export function importTcgdexSet(body: { languageCode: string; setId: string }) {
   return api.importTcgdexSet<TcgdexSetImportResult>(body);
+}
+
+export function useTcgdexLanguages() {
+  return useFetch(
+    () => api.listTcgdexLanguages<ListResponse<TcgdexLanguageOption>>(),
+    [],
+  );
+}
+
+export function useTcgdexSeries(languageCode: string) {
+  const query = new URLSearchParams({ languageCode }).toString();
+  return useFetch(
+    () => api.listTcgdexSeries<ListResponse<TcgdexSeriesOption>>(query),
+    [query],
+  );
+}
+
+export function useTcgdexExpansions(languageCode: string, seriesId: string) {
+  const query = seriesId
+    ? new URLSearchParams({ languageCode, seriesId }).toString()
+    : "";
+  return useFetch(
+    () =>
+      query
+        ? api.listTcgdexExpansions<ListResponse<TcgdexExpansionOption>>(query)
+        : Promise.resolve({ items: [], count: 0, total: 0 }),
+    [query],
+  );
 }
 
 export function bulkPromoteSourceObservations(observationIds: string[]) {
