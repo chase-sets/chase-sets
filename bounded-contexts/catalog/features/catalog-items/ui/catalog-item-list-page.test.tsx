@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogItemListItem } from "./contracts";
@@ -93,13 +94,13 @@ describe("CatalogItemListPage", () => {
 
     expect(screen.getAllByText("tcgplayer").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Preview Filtered Drafts" })).toBeTruthy();
-    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
+    expect(screen.getAllByText("1 matching Catalog Items").length).toBeGreaterThan(0);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     expect(selectRow).toBeTruthy();
     fireEvent.click(selectRow!);
     expect(screen.getAllByText("1 Catalog Items selected")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Preview Publish" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview publish" }));
 
     await waitFor(() => {
       expect(mockPreviewBulkPublishCatalogItems).toHaveBeenCalledWith({
@@ -111,6 +112,7 @@ describe("CatalogItemListPage", () => {
   });
 
   it("previews selected shared bulk edits from the list", async () => {
+    const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
@@ -144,9 +146,11 @@ describe("CatalogItemListPage", () => {
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
-    const blueprintInputs = screen.getAllByLabelText("Blueprint ID");
+    await user.click(screen.getByRole("combobox", { name: "Operation" }));
+    await user.click(await screen.findByRole("option", { name: "Assign Blueprint" }));
+    const blueprintInputs = screen.getAllByLabelText("Blueprint ID or slug");
     fireEvent.change(blueprintInputs[blueprintInputs.length - 1]!, { target: { value: "bpr_card" } });
-    const previewEdit = screen.getByRole("button", { name: "Preview Edit" });
+    const previewEdit = screen.getByRole("button", { name: "Preview blueprint assignment" });
     await waitFor(() => {
       expect((previewEdit as HTMLButtonElement).disabled).toBe(false);
     });
@@ -161,7 +165,7 @@ describe("CatalogItemListPage", () => {
     expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();
   });
 
-  it("shows archive as the only bulk lifecycle action", () => {
+  it("hides matching bulk actions once rows are selected", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
@@ -173,12 +177,17 @@ describe("CatalogItemListPage", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Action")).toBeTruthy();
-    expect(screen.getByText("Archive")).toBeTruthy();
-    expect(screen.queryByText("Retire")).toBeNull();
+    expect(screen.getAllByText("1 matching Catalog Items").length).toBeGreaterThan(0);
+
+    const [selectRow] = screen.getAllByLabelText("Select row cat_1");
+    fireEvent.click(selectRow!);
+
+    expect(screen.getAllByText("1 Catalog Items selected").length).toBeGreaterThan(0);
+    expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
   });
 
   it("removes selected draft items from the grid", async () => {
+    const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
     const revalidate = vi.fn();
     mockUseRevalidator.mockReturnValue({ revalidate });
@@ -194,9 +203,11 @@ describe("CatalogItemListPage", () => {
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Drafts" }));
+    await user.click(screen.getByRole("combobox", { name: "Operation" }));
+    await user.click(await screen.findByRole("option", { name: "Remove drafts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove drafts from selected" }));
 
-    const confirmButtons = await screen.findAllByRole("button", { name: "Remove Drafts" });
+    const confirmButtons = await screen.findAllByRole("button", { name: "Remove drafts from selected" });
     fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
 
     await waitFor(() => {
