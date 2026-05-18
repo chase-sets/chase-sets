@@ -1241,9 +1241,10 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Checkout immediately with the best matching live listing.")).toBeNull();
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
-    expect(screen.getByText("Chase Sets · 2 available")).toBeTruthy();
+    expect(screen.getByText("Chase Sets")).toBeTruthy();
+    expect(screen.getByText("2 available")).toBeTruthy();
     expect(
-      screen.getByText((_, element) => element?.textContent === "Raw · Excellent"),
+      screen.getByLabelText("Product options: Form Raw, Condition Excellent"),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Buy optimized" })).toBeNull();
@@ -1268,7 +1269,8 @@ describe("item detail commerce panel", () => {
     expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
-    expect(screen.getByText("Chase Sets · 2 available")).toBeTruthy();
+    expect(screen.getByText("Chase Sets")).toBeTruthy();
+    expect(screen.getByText("2 available")).toBeTruthy();
     expect(screen.queryByText("Selected seller")).toBeNull();
     expect(screen.queryByText("Availability")).toBeNull();
     expect(screen.getByRole("spinbutton", { name: /Quantity/ })).toBeTruthy();
@@ -1283,6 +1285,9 @@ describe("item detail commerce panel", () => {
           ...baseAccountOfferMatch,
           price_amount: "380.00",
           buyer_display_name: "Top Loader Capital",
+          buyer_slug: "top-loader-capital",
+          buyer_average_rating: "4.60",
+          buyer_review_count: 8,
           acceptance_terms: {
             account_type: "personal",
             basis_amount: "380.00",
@@ -1296,12 +1301,22 @@ describe("item detail commerce panel", () => {
           },
         }}
         productId="cat_charizard::"
+        productSelectionDetails={[
+          { label: "Form", value: "Raw" },
+          { label: "Condition", value: "Near Mint" },
+        ]}
+        productSummary="Raw / Near Mint"
         matchingOfferCount={1}
       />,
     );
 
     expect(screen.getByText("$380.00 offer")).toBeTruthy();
-    expect(screen.getByText("From Top Loader Capital")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Top Loader Capital" }).getAttribute("href")).toBe(
+      "/accounts/top-loader-capital#feedback",
+    );
+    expect(screen.getByText("4.6")).toBeTruthy();
+    expect(screen.getByText("(8)")).toBeTruthy();
+    expect(screen.getByLabelText("Product options: Form Raw, Condition Near Mint")).toBeTruthy();
     expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
     expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
     expect(screen.getByText(/Seller-specific terms/)).toBeTruthy();
