@@ -51,6 +51,7 @@ import {
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
+  MarketplaceProductDetailLayout,
   MarketplaceEmptyState,
   MarketplaceCartLineItem,
   MarketplaceStatusTimeline,
@@ -986,6 +987,27 @@ describe("design-system", () => {
     expect(markup).toContain("Final total before payment");
     expect(markup).toContain("Continue to payment");
     expect(markup).toContain("Edit cart");
+  });
+
+  it("renders mobile product commerce as the final sticky content block", () => {
+    const markup = renderToString(
+      <MarketplaceProductDetailLayout
+        summary={<section>Product summary</section>}
+        media={<section>Product media</section>}
+        market={<section>Market summary</section>}
+        commerce={<section>Desktop commerce panel</section>}
+        mobileActionBar={<section>Mobile buy sell panel</section>}
+      >
+        <section>Offers list</section>
+      </MarketplaceProductDetailLayout>
+    );
+
+    expect(markup).toContain("sticky z-sticky mt-6");
+    expect(markup).toContain("pb-[calc(5rem+env(safe-area-inset-bottom))]");
+    expect(markup).not.toContain("fixed inset-x-3 bottom-20");
+    expect(markup.indexOf("Offers list")).toBeLessThan(
+      markup.indexOf("Mobile buy sell panel")
+    );
   });
 
   it("renders marketplace detail, seller, review, and comparison templates", () => {
