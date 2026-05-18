@@ -790,6 +790,30 @@ describe("design system", () => {
     expect(screen.getByText("Section 2")).toBeTruthy();
   });
 
+  it("renders section-list Accordion as a flush single-surface list", () => {
+    const { container } = render(
+      <ChaseRoot>
+        <Accordion
+          data-testid="section-list-accordion"
+          type="single"
+          variant="sectionList"
+          bleed
+          defaultValue="item1"
+          items={[
+            { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
+            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> }
+          ]}
+        />
+      </ChaseRoot>
+    );
+
+    const accordion = screen.getByTestId("section-list-accordion");
+    expect(accordion.className).toContain("overflow-hidden");
+    expect(accordion.className).toContain("-mx-4");
+    expect(accordion.className).not.toContain("modern-surface");
+    expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
+  });
+
   it("renders progressive disclosure with a visible summary and controlled state", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
