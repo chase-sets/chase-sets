@@ -62,7 +62,8 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Seller option");
     expect(markup).toContain('href="/accounts/card-vault#feedback"');
     expect(markup).toContain("4.9");
-    expect(markup).toContain("No seller feedback yet");
+    expect(markup).toContain("New");
+    expect(markup).toContain("No feedback yet");
     expect(markup).toContain("Card Vault - $389.00 - 2 available");
     expect(markup).toContain("Lock seller");
     expect(markup).toContain("Start checkout");

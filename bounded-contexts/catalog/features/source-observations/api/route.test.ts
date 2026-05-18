@@ -220,6 +220,52 @@ describe("source observation routes", () => {
     });
   });
 
+  it("lists provider-neutral integration options for Catalog import selectors", async () => {
+    const listIntegrationOptions = vi.fn(async () => [
+      {
+        providerKey: "tcgdex",
+        queryKind: "expansions",
+        value: "me02.5",
+        label: "Ascended Heroes",
+        description: "Mega Evolution - 217 official cards",
+        parentValue: "me",
+        imageUrl: null,
+        metadata: {
+          languageCode: "en",
+          expansionId: "me02.5",
+        },
+      },
+    ]);
+    const services = {
+      listIntegrationOptions,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request(
+      "/source-observations/integration-options?provider=tcgdex&kind=expansions&language=en&seriesId=me",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [
+        {
+          providerKey: "tcgdex",
+          queryKind: "expansions",
+          value: "me02.5",
+          label: "Ascended Heroes",
+        },
+      ],
+      total: 1,
+      count: 1,
+    });
+    expect(listIntegrationOptions).toHaveBeenCalledWith({
+      providerKey: "tcgdex",
+      queryKind: "expansions",
+      languageCode: "en",
+      parentValue: "me",
+    });
+  });
+
   it("bulk promotes observations matching an explicit filter scope", async () => {
     const promoteObservationScope = vi.fn(async () => ({
       requested: 100,

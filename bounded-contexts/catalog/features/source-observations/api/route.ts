@@ -32,6 +32,20 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json({ items, total: items.length, count: items.length });
   });
 
+  app.get("/integration-options", async (c) => {
+    const items = await services.listIntegrationOptions({
+      providerKey: String(c.req.query("providerKey") ?? c.req.query("provider") ?? "tcgdex"),
+      queryKind: String(c.req.query("queryKind") ?? c.req.query("kind") ?? ""),
+      languageCode: c.req.query("languageCode") ?? c.req.query("language"),
+      parentValue:
+        c.req.query("parentValue") ??
+        c.req.query("seriesId") ??
+        c.req.query("series"),
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
   app.post("/imports/tcgdex-set", async (c) => {
     const body = await c.req.json();
     const result = await services.importTcgdexSet({

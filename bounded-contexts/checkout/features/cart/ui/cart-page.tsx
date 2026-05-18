@@ -272,7 +272,6 @@ export function CheckoutCartPage({
                                   href={option.seller_slug ? `/accounts/${option.seller_slug}#feedback` : null}
                                   averageRating={option.seller_average_rating}
                                   reviewCount={option.seller_review_count ?? 0}
-                                  emptyLabel={t("checkout.features.cart.ui.cartPage.no.seller.feedback.yet")}
                                   ratingLabel={t("checkout.features.cart.ui.cartPage.seller.reputation")}
                                 />
                                 <Text size="sm" tone="secondary">

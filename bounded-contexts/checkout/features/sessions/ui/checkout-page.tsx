@@ -303,7 +303,6 @@ export function CheckoutSessionPage({
                               reviewCount={
                                 (group as typeof group & { sellerReviewCount?: number }).sellerReviewCount ?? 0
                               }
-                              emptyLabel={t("checkout.features.sessions.ui.checkoutPage.no.seller.feedback.yet")}
                               ratingLabel={t("checkout.features.sessions.ui.checkoutPage.seller.reputation")}
                             />
                             <Text tone="secondary">${group.totalAmount}</Text>
