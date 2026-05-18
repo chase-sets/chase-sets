@@ -20,6 +20,7 @@ import {
 import { Card, DataTable, ImageGallery } from "../components/data-display";
 import {
   Accordion,
+  AccordionOptionTrigger,
   Dialog,
   Menu,
   ProgressiveDisclosure,
@@ -810,8 +811,30 @@ describe("design system", () => {
     const accordion = screen.getByTestId("section-list-accordion");
     expect(accordion.className).toContain("overflow-hidden");
     expect(accordion.className).toContain("-mx-4");
+    expect(accordion.className).toContain("first:-mt-4");
+    expect(accordion.className).toContain("last:-mb-4");
     expect(accordion.className).not.toContain("modern-surface");
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
+  });
+
+  it("aligns section-list option icons with the trigger title", () => {
+    const { container } = render(
+      <ChaseRoot>
+        <AccordionOptionTrigger
+          icon="cart"
+          title="Add to cart"
+          description="Save this exact selection and continue shopping."
+          active
+        />
+      </ChaseRoot>
+    );
+
+    expect(screen.getByText("Add to cart")).toBeTruthy();
+    const classNames = Array.from(container.querySelectorAll("span"))
+      .map((element) => element.className)
+      .join(" ");
+    expect(classNames).toContain("grid-cols-[1rem_minmax(0,1fr)]");
+    expect(classNames).toContain("mt-0.5");
   });
 
   it("renders progressive disclosure with a visible summary and controlled state", async () => {

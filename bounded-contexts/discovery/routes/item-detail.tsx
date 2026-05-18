@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { redirect, useActionData, useFetcher, useLoaderData } from "react-router";
 import {
   Accordion,
+  AccordionOptionTrigger,
   Badge,
   Banner,
   BuyerProtectionBadge,
@@ -26,7 +27,6 @@ import {
   SecurePaymentCue,
   Text,
   TextInput,
-  Icon,
   type IconName,
 } from "@chase-sets/design-system";
 import {
@@ -1501,32 +1501,6 @@ type CommerceActionOption<TAction extends string> = Readonly<{
   disabled?: boolean;
 }>;
 
-function CommerceActionTrigger({
-  option,
-  active = false,
-}: {
-  option: CommerceActionOption<string>;
-  active?: boolean;
-}) {
-  return (
-    <Inline gap={3} align="start" wrap={false}>
-      <Icon
-        name={option.icon}
-        size="sm"
-        tone={option.disabled ? "secondary" : active ? "accent" : "secondary"}
-      />
-      <Stack gap={1}>
-        <Text weight="semibold" tone={active ? "accent" : "primary"}>
-          {option.label}
-        </Text>
-        <Text size="sm" tone="secondary">
-          {option.description}
-        </Text>
-      </Stack>
-    </Inline>
-  );
-}
-
 function ItemDetailActionCard<TAction extends string>({
   title,
   description,
@@ -1538,7 +1512,6 @@ function ItemDetailActionCard<TAction extends string>({
   children,
   panelVariant = "card",
   glow = false,
-  flatAccordion = false,
   showProductSummary = true,
   footer,
 }: {
@@ -1552,7 +1525,6 @@ function ItemDetailActionCard<TAction extends string>({
   children: ReactNode;
   panelVariant?: FormPanelVariant;
   glow?: boolean;
-  flatAccordion?: boolean;
   showProductSummary?: boolean;
   footer?: ReactNode;
 }) {
@@ -1573,14 +1545,8 @@ function ItemDetailActionCard<TAction extends string>({
         {footer}
         <Accordion
           type="single"
-          variant={flatAccordion ? "sectionList" : "surface"}
-          bleed={
-            flatAccordion
-              ? panelVariant === "plain"
-                ? "compact"
-                : "card"
-              : false
-          }
+          variant="sectionList"
+          bleed={panelVariant === "plain" ? "compact" : "card"}
           collapsible={false}
           value={selectedAction}
           onValueChange={(value) => {
@@ -1591,9 +1557,12 @@ function ItemDetailActionCard<TAction extends string>({
           items={options.map((option) => ({
             value: option.value,
             trigger: (
-              <CommerceActionTrigger
-                option={option}
+              <AccordionOptionTrigger
+                icon={option.icon}
+                title={option.label}
+                description={option.description}
                 active={selectedAction === option.value}
+                disabled={option.disabled}
               />
             ),
             content: selectedAction === option.value ? children : null,
@@ -1691,7 +1660,6 @@ export function BuyActionCard({
       onSelectedActionChange={setSelectedAction}
       panelVariant={panelVariant}
       glow={visibleListingCount > 0}
-      flatAccordion
       showProductSummary={false}
     >
       {selectedContent}
@@ -1791,6 +1759,7 @@ export function SellActionCard({
       onSelectedActionChange={setSelectedAction}
       panelVariant={panelVariant}
       glow={hasMatchingOffer}
+      showProductSummary={false}
       footer={
         <Badge tone="accent">
           {t("discovery.routes.itemDetail.same.buyer.shipping.allowance")}

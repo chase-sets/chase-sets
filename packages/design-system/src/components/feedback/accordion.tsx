@@ -1,7 +1,7 @@
 import { forwardRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { motion } from "motion/react";
-import { Icon } from "../../icons";
+import { Icon, type IconName } from "../../icons";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 
@@ -38,6 +38,42 @@ export interface AccordionItem {
   value: string;
   trigger: ReactNode;
   content: ReactNode;
+}
+
+export interface AccordionOptionTriggerProps {
+  icon: IconName;
+  title: ReactNode;
+  description?: ReactNode;
+  active?: boolean;
+  disabled?: boolean;
+}
+
+export function AccordionOptionTrigger({
+  icon,
+  title,
+  description,
+  active = false,
+  disabled = false
+}: AccordionOptionTriggerProps) {
+  return (
+    <span className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-3">
+      <span className="mt-0.5 flex h-5 items-start justify-center">
+        <Icon
+          name={icon}
+          size="sm"
+          tone={disabled ? "secondary" : active ? "accent" : "secondary"}
+        />
+      </span>
+      <span className="grid min-w-0 gap-1">
+        <span className={cx("text-sm font-semibold", active ? "text-accent" : "text-foreground")}>
+          {title}
+        </span>
+        {description ? (
+          <span className="text-sm font-normal leading-6 text-secondary">{description}</span>
+        ) : null}
+      </span>
+    </span>
+  );
 }
 
 export interface AccordionProps
@@ -117,8 +153,8 @@ export function Accordion({
         isSectionList
           ? "relative overflow-hidden"
           : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",
-        isSectionList && bleedMode === "card" && "-mx-4",
-        isSectionList && bleedMode === "compact" && "-mx-3",
+        isSectionList && bleedMode === "card" && "-mx-4 first:-mt-4 last:-mb-4",
+        isSectionList && bleedMode === "compact" && "-mx-3 first:-mt-3 last:-mb-3",
       )}
     >
       {items.map((item, index) => {
