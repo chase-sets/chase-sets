@@ -405,6 +405,7 @@ export interface AccountReputationSummaryProps {
   averageRating?: number | string | null;
   reviewCount?: number | string | null;
   emptyLabel?: ReactNode;
+  feedbackLabel?: ReactNode;
   ratingLabel?: string;
   onLinkClick?: MouseEventHandler<HTMLAnchorElement>;
   className?: string;
@@ -442,6 +443,7 @@ export function AccountReputationSummary({
   averageRating,
   reviewCount,
   emptyLabel = "No feedback yet",
+  feedbackLabel = "View feedback",
   ratingLabel,
   onLinkClick,
   className,
@@ -449,22 +451,33 @@ export function AccountReputationSummary({
   const rating = normalizeRatingValue(averageRating);
   const hasReputation = rating !== null && hasReviewCount(reviewCount);
   const content = (
-    <>
-      <span className="font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
-      {hasReputation ? (
-        <RatingSummary
-          value={rating}
-          count={reviewCount}
-          label={ratingLabel}
-          compact
-        />
-      ) : (
-        <span className="text-xs leading-4 text-[var(--muted-foreground)]">{emptyLabel}</span>
-      )}
-    </>
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-[color-mix(in_srgb,var(--trust)_28%,var(--border))] bg-[var(--trust-soft)] text-[var(--trust)]">
+        <UserCheck className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <span className="grid min-w-0 gap-0.5">
+        <span className="truncate font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
+        {hasReputation ? (
+          <RatingSummary
+            value={rating}
+            count={reviewCount}
+            label={ratingLabel}
+            compact
+          />
+        ) : (
+          <span className="text-xs leading-4 text-[var(--muted-foreground)]">{emptyLabel}</span>
+        )}
+      </span>
+      {href ? (
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[var(--primary)]">
+          {feedbackLabel}
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+      ) : null}
+    </span>
   );
   const classes = cn(
-    "inline-grid min-w-0 max-w-full justify-items-start gap-1 text-left",
+    "inline-flex min-w-0 max-w-full items-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 text-left shadow-[var(--shadow-sm)]",
     className,
   );
 
@@ -475,7 +488,7 @@ export function AccountReputationSummary({
         onClick={onLinkClick}
         className={cn(
           classes,
-          "ds-focus rounded-[var(--radius-sm)] hover:text-[var(--foreground)]",
+          "ds-focus transition hover:border-[color-mix(in_srgb,var(--primary)_34%,var(--border))] hover:bg-[var(--surface-3)] hover:text-[var(--foreground)]",
         )}
       >
         {content}
@@ -506,6 +519,7 @@ export interface ListingCardProps {
   rating?: number;
   reviewCount?: number | string;
   sellerName: string;
+  sellerHref?: string | null;
   sellerTrust?: ReactNode;
   sellerTrustLabel: ReactNode;
   sellerVerified?: boolean;
@@ -552,6 +566,7 @@ export function ListingCard({
   rating,
   reviewCount,
   sellerName,
+  sellerHref,
   sellerTrust,
   sellerTrustLabel,
   sellerVerified = false,
@@ -591,6 +606,7 @@ export function ListingCard({
       <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
         <AccountReputationSummary
           accountName={sellerName}
+          href={sellerHref}
           averageRating={rating}
           reviewCount={reviewCount}
           className="min-w-0"
@@ -2303,7 +2319,7 @@ export const marketplacePageTemplates = [
   "Category page",
   "Search results page",
   "Listing detail page",
-  "Seller profile page",
+  "Account profile page",
   "Cart or order summary page",
   "Checkout page",
   "Confirmation page",

@@ -204,20 +204,20 @@ export interface DiscoveryPublicListing extends DiscoveryMarketListing {
   seller_review_count?: number;
 }
 
-export interface DiscoveryPublicSeller {
+export interface DiscoveryPublicAccount {
   account_id: string;
-  seller_slug: string;
-  seller_display_name: string | null;
+  account_slug: string;
+  account_display_name: string | null;
   status: string;
   average_rating?: string | null;
   review_count?: number;
   active_listing_count: number;
   updated_at: string;
-  recent_reviews: DiscoveryPublicSellerReview[];
+  recent_reviews: DiscoveryPublicAccountReview[];
   listings: DiscoveryPublicListing[];
 }
 
-export interface DiscoveryPublicSellerReview {
+export interface DiscoveryPublicAccountReview {
   review_id: string;
   author_account_id: string;
   author_display_name: string | null;

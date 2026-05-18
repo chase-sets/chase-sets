@@ -74,26 +74,26 @@ export function createDiscoveryOfferPatch(
   ]);
 }
 
-export function createDiscoverySellerUpsertPatch(
+export function createDiscoveryAccountUpsertPatch(
   topics: readonly string[],
-  seller: unknown,
-  sellerId: string,
+  account: unknown,
+  accountId: string,
 ): RealtimeProjectionPatch {
   return createDiscoveryProjectionPatch(topics, [
     {
       op: "upsert",
-      entity: "discovery.publicSeller",
-      id: sellerId,
-      value: seller,
+      entity: "discovery.publicAccount",
+      id: accountId,
+      value: account,
     },
   ]);
 }
 
-export function createDiscoverySellerRemovePatch(
+export function createDiscoveryAccountRemovePatch(
   topics: readonly string[],
-  sellerId: string,
+  accountId: string,
 ): RealtimeProjectionPatch {
   return createDiscoveryProjectionPatch(topics, [
-    { op: "remove", entity: "discovery.publicSeller", id: sellerId },
+    { op: "remove", entity: "discovery.publicAccount", id: accountId },
   ]);
 }

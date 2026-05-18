@@ -8,7 +8,7 @@ export const discoveryRealtimeTopics = {
   publicMarket: () => "public:market",
   item: (catalogItemId: string) => `item:${catalogItemId}`,
   listing: (listingId: string) => `listing:${listingId}`,
-  seller: (accountId: string) => `seller:${accountId}`,
+  account: (accountId: string) => `public-account:${accountId}`,
 } as const;
 
 export const discoveryRealtimeRouteTopics = {
@@ -23,9 +23,9 @@ export const discoveryRealtimeRouteTopics = {
     discoveryRealtimeTopics.publicMarket(),
     discoveryRealtimeTopics.listing(listingId),
   ]),
-  publicSeller: (accountId: string) => createRealtimeRouteSubscriptionPreset("discovery.publicSeller", [
+  publicAccount: (accountId: string) => createRealtimeRouteSubscriptionPreset("discovery.publicAccount", [
     discoveryRealtimeTopics.publicMarket(),
-    discoveryRealtimeTopics.seller(accountId),
+    discoveryRealtimeTopics.account(accountId),
   ]),
 } as const;
 
@@ -33,7 +33,7 @@ export const discoveryRealtimeManifest = {
   contextName: "discovery",
   topics: discoveryRealtimeTopics,
   exactTopics: [discoveryRealtimeTopics.publicMarket()],
-  topicPrefixes: ["item:", "listing:", "seller:"],
+  topicPrefixes: ["item:", "listing:", "public-account:"],
 } satisfies RealtimeTopicManifest<typeof discoveryRealtimeTopics>;
 
 const TOPIC_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
@@ -54,7 +54,7 @@ export const discoveryRealtimeTopicPolicyManifest = {
         const segments = topic.split(":");
         if (
           segments.length === 2 &&
-          (segments[0] === "item" || segments[0] === "listing" || segments[0] === "seller") &&
+          (segments[0] === "item" || segments[0] === "listing" || segments[0] === "public-account") &&
           TOPIC_ID_PATTERN.test(segments[1] ?? "")
         ) {
           return { family: segments[0] };

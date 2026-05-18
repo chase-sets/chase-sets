@@ -5,10 +5,10 @@ import {
   type RealtimeProjectionPatch,
 } from "@chase-sets/platform-runtime/realtime";
 import {
+  createDiscoveryAccountRemovePatch,
+  createDiscoveryAccountUpsertPatch,
   createDiscoveryListingPatch,
   createDiscoveryOfferPatch,
-  createDiscoverySellerRemovePatch,
-  createDiscoverySellerUpsertPatch,
 } from "../realtime-support/patches";
 import { discoveryRealtimeTopics } from "../realtime-support/topics";
 import {
@@ -191,7 +191,7 @@ async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHand
     discoveryRealtimeTopics.publicMarket(),
     discoveryRealtimeTopics.item(listing.catalog_catalog_item_id),
     discoveryRealtimeTopics.listing(listing.listing_id),
-    discoveryRealtimeTopics.seller(listing.account_id),
+    discoveryRealtimeTopics.account(listing.account_id),
   ];
   const summary = await loadRealtimeMarketSummary(
     db,
@@ -279,11 +279,11 @@ export function buildDiscoveryMarketProjectionHandlers(
       await emitRealtimeChanges(
         db,
         event,
-        `seller:${accountId}`,
-        createDiscoverySellerUpsertPatch(
+        `account:${accountId}`,
+        createDiscoveryAccountUpsertPatch(
           [
             discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.seller(accountId),
+            discoveryRealtimeTopics.account(accountId),
           ],
           {
             account_id: accountId,
@@ -321,7 +321,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         [accountId, sellerSlug, displayName, event.timing.recordedAt],
       );
       await rememberSlugRedirect(db, {
-        entityKind: "seller",
+        entityKind: "account",
         entityId: accountId,
         previousSlug: current.rows[0]?.seller_slug,
         nextSlug: sellerSlug,
@@ -330,11 +330,11 @@ export function buildDiscoveryMarketProjectionHandlers(
       await emitRealtimeChanges(
         db,
         event,
-        `seller:${accountId}`,
-        createDiscoverySellerUpsertPatch(
+        `account:${accountId}`,
+        createDiscoveryAccountUpsertPatch(
           [
             discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.seller(accountId),
+            discoveryRealtimeTopics.account(accountId),
           ],
           {
             account_id: accountId,
@@ -359,11 +359,11 @@ export function buildDiscoveryMarketProjectionHandlers(
       await emitRealtimeChanges(
         db,
         event,
-        `seller:${accountId}`,
-        createDiscoverySellerRemovePatch(
+        `account:${accountId}`,
+        createDiscoveryAccountRemovePatch(
           [
             discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.seller(accountId),
+            discoveryRealtimeTopics.account(accountId),
           ],
           accountId,
         ),
@@ -381,11 +381,11 @@ export function buildDiscoveryMarketProjectionHandlers(
       await emitRealtimeChanges(
         db,
         event,
-        `seller:${accountId}`,
-        createDiscoverySellerUpsertPatch(
+        `account:${accountId}`,
+        createDiscoveryAccountUpsertPatch(
           [
             discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.seller(accountId),
+            discoveryRealtimeTopics.account(accountId),
           ],
           {
             account_id: accountId,
@@ -408,11 +408,11 @@ export function buildDiscoveryMarketProjectionHandlers(
       await emitRealtimeChanges(
         db,
         event,
-        `seller:${accountId}`,
-        createDiscoverySellerRemovePatch(
+        `account:${accountId}`,
+        createDiscoveryAccountRemovePatch(
           [
             discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.seller(accountId),
+            discoveryRealtimeTopics.account(accountId),
           ],
           accountId,
         ),

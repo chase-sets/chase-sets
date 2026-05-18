@@ -233,7 +233,7 @@ describe("design-system", () => {
       <div>
         <AccountReputationSummary
           accountName="Card Vault"
-          href="/sellers/card-vault#feedback"
+          href="/accounts/card-vault#feedback"
           averageRating="4.95"
           reviewCount={18}
           ratingLabel="Card Vault reputation"
@@ -242,7 +242,7 @@ describe("design-system", () => {
       </div>,
     );
 
-    expect(markup).toContain('href="/sellers/card-vault#feedback"');
+    expect(markup).toContain('href="/accounts/card-vault#feedback"');
     expect(markup).toContain("Card Vault");
     expect(markup).toContain("5.0");
     expect(markup).toContain("18");

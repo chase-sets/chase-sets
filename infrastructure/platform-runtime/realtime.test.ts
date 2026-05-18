@@ -63,10 +63,10 @@ describe("realtime topic authorization", () => {
   it("allows anonymous public marketplace topics", () => {
     expect(
       authorizeRealtimeTopics(
-        ["public:market", "item:item_1", "listing:listing_1", "seller:account_1"],
+        ["public:market", "item:item_1", "listing:listing_1", "public-account:account_1"],
         null,
       ),
-    ).toEqual(["item:item_1", "listing:listing_1", "public:market", "seller:account_1"]);
+    ).toEqual(["item:item_1", "listing:listing_1", "public-account:account_1", "public:market"]);
   });
 
   it("allows signed-in account topics for the current account and permissions", () => {
@@ -611,7 +611,7 @@ describe("realtime topic parsing", () => {
     expect(matchesRealtimeTopicPattern("item:item_1", "item:*")).toBe(true);
     expect(matchesRealtimeTopicPattern("account:account_1:offers", "account:*")).toBe(true);
     expect(matchesRealtimeTopicPattern("listing:list_1", "listing:list_1")).toBe(true);
-    expect(matchesRealtimeTopicPattern("seller:account_1", "item:*")).toBe(false);
+    expect(matchesRealtimeTopicPattern("public-account:account_1", "item:*")).toBe(false);
   });
 });
 
@@ -621,7 +621,7 @@ describe("realtime store topic ownership", () => {
       contextName: "discovery",
       db: { query: async () => ({ rows: [] }) },
       exactTopics: ["public:market"],
-      topicPrefixes: ["item:", "listing:", "seller:"],
+      topicPrefixes: ["item:", "listing:", "public-account:"],
     };
     const marketplaceStore = {
       contextName: "marketplace",
@@ -1695,7 +1695,7 @@ describe("realtime outbox", () => {
       wakeNotificationReceived: (event) => observed.push(event),
     });
     const itemWake = wakeSignal.wait(60_000, ["item:item_1"]);
-    const sellerWake = wakeSignal.wait(5, ["seller:account_1"]);
+    const accountWake = wakeSignal.wait(5, ["public-account:account_1"]);
 
     for (const listener of listeners) {
       listener({
@@ -1705,7 +1705,7 @@ describe("realtime outbox", () => {
     }
 
     await expect(itemWake).resolves.toBe("notified");
-    await expect(sellerWake).resolves.toBe("timeout");
+    await expect(accountWake).resolves.toBe("timeout");
     await wakeSignal.stop?.();
     expect(observed).toEqual([
       {

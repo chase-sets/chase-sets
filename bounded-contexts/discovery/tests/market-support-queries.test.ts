@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { getDiscoveryPublicSellerBySlug } from "../support/market-support/queries";
+import { getDiscoveryPublicAccountBySlug } from "../support/market-support/queries";
 
 describe("discovery public market queries", () => {
   it("hides seller listings when seller listing availability is off", async () => {
@@ -32,10 +32,10 @@ describe("discovery public market queries", () => {
       });
     const db = { query } as unknown as PgQueryable;
 
-    const seller = await getDiscoveryPublicSellerBySlug(db, "seller");
+    const account = await getDiscoveryPublicAccountBySlug(db, "seller");
 
-    expect(seller?.listings).toEqual([]);
-    expect(seller?.recent_reviews).toEqual([
+    expect(account?.listings).toEqual([]);
+    expect(account?.recent_reviews).toEqual([
       expect.objectContaining({
         review_id: "rev_1",
         feedback: "Packed well and shipped quickly.",

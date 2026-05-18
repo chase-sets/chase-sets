@@ -24,7 +24,7 @@ The system uses polished utility: IBM Plex Sans, neutral surfaces, high contrast
 
 Avoid decorative gradients, ornamental animation, hidden fees, hidden policies, sparse cards that omit decision signals, and multiple competing primary actions.
 
-Brand expression is allowed in homepage heroes, category campaigns, seller stories, onboarding, featured collections, and confirmation moments. Search results, listing cards, detail pages, checkout, payment, support recovery, and policy comprehension should stay calm and task-first.
+Brand expression is allowed in homepage heroes, category campaigns, account stories, onboarding, featured collections, and confirmation moments. Search results, listing cards, detail pages, checkout, payment, support recovery, and policy comprehension should stay calm and task-first.
 
 ## Coverage Areas
 
@@ -41,13 +41,13 @@ Use `packages/design-system/src/` as the canonical component inventory. Marketpl
 
 `ListingCard` is the primary marketplace comparison primitive. Every card must show price, seller name, seller trust, availability, fulfillment, and one primary action. Save, compare, and watchlist are secondary affordances and should never compete visually with the primary action.
 
-Cards may adapt to products, services, rentals, bookings, digital goods, quotes, and local listings, but the signal hierarchy stays stable: item identity, price, seller trust, fulfillment, availability, risk reduction, then action.
+Cards may adapt to products, services, rentals, bookings, digital goods, quotes, and local listings, but the signal hierarchy stays stable: item identity, price, account trust, fulfillment, availability, risk reduction, then action.
 
 ## Account Reputation Summary Contract
 
-Use `AccountReputationSummary` whenever a marketplace card, offer row, purchase panel, or trust module shows reputation for an account. Reputation is account-scoped, not seller-only: listing surfaces show the seller account, and offer surfaces show the buyer account when the offer is marketplace-wide demand.
+Use `AccountReputationSummary` whenever a marketplace card, offer row, purchase panel, or trust module shows reputation for an account. Reputation is account-scoped, not seller-only: listing surfaces show the account that published the listing, and offer surfaces show the account that submitted marketplace-wide demand.
 
-Do not render the same rating or review count in both the price area and the account reputation area. The compact account row is the canonical home for account name and reputation; surrounding components may add role/status, account metadata, and feedback links without duplicating the score.
+Do not render the same rating or review count in both the price area and the account reputation area. The account row is the canonical home for account name, feedback summary, and profile navigation. Public profile links use `/accounts/:accountSlug`; do not introduce `/sellers/:slug` or buyer-only/seller-only profile routes.
 
 ## Search And Filtering
 
@@ -57,7 +57,7 @@ Marketplace search filters must preserve buyer momentum: selections stay visible
 - Facet groups are ordered by usefulness, not by fewest options alone. Use buyer decision value, active-result coverage, selected state, meaningful distinct counts, and stable labels before falling back to alphabetical order.
 - Facet option counts refresh from the active Result Set. Counts for one facet group should answer "what options remain if every other filter stays applied and this group can vary?"
 - Hide unavailable zero-count options by default, except selected values must remain visible. Do not fill marketplace filters with disabled taxonomy rows unless an expert workflow explicitly needs unavailable comparison.
-- Long option lists use progressive depth, not nested scrollbars. Show the most useful values first, provide `Show more` / `Show less`, and add option search for high-cardinality facets such as card name, card number, set, player, team, seller, franchise, character, or other catalog-specific attributes.
+- Long option lists use progressive depth, not nested scrollbars. Show the most useful values first, provide `Show more` / `Show less`, and add option search for high-cardinality facets such as card name, card number, set, player, team, listing owner, franchise, character, or other catalog-specific attributes.
 - Desktop uses a persistent left filter rail or side sheet with one scrollable filter surface. Individual facet groups must not create their own independent scroll containers.
 - Mobile uses a compact filter bar plus Bottom Sheet for normal filtering. The sheet body may scroll as one surface with a sticky footer for `Clear` and `Show results`; dense single-facet search should become a focused sheet section or Full Page rather than a scrollbar inside the sheet.
 - Live dynamic filtering should update results, counts, and availability without making the layout jump unpredictably. Preserve active chips, group ordering stability, and the user's current place in the filter surface whenever possible.
@@ -74,7 +74,7 @@ Each marketplace route should keep the most decision-critical information visibl
 
 - Relevance: title, category, media, condition, availability.
 - Fair price: item price, fees, shipping, taxes, discounts, total.
-- Seller trust: verification, rating, review count, tenure, completed sales, response time.
+- Account trust: verification, rating, review count, tenure, completed transactions, response time.
 - Fulfillment: delivery estimate, pickup details, booking window, digital delivery.
 - Risk: buyer protection, return/refund/cancellation policy, secure payment, dispute path.
 - Next action: one primary action per decision area.
@@ -106,7 +106,7 @@ Each marketplace route should keep the most decision-critical information visibl
 
 ## Progressive Disclosure Defaults
 
-Use progressive disclosure for advanced marketplace depth, not for required buyer or seller comprehension. Required decision facts stay visible; optional controls and deeper explanation use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup`.
+Use progressive disclosure for advanced marketplace depth, not for required account or transaction-party comprehension. Required decision facts stay visible; optional controls and deeper explanation use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup`.
 
 Good disclosure candidates:
 
@@ -116,7 +116,7 @@ Good disclosure candidates:
 - checkout support diagnostics and provider-safe payment explanations after the final total is visible
 - payout verification reason detail, ledger context, and provider-safe settlement explanations
 
-Do not disclose the current price, final total, seller trust, availability, fulfillment expectation, buyer-protection summary, blocking error, primary action, or result-shaping search facets. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
+Do not disclose the current price, final total, account trust, availability, fulfillment expectation, buyer-protection summary, blocking error, primary action, or result-shaping search facets. If an advanced setting affects low-value card margins or buyer commitment, expose its current effect in the disclosure summary.
 
 Recommended first flows:
 
@@ -133,7 +133,7 @@ Recommended first flows:
 
 ## Before / After Direction
 
-- Before: attractive components could omit delivery, seller trust, policy, or total-cost context.
+- Before: attractive components could omit delivery, account trust, policy, or total-cost context.
 - After: marketplace components require decision signals and make hidden risk explicit.
 - Before: checkout could feel like a generic SaaS form.
 - After: checkout shows final cost, secure payment, delivery, policy, and buyer protection before confirmation.
@@ -144,8 +144,8 @@ Recommended first flows:
 
 1. Adopt marketplace tokens and `ThemeToggle` across marketplace-facing routes.
 2. Replace listing grids with `ListingCard`, `SearchFilterPanel`, `FilterRail`, and mobile-card table behavior.
-3. Replace listing detail pages with media, price, seller, protection, policy, review, specification, comparison, and sticky CTA modules.
-4. Replace seller profiles with `SellerProfileHeader`, `SellerTrustCard`, `ReviewCard`, and trust-building empty states.
+3. Replace listing detail pages with media, price, account attribution, protection, policy, review, specification, comparison, and sticky CTA modules.
+4. Replace public seller-profile language with account profiles that use `AccountReputationSummary`, account listings, `ReviewCard`, and trust-building empty states.
 5. Move checkout to transparent `PriceBreakdown`, editable sections, secure-payment messaging, and recovery notices.
 6. Add messaging, offer, dashboard, empty, error, and status timeline patterns to post-purchase and negotiation flows.
 7. Remove custom deployable overrides once each screen is backed by design-system primitives.

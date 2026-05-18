@@ -399,9 +399,9 @@
           "sourceContext": "discovery"
         },
         {
-          "routeId": "public-seller",
-          "routePath": "sellers/:sellerSlug",
-          "fileExport": "./routes/public-seller",
+          "routeId": "public-account",
+          "routePath": "accounts/:accountSlug",
+          "fileExport": "./routes/public-account",
           "routeType": "route",
           "sourceContext": "discovery"
         },

@@ -33,20 +33,20 @@ export type DiscoveryPublicListingRow = Readonly<{
   updated_at: string;
 }>;
 
-export type DiscoveryPublicSellerRow = Readonly<{
+export type DiscoveryPublicAccountRow = Readonly<{
   account_id: string;
-  seller_slug: string;
-  seller_display_name: string | null;
+  account_slug: string;
+  account_display_name: string | null;
   status: string;
   average_rating: string | null;
   review_count: number;
   active_listing_count: number;
   updated_at: string;
-  recent_reviews: DiscoveryPublicSellerReviewRow[];
+  recent_reviews: DiscoveryPublicAccountReviewRow[];
   listings: DiscoveryPublicListingRow[];
 }>;
 
-export type DiscoveryPublicSellerReviewRow = Readonly<{
+export type DiscoveryPublicAccountReviewRow = Readonly<{
   review_id: string;
   author_account_id: string;
   author_display_name: string | null;
@@ -103,22 +103,22 @@ export async function getDiscoveryPublicListingBySlug(
   return result.rows[0] ? mapListing(result.rows[0]) : null;
 }
 
-export async function getDiscoveryPublicSellerBySlug(
+export async function getDiscoveryPublicAccountBySlug(
   db: PgQueryable,
   slug: string,
-): Promise<DiscoveryPublicSellerRow | null> {
-  const sellerResult = await db.query<Omit<DiscoveryPublicSellerRow, "listings" | "active_listing_count" | "recent_reviews">>(
+): Promise<DiscoveryPublicAccountRow | null> {
+  const accountResult = await db.query<Omit<DiscoveryPublicAccountRow, "listings" | "active_listing_count" | "recent_reviews">>(
     `SELECT
        account.account_id,
-       account.seller_slug,
-       account.seller_display_name,
+       account.seller_slug AS account_slug,
+       account.seller_display_name AS account_display_name,
        account.status,
        account.average_rating::text AS average_rating,
        COALESCE(account.review_count, 0)::integer AS review_count,
        account.updated_at::text AS updated_at
      FROM discovery_market_accounts AS account
      LEFT JOIN discovery_slug_redirects AS redirect
-       ON redirect.entity_kind = 'seller'
+       ON redirect.entity_kind = 'account'
       AND redirect.slug = $1
      WHERE account.seller_slug = $1
         OR account.account_id = $1
@@ -130,9 +130,9 @@ export async function getDiscoveryPublicSellerBySlug(
      LIMIT 1`,
     [slug],
   );
-  const seller = sellerResult.rows[0];
+  const account = accountResult.rows[0];
 
-  if (!seller) {
+  if (!account) {
     return null;
   }
 
@@ -157,9 +157,9 @@ export async function getDiscoveryPublicSellerBySlug(
          AND listing.status = 'active'
          AND account.seller_listing_availability_status = 'available'
        ORDER BY listing.updated_at DESC, listing.price_amount ASC, listing.listing_id ASC`,
-      [seller.account_id],
+      [account.account_id],
     ),
-    db.query<DiscoveryPublicSellerReviewRow>(
+    db.query<DiscoveryPublicAccountReviewRow>(
       `SELECT
          review.review_id,
          review.author_account_id,
@@ -176,12 +176,12 @@ export async function getDiscoveryPublicSellerBySlug(
          AND review.status = 'active'
        ORDER BY review.updated_at DESC, review.review_id DESC
        LIMIT 5`,
-      [seller.account_id],
+      [account.account_id],
     ),
   ]);
 
   return {
-    ...seller,
+    ...account,
     active_listing_count: listingResult.rows.length,
     recent_reviews: reviewResult.rows,
     listings: listingResult.rows.map(mapListing),
@@ -237,7 +237,7 @@ export async function listDiscoveryPublicSitemapUrls(
   return [
     ...items.rows.map((row) => ({ path: `/items/${row.slug}`, updated_at: row.updated_at })),
     ...categories.rows.map((row) => ({ path: `/categories/${row.slug}`, updated_at: row.updated_at })),
-    ...sellers.rows.map((row) => ({ path: `/sellers/${row.seller_slug}`, updated_at: row.updated_at })),
+    ...sellers.rows.map((row) => ({ path: `/accounts/${row.seller_slug}`, updated_at: row.updated_at })),
     ...listings.rows.map((row) => ({ path: `/listings/${row.listing_slug}`, updated_at: row.updated_at })),
   ];
 }

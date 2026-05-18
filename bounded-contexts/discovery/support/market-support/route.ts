@@ -14,14 +14,14 @@ export function discoveryMarketRoutes(services: DiscoveryMarketServices) {
     return c.json(listing);
   });
 
-  app.get("/sellers/:slug", async (c) => {
-    const seller = await services.getPublicSellerBySlug(c.req.param("slug"));
+  app.get("/accounts/:slug", async (c) => {
+    const account = await services.getPublicAccountBySlug(c.req.param("slug"));
 
-    if (!seller) {
-      return c.json({ error: { code: "not_found", message: "Seller not found." } }, 404);
+    if (!account) {
+      return c.json({ error: { code: "not_found", message: "Account not found." } }, 404);
     }
 
-    return c.json(seller);
+    return c.json(account);
   });
 
   app.get("/sitemap-urls", async (c) => {

@@ -218,7 +218,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
 
   const checkoutHref = checkoutStartHref(listing);
   const itemMarketHref = `/items/${listing.catalog_item_slug ?? listing.catalog_catalog_item_id}`;
-  const sellerHref = listing.seller_slug ? `/sellers/${listing.seller_slug}` : null;
+  const accountHref = listing.seller_slug ? `/accounts/${listing.seller_slug}` : null;
   const productDetails = productSelectionDetails(listing.product_summary);
   const availability = availableQuantityLabel(listing.visible_quantity, listing.quantity_cap);
   const sellerListingsAvailable =
@@ -264,6 +264,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 <Stack gap={1}>
                   <AccountReputationSummary
                     accountName={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
+                    href={accountHref ? `${accountHref}#feedback` : null}
                     averageRating={sellerRating}
                     reviewCount={listing.seller_review_count ?? 0}
                     className="justify-items-end text-right"
@@ -333,8 +334,8 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 },
               ]}
               actions={
-                listing.seller_slug ? (
-                  <LinkButton href={`/sellers/${listing.seller_slug}#feedback`} tone="secondary">
+                accountHref ? (
+                  <LinkButton href={`${accountHref}#feedback`} tone="secondary">
                     {t("discovery.routes.publicListing.view.seller")}
                   </LinkButton>
                 ) : null

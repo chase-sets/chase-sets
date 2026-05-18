@@ -36,7 +36,7 @@ export const discoveryRealtimeTopicPolicyManifest = {
         const segments = topic.split(":");
         if (
           segments.length === 2 &&
-          (segments[0] === "item" || segments[0] === "listing" || segments[0] === "seller") &&
+          (segments[0] === "item" || segments[0] === "listing" || segments[0] === "public-account") &&
           TOPIC_ID_PATTERN.test(segments[1] ?? "")
         ) {
           return { family: segments[0] };

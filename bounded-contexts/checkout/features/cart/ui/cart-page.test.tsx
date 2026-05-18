@@ -60,7 +60,7 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Shipping credit grows with same-seller cards");
     expect(markup).toContain("Listings earn 5% of item value toward shipping");
     expect(markup).toContain("Seller option");
-    expect(markup).toContain('href="/sellers/card-vault#feedback"');
+    expect(markup).toContain('href="/accounts/card-vault#feedback"');
     expect(markup).toContain("4.9");
     expect(markup).toContain("No seller feedback yet");
     expect(markup).toContain("Card Vault - $389.00 - 2 available");

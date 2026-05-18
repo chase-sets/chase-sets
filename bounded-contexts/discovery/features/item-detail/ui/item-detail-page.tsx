@@ -27,7 +27,6 @@ import {
   MarketplaceProductDetailLayout,
   PageSection,
   ProductSelectionSummary,
-  RatingSummary,
   SegmentedControl,
   Stack,
   Surface,
@@ -271,70 +270,28 @@ function parseRating(value: string | null | undefined): number | null {
   return Number.isFinite(rating) ? rating : null;
 }
 
-function ReputationCue({
-  feedbackHref,
-  label,
-  rating,
-  reviewCount = 0,
-}: {
-  feedbackHref?: string | null;
-  label: string;
-  rating?: string | null;
-  reviewCount?: number;
-}) {
-  const parsedRating = parseRating(rating);
-  const hasFeedback = parsedRating !== null && reviewCount > 0;
-
-  return (
-    <Stack gap={1}>
-      <Text size="sm" tone="secondary">{label}</Text>
-      {hasFeedback ? (
-        <RatingSummary value={parsedRating} count={reviewCount} compact />
-      ) : (
-        <Text size="sm">{t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}</Text>
-      )}
-      {feedbackHref ? (
-        <LinkButton
-          href={feedbackHref}
-          tone="ghost"
-          size="sm"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {t("discovery.features.itemDetail.ui.itemDetailPage.view.feedback")}
-        </LinkButton>
-      ) : null}
-    </Stack>
-  );
-}
-
 function ListingTrustSignal({
+  accountName,
   feedbackHref,
   rating,
   reviewCount = 0,
 }: {
+  accountName: string;
   feedbackHref?: string | null;
   rating?: string | null;
   reviewCount?: number;
 }) {
   const parsedRating = parseRating(rating);
-  const hasFeedback = parsedRating !== null && reviewCount > 0;
 
   return (
-    <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 text-xs text-secondary">
-      {hasFeedback ? (
-        <RatingSummary value={parsedRating} count={reviewCount} compact />
-      ) : (
-        <span>{t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}</span>
-      )}
-      {feedbackHref ? (
-        <a
-          href={feedbackHref}
-          className="focus-ring rounded-tokenSm font-semibold hover:text-accent"
-        >
-          {t("discovery.features.itemDetail.ui.itemDetailPage.view.feedback")}
-        </a>
-      ) : null}
-    </span>
+    <AccountReputationSummary
+      accountName={accountName}
+      href={feedbackHref}
+      averageRating={parsedRating}
+      reviewCount={reviewCount}
+      emptyLabel={t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}
+      feedbackLabel={t("discovery.features.itemDetail.ui.itemDetailPage.view.feedback")}
+    />
   );
 }
 
@@ -1474,7 +1431,7 @@ function LoadedItemDetailPage({
                               listing.seller_display_name ??
                               t("discovery.features.itemDetail.ui.itemDetailPage.seller");
                             const sellerFeedbackHref = listing.seller_slug
-                              ? `/sellers/${listing.seller_slug}#feedback`
+                              ? `/accounts/${listing.seller_slug}#feedback`
                               : null;
                             const compactProductSummary = formatCompactProductSummary(
                               listing.product_summary,
@@ -1524,6 +1481,7 @@ function LoadedItemDetailPage({
                                   </div>
                                   <div className="col-start-2 row-start-2 min-w-0 justify-self-end text-right lg:col-start-auto lg:row-start-auto lg:justify-self-start lg:text-left">
                                     <ListingTrustSignal
+                                      accountName={sellerName}
                                       feedbackHref={sellerFeedbackHref}
                                       rating={listing.seller_average_rating}
                                       reviewCount={listing.seller_review_count ?? 0}
@@ -1657,7 +1615,7 @@ function LoadedItemDetailPage({
                                 handleSelectionKeyDown(event, selectOffer)
                               }
                             >
-                              <Grid columns={{ base: 1, md: 4 }} gap={3}>
+                              <Grid columns={{ base: 1, md: 3 }} gap={3}>
                                 <Stack gap={1}>
                                   <Inline gap={2}>
                                     <Text weight="semibold">
@@ -1672,7 +1630,7 @@ function LoadedItemDetailPage({
                                 </Inline>
                                   <AccountReputationSummary
                                     accountName={offer.buyer_display_name ?? offer.buyer_account_id}
-                                    href={offer.buyer_slug ? `/sellers/${offer.buyer_slug}#feedback` : null}
+                                    href={offer.buyer_slug ? `/accounts/${offer.buyer_slug}#feedback` : null}
                                     averageRating={offer.buyer_average_rating}
                                     reviewCount={offer.buyer_review_count ?? 0}
                                     emptyLabel={t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}
@@ -1685,16 +1643,6 @@ function LoadedItemDetailPage({
                                     </Text>
                                   ) : null}
                                 </Stack>
-                                <ReputationCue
-                                  label={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
-                                  rating={offer.buyer_average_rating}
-                                  reviewCount={offer.buyer_review_count ?? 0}
-                                  feedbackHref={
-                                    offer.buyer_slug
-                                      ? `/sellers/${offer.buyer_slug}#feedback`
-                                      : null
-                                  }
-                                />
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
                                     {t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}</Text>
