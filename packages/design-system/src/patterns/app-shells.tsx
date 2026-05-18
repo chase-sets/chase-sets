@@ -1963,6 +1963,7 @@ export interface CommerceBottomSheetProps
 
 export function CommerceBottomSheet({
   children,
+  bodyClassName,
   footer,
   ...rest
 }: CommerceBottomSheetProps) {
@@ -1970,6 +1971,8 @@ export function CommerceBottomSheet({
     <BottomSheet
       {...rest}
       height="expanded"
+      bodyLayout="edge"
+      bodyClassName={bodyClassName}
       footer={footer}
     >
       {children}
@@ -1987,6 +1990,7 @@ export interface CommerceSheetProps
 export function CommerceSheet({
   children,
   footer,
+  bodyClassName,
   desktopWidth = "md",
   mobileHeight = "expanded",
   ...rest
@@ -2010,6 +2014,8 @@ export function CommerceSheet({
     <BottomSheet
       {...rest}
       height={mobileHeight}
+      bodyLayout="edge"
+      bodyClassName={bodyClassName}
       footer={footer}
     >
       {children}

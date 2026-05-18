@@ -8,7 +8,7 @@ import {
   type SidebarWidth as LayoutSidebarWidth
 } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
-import { Dialog, ModalPanel, type DialogProps, type ModalPanelProps } from "./dialog";
+import { Dialog, ModalPanel, type DialogProps, type ModalPanelProps, type PanelBodyLayout } from "./dialog";
 
 export type PanelWidth = "sm" | "md" | "lg";
 export type SupportSidebarWidth = LayoutSidebarWidth | PanelWidth;
@@ -84,6 +84,8 @@ export interface NonModalPanelFrameProps
   footer?: ReactNode;
   closeLabel?: string;
   onClose?: () => void;
+  bodyClassName?: string;
+  bodyLayout?: PanelBodyLayout;
   placement?: "left" | "right" | "bottom";
   width?: PanelWidth;
   height?: BottomSheetHeight;
@@ -96,6 +98,8 @@ function NonModalPanelFrame({
   footer,
   closeLabel,
   onClose,
+  bodyClassName,
+  bodyLayout = "default",
   placement = "right",
   width = "md",
   height = "medium",
@@ -110,7 +114,7 @@ function NonModalPanelFrame({
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       className={cx(
-        "modern-surface flex min-h-0 flex-col rounded-tokenXl border border-muted p-5 shadow-overlay",
+        "modern-surface flex min-h-0 flex-col rounded-tokenXl border border-muted p-5 shadow-overlay [--panel-content-inset:1.25rem]",
         placement === "bottom"
           ? cx("fixed inset-x-3 bottom-3 z-sticky pb-[max(1.25rem,env(safe-area-inset-bottom))]", bottomSheetHeightClasses[height])
           : cx("w-full", sideSheetWidthClasses[width])
@@ -124,7 +128,13 @@ function NonModalPanelFrame({
         closeLabel,
         onClose
       })}
-      <div className="motion-safe-scroll-area mt-4 min-h-0 flex-1">
+      <div
+        className={cx(
+          "motion-safe-scroll-area mt-4 min-h-0 flex-1",
+          bodyLayout === "edge" && "panel-edge-scroll-area",
+          bodyClassName
+        )}
+      >
         {children}
       </div>
       {footer ? <div className="mt-4 shrink-0">{footer}</div> : null}
@@ -157,7 +167,9 @@ export function SideSheet({
   children,
   footer,
   closeLabel,
-  surfaceClassName
+  surfaceClassName,
+  bodyClassName,
+  bodyLayout
 }: SideSheetProps) {
   if (modal) {
     return (
@@ -172,6 +184,8 @@ export function SideSheet({
         closeLabel={closeLabel}
         placement={side === "left" ? "sideLeft" : "side"}
         surfaceClassName={cx(sideSheetWidthClasses[width], surfaceClassName)}
+        bodyClassName={bodyClassName}
+        bodyLayout={bodyLayout}
       >
         {children}
       </ModalPanel>
@@ -189,6 +203,8 @@ export function SideSheet({
       footer={footer}
       closeLabel={closeLabel}
       onClose={onOpenChange ? () => onOpenChange(false) : undefined}
+      bodyClassName={bodyClassName}
+      bodyLayout={bodyLayout}
       placement={side}
       width={width}
     >
@@ -214,7 +230,9 @@ export function BottomSheet({
   children,
   footer,
   closeLabel,
-  surfaceClassName
+  surfaceClassName,
+  bodyClassName,
+  bodyLayout
 }: BottomSheetProps) {
   if (modal) {
     return (
@@ -229,6 +247,8 @@ export function BottomSheet({
         closeLabel={closeLabel}
         placement="bottomSheet"
         surfaceClassName={cx(bottomSheetHeightClasses[height], surfaceClassName)}
+        bodyClassName={bodyClassName}
+        bodyLayout={bodyLayout}
       >
         {children}
       </ModalPanel>
@@ -246,6 +266,8 @@ export function BottomSheet({
       footer={footer}
       closeLabel={closeLabel}
       onClose={onOpenChange ? () => onOpenChange(false) : undefined}
+      bodyClassName={bodyClassName}
+      bodyLayout={bodyLayout}
       placement="bottom"
       height={height}
     >

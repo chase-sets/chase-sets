@@ -16,6 +16,8 @@ function renderDialogFrame({
   kind,
   panelPlacement = "side",
   surfaceClassName,
+  bodyClassName,
+  bodyLayout = "default",
   reducedMotion,
   durations,
   easing,
@@ -30,6 +32,8 @@ function renderDialogFrame({
   kind: "dialog" | "panel";
   panelPlacement?: ModalPanelPlacement;
   surfaceClassName?: string;
+  bodyClassName?: string;
+  bodyLayout?: PanelBodyLayout;
   reducedMotion: boolean;
   durations: { base: number; slow: number };
   easing: [number, number, number, number];
@@ -88,7 +92,7 @@ function renderDialogFrame({
           animate: frameAnimation.animate,
           transition: frameAnimation.transition,
           className: (baseClassName) => cx(
-              "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none md:w-full md:max-w-2xl",
+              "modern-surface fixed z-modal flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col rounded-tokenXl border border-muted p-5 shadow-overlay focus-visible:outline-none [--panel-content-inset:1.25rem] md:w-full md:max-w-2xl",
               kind === "dialog" && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
               kind === "panel" && panelPlacement === "side" &&
                 "inset-x-4 bottom-4 md:inset-y-4 md:right-4 md:left-auto md:w-[28rem]",
@@ -119,7 +123,13 @@ function renderDialogFrame({
             />}
           />
         </div>
-        <div className="motion-safe-scroll-area mt-4 min-h-0 flex-1">
+        <div
+          className={cx(
+            "motion-safe-scroll-area mt-4 min-h-0 flex-1",
+            bodyLayout === "edge" && "panel-edge-scroll-area",
+            bodyClassName
+          )}
+        >
           {children}
         </div>
         {footer ? <div className="mt-4">{footer}</div> : null}
@@ -139,7 +149,11 @@ export interface DialogProps {
   footer?: ReactNode;
   closeLabel?: string;
   surfaceClassName?: string;
+  bodyClassName?: string;
+  bodyLayout?: PanelBodyLayout;
 }
+
+export type PanelBodyLayout = "default" | "edge";
 
 export function Dialog({
   open,
@@ -151,7 +165,9 @@ export function Dialog({
   children,
   footer,
   closeLabel,
-  surfaceClassName
+  surfaceClassName,
+  bodyClassName,
+  bodyLayout
 }: DialogProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
@@ -172,6 +188,8 @@ export function Dialog({
           kind: "dialog",
           children,
           surfaceClassName,
+          bodyClassName,
+          bodyLayout,
           reducedMotion: motionSettings.reducedMotion,
           durations: motionSettings.durations,
           easing: motionSettings.easing,
@@ -199,6 +217,8 @@ export function ModalPanel({
   footer,
   closeLabel,
   surfaceClassName,
+  bodyClassName,
+  bodyLayout,
   placement = "side"
 }: ModalPanelProps) {
   const { overlayNode } = usePortalRoots();
@@ -221,6 +241,8 @@ export function ModalPanel({
           panelPlacement: placement,
           children,
           surfaceClassName,
+          bodyClassName,
+          bodyLayout,
           reducedMotion: motionSettings.reducedMotion,
           durations: motionSettings.durations,
           easing: motionSettings.easing,

@@ -23,6 +23,7 @@ import {
   AccordionOptionTrigger,
   Dialog,
   Menu,
+  PanelSectionAccordion,
   ProgressiveDisclosure,
   ProgressiveDisclosureGroup,
   Rating,
@@ -640,6 +641,8 @@ describe("design system", () => {
     const bottomSheet = screen.getByRole("dialog", { name: "Buy selected product" });
     expect(within(bottomSheet).getByText("Quantity")).toBeTruthy();
     expect(within(bottomSheet).getByRole("button", { name: "Buy now" })).toBeTruthy();
+    expect(within(bottomSheet).getByText("Quantity").parentElement?.className)
+      .toContain("panel-edge-scroll-area");
   });
 
   it("renders responsive commerce and edit sheets", () => {
@@ -798,7 +801,7 @@ describe("design system", () => {
           data-testid="section-list-accordion"
           type="single"
           variant="sectionList"
-          bleed
+          edge="card"
           defaultValue="item1"
           items={[
             { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
@@ -819,14 +822,13 @@ describe("design system", () => {
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
   });
 
-  it("renders section-list Accordion with a sheet-edge rail", () => {
+  it("renders panel section accordions with an edge-aligned rail", () => {
     const { container } = render(
       <ChaseRoot>
-        <Accordion
+        <PanelSectionAccordion
           data-testid="sheet-list-accordion"
           type="single"
-          variant="sectionList"
-          bleed="sheet"
+          edge="panel"
           defaultValue="item1"
           items={[
             { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
@@ -849,7 +851,7 @@ describe("design system", () => {
     expect(accordion.className).toContain("last:rounded-b-tokenXl");
     expect(activeTrigger.className).toContain("px-5");
     expect(activePanel?.className).toContain("pl-12");
-    expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
+    expect(container.querySelector('[class*="before:w-1"]')).toBeTruthy();
   });
 
   it("aligns section-list option icons with the trigger title", () => {

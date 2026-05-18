@@ -462,7 +462,7 @@ describe("item detail commerce panel", () => {
       <BuyActionCard
         formIdPrefix="mobile-buy-card"
         panelVariant="plain"
-        accordionBleed="sheet"
+        accordionEdge="panel"
         productId="cat_charizard::"
         productSummary="Raw / Near Mint"
         productSelectionDetails={[]}
@@ -482,7 +482,7 @@ describe("item detail commerce panel", () => {
     expect(accordion?.className).toContain("self-stretch");
     expect(accordion?.className).toContain("rounded-b-tokenXl");
     expect(activeTrigger.className).toContain("px-5");
-    expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
+    expect(container.querySelector('[class*="before:w-1"]')).toBeTruthy();
   });
 
   it("keeps sell actions in the same compact section-list pattern as buy actions", () => {
