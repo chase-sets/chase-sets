@@ -88,8 +88,9 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Charizard");
     expect(markup).toContain("Japanese");
     expect(markup).toContain("Base Set 4/102 Holo Rare");
-    expect(markup).toContain("Form<!-- -->: <!-- -->Raw");
-    expect(markup).toContain("Condition<!-- -->: <!-- -->Near Mint");
+    expect(markup).toContain(">Raw</span>");
+    expect(markup).toContain(">Near Mint</span>");
+    expect(markup).toContain('aria-label="Product options: Form Raw, Condition Near Mint"');
     expect(markup).not.toContain("Charizard | Base Set 4/102 Holo Rare");
     expect(markup).not.toContain("Form: Raw | Condition: Near Mint");
     expect(markup).toContain('value="5"');

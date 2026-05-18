@@ -13,12 +13,12 @@ import {
   Page,
   PageHeader,
   PageSection,
-  ProductSelectionSummary,
+  ProductOptions,
   Stack,
   Text,
   TextInput,
   Textarea,
-  productSelectionDetailsFromSummary,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { FulfillmentShipmentDetail } from "./contracts";
 
@@ -32,16 +32,6 @@ const uspsServiceLevels = [
   { value: "PRIORITY_EXPRESS", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.priority.mail.express") },
   { value: "MEDIA_MAIL", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.media.mail") },
 ];
-
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
-}
 
 function AddressFields({
   prefix,
@@ -222,7 +212,10 @@ export function FulfillmentShipmentDetailPage({
                     {line.item_subtitle}
                   </Text>
                 ) : null}
-                <ProductSummaryChips summary={line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.standard")} />
+                <ProductOptions
+                  options={productOptionsFromSummary(line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.standard"))}
+                  variant="chips"
+                />
                 <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.quantity")}{line.quantity}</Text>
               </Stack>
             </Card>

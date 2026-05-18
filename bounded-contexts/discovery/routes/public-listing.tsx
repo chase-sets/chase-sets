@@ -10,10 +10,11 @@ import {
   LinkButton,
   ListingPurchasePanel,
   PageSection,
-  ProductSelectionSummary,
+  ProductOptions,
   SellerTrustCard,
   Stack,
   Text,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
@@ -46,20 +47,6 @@ function titleForListing(listing: {
 
 function subtitleForListing(listing: { item_subtitle: string | null }) {
   return listing.item_subtitle ?? t("discovery.routes.publicListing.marketplace.listing");
-}
-
-function productSelectionDetails(productSummary: string | null) {
-  return String(productSummary ?? "")
-    .split("|")
-    .map((part) => {
-      const [label, ...valueParts] = part.split(":");
-      const value = valueParts.join(":").trim();
-
-      return label?.trim() && value
-        ? { label: label.trim(), value }
-        : null;
-    })
-    .filter((part): part is { label: string; value: string } => part !== null);
 }
 
 function buyerFulfillmentLabel(shipFromCode: string | null) {
@@ -219,7 +206,6 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const checkoutHref = checkoutStartHref(listing);
   const itemMarketHref = `/items/${listing.catalog_item_slug ?? listing.catalog_catalog_item_id}`;
   const accountHref = listing.seller_slug ? `/accounts/${listing.seller_slug}` : null;
-  const productDetails = productSelectionDetails(listing.product_summary);
   const availability = availableQuantityLabel(listing.visible_quantity, listing.quantity_cap);
   const sellerListingsAvailable =
     (listing.seller_listing_availability_status ?? "available") === "available";
@@ -238,11 +224,11 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           <Text size="lg" tone="secondary">
             {subtitleForListing(listing)}
           </Text>
-          <ProductSelectionSummary
-            selections={productDetails}
-            summary={listing.product_summary ?? t("discovery.routes.publicListing.standard")}
-            summaryAsChip
-          />
+          {listing.product_summary ? (
+            <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
+          ) : (
+            <Badge tone="neutral">{t("discovery.routes.publicListing.standard")}</Badge>
+          )}
           <Text tone="secondary">
             {formatMoney(listing.price_amount)} from{" "}
             {listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
@@ -325,11 +311,11 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 {
                   label: t("discovery.routes.publicListing.product"),
                   value: (
-                    <ProductSelectionSummary
-                      selections={productDetails}
-                      summary={listing.product_summary ?? t("discovery.routes.publicListing.standard")}
-                      summaryAsChip
-                    />
+                    listing.product_summary ? (
+                      <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
+                    ) : (
+                      <Badge tone="neutral">{t("discovery.routes.publicListing.standard")}</Badge>
+                    )
                   ),
                 },
               ]}

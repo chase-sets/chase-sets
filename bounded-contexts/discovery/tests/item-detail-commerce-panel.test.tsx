@@ -228,7 +228,8 @@ describe("item detail commerce panel", () => {
     fireEvent.click(sellTab);
 
     expect(screen.getByText("Sell on Chase Sets")).toBeTruthy();
-    expect(screen.getByText("Start with: Raw / Near Mint")).toBeTruthy();
+    expect(screen.getByText(/Start with:/)).toBeTruthy();
+    expect(screen.getByLabelText("Product options: Raw, Near Mint")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Register to sell" }).getAttribute("href"))
       .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
   });

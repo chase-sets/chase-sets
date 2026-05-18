@@ -26,7 +26,8 @@ import {
   MarketplaceMarketSummary,
   MarketplaceProductDetailLayout,
   PageSection,
-  ProductSelectionSummary,
+  ProductOptions,
+  RatingSummary,
   SegmentedControl,
   Stack,
   Surface,
@@ -90,6 +91,15 @@ export type ItemDetailCommerceSections = Readonly<{
   sellLabel?: string;
   listLabel?: string;
 }>;
+
+function productOptionsFromSelectionDetails(
+  selections: readonly { label: ReactNode; value: ReactNode }[],
+) {
+  return selections.map((selection) => ({
+    dimensionLabel: selection.label,
+    optionLabel: selection.value,
+  }));
+}
 
 function formatFieldValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -1054,9 +1064,9 @@ function LoadedItemDetailPage({
   ) : null;
   const marketNote =
     explicitSelectedProductSelectionDetails.length > 0 ? (
-      <ProductSelectionSummary
-        selections={explicitSelectedProductSelectionDetails}
-        summary={explicitSelectedProductSummary}
+      <ProductOptions
+        options={productOptionsFromSelectionDetails(explicitSelectedProductSelectionDetails)}
+        emptyLabel={explicitSelectedProductSummary ?? undefined}
       />
     ) : marketIntent === "sell"
         ? explicitSelectedProductSummary ??
@@ -1249,10 +1259,10 @@ function LoadedItemDetailPage({
           <Stack gap={1}>
             <Text size="sm" weight="semibold">
               {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}</Text>
-            <ProductSelectionSummary
-              selections={explicitSelectedProductSelectionDetails}
-              summary={currentOptionSummary}
-              summaryAsChip
+            <ProductOptions
+              options={productOptionsFromSelectionDetails(explicitSelectedProductSelectionDetails)}
+              emptyLabel={currentOptionSummary}
+              variant="chips"
             />
           </Stack>
         </Stack>
@@ -1486,9 +1496,12 @@ function LoadedItemDetailPage({
                                     ) : null}
                                   </div>
                                   <div className="col-start-2 row-start-3 min-w-0 justify-self-end text-right lg:col-start-auto lg:row-start-auto lg:justify-self-start lg:text-left">
-                                    <span className="block max-w-[12rem] truncate text-sm font-medium text-secondary lg:max-w-full">
-                                      {compactProductSummary}
-                                    </span>
+                                    <ProductOptions
+                                      options={productOptionsFromSelectionDetails(getProductSelectionDetails(listing.selected_options))}
+                                      emptyLabel={compactProductSummary}
+                                      variant="compact"
+                                      className="block max-w-[12rem] truncate lg:max-w-full"
+                                    />
                                   </div>
                                   <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
                                     <Button
@@ -1638,9 +1651,9 @@ function LoadedItemDetailPage({
                                 <Stack gap={1}>
                                   <Text size="sm" tone="secondary">
                                     {t("discovery.features.itemDetail.ui.itemDetailPage.product.2")}</Text>
-                                  <ProductSelectionSummary
-                                    selections={getProductSelectionDetails(offer.selected_options)}
-                                    summary={offer.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard.2")}
+                                  <ProductOptions
+                                    options={productOptionsFromSelectionDetails(getProductSelectionDetails(offer.selected_options))}
+                                    emptyLabel={offer.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard.2")}
                                   />
                                 </Stack>
                               </Grid>

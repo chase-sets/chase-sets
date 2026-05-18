@@ -12,10 +12,10 @@ import {
   Page,
   PageHeader,
   PageSection,
-  ProductSelectionSummary,
+  ProductOptions,
   Stack,
   Text,
-  productSelectionDetailsFromSummary,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchListItem } from "./contracts";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
@@ -82,16 +82,6 @@ function formatTimestamp(value: string) {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
-}
-
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
 }
 
 export function MarketplaceOfferMatchListPage({
@@ -281,7 +271,7 @@ export function MarketplaceOfferMatchListPage({
                     </Text>
                   ) : null}
                   {row.product_summary ? (
-                    <ProductSummaryChips summary={row.product_summary} />
+                    <ProductOptions options={productOptionsFromSummary(row.product_summary)} variant="chips" />
                   ) : null}
                 </Stack>
               ),

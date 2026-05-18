@@ -45,6 +45,12 @@ Use `packages/design-system/src/` as the canonical component inventory. Marketpl
 
 Cards may adapt to products, services, rentals, bookings, digital goods, quotes, and local listings, but the signal hierarchy stays stable: item identity, price, account trust, fulfillment, availability, risk reduction, then action.
 
+## Product Options Display Contract
+
+Use `ProductOptions` whenever a resolved product's selected options are displayed. Visual presentation is option-only: `Raw • Excellent` or `Graded • PSA • 10 Gem Mint`. Do not show Dimension labels such as `Form:` or `Condition:` in the visual label unless the surface is explicitly Catalog authoring or technical diagnostics.
+
+Pass Dimension labels when they are known so the component can produce accessible names such as `Product options: Form Raw, Condition Excellent`. Use the exported product image alt helper when media needs product-option context, for example `Pikachu, Raw, Excellent`. `ProductOptions` receives explicit option display values; route and read-model adapters must not pass raw summary strings to the component.
+
 ## Account Reputation Summary Contract
 
 Use `AccountReputationSummary` whenever a marketplace card, offer row, purchase panel, or trust module shows reputation for an account. Reputation is account-scoped, not seller-only: listing surfaces show the account that published the listing, and offer surfaces show the account that submitted marketplace-wide demand.
