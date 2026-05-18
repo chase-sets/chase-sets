@@ -4,6 +4,7 @@ import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
   BulkSourceObservationPromotionResult,
   SourceObservationIntegrationScope,
+  SourceObservationIntegrationOption,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationDetail,
@@ -33,6 +34,38 @@ export function useSourceObservationIntegrationScopes(
     () => api.listSourceObservationIntegrationScopes<ListResponse<SourceObservationIntegrationScope>>(query),
     [query],
     initialData,
+  );
+}
+
+export function useSourceObservationIntegrationOptions(input: {
+  providerKey: string;
+  queryKind: string;
+  languageCode?: string;
+  parentValue?: string;
+  enabled?: boolean;
+}) {
+  const query = new URLSearchParams({
+    providerKey: input.providerKey,
+    queryKind: input.queryKind,
+  });
+
+  if (input.languageCode) {
+    query.set("languageCode", input.languageCode);
+  }
+
+  if (input.parentValue) {
+    query.set("parentValue", input.parentValue);
+  }
+
+  const queryString = query.toString();
+  const enabled = input.enabled ?? true;
+
+  return useFetch(
+    () =>
+      enabled
+        ? api.listSourceObservationIntegrationOptions<ListResponse<SourceObservationIntegrationOption>>(queryString)
+        : Promise.resolve({ items: [], count: 0, total: 0 }),
+    [enabled, queryString],
   );
 }
 
