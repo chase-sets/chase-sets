@@ -43,6 +43,12 @@ Use `packages/design-system/src/` as the canonical component inventory. Marketpl
 
 Cards may adapt to products, services, rentals, bookings, digital goods, quotes, and local listings, but the signal hierarchy stays stable: item identity, price, seller trust, fulfillment, availability, risk reduction, then action.
 
+## Account Reputation Summary Contract
+
+Use `AccountReputationSummary` whenever a marketplace card, offer row, purchase panel, or trust module shows reputation for an account. Reputation is account-scoped, not seller-only: listing surfaces show the seller account, and offer surfaces show the buyer account when the offer is marketplace-wide demand.
+
+Do not render the same rating or review count in both the price area and the account reputation area. The compact account row is the canonical home for account name and reputation; surrounding components may add role/status, account metadata, and feedback links without duplicating the score.
+
 ## Search And Filtering
 
 Marketplace search filters must preserve buyer momentum: selections stay visible, result counts refresh predictably, and scrolling always has one obvious owner.
