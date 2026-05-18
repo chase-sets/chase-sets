@@ -84,7 +84,8 @@ import {
   formatProductImageAltText,
   formatProductOptionsAriaLabel,
   productOptionsFromSummary,
-  formatMarketplaceNumber
+  formatMarketplaceNumber,
+  chaseTheme
 } from "../index";
 
 describe("design-system", () => {
@@ -103,6 +104,14 @@ describe("design-system", () => {
     for (const aliasName of retiredAliasNames) {
       expect(designSystem).not.toHaveProperty(aliasName);
     }
+  });
+
+  it("layers dropdown and popover panels above modal panels", () => {
+    const layers = chaseTheme.zIndex;
+
+    expect(Number(layers.dropdown)).toBeGreaterThan(Number(layers.modal));
+    expect(Number(layers.popover)).toBeGreaterThan(Number(layers.modal));
+    expect(Number(layers.toast)).toBeGreaterThan(Number(layers.popover));
   });
 
   it("renders primitive components on the server", () => {

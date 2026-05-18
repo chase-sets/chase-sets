@@ -138,11 +138,11 @@ export const chaseTheme: ThemeTokens = {
   },
   zIndex: {
     sticky: "20",
-    dropdown: "30",
-    popover: "40",
+    dropdown: "65",
+    popover: "70",
     drawer: "50",
     modal: "60",
-    toast: "70"
+    toast: "80"
   },
   motion: {
     fast: "120ms",
