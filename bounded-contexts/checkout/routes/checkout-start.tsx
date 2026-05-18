@@ -16,12 +16,14 @@ import {
   PageHeader,
   PageSection,
   PriceBreakdown,
+  ProductOptions,
   SecurePaymentIndicator,
   Stack,
   Surface,
   Text,
   TextInput,
   formatMarketplaceNumber,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import {
   createCheckoutRequestApiClient,
@@ -392,7 +394,12 @@ export default function CheckoutStartRoute() {
   const sourceSummary = source ? (
     <OrderIntentSummary
       title={source.itemTitle || t("checkout.routes.checkoutStart.buy.now")}
-      subtitle={source.itemSubtitle ?? source.productSummary ?? null}
+      subtitle={
+        source.itemSubtitle ??
+        (source.productSummary ? (
+          <ProductOptions options={productOptionsFromSummary(source.productSummary)} variant="compact" />
+        ) : null)
+      }
       price={
         source.type === "offer-intent"
           ? `$${source.offerPriceAmount}`

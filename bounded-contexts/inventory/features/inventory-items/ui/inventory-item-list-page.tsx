@@ -14,8 +14,8 @@ import {
   TextInput,
   NumberInput,
   NativeSelect,
-  ProductSelectionSummary,
-  productSelectionDetailsFromSummary,
+  ProductOptions,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
 import {
@@ -284,11 +284,7 @@ export function InventoryItemListPage({
                         </Text>
                       ) : null}
                       {row.product_summary ? (
-                        <ProductSelectionSummary
-                          selections={productSelectionDetailsFromSummary(row.product_summary)}
-                          summary={row.product_summary}
-                          summaryAsChip
-                        />
+                        <ProductOptions options={productOptionsFromSummary(row.product_summary)} variant="chips" />
                       ) : null}
                     </Stack>
                   ),

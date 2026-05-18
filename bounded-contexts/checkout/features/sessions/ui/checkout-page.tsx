@@ -17,6 +17,7 @@ import {
   PageHeader,
   PageSection,
   PriceBreakdown,
+  ProductOptions,
   ProgressiveDisclosure,
   SecurePaymentIndicator,
   Stack,
@@ -24,6 +25,7 @@ import {
   Surface,
   Text,
   TextInput,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type {
   CheckoutFulfillmentPreview,
@@ -311,7 +313,15 @@ export function CheckoutSessionPage({
                             <Grid key={`${group.sellerAccountId}:${line.lineKey}:${line.listingId}`} columns={{ base: 1, md: 4 }} gap={3}>
                               <Stack gap={1}>
                                 <Text weight="semibold">{line.itemTitle}</Text>
-                                <Text size="sm" tone="secondary">{line.productSummary ?? "Standard"}</Text>
+                                {line.productSummary ? (
+                                  <ProductOptions options={productOptionsFromSummary(line.productSummary)} variant="compact" />
+                                ) : (
+                                  <ProductOptions
+                                    options={[]}
+                                    emptyLabel={t("checkout.features.sessions.ui.checkoutPage.standard")}
+                                    variant="compact"
+                                  />
+                                )}
                               </Stack>
                               <Stack gap={1}>
                                 <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.allocation")}</Text>
@@ -343,7 +353,15 @@ export function CheckoutSessionPage({
                             <Grid key={line.lineKey} columns={{ base: 1, md: 3 }} gap={3}>
                               <Stack gap={1}>
                                 <Text weight="semibold">{line.itemTitle}</Text>
-                                <Text size="sm" tone="secondary">{line.productSummary ?? "Standard"}</Text>
+                                {line.productSummary ? (
+                                  <ProductOptions options={productOptionsFromSummary(line.productSummary)} variant="compact" />
+                                ) : (
+                                  <ProductOptions
+                                    options={[]}
+                                    emptyLabel={t("checkout.features.sessions.ui.checkoutPage.standard")}
+                                    variant="compact"
+                                  />
+                                )}
                               </Stack>
                               <Text>{line.reason}</Text>
                               <LinkButton
@@ -380,7 +398,11 @@ export function CheckoutSessionPage({
                       </Stack>
                       <Stack gap={1}>
                         <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.product")}</Text>
-                        <Text weight="medium">{line.productSummary ?? t("checkout.features.sessions.ui.checkoutPage.standard")}</Text>
+                        {line.productSummary ? (
+                          <ProductOptions options={productOptionsFromSummary(line.productSummary)} />
+                        ) : (
+                          <Text weight="medium">{t("checkout.features.sessions.ui.checkoutPage.standard")}</Text>
+                        )}
                       </Stack>
                       <Stack gap={1}>
                         <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.quantity")}</Text>

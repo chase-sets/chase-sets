@@ -10,10 +10,10 @@ import {
   Page,
   PageHeader,
   PageSection,
-  ProductSelectionSummary,
+  ProductOptions,
   Stack,
   Text,
-  productSelectionDetailsFromSummary,
+  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { SubmittedOfferListItem } from "./contracts";
 
@@ -43,16 +43,6 @@ function formatTimestamp(value: string) {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
-}
-
-function ProductSummaryChips({ summary }: { summary: string }) {
-  return (
-    <ProductSelectionSummary
-      selections={productSelectionDetailsFromSummary(summary)}
-      summary={summary}
-      summaryAsChip
-    />
-  );
 }
 
 export function MarketplaceSubmittedOfferListPage({
@@ -101,7 +91,9 @@ export function MarketplaceSubmittedOfferListPage({
                   details={
                     <Stack gap={2}>
                       {offer.item_subtitle ? <Text size="sm">{offer.item_subtitle}</Text> : null}
-                      {offer.product_summary ? <ProductSummaryChips summary={offer.product_summary} /> : null}
+                      {offer.product_summary ? (
+                        <ProductOptions options={productOptionsFromSummary(offer.product_summary)} variant="chips" />
+                      ) : null}
                       <Text size="sm" tone="secondary">
                         {t("marketplace.features.offers.ui.submittedOfferListPage.quantity.requested", {
                           quantity: offer.quantity_requested,
