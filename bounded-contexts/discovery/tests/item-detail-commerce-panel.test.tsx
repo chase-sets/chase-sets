@@ -802,6 +802,12 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Selected for checkout")).toBeTruthy();
     expect(screen.getAllByText("No feedback yet")).toHaveLength(2);
     expect(screen.getByText("2 available")).toBeTruthy();
+    expect(
+      within(screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" }))
+        .getByText("Raw · Near Mint"),
+    ).toBeTruthy();
+    expect(screen.getByText("Chase Sets · 2 available · Raw · Near Mint"))
+      .toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",
       "listing_charizard",
@@ -1043,6 +1049,8 @@ describe("item detail commerce panel", () => {
         })
         .getAttribute("aria-pressed"),
     ).toBe("true");
+    expect(screen.getByText("Card Vault · 1 available · Raw · Near Mint"))
+      .toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
       "value",
       "listing_charizard_alt",

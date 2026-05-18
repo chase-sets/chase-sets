@@ -245,6 +245,23 @@ function formatListingPurchaseLimit(
   return null;
 }
 
+function formatCompactProductSummary(
+  summary: string | null | undefined,
+  selections: readonly { label: string; value: string }[],
+  fallback: string,
+): string {
+  const selectionSummary = selections
+    .map((selection) => selection.value.trim())
+    .filter(Boolean)
+    .join(" · ");
+  const source = selectionSummary || summary?.trim();
+
+  return (source || fallback)
+    .replace(/\s*\/\s*/g, " · ")
+    .replace(/\s*\|\s*/g, " · ")
+    .replace(/\s*·\s*/g, " · ");
+}
+
 function parseRating(value: string | null | undefined): number | null {
   if (!value) {
     return null;
@@ -303,18 +320,21 @@ function ListingTrustSignal({
   const hasFeedback = parsedRating !== null && reviewCount > 0;
 
   return (
-    <Stack gap={1}>
+    <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 text-xs text-secondary">
       {hasFeedback ? (
         <RatingSummary value={parsedRating} count={reviewCount} compact />
       ) : (
-        <Text size="sm">{t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}</Text>
+        <span>{t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}</span>
       )}
       {feedbackHref ? (
-        <LinkButton href={feedbackHref} tone="ghost" size="sm">
+        <a
+          href={feedbackHref}
+          className="focus-ring rounded-tokenSm font-semibold hover:text-accent"
+        >
           {t("discovery.features.itemDetail.ui.itemDetailPage.view.feedback")}
-        </LinkButton>
+        </a>
       ) : null}
-    </Stack>
+    </span>
   );
 }
 
@@ -1009,6 +1029,19 @@ function LoadedItemDetailPage({
     getProductSelectionDetails(selectedProductOptions);
   const explicitSelectedProductSelectionDetails =
     getProductSelectionDetails(explicitSelectedProductOptions);
+  const selectedListingSellerName =
+    selectedListing?.seller_display_name ??
+    t("discovery.features.itemDetail.ui.itemDetailPage.seller");
+  const selectedListingAvailability =
+    selectedListing ? formatListingAvailability(selectedListing) : null;
+  const selectedListingProductSummary =
+    selectedListing
+      ? formatCompactProductSummary(
+          selectedListing.product_summary,
+          getProductSelectionDetails(selectedListing.selected_options),
+          t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
+        )
+      : null;
   const currentOptionSummary =
     explicitSelectedProductSummary ??
     (hasActiveFilters
@@ -1083,20 +1116,28 @@ function LoadedItemDetailPage({
       ? formatMoney(getHighestOfferPrice(matchingOffers))
       : formatMoney(selectedMarketSummary.lowest_price_amount);
   const mobileCommerceSummary = (
-    <Stack gap={1}>
-      <Text size="xs" weight="semibold" tone="secondary">
-        {marketIntent === "sell"
-          ? t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")
-          : t("discovery.features.itemDetail.ui.itemDetailPage.lowest.ask")}
-        {": "}
-        {marketSummaryPrice}
-      </Text>
-      <Text size="xs">
-        {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
-        {": "}
-        {currentOptionSummary}
-      </Text>
-    </Stack>
+    <div className="min-w-0 space-y-1">
+      <div className="font-heading text-base font-semibold leading-tight text-foreground">
+        {marketIntent === "buy" && selectedListing
+          ? formatMoney(selectedListing.price_amount)
+          : marketSummaryPrice}
+      </div>
+      <div className="truncate text-xs font-medium text-secondary">
+        {marketIntent === "buy" && selectedListing
+          ? [
+              selectedListingSellerName,
+              selectedListingAvailability,
+              selectedListingProductSummary,
+            ].filter(Boolean).join(" · ")
+          : (
+              <>
+                {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
+                {": "}
+                {currentOptionSummary}
+              </>
+            )}
+      </div>
+    </div>
   );
   const marketSummaryFacts =
     marketIntent === "sell"
@@ -1159,12 +1200,12 @@ function LoadedItemDetailPage({
   const mobileBuyAction = selectedProductId ? (
     <Button
       type="button"
-      size="sm"
+      size="lg"
       onClick={() => setActiveMobileCommerce("buy")}
     >
       {t("discovery.features.itemDetail.ui.itemDetailPage.buy.2")}</Button>
   ) : (
-    <LinkButton href="#select-options" size="sm">
+    <LinkButton href="#select-options" size="lg">
       {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}</LinkButton>
   );
   const mobileOfferAction = (commerceSections?.mobile?.offer ?? commerceSections?.offer) ? (
@@ -1172,7 +1213,7 @@ function LoadedItemDetailPage({
       <Button
         type="button"
         tone="secondary"
-        size="sm"
+        size="md"
         onClick={() => setActiveMobileCommerce("offer")}
       >
         {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.2")}</Button>
@@ -1185,7 +1226,7 @@ function LoadedItemDetailPage({
     selectedProductId ? (
       <Button
         type="button"
-        size="sm"
+        size="lg"
         onClick={() => setActiveMobileCommerce("sell")}
       >
         {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
@@ -1400,7 +1441,7 @@ function LoadedItemDetailPage({
                       {visibleListings.length > 0 ? (
                         <div className="grid gap-3">
                           <div
-                            className="hidden min-w-0 grid-cols-[minmax(6rem,0.9fr)_minmax(8rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(10rem,1.2fr)_minmax(7rem,auto)] items-center gap-3 px-4 text-xs font-semibold uppercase text-secondary md:grid"
+                            className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(7rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(9rem,1.15fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
                             aria-hidden="true"
                           >
                             <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
@@ -1435,14 +1476,19 @@ function LoadedItemDetailPage({
                             const sellerFeedbackHref = listing.seller_slug
                               ? `/sellers/${listing.seller_slug}#feedback`
                               : null;
+                            const compactProductSummary = formatCompactProductSummary(
+                              listing.product_summary,
+                              getProductSelectionDetails(listing.selected_options),
+                              t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
+                            );
 
                             return (
                               <article
                                 key={listing.listing_id}
                                 className={cx(
-                                  "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-4 shadow-tokenSm transition",
+                                  "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
                                   isSelected
-                                    ? "border-accent bg-surface-2 glow-accent"
+                                    ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
                                     : "border-muted",
                                 )}
                                 aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.listing.row.label", {
@@ -1453,65 +1499,52 @@ function LoadedItemDetailPage({
                                 {isSelected ? (
                                   <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-accent" />
                                 ) : null}
-                                <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(6rem,0.9fr)_minmax(8rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(10rem,1.2fr)_minmax(7rem,auto)] md:items-center">
-                                  <Stack gap={1}>
-                                    <Text size="xs" weight="semibold" tone="secondary">
-                                      {t("discovery.features.itemDetail.ui.itemDetailPage.price")}
-                                    </Text>
-                                    <Inline gap={2}>
-                                      <Text weight="bold">
+                                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(7rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(9rem,1.15fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
+                                  <div className="min-w-0">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                      <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
                                         {formatMoney(listing.price_amount)}
-                                      </Text>
+                                      </span>
                                       {isLowestPrice ? (
                                         <Badge tone="success">
                                           {t("discovery.features.itemDetail.ui.itemDetailPage.lowest.price")}
                                         </Badge>
                                       ) : null}
-                                    </Inline>
+                                    </div>
                                     {isSelected ? (
-                                      <Text size="xs" weight="semibold" tone="accent">
+                                      <div className="mt-0.5 hidden text-xs font-semibold text-accent lg:block">
                                         {t("discovery.features.itemDetail.ui.itemDetailPage.selected.for.checkout")}
-                                      </Text>
+                                      </div>
                                     ) : null}
-                                  </Stack>
-                                  <Stack gap={1}>
-                                    <Text size="xs" weight="semibold" tone="secondary">
-                                      {t("discovery.features.itemDetail.ui.itemDetailPage.seller")}
-                                    </Text>
-                                    <Text size="sm" weight="semibold">
+                                  </div>
+                                  <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
+                                    <div className="truncate text-sm font-semibold text-foreground">
                                       {sellerName}
-                                    </Text>
-                                  </Stack>
-                                  <Stack gap={1}>
-                                    <Text size="xs" weight="semibold" tone="secondary">
-                                      {t("discovery.features.itemDetail.ui.itemDetailPage.trust")}
-                                    </Text>
+                                    </div>
+                                  </div>
+                                  <div className="col-start-2 row-start-2 min-w-0 justify-self-end text-right lg:col-start-auto lg:row-start-auto lg:justify-self-start lg:text-left">
                                     <ListingTrustSignal
                                       feedbackHref={sellerFeedbackHref}
                                       rating={listing.seller_average_rating}
                                       reviewCount={listing.seller_review_count ?? 0}
                                     />
-                                  </Stack>
-                                  <Stack gap={1}>
-                                    <Text size="xs" weight="semibold" tone="secondary">
-                                      {t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}
-                                    </Text>
-                                    <Text size="sm" weight="semibold">
+                                  </div>
+                                  <div className="col-start-1 row-start-3 min-w-0 lg:col-start-auto lg:row-start-auto">
+                                    <div className="text-sm font-semibold text-foreground">
                                       {formatListingAvailability(listing)}
-                                    </Text>
+                                    </div>
                                     {purchaseLimit ? (
-                                      <Badge tone="neutral">{purchaseLimit}</Badge>
+                                      <div className="mt-1">
+                                        <Badge tone="neutral">{purchaseLimit}</Badge>
+                                      </div>
                                     ) : null}
-                                  </Stack>
-                                  <Stack gap={1}>
-                                    <Text size="xs" weight="semibold" tone="secondary">
-                                      {t("discovery.features.itemDetail.ui.itemDetailPage.product")}</Text>
-                                    <ProductSelectionSummary
-                                      selections={getProductSelectionDetails(listing.selected_options)}
-                                      summary={listing.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard")}
-                                    />
-                                  </Stack>
-                                  <div className="flex min-w-0 justify-start md:justify-end">
+                                  </div>
+                                  <div className="col-start-2 row-start-3 min-w-0 justify-self-end text-right lg:col-start-auto lg:row-start-auto lg:justify-self-start lg:text-left">
+                                    <span className="block max-w-[12rem] truncate text-sm font-medium text-secondary lg:max-w-full">
+                                      {compactProductSummary}
+                                    </span>
+                                  </div>
+                                  <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
                                     <Button
                                       type="button"
                                       tone={isSelected ? "primary" : "secondary"}

@@ -1065,7 +1065,7 @@ describe("design-system", () => {
     expect(markup).toContain("Edit cart");
   });
 
-  it("renders mobile product commerce as the final sticky content block", () => {
+  it("renders mobile product commerce above bottom navigation with content spacer", () => {
     const markup = renderToString(
       <MarketplaceProductDetailLayout
         summary={<section>Product summary</section>}
@@ -1078,9 +1078,9 @@ describe("design-system", () => {
       </MarketplaceProductDetailLayout>
     );
 
-    expect(markup).toContain("sticky z-sticky mt-6");
-    expect(markup).toContain("pb-[calc(5rem+env(safe-area-inset-bottom))]");
-    expect(markup).not.toContain("fixed inset-x-3 bottom-20");
+    expect(markup).toContain("fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
+    expect(markup).toContain("md:sticky");
+    expect(markup).toContain("h-32 md:hidden");
     expect(markup.indexOf("Offers list")).toBeLessThan(
       markup.indexOf("Mobile buy sell panel")
     );
