@@ -77,6 +77,8 @@ describe("MarketplaceOfferMatchListPage", () => {
     expect(markup).toContain("$22.00");
     expect(markup).toContain("$20.00");
     expect(markup).toContain("$2.00 below ask");
+    expect(markup).toContain("Ash Ketchum");
+    expect(markup).toContain("Buyer reputation");
   });
 
   it("shows buyer reputation on offer match rows", () => {

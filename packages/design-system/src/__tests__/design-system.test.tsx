@@ -248,6 +248,28 @@ describe("design-system", () => {
     expect(markup).toContain("No feedback yet");
   });
 
+  it("renders account reputation once inside listing trust rows", () => {
+    render(
+      <ListingCard
+        title="2020 Pikachu VMAX"
+        price="$1,250.00"
+        sellerName="Vaulted Collectibles"
+        sellerTrustLabel="Verified seller"
+        sellerVerified
+        fulfillment="Arrives May 9-11"
+        availability="1 available"
+        rating={4.9}
+        reviewCount="824"
+        primaryAction={<Button>Buy now</Button>}
+      />
+    );
+
+    expect(screen.getByText("Vaulted Collectibles")).toBeTruthy();
+    expect(screen.getByText("Verified seller")).toBeTruthy();
+    expect(screen.getAllByText("4.9")).toHaveLength(1);
+    expect(screen.getAllByText("(824)")).toHaveLength(1);
+  });
+
   it("keeps listing cards to one dominant primary action", () => {
     const markup = renderToString(
       <ListingCard
@@ -297,6 +319,40 @@ describe("design-system", () => {
     expect(markup).toContain("Buyer protected");
     expect(markup).toContain("Secure payment");
     expect(markup).toContain("<svg");
+  });
+
+  it("renders role-neutral account reputation summaries for buyer and seller accounts", () => {
+    const markup = renderToString(
+      <div>
+        <div>
+          <AccountReputationSummary
+            accountName="Chase Sets"
+            averageRating={5}
+            reviewCount={1}
+            ratingLabel="Seller account reputation"
+          />
+          <Badge variant="success">Seller account</Badge>
+          <a href="/account/reviews">View feedback</a>
+        </div>
+        <OfferCard
+          title="Offer pending"
+          amount="$48.00"
+          accountTrust={
+            <AccountReputationSummary
+              accountName="Ash Ketchum"
+              averageRating={4.8}
+              reviewCount={12}
+              ratingLabel="Buyer account reputation"
+            />
+          }
+        />
+      </div>
+    );
+
+    expect(markup).toContain("Seller account");
+    expect(markup).toContain("Buyer account");
+    expect(markup).toContain("View feedback");
+    expect(markup).toContain("Ash Ketchum");
   });
 
   it("keeps unsafe marketplace numbers out of rendered copy", () => {
