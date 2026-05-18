@@ -244,6 +244,7 @@ describe("design-system", () => {
 
     const accountLink = screen.getByRole("link", { name: "Card Vault" });
     expect(accountLink.getAttribute("href")).toBe("/accounts/card-vault#feedback");
+    expect(accountLink.parentElement?.className).toContain("flex-col");
     expect(screen.getByText("5.0")).toBeTruthy();
     expect(screen.getByText("(18)")).toBeTruthy();
     expect(screen.getByText("New")).toBeTruthy();
