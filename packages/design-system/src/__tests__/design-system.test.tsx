@@ -229,7 +229,7 @@ describe("design-system", () => {
   });
 
   it("renders linked account reputation summaries", () => {
-    const markup = renderToString(
+    render(
       <div>
         <AccountReputationSummary
           accountName="Card Vault"
@@ -242,11 +242,12 @@ describe("design-system", () => {
       </div>,
     );
 
-    expect(markup).toContain('href="/accounts/card-vault#feedback"');
-    expect(markup).toContain("Card Vault");
-    expect(markup).toContain("5.0");
-    expect(markup).toContain("18");
-    expect(markup).toContain("No feedback yet");
+    const accountLink = screen.getByRole("link", { name: "Card Vault" });
+    expect(accountLink.getAttribute("href")).toBe("/accounts/card-vault#feedback");
+    expect(screen.getByText("5.0")).toBeTruthy();
+    expect(screen.getByText("(18)")).toBeTruthy();
+    expect(screen.getByText("New")).toBeTruthy();
+    expect(screen.queryByText("View feedback")).toBeNull();
   });
 
   it("renders account reputation once inside listing trust rows", () => {
@@ -333,7 +334,6 @@ describe("design-system", () => {
             ratingLabel="Seller account reputation"
           />
           <Badge variant="success">Seller account</Badge>
-          <a href="/account/reviews">View feedback</a>
         </div>
         <OfferCard
           title="Offer pending"
@@ -352,7 +352,7 @@ describe("design-system", () => {
 
     expect(markup).toContain("Seller account");
     expect(markup).toContain("Buyer account");
-    expect(markup).toContain("View feedback");
+    expect(markup).not.toContain("View feedback");
     expect(markup).toContain("Ash Ketchum");
   });
 

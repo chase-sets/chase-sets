@@ -91,7 +91,6 @@ export function MarketplaceSubmittedOfferDetailPage({
                     accountName={offer.accepted_seller_account_id}
                     averageRating={offer.accepted_seller_average_rating}
                     reviewCount={offer.accepted_seller_review_count ?? 0}
-                    emptyLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.no.seller.feedback.yet")}
                     ratingLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.seller.reputation")}
                   />
                 ) : null}

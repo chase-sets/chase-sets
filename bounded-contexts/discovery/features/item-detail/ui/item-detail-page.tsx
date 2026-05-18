@@ -289,8 +289,6 @@ function ListingTrustSignal({
       href={feedbackHref}
       averageRating={parsedRating}
       reviewCount={reviewCount}
-      emptyLabel={t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}
-      feedbackLabel={t("discovery.features.itemDetail.ui.itemDetailPage.view.feedback")}
     />
   );
 }
@@ -986,9 +984,6 @@ function LoadedItemDetailPage({
     getProductSelectionDetails(selectedProductOptions);
   const explicitSelectedProductSelectionDetails =
     getProductSelectionDetails(explicitSelectedProductOptions);
-  const selectedListingSellerName =
-    selectedListing?.seller_display_name ??
-    t("discovery.features.itemDetail.ui.itemDetailPage.seller");
   const selectedListingAvailability =
     selectedListing ? formatListingAvailability(selectedListing) : null;
   const selectedListingProductSummary =
@@ -1082,7 +1077,6 @@ function LoadedItemDetailPage({
       <div className="truncate text-xs font-medium text-secondary">
         {marketIntent === "buy" && selectedListing
           ? [
-              selectedListingSellerName,
               selectedListingAvailability,
               selectedListingProductSummary,
             ].filter(Boolean).join(" · ")
@@ -1398,12 +1392,11 @@ function LoadedItemDetailPage({
                       {visibleListings.length > 0 ? (
                         <div className="grid gap-3">
                           <div
-                            className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(7rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(9rem,1.15fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
+                            className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(6rem,0.75fr)_minmax(9rem,1.15fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
                             aria-hidden="true"
                           >
                             <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
                             <span>{t("discovery.features.itemDetail.ui.itemDetailPage.seller")}</span>
-                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.trust")}</span>
                             <span>{t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}</span>
                             <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
                             <span className="text-right">{t("discovery.features.itemDetail.ui.itemDetailPage.action")}</span>
@@ -1456,7 +1449,7 @@ function LoadedItemDetailPage({
                                 {isSelected ? (
                                   <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-accent" />
                                 ) : null}
-                                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(7rem,1fr)_minmax(7rem,0.9fr)_minmax(6rem,0.75fr)_minmax(9rem,1.15fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
+                                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(6rem,0.75fr)_minmax(9rem,1.15fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
                                   <div className="min-w-0">
                                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                                       <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
@@ -1475,11 +1468,6 @@ function LoadedItemDetailPage({
                                     ) : null}
                                   </div>
                                   <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
-                                    <div className="truncate text-sm font-semibold text-foreground">
-                                      {sellerName}
-                                    </div>
-                                  </div>
-                                  <div className="col-start-2 row-start-2 min-w-0 justify-self-end text-right lg:col-start-auto lg:row-start-auto lg:justify-self-start lg:text-left">
                                     <ListingTrustSignal
                                       accountName={sellerName}
                                       feedbackHref={sellerFeedbackHref}
@@ -1633,7 +1621,6 @@ function LoadedItemDetailPage({
                                     href={offer.buyer_slug ? `/accounts/${offer.buyer_slug}#feedback` : null}
                                     averageRating={offer.buyer_average_rating}
                                     reviewCount={offer.buyer_review_count ?? 0}
-                                    emptyLabel={t("discovery.features.itemDetail.ui.itemDetailPage.no.feedback.yet")}
                                     ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
                                     onLinkClick={(event) => event.stopPropagation()}
                                   />

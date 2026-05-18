@@ -49,7 +49,9 @@ Cards may adapt to products, services, rentals, bookings, digital goods, quotes,
 
 Use `AccountReputationSummary` whenever a marketplace card, offer row, purchase panel, or trust module shows reputation for an account. Reputation is account-scoped, not seller-only: listing surfaces show the account that published the listing, and offer surfaces show the account that submitted marketplace-wide demand.
 
-Do not render the same rating or review count in both the price area and the account reputation area. The account row is the canonical home for account name, feedback summary, and profile navigation. Public profile links use `/accounts/:accountSlug`; do not introduce `/sellers/:slug` or buyer-only/seller-only profile routes.
+The default account reputation presentation is inline metadata, not a card: no icon, no border, no background, and no separate "View feedback" action. Only the account name is interactive; the rating, review count, or compact new-account state remain plain text. Use the framed variant only inside a dedicated trust module where a surrounding panel is not already providing structure.
+
+Do not render the same account name, rating, or review count in multiple cells of the same listing, offer, or checkout row. The account row is the canonical home for account name, feedback summary, and profile navigation. Accounts without feedback use the compact visible label `New` with accessible text that explains there is no feedback yet. Aggregate marketplace labels such as "verified supply" or "marketplace sellers" are not accounts and must not use `AccountReputationSummary`. Public profile links use `/accounts/:accountSlug`; do not introduce `/sellers/:slug` or buyer-only/seller-only profile routes.
 
 ## Search And Filtering
 

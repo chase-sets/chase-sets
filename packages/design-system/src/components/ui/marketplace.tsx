@@ -405,7 +405,8 @@ export interface AccountReputationSummaryProps {
   averageRating?: number | string | null;
   reviewCount?: number | string | null;
   emptyLabel?: ReactNode;
-  feedbackLabel?: ReactNode;
+  emptyAccessibleLabel?: string;
+  variant?: "inline" | "framed";
   ratingLabel?: string;
   onLinkClick?: MouseEventHandler<HTMLAnchorElement>;
   className?: string;
@@ -442,61 +443,57 @@ export function AccountReputationSummary({
   href,
   averageRating,
   reviewCount,
-  emptyLabel = "No feedback yet",
-  feedbackLabel = "View feedback",
+  emptyLabel = "New",
+  emptyAccessibleLabel = "No feedback yet",
+  variant = "inline",
   ratingLabel,
   onLinkClick,
   className,
 }: AccountReputationSummaryProps) {
   const rating = normalizeRatingValue(averageRating);
   const hasReputation = rating !== null && hasReviewCount(reviewCount);
-  const content = (
-    <span className="flex min-w-0 items-center gap-2">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-[color-mix(in_srgb,var(--trust)_28%,var(--border))] bg-[var(--trust-soft)] text-[var(--trust)]">
-        <UserCheck className="h-4 w-4" aria-hidden="true" />
-      </span>
-      <span className="grid min-w-0 gap-0.5">
-        <span className="truncate font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
-        {hasReputation ? (
-          <RatingSummary
-            value={rating}
-            count={reviewCount}
-            label={ratingLabel}
-            compact
-          />
-        ) : (
-          <span className="text-xs leading-4 text-[var(--muted-foreground)]">{emptyLabel}</span>
-        )}
-      </span>
-      {href ? (
-        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[var(--primary)]">
-          {feedbackLabel}
-          <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </span>
-      ) : null}
+  const accountNameNode = href ? (
+    <a
+      href={href}
+      onClick={onLinkClick}
+      className="ds-focus inline-block min-w-0 max-w-full truncate font-semibold leading-5 text-[var(--foreground)] underline-offset-2 transition hover:text-[var(--primary)] hover:underline"
+    >
+      {accountName}
+    </a>
+  ) : (
+    <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
+  );
+  const reputationNode = hasReputation ? (
+    <RatingSummary
+      value={rating}
+      count={reviewCount}
+      label={ratingLabel}
+      compact
+    />
+  ) : (
+    <span
+      className="text-xs font-medium leading-4 text-[var(--muted-foreground)]"
+      aria-label={emptyAccessibleLabel}
+      title={emptyAccessibleLabel}
+    >
+      {emptyLabel}
     </span>
   );
-  const classes = cn(
-    "inline-flex min-w-0 max-w-full items-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 text-left shadow-[var(--shadow-sm)]",
-    className,
+
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-0 max-w-full items-baseline gap-1.5 text-left",
+        variant === "framed"
+          ? "rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 shadow-[var(--shadow-sm)]"
+          : null,
+        className,
+      )}
+    >
+      {accountNameNode}
+      {reputationNode}
+    </span>
   );
-
-  if (href) {
-    return (
-      <a
-        href={href}
-        onClick={onLinkClick}
-        className={cn(
-          classes,
-          "ds-focus transition hover:border-[color-mix(in_srgb,var(--primary)_34%,var(--border))] hover:bg-[var(--surface-3)] hover:text-[var(--foreground)]",
-        )}
-      >
-        {content}
-      </a>
-    );
-  }
-
-  return <span className={classes}>{content}</span>;
 }
 
 export interface ListingCardProps {
@@ -601,16 +598,22 @@ export function ListingCard({
       ? <VerifiedSellerBadge label={sellerTrustLabel} />
       : <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
   );
+  const sellerHasAccountReputation =
+    Boolean(sellerHref) || normalizeRatingValue(rating) !== null || hasReviewCount(reviewCount);
   const sellerTrustSummary = (
     <div className="grid min-w-0 gap-1">
       <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
-        <AccountReputationSummary
-          accountName={sellerName}
-          href={sellerHref}
-          averageRating={rating}
-          reviewCount={reviewCount}
-          className="min-w-0"
-        />
+        {sellerHasAccountReputation ? (
+          <AccountReputationSummary
+            accountName={sellerName}
+            href={sellerHref}
+            averageRating={rating}
+            reviewCount={reviewCount}
+            className="min-w-0"
+          />
+        ) : (
+          <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{sellerName}</span>
+        )}
         {resolvedSellerTrust}
       </div>
       {sellerMeta || sellerFeedbackAction ? (
@@ -941,7 +944,6 @@ export interface SellerTrustCardProps {
   verified?: boolean;
   rating?: number;
   reviewCount?: number | string;
-  feedbackAction?: ReactNode;
   completedSales?: ReactNode;
   responseTime?: ReactNode;
   shipsFrom?: ReactNode;
@@ -955,7 +957,6 @@ export function SellerTrustCard({
   verified = false,
   rating,
   reviewCount,
-  feedbackAction,
   completedSales,
   responseTime,
   shipsFrom,
@@ -969,6 +970,8 @@ export function SellerTrustCard({
     shipsFrom ? { icon: MapPin, label: "Ships from", value: shipsFrom } : null,
     joined ? { icon: BadgeCheck, label: "Seller since", value: joined } : null
   ].filter(Boolean) as Array<{ icon: typeof PackageCheck; label: string; value: ReactNode }>;
+  const reputationRating = normalizeRatingValue(rating);
+  const hasReputation = reputationRating !== null && hasReviewCount(reviewCount);
 
   return (
     <Card className="p-0">
@@ -979,14 +982,13 @@ export function SellerTrustCard({
               <CardTitle>{name}</CardTitle>
               {verified ? <TrustBadge>Verified seller</TrustBadge> : <Badge variant="outline">New seller</Badge>}
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <AccountReputationSummary
-                accountName={name}
-                averageRating={rating}
-                reviewCount={reviewCount}
-              />
-              {feedbackAction}
-            </div>
+            {hasReputation ? (
+              <RatingSummary value={reputationRating} count={reviewCount} compact />
+            ) : (
+              <span className="text-xs font-medium leading-4 text-[var(--muted-foreground)]" aria-label="No feedback yet" title="No feedback yet">
+                New
+              </span>
+            )}
           </div>
           {actions}
         </div>
