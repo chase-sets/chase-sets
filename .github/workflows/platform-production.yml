@@ -389,7 +389,8 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           mapfile -t legacy_public_redirect_domains < <(terraform output -json legacy_public_redirect_domains | jq -r '.[]')
           mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ]; then
+          mapfile -t staging_root_marketplace_domains < <(terraform output -json staging_root_marketplace_domains | jq -r '.[]')
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ] || [ "${#staging_root_marketplace_domains[@]}" -eq 0 ]; then
             echo "Required staging domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -400,6 +401,7 @@ jobs:
             "$admin_domain" \
             "${legacy_public_redirect_domains[@]}" \
             "${marketplace_domains[@]}" \
+            "${staging_root_marketplace_domains[@]}" \
             --timeout-seconds=1800 \
             --poll-seconds=30
 
@@ -416,6 +418,7 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
           SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
           SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-smoke
@@ -428,7 +431,8 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           legacy_public_redirect_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ]; then
+          staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
             echo "Required staging smoke domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -443,6 +447,7 @@ jobs:
           fi
 
           cd ../../..
+          export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
           pnpm run smoke:platform -- \
             "https://${landing_domain}" \
             "https://${admin_domain}" \
