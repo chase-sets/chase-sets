@@ -1801,15 +1801,15 @@ export function MarketplaceProductDetailLayout({
   return (
     <>
       <div className="grid gap-6 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)_24rem] xl:items-start 2xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)_26rem]">
-        <div className="order-2 xl:order-1 xl:sticky xl:top-24">{media}</div>
+        <div className="order-2 xl:order-1 xl:col-start-1 xl:row-start-1 xl:sticky xl:top-24">{media}</div>
         <div className="contents min-w-0 xl:order-2 xl:block">
           <div className="order-1 min-w-0">
             {summary}
           </div>
           <div className="order-3 min-w-0 xl:mt-6">{market}</div>
-          <div className="order-4 min-w-0 xl:mt-6">{children}</div>
         </div>
-        <div className="order-4 hidden min-w-0 xl:order-3 xl:block">
+        <div className="order-4 min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-2">{children}</div>
+        <div className="order-5 hidden min-w-0 xl:order-3 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block">
           <Sidebar label="Commerce options" purpose="support" width="summary" sticky>
             {commerce}
           </Sidebar>

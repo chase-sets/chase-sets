@@ -1371,22 +1371,6 @@ function LoadedItemDetailPage({
                     </Stack>
                   }
                 />
-
-                {data.description ? (
-                  <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.description")}>
-                    <Text>{data.description}</Text>
-                  </PageSection>
-                ) : null}
-
-                {detailItems.length > 0 ? (
-                  <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.details")}>
-                    <KeyValueList
-                      density="compact"
-                      items={detailItems}
-                    />
-                  </PageSection>
-                ) : null}
-
               </Stack>
             }
             market={
@@ -1786,8 +1770,20 @@ function LoadedItemDetailPage({
                     {
                       value: "details",
                       label: t("discovery.features.itemDetail.ui.itemDetailPage.details"),
-                      content: detailItems.length > 0 ? (
-                        <KeyValueList density="compact" items={detailItems} />
+                      content: data.description || detailItems.length > 0 ? (
+                        <Stack gap={4}>
+                          {data.description ? (
+                            <Stack gap={2}>
+                              <Heading level={3}>
+                                {t("discovery.features.itemDetail.ui.itemDetailPage.description")}
+                              </Heading>
+                              <Text>{data.description}</Text>
+                            </Stack>
+                          ) : null}
+                          {detailItems.length > 0 ? (
+                            <KeyValueList density="compact" items={detailItems} />
+                          ) : null}
+                        </Stack>
                       ) : (
                         <MarketplaceEmptyState
                           title={t("discovery.features.itemDetail.ui.itemDetailPage.details")}

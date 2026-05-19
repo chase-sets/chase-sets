@@ -201,10 +201,12 @@ function createItem(
 }
 
 describe("item detail commerce panel", () => {
-  it("renders item detail language codes as localized labels", () => {
+  it("renders item detail language codes as localized labels", async () => {
     renderWithDataRouter(<ItemDetailPage data={createItem({ language_code: "ja" })} />);
 
-    expect(screen.getByText("Japanese")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Details" }));
+
+    await waitFor(() => expect(screen.getByText("Japanese")).toBeTruthy());
     expect(screen.queryByText("ja")).toBeNull();
   });
 
