@@ -13,6 +13,7 @@ import {
   CommerceActionBar,
   CommerceBottomSheet,
   Container,
+  Dialog,
   Heading,
   Icon,
   ImageGallery,
@@ -36,10 +37,10 @@ import {
 } from "@chase-sets/design-system";
 import type {
   DiscoveryItemDetail,
-  FieldValue,
   DiscoveryMarketListing,
   DiscoveryOffer,
   DiscoveryAccountOfferMatch,
+  DiscoveryReferenceRecordRef,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
 import {
@@ -55,6 +56,11 @@ import {
   normalizeProductSearchOptionsForSchema,
   summarizeSelections,
 } from "../domain/product-resolution";
+import {
+  buildReferenceDetailRows,
+  formatReferenceTypeLabel,
+  type ReferenceDetailRow,
+} from "./reference-detail-rows";
 
 export type ItemDetailMarketplaceSectionContext = Readonly<{
   itemId: string;
@@ -126,32 +132,129 @@ function formatFieldValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function formatFieldValueRow(fieldValue: FieldValue): string {
-  if (!fieldValue.reference) {
-    return formatFieldValue(fieldValue.value);
-  }
-
-  const attributes = formatReferenceAttributes(fieldValue.reference.attributes);
-  const relationships = fieldValue.reference.relationships
-    .map((relationship) => {
-      const target = relationship.reference?.name ?? relationship.referenceId;
-
-      return `${relationship.relationshipType}: ${target}`;
-    })
-    .join(", ");
-  const details = [attributes, relationships].filter(Boolean).join("; ");
-
-  return details ? `${fieldValue.reference.name} - ${details}` : fieldValue.reference.name;
-}
-
-function formatReferenceAttributes(attributes: unknown): string {
+function formatReferenceAttributes(attributes: unknown): Array<{ key: string; value: string }> {
   if (typeof attributes !== "object" || attributes === null || Array.isArray(attributes)) {
-    return "";
+    return [];
   }
 
   return Object.entries(attributes)
-    .map(([key, value]) => `${key}: ${formatFieldValue(value)}`)
-    .join(", ");
+    .map(([key, value]) => ({ key, value: formatFieldValue(value) }));
+}
+
+function formatRelationshipType(value: string): string {
+  return value
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+function ReferenceValueButton({
+  row,
+  onSelectReference,
+}: {
+  row: ReferenceDetailRow;
+  onSelectReference: (reference: DiscoveryReferenceRecordRef) => void;
+}) {
+  if (!row.reference) {
+    return <>{formatFieldValue(row.value)}</>;
+  }
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      tone="ghost"
+      onClick={() => onSelectReference(row.reference!)}
+      aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.reference.value.aria", {
+        label: row.label,
+        value: row.reference.name,
+      })}
+    >
+      {row.reference.name}
+    </Button>
+  );
+}
+
+function ReferenceDetailDialog({
+  reference,
+  onOpenChange,
+}: {
+  reference: DiscoveryReferenceRecordRef | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!reference) {
+    return null;
+  }
+
+  const attributes = formatReferenceAttributes(reference.attributes);
+  const relationships = reference.relationships.map((relationship) => ({
+    key: formatRelationshipType(relationship.relationshipType),
+    value: relationship.reference?.name ?? relationship.referenceId,
+  }));
+
+  return (
+    <Dialog
+      open
+      onOpenChange={onOpenChange}
+      title={reference.name}
+      description={formatReferenceTypeLabel(reference.typeKey)}
+      closeLabel={t("discovery.features.itemDetail.ui.itemDetailPage.close.reference.detail")}
+    >
+      <Stack gap={4}>
+        <KeyValueList
+          density="compact"
+          variant="plain"
+          items={[
+            {
+              key: t("discovery.features.itemDetail.ui.itemDetailPage.reference.type"),
+              value: formatReferenceTypeLabel(reference.typeKey),
+            },
+            {
+              key: t("discovery.features.itemDetail.ui.itemDetailPage.reference.status"),
+              value: reference.status,
+            },
+            {
+              key: t("discovery.features.itemDetail.ui.itemDetailPage.reference.key"),
+              value: reference.key,
+            },
+          ]}
+        />
+        <Stack gap={2}>
+          <Text weight="semibold">
+            {t("discovery.features.itemDetail.ui.itemDetailPage.reference.attributes")}
+          </Text>
+          {attributes.length > 0 ? (
+            <KeyValueList
+              density="compact"
+              variant="plain"
+              items={attributes}
+            />
+          ) : (
+            <Text size="sm" tone="secondary">
+              {t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.attributes")}
+            </Text>
+          )}
+        </Stack>
+        <Stack gap={2}>
+          <Text weight="semibold">
+            {t("discovery.features.itemDetail.ui.itemDetailPage.reference.relationships")}
+          </Text>
+          {relationships.length > 0 ? (
+            <KeyValueList
+              density="compact"
+              variant="plain"
+              items={relationships}
+            />
+          ) : (
+            <Text size="sm" tone="secondary">
+              {t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.relationships")}
+            </Text>
+          )}
+        </Stack>
+      </Stack>
+    </Dialog>
+  );
 }
 
 function buildItemDetailImages(data: DiscoveryItemDetail) {
@@ -735,6 +838,8 @@ function LoadedItemDetailPage({
   ) => ItemDetailCommerceSections | null;
 }) {
   const initialSelectedOptionsKey = JSON.stringify(initialSelectedOptions);
+  const [selectedReference, setSelectedReference] =
+    useState<DiscoveryReferenceRecordRef | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>(() =>
     getInitialSelections(
       data,
@@ -977,10 +1082,16 @@ function LoadedItemDetailPage({
       value: formatUpdatedAt(data.updated_at),
     },
   ];
+  const referenceDetailRows = buildReferenceDetailRows(data.field_values);
   const detailItems = [
-    ...data.field_values.map((fieldValue) => ({
-      key: fieldValue.fieldName,
-      value: formatFieldValueRow(fieldValue),
+    ...referenceDetailRows.map((row) => ({
+      key: row.label,
+      value: (
+        <ReferenceValueButton
+          row={row}
+          onSelectReference={setSelectedReference}
+        />
+      ),
     })),
     ...metadataItems,
   ];
@@ -1797,6 +1908,14 @@ function LoadedItemDetailPage({
             </Stack>
           </MarketplaceProductDetailLayout>
           {mobileCommerceBottomSheet}
+          <ReferenceDetailDialog
+            reference={selectedReference}
+            onOpenChange={(open) => {
+              if (!open) {
+                setSelectedReference(null);
+              }
+            }}
+          />
       </Container>
     </>
   );
