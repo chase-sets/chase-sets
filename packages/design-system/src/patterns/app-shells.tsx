@@ -1790,6 +1790,38 @@ export interface MarketplaceProductDetailLayoutProps {
   children?: ReactNode;
 }
 
+export interface MarketplaceProductCommerceRailProps {
+  children: ReactNode;
+  label?: string;
+}
+
+export function MarketplaceProductCommerceRail({
+  children,
+  label = "Commerce options"
+}: MarketplaceProductCommerceRailProps) {
+  return (
+    <div className="order-5 hidden min-w-0 xl:sticky xl:top-20 xl:order-3 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-y-auto">
+      <Sidebar label={label} purpose="support" width="summary">
+        {children}
+      </Sidebar>
+    </div>
+  );
+}
+
+export interface MarketplaceProductMobileActionDockProps {
+  children: ReactNode;
+}
+
+export function MarketplaceProductMobileActionDock({
+  children
+}: MarketplaceProductMobileActionDockProps) {
+  return (
+    <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-sticky mt-6 xl:hidden">
+      <div className="mx-auto max-w-3xl">{children}</div>
+    </div>
+  );
+}
+
 export function MarketplaceProductDetailLayout({
   summary,
   media,
@@ -1809,16 +1841,10 @@ export function MarketplaceProductDetailLayout({
           <div className="order-3 min-w-0 xl:mt-6">{market}</div>
         </div>
         <div className="order-4 min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-2">{children}</div>
-        <div className="order-5 hidden min-w-0 xl:sticky xl:top-20 xl:order-3 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-y-auto">
-          <Sidebar label="Commerce options" purpose="support" width="summary">
-            {commerce}
-          </Sidebar>
-        </div>
+        <MarketplaceProductCommerceRail>{commerce}</MarketplaceProductCommerceRail>
       </div>
       {mobileActionBar ? (
-        <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-sticky mt-6 xl:hidden">
-          <div className="mx-auto max-w-3xl">{mobileActionBar}</div>
-        </div>
+        <MarketplaceProductMobileActionDock>{mobileActionBar}</MarketplaceProductMobileActionDock>
       ) : null}
     </>
   );
