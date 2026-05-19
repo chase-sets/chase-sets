@@ -653,7 +653,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("1 matching offer")).toBeTruthy();
     expect(screen.getByText("Ash Ketchum")).toBeTruthy();
     expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
-    expect(screen.getByText("Raw / Near Mint")).toBeTruthy();
+    expect(screen.getByText("Raw · Near Mint")).toBeTruthy();
     expect(screen.queryByText("Status")).toBeNull();
     expect(screen.queryByText("submitted")).toBeNull();
     expect(screen.queryByText("1 active listing")).toBeNull();
@@ -757,9 +757,16 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByText("Selected")).toBeTruthy();
+    expect(screen.getAllByText("Best offer").length).toBeGreaterThan(0);
     expect(screen.getByText("Ash Ketchum")).toBeTruthy();
     expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
-    expect(screen.getByText("Raw / Near Mint")).toBeTruthy();
+    expect(screen.getByText("Raw · Near Mint")).toBeTruthy();
+    expect(screen.getByText("1 requested")).toBeTruthy();
+    expect(
+      within(screen.getByRole("article", { name: "Offer $350.00 from Ash Ketchum" }))
+        .getByRole("button", { name: "Selected Ash Ketchum offer at $350.00" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
     expect(screen.queryByText("Status")).toBeNull();
     expect(screen.queryByText("submitted")).toBeNull();
     expect(screen.queryByText("Can fulfill")).toBeNull();
@@ -842,7 +849,7 @@ describe("item detail commerce panel", () => {
         .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(screen.getByText("Lowest price")).toBeTruthy();
-    expect(screen.getByText("Selected for checkout")).toBeTruthy();
+    expect(screen.queryByText("Selected for checkout")).toBeNull();
     expect(screen.getAllByText("New")).toHaveLength(2);
     expect(screen.getByText("2 available")).toBeTruthy();
     expect(
