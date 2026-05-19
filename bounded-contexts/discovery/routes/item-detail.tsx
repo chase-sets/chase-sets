@@ -116,6 +116,32 @@ function productOptionsFromSelectionDetails(
   }));
 }
 
+function ProductQuantitySummary({
+  availability,
+  productSelectionDetails,
+  productSummary,
+  fallback,
+}: {
+  availability: ReactNode;
+  productSelectionDetails: readonly ProductSelectionDisplayDetail[];
+  productSummary: ReactNode;
+  fallback: ReactNode;
+}) {
+  return (
+    <div className="grid min-w-0 gap-x-3 gap-y-0.5 min-[360px]:grid-cols-[minmax(0,1fr)_auto] min-[360px]:items-baseline">
+      <ProductOptions
+        options={productOptionsFromSelectionDetails(productSelectionDetails)}
+        emptyLabel={productSummary ?? fallback}
+        variant="compact"
+        className="min-w-0 text-sm font-semibold leading-5"
+      />
+      <span className="text-sm font-medium leading-5 text-secondary">
+        {availability}
+      </span>
+    </div>
+  );
+}
+
 type AddToCartActionData = Readonly<{
   status: "added-to-cart";
   itemTitle: string;
@@ -831,17 +857,15 @@ export function CheckoutPurchaseIntentSection({
                   reviewCount={selectedListing?.seller_review_count ?? 0}
                   ratingLabel="Seller account reputation"
                 />
-                <Text size="sm" tone="secondary">
-                  {selectedListingAvailability}
-                </Text>
               </Inline>
-              <ProductOptions
-                options={productOptionsFromSelectionDetails(productSelectionDetails)}
-                emptyLabel={
-                  productSummary ??
-                  (productId
+              <ProductQuantitySummary
+                availability={selectedListingAvailability}
+                productSelectionDetails={productSelectionDetails}
+                productSummary={productSummary}
+                fallback={
+                  productId
                     ? itemTitle
-                    : t("discovery.routes.itemDetail.choose.options.to.add.this.product"))
+                    : t("discovery.routes.itemDetail.choose.options.to.add.this.product")
                 }
               />
             </Stack>
