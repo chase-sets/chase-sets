@@ -548,6 +548,7 @@ async function createCatalogDraftFromObservation(input: {
 }) {
   const streamId = `catalog.item-${input.catalogItemId}`;
   const subtitle = `${input.normalized.expansionName} ${input.normalized.cardNumber}`;
+  const profile = await loadPokemonTcgPromotionProfile(input.deps);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
@@ -571,31 +572,31 @@ async function createCatalogDraftFromObservation(input: {
     streamId,
     command: {
       type: "AssignBlueprintToCatalogItem",
-      blueprintId: catalogSeedIds.blueprints.pokemonCardSingle as BlueprintId,
+      blueprintId: profile.blueprintId,
     },
     context: input.context,
   });
-  await setFieldValue(input, "cardNumber", input.normalized.cardNumber);
-  await setFieldValue(input, "cardName", localizedJsonText(input.normalized.name));
-  await setFieldValue(input, "expansion", { referenceId: expansionReferenceId });
+  await setFieldValue(input, profile.fieldIds.cardNumber, input.normalized.cardNumber);
+  await setFieldValue(input, profile.fieldIds.cardName, localizedJsonText(input.normalized.name));
+  await setFieldValue(input, profile.fieldIds.expansion, { referenceId: expansionReferenceId });
 
   if (input.normalized.rarity) {
-    await setFieldValue(input, "rarity", input.normalized.rarity);
+    await setFieldValue(input, profile.fieldIds.rarity, input.normalized.rarity);
   }
 
   if (input.normalized.illustrator) {
-    await setFieldValue(input, "cardIllustrator", input.normalized.illustrator);
+    await setFieldValue(input, profile.fieldIds.cardIllustrator, input.normalized.illustrator);
   }
 
   if (input.normalized.releaseYear !== null) {
-    await setFieldValue(input, "releaseYear", input.normalized.releaseYear);
+    await setFieldValue(input, profile.fieldIds.releaseYear, input.normalized.releaseYear);
   }
 
   await input.items.commandHandler({
     streamId,
     command: {
       type: "AssignCatalogItemToCategory",
-      categoryId: catalogSeedIds.categories.singles as CategoryId,
+      categoryId: profile.singlesCategoryId,
     },
     context: input.context,
   });
@@ -647,28 +648,19 @@ async function setFieldValue(
     catalogItemId: CatalogItemId;
     context: EventStoreContext;
   },
-  key: keyof typeof catalogFieldByKey,
+  fieldId: FieldId,
   value: JsonValue,
 ) {
   await input.items.commandHandler({
     streamId: `catalog.item-${input.catalogItemId}`,
     command: {
       type: "SetCatalogItemFieldValue",
-      fieldId: catalogFieldByKey[key] as FieldId,
+      fieldId,
       value,
     },
     context: input.context,
   });
 }
-
-const catalogFieldByKey = {
-  cardNumber: catalogSeedIds.fields.cardNumber,
-  cardName: catalogSeedIds.fields.cardName,
-  expansion: catalogSeedIds.fields.expansion,
-  rarity: catalogSeedIds.fields.rarity,
-  cardIllustrator: catalogSeedIds.fields.cardIllustrator,
-  releaseYear: catalogSeedIds.fields.releaseYear,
-} as const;
 
 export async function ensurePokemonReferenceHierarchy(input: {
   deps: CatalogRuntimeDeps;
@@ -915,6 +907,114 @@ async function findReferenceRecordByProviderAttribute(
   );
 
   return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
+}
+
+async function loadPokemonTcgPromotionProfile(
+  deps: CatalogRuntimeDeps,
+): Promise<{
+  blueprintId: BlueprintId;
+  singlesCategoryId: CategoryId;
+  fieldIds: {
+    cardNumber: FieldId;
+    cardName: FieldId;
+    expansion: FieldId;
+    rarity: FieldId;
+    cardIllustrator: FieldId;
+    releaseYear: FieldId;
+  };
+}> {
+  const [
+    blueprintId,
+    singlesCategoryId,
+    cardNumber,
+    cardName,
+    expansion,
+    rarity,
+    cardIllustrator,
+    releaseYear,
+  ] = await Promise.all([
+    requireCatalogIdByKey<BlueprintId>(
+      deps,
+      "catalog_blueprints",
+      "blueprint_id",
+      "pokemon-card-single",
+    ),
+    requireCatalogIdByKey<CategoryId>(
+      deps,
+      "catalog_categories",
+      "category_id",
+      "singles",
+    ),
+    requireCatalogIdByKey<FieldId>(
+      deps,
+      "catalog_fields",
+      "field_id",
+      "card-number",
+    ),
+    requireCatalogIdByKey<FieldId>(
+      deps,
+      "catalog_fields",
+      "field_id",
+      "card-name",
+    ),
+    requireCatalogIdByKey<FieldId>(
+      deps,
+      "catalog_fields",
+      "field_id",
+      "expansion",
+    ),
+    requireCatalogIdByKey<FieldId>(
+      deps,
+      "catalog_fields",
+      "field_id",
+      "rarity",
+    ),
+    requireCatalogIdByKey<FieldId>(
+      deps,
+      "catalog_fields",
+      "field_id",
+      "card-illustrator",
+    ),
+    requireCatalogIdByKey<FieldId>(
+      deps,
+      "catalog_fields",
+      "field_id",
+      "release-year",
+    ),
+  ]);
+
+  return {
+    blueprintId,
+    singlesCategoryId,
+    fieldIds: {
+      cardNumber,
+      cardName,
+      expansion,
+      rarity,
+      cardIllustrator,
+      releaseYear,
+    },
+  };
+}
+
+async function requireCatalogIdByKey<TId extends string>(
+  deps: CatalogRuntimeDeps,
+  tableName: "catalog_blueprints" | "catalog_categories" | "catalog_fields",
+  idColumnName: "blueprint_id" | "category_id" | "field_id",
+  key: string,
+): Promise<TId> {
+  const existing = await deps.db.query<Record<string, string>>(
+    `SELECT ${idColumnName} AS id FROM ${tableName} WHERE key = $1 AND status = 'active' LIMIT 1`,
+    [key],
+  );
+  const id = existing.rows[0]?.id;
+  if (!id) {
+    throw new Error(
+      `TCGdex promotion requires active Catalog ${tableName} key '${key}'. Run the Catalog integration bootstrap first.`,
+    );
+  }
+
+  return id as TId;
 }
 
 function localizedText(value: string): LocalizedTextMap {

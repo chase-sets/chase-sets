@@ -5,7 +5,12 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import { getApiHostContextNames, getApiHostSeedOrder, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  getApiHostContextNames,
+  getApiHostSeedOrder,
+  productionLikeDataProfiles,
+  seedApiHostIfEmpty,
+} from "@chase-sets/platform-runtime/api";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -94,6 +99,9 @@ describeWithDatabase("platform api bootstrap", () => {
     const commercialTermsAgreements = await pools["commercial-terms"].query<
       Readonly<{ count: string }>
     >("SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages");
+    const seededCatalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_item_pages",
+    );
     const seededListingsWithTerms = await pools.marketplace.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
        FROM marketplace_listing_pages
@@ -124,15 +132,69 @@ describeWithDatabase("platform api bootstrap", () => {
          AND channel = 'email'
          AND idempotency_key LIKE 'fulfillment:shipment_delivered:%'`,
     );
+    const reputationReviews = await pools.reputation.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM reputation_review_pages",
+    );
     expect(authReplayContext?.requiredGroups).toBeGreaterThan(0);
     expect(authReplayContext?.caughtUpGroups).toBe(authReplayContext?.totalGroups);
     expect(Number(authUsers.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(identityTablesInAuth.rows[0]?.relation_name).toBeNull();
     expect(Number(commercialTermsSchedules.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
     expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(1);
+    expect(Number(seededCatalogItems.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededListingsWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededOrdersWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(orderingEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(fulfillmentEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("limits long-lived environment bootstrap to critical and integration data", async () => {
+    const runtime = createPlatformApiHost({
+      pools,
+      hostPorts: {
+        processorGateway: createFakePaymentProcessorGateway(),
+      },
+    });
+
+    await seedApiHostIfEmpty(
+      apiContextRegistry,
+      "platform-api",
+      runtime,
+      {
+        enabledDataProfiles: productionLikeDataProfiles,
+        environmentName: "staging",
+      },
+    );
+
+    const identityAccounts = await pools.identity.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM identity_accounts",
+    );
+    const catalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_item_pages",
+    );
+    const catalogBlueprints = await pools.catalog.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM catalog_blueprints",
+    );
+    const commercialTermsSchedules = await pools["commercial-terms"].query<
+      Readonly<{ count: string }>
+    >("SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages");
+    const commercialTermsAgreements = await pools["commercial-terms"].query<
+      Readonly<{ count: string }>
+    >("SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages");
+    const marketplaceListings = await pools.marketplace.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM marketplace_listing_pages",
+    );
+    const reputationReviews = await pools.reputation.query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM reputation_review_pages",
+    );
+
+    expect(Number(identityAccounts.rows[0]?.count ?? 0)).toBe(0);
+    expect(Number(catalogItems.rows[0]?.count ?? 0)).toBe(0);
+    expect(Number(catalogBlueprints.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(commercialTermsSchedules.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
+    expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBe(0);
+    expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);
+    expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBe(0);
   }, 60_000);
 });

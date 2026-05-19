@@ -2,6 +2,8 @@ import type {
   BcApiModule,
   BcApiMount,
   BcEventSubscription,
+  BcSeedOptions,
+  EnvironmentDataProfile,
   BcProjectionGroup,
   BcProjector,
 } from "@chase-sets/bounded-context-module";
@@ -28,6 +30,34 @@ const RETRY_DELAY_MS = 1_000;
 const MAX_RETRIES = 30;
 const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
 const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export const allEnvironmentDataProfiles: readonly EnvironmentDataProfile[] = [
+  "critical-bootstrap",
+  "catalog-integration-bootstrap",
+  "scenario-seed",
+];
+
+export const defaultSeedOptions: BcSeedOptions = {
+  enabledDataProfiles: allEnvironmentDataProfiles,
+  environmentName: null,
+};
+
+export function seedProfileEnabled(
+  options: BcSeedOptions | undefined,
+  profile: EnvironmentDataProfile,
+): boolean {
+  return (options ?? defaultSeedOptions).enabledDataProfiles.includes(profile);
+}
+
+export function seedProfilesOverlap(
+  moduleProfiles: readonly EnvironmentDataProfile[] | undefined,
+  options: BcSeedOptions | undefined,
+): boolean {
+  const profiles = moduleProfiles ?? ["scenario-seed"];
+  const enabledProfiles = (options ?? defaultSeedOptions).enabledDataProfiles;
+
+  return profiles.some((profile) => enabledProfiles.includes(profile));
+}
 
 export const eventSubscriptionSchemaSql = `CREATE TABLE IF NOT EXISTS ${SUBSCRIPTION_CHECKPOINTS_TABLE} (
   checkpoint_key text PRIMARY KEY,
@@ -1331,7 +1361,10 @@ export async function countEventsWithPrefix(
 }
 
 export async function seedApiModuleIfEmpty<TPool>(
-  module: Pick<BcApiModule<unknown, TPool, unknown>, "contextName" | "streamPrefix" | "seed">,
+  module: Pick<
+    BcApiModule<unknown, TPool, unknown>,
+    "contextName" | "streamPrefix" | "seed" | "seedProfiles"
+  >,
   pool: TPool & {
     query: (
       sql: string,
@@ -1339,8 +1372,15 @@ export async function seedApiModuleIfEmpty<TPool>(
     ) => Promise<{ rows?: readonly Readonly<{ count?: string | number }>[] }>;
   },
   services?: unknown,
+  options: BcSeedOptions = defaultSeedOptions,
 ): Promise<void> {
   if (!module.seed) {
+    return;
+  }
+  if (!seedProfilesOverlap(module.seedProfiles, options)) {
+    console.log(
+      `${module.contextName} seed skipped for data profiles: ${options.enabledDataProfiles.join(", ")}.`,
+    );
     return;
   }
 
@@ -1354,13 +1394,13 @@ export async function seedApiModuleIfEmpty<TPool>(
     );
   }
 
-  await module.seed(pool, services);
+  await module.seed(pool, services, options);
 }
 
 export async function seedApiModulesIfEmpty<TPool>(
   modules: readonly Pick<
     BcApiModule<unknown, TPool, unknown>,
-    "contextName" | "streamPrefix" | "seed"
+    "contextName" | "streamPrefix" | "seed" | "seedProfiles"
   >[],
   pool: TPool & {
     query: (
@@ -1368,9 +1408,10 @@ export async function seedApiModulesIfEmpty<TPool>(
       params?: readonly unknown[],
     ) => Promise<{ rows?: readonly Readonly<{ count?: string | number }>[] }>;
   },
+  options: BcSeedOptions = defaultSeedOptions,
 ): Promise<void> {
   for (const module of modules) {
-    await seedApiModuleIfEmpty(module, pool);
+    await seedApiModuleIfEmpty(module, pool, undefined, options);
   }
 }
 

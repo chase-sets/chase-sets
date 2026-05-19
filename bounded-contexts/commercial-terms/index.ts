@@ -71,5 +71,6 @@ export const module: BcApiModule<CommercialTermsServices, PgTransactionalPool, v
       },
     ];
   },
+  seedProfiles: ["critical-bootstrap", "scenario-seed"],
   seed: seedCommercialTermsDatabase,
 };

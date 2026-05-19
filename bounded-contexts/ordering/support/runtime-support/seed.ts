@@ -4,6 +4,7 @@ import type {
   PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
+import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
@@ -23,7 +24,7 @@ const rawExcellentVersionSelection = [
 
 const checkoutCartLines = [
   {
-    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    catalogItemId: catalogScenarioItems.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
     selectedOptions: rawExcellentVersionSelection,
@@ -34,7 +35,7 @@ const checkoutCartLines = [
 
 const cancelledCartLines = [
   {
-    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    catalogItemId: catalogScenarioItems.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
     selectedOptions: rawExcellentVersionSelection,
@@ -46,7 +47,7 @@ const cancelledCartLines = [
 const acceptedOfferSeed = {
   offerId:
     marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
-  catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+  catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
   itemTitle: "Twilight Masquerade Elite Trainer Box",
   itemSubtitle: "Sealed elite trainer box",
   selectedOptions: [] as const,

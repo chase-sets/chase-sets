@@ -91,6 +91,16 @@ export type BcProjectionGroup = BcProjectionGroupDeclaration &
     readonly reset?: () => Promise<void>;
   }>;
 
+export type EnvironmentDataProfile =
+  | "critical-bootstrap"
+  | "catalog-integration-bootstrap"
+  | "scenario-seed";
+
+export type BcSeedOptions = Readonly<{
+  enabledDataProfiles: readonly EnvironmentDataProfile[];
+  environmentName?: string | null;
+}>;
+
 export interface BcApiModule<
   TServices = unknown,
   TPool = unknown,
@@ -109,5 +119,6 @@ export interface BcApiModule<
   projectors(services: TServices): readonly TProjector[];
   buildSubscriptions?(services: TServices): readonly BcEventSubscription[];
   buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
-  seed?(pool: TPool, services?: TServices): Promise<void>;
+  seedProfiles?: readonly EnvironmentDataProfile[];
+  seed?(pool: TPool, services?: TServices, options?: BcSeedOptions): Promise<void>;
 }
