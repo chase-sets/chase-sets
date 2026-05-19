@@ -375,9 +375,12 @@ describe("item detail commerce panel", () => {
 
     const imageFrame = screen.getByAltText("Charizard image 1").parentElement;
 
-    expect(imageFrame?.className).toContain("max-w-[min(100%,22rem)]");
-    expect(imageFrame?.className).toContain("md:max-w-[min(100%,24rem)]");
-    expect(imageFrame?.className).toContain("[--gallery-max-height:32rem]");
+    expect(imageFrame?.className).toContain("max-w-[min(100%,17.25rem)]");
+    expect(imageFrame?.className).toContain("md:max-w-[min(100%,19.25rem)]");
+    expect(imageFrame?.className).toContain("[--gallery-max-height:27rem]");
+
+    const galleryRoot = imageFrame?.parentElement;
+    expect(galleryRoot?.className).toContain("flex items-start justify-center gap-3");
   });
 
   it("opens the selected mobile commerce section in a bottom sheet", () => {

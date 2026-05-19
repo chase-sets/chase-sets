@@ -19,6 +19,7 @@ export interface ImageGalleryProps
   fallbackImage?: GalleryImage;
   fallbackImageMode?: "permanent" | "loading-only";
   maxHeightClassName?: string;
+  thumbnailPlacement?: "bottom" | "left";
 }
 
 function parseAspectRatio(value: string): number {
@@ -45,6 +46,7 @@ export function ImageGallery({
   fallbackImage,
   fallbackImageMode = "permanent",
   maxHeightClassName,
+  thumbnailPlacement = "bottom",
   ...rest
 }: ImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -125,6 +127,47 @@ export function ImageGallery({
     "modern-surface relative overflow-hidden rounded-tokenLg border border-muted",
     constrainedFrameClasses,
   );
+  const thumbnailRail = galleryImages.length > 1 ? (
+    <div
+      className={cx(
+        "flex gap-2 overflow-auto",
+        thumbnailPlacement === "left"
+          ? "max-h-full w-16 shrink-0 flex-col"
+          : "overflow-x-auto",
+      )}
+    >
+      {galleryImages.map((image, index) => {
+        const thumbnail = resolveImage(image);
+
+        return (
+          <button
+            key={index}
+            type="button"
+            onClick={() => setActiveIndex(index)}
+            aria-label={image.alt}
+            className={cx(
+              "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
+              index === safeGalleryIndex
+                ? "border-accent shadow-tokenSm"
+                : "border-muted hover:border-accent",
+            )}
+          >
+            {thumbnail ? (
+              <img
+                src={thumbnail.thumbnailSrc ?? thumbnail.src}
+                alt=""
+                aria-hidden="true"
+                srcSet={thumbnail.thumbnailSrcSet ?? thumbnail.srcSet}
+                sizes="64px"
+                onError={() => markImageFailed(thumbnail.thumbnailSrc ?? thumbnail.src)}
+                className="h-full w-full object-cover"
+              />
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
 
   if (!hasProvidedImages && !fallbackImage) {
     if (!emptyState) {
@@ -132,7 +175,12 @@ export function ImageGallery({
     }
 
     return (
-      <div {...rest} className="space-y-3">
+      <div
+        {...rest}
+        className={thumbnailPlacement === "left"
+          ? "flex items-start justify-center gap-3"
+          : "space-y-3"}
+      >
         <div
           className={cx(
             frameClassName,
@@ -147,7 +195,13 @@ export function ImageGallery({
   }
 
   return (
-    <div {...rest} className="space-y-3">
+    <div
+      {...rest}
+      className={thumbnailPlacement === "left"
+        ? "flex items-start justify-center gap-3"
+        : "space-y-3"}
+    >
+      {thumbnailPlacement === "left" ? thumbnailRail : null}
       <div
         className={frameClassName}
         style={galleryStyle}
@@ -176,40 +230,7 @@ export function ImageGallery({
           </>
         ) : emptyState ?? null}
       </div>
-      {galleryImages.length > 1 ? (
-        <div className="flex gap-2 overflow-x-auto">
-          {galleryImages.map((image, index) => {
-            const thumbnail = resolveImage(image);
-
-            return (
-              <button
-                key={index}
-                type="button"
-                onClick={() => setActiveIndex(index)}
-                aria-label={image.alt}
-                className={cx(
-                  "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
-                  index === safeGalleryIndex
-                    ? "border-accent shadow-tokenSm"
-                    : "border-muted hover:border-accent"
-                )}
-              >
-                {thumbnail ? (
-                  <img
-                    src={thumbnail.thumbnailSrc ?? thumbnail.src}
-                    alt=""
-                    aria-hidden="true"
-                    srcSet={thumbnail.thumbnailSrcSet ?? thumbnail.srcSet}
-                    sizes="64px"
-                    onError={() => markImageFailed(thumbnail.thumbnailSrc ?? thumbnail.src)}
-                    className="h-full w-full object-cover"
-                  />
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      {thumbnailPlacement === "bottom" ? thumbnailRail : null}
     </div>
   );
 }
