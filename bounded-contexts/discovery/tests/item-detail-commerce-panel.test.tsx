@@ -21,6 +21,7 @@ import type {
   DiscoveryMarketListing,
   DiscoveryOffer,
   DiscoveryAccountOfferMatch,
+  DiscoveryReferenceRecordRef,
   ProductSchema,
 } from "../support/client-support/contracts";
 
@@ -208,6 +209,45 @@ describe("item detail commerce panel", () => {
 
     await waitFor(() => expect(screen.getByText("Japanese")).toBeTruthy());
     expect(screen.queryByText("ja")).toBeNull();
+  });
+
+  it("renders inherited reference rows and opens reference details", async () => {
+    renderWithDataRouter(
+      <ItemDetailPage
+        data={createItem({
+          field_values: [
+            {
+              fieldId: "fld_seed_expansion",
+              fieldName: "fld_seed_expansion",
+              value: { referenceId: "ref_expansion" },
+              reference: expansionReference(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Details" }));
+
+    await waitFor(() => expect(screen.getByText("Expansion")).toBeTruthy());
+    expect(screen.getAllByRole("button", { name: "View Expansion reference details for Perfect Order" })[0])
+      .toBeTruthy();
+    expect(screen.getByText("Series")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "View Series reference details for Mega Evolution" })[0])
+      .toBeTruthy();
+    expect(screen.queryByText("fld_seed_expansion")).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", {
+      name: "View Expansion reference details for Perfect Order",
+    })[0]);
+
+    const dialog = screen.getByRole("dialog", { name: "Perfect Order" });
+    expect(within(dialog).getByText("Reference type")).toBeTruthy();
+    expect(within(dialog).getAllByText("Expansion")[0]).toBeTruthy();
+    expect(within(dialog).getByText("tcgdex-set-id")).toBeTruthy();
+    expect(within(dialog).getByText("me03")).toBeTruthy();
+    expect(within(dialog).getByText("Part Of")).toBeTruthy();
+    expect(within(dialog).getByText("Mega Evolution")).toBeTruthy();
   });
 
   it("shows the sell tab when seller tools are represented by a registration CTA", () => {
@@ -1641,3 +1681,61 @@ describe("item detail commerce panel", () => {
     );
   });
 });
+
+function expansionReference(): DiscoveryReferenceRecordRef {
+  const manufacturer: DiscoveryReferenceRecordRef = {
+    referenceId: "ref_manufacturer",
+    typeKey: "manufacturer",
+    key: "the-pokemon-company-international",
+    name: "The Pokemon Company International",
+    attributes: { "homepage-url": "https://www.pokemon.com/us" },
+    relationships: [],
+    status: "active",
+  };
+  const productLine: DiscoveryReferenceRecordRef = {
+    referenceId: "ref_product_line",
+    typeKey: "product-line",
+    key: "pokemon-trading-card-game",
+    name: "Pokemon Trading Card Game",
+    attributes: { "short-name": "Pokemon TCG" },
+    relationships: [
+      {
+        relationshipType: "published-by",
+        referenceId: manufacturer.referenceId,
+        reference: manufacturer,
+      },
+    ],
+    status: "active",
+  };
+  const series: DiscoveryReferenceRecordRef = {
+    referenceId: "ref_series",
+    typeKey: "series",
+    key: "mega-evolution",
+    name: "Mega Evolution",
+    attributes: { "tcgdex-series-id": "mega-evolution" },
+    relationships: [
+      {
+        relationshipType: "part-of",
+        referenceId: productLine.referenceId,
+        reference: productLine,
+      },
+    ],
+    status: "active",
+  };
+
+  return {
+    referenceId: "ref_expansion",
+    typeKey: "expansion",
+    key: "perfect-order",
+    name: "Perfect Order",
+    attributes: { "tcgdex-set-id": "me03", "card-count": 88 },
+    relationships: [
+      {
+        relationshipType: "part-of",
+        referenceId: series.referenceId,
+        reference: series,
+      },
+    ],
+    status: "active",
+  };
+}

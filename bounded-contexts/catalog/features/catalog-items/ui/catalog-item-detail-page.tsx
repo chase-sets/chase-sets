@@ -39,7 +39,12 @@ import {
 import { useFieldList } from "../../fields/ui/use-fields";
 import type { ReferenceRecord } from "../../reference-data/ui/contracts";
 import { useReferenceRecordList } from "../../reference-data/ui/use-reference-data";
-import type { CatalogItemImageFallback } from "./contracts";
+import type { CatalogItemImageFallback, CatalogReferenceRecordRef } from "./contracts";
+import {
+  buildReferenceDetailRows,
+  formatReferenceTypeLabel,
+  type ReferenceDetailRow,
+} from "./reference-detail-rows";
 
 function getTransitions(status: string): Transition[] {
   switch (status) {
@@ -108,30 +113,6 @@ function formatFieldValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function formatFieldValueRow(row: FieldValue): string {
-  if (!row.reference) {
-    return formatFieldValue(row.value);
-  }
-
-  const attributeText = isRecord(row.reference.attributes)
-    ? Object.entries(row.reference.attributes)
-        .map(([key, value]) => `${key}: ${formatFieldValue(value)}`)
-        .join(", ")
-    : "";
-  const relationshipText = row.reference.relationships
-    .map((relationship) => {
-      const target = relationship.reference?.name ?? relationship.referenceId;
-
-      return `${relationship.relationshipType}: ${target}`;
-    })
-    .join(", ");
-  const details = [attributeText, relationshipText].filter(Boolean).join("; ");
-
-  return details.length > 0
-    ? `${row.reference.name} (${row.reference.typeKey}) - ${details}`
-    : `${row.reference.name} (${row.reference.typeKey})`;
-}
-
 function formatReferenceRecordLabel(record: ReferenceRecord): string {
   return t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.record.option", {
     name: record.name,
@@ -158,9 +139,136 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function formatReferenceAttributes(attributes: unknown): Array<{ key: string; value: string }> {
+  if (!isRecord(attributes)) {
+    return [];
+  }
+
+  return Object.entries(attributes)
+    .map(([key, value]) => ({ key, value: formatFieldValue(value) }));
+}
+
+function formatRelationshipType(value: string): string {
+  return value
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+function ReferenceValueButton({
+  row,
+  onSelectReference,
+}: {
+  row: ReferenceDetailRow;
+  onSelectReference: (reference: CatalogReferenceRecordRef) => void;
+}) {
+  if (!row.reference) {
+    return <>{formatFieldValue(row.value)}</>;
+  }
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      tone="ghost"
+      onClick={() => onSelectReference(row.reference!)}
+      aria-label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.value.aria", {
+        label: row.label,
+        value: row.reference.name,
+      })}
+    >
+      {row.reference.name}
+    </Button>
+  );
+}
+
+function ReferenceDetailDialog({
+  reference,
+  onOpenChange,
+}: {
+  reference: CatalogReferenceRecordRef | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!reference) {
+    return null;
+  }
+
+  const attributes = formatReferenceAttributes(reference.attributes);
+  const relationships = reference.relationships.map((relationship) => ({
+    key: formatRelationshipType(relationship.relationshipType),
+    value: relationship.reference?.name ?? relationship.referenceId,
+  }));
+
+  return (
+    <Dialog
+      open
+      onOpenChange={onOpenChange}
+      title={reference.name}
+      description={formatReferenceTypeLabel(reference.typeKey)}
+      closeLabel={t("catalog.features.catalogItems.ui.catalogItemDetailPage.close.reference.detail")}
+    >
+      <Stack gap={4}>
+        <KeyValueList
+          density="compact"
+          variant="plain"
+          items={[
+            {
+              key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.type"),
+              value: formatReferenceTypeLabel(reference.typeKey),
+            },
+            {
+              key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.status"),
+              value: reference.status,
+            },
+            {
+              key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.key"),
+              value: reference.key,
+            },
+          ]}
+        />
+        <Stack gap={2}>
+          <Text weight="semibold">
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.attributes")}
+          </Text>
+          {attributes.length > 0 ? (
+            <KeyValueList
+              density="compact"
+              variant="plain"
+              items={attributes}
+            />
+          ) : (
+            <Text size="sm" tone="secondary">
+              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.attributes")}
+            </Text>
+          )}
+        </Stack>
+        <Stack gap={2}>
+          <Text weight="semibold">
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.relationships")}
+          </Text>
+          {relationships.length > 0 ? (
+            <KeyValueList
+              density="compact"
+              variant="plain"
+              items={relationships}
+            />
+          ) : (
+            <Text size="sm" tone="secondary">
+              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.relationships")}
+            </Text>
+          )}
+        </Stack>
+      </Stack>
+    </Dialog>
+  );
+}
+
 export function CatalogItemDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useCatalogItem>[1] }) {
   const { data, loading, error, refresh } = useCatalogItem(id, initialData);
   const { addToast } = useToasts();
+  const [selectedReference, setSelectedReference] =
+    useState<CatalogReferenceRecordRef | null>(null);
 
   // Blueprint assignment
   const [showAssignBlueprint, setShowAssignBlueprint] = useState(false);
@@ -413,18 +521,32 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   }
 
   const fieldValues = (data?.field_values ?? []) as FieldValue[];
+  const referenceDetailRows = buildReferenceDetailRows(fieldValues);
   const categories = (data?.categories ?? []) as CategoryRef[];
   const externalReferences = data?.external_product_references ?? [];
 
-  const fieldValueColumns: DataColumn<FieldValue>[] = [
-    { key: "fieldId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field"), cell: (row) => row.fieldName },
-    { key: "value", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.value"), cell: (row) => formatFieldValueRow(row) },
+  const fieldValueColumns: DataColumn<ReferenceDetailRow>[] = [
+    { key: "fieldId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field"), cell: (row) => row.label },
+    {
+      key: "value",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.value"),
+      cell: (row) => (
+        <ReferenceValueButton
+          row={row}
+          onSelectReference={setSelectedReference}
+        />
+      ),
+    },
     {
       key: "actions",
       header: "",
-      cell: (row) => data?.status !== "archived" ? (
-        <Button size="sm" tone="danger" onClick={() => handleClearFieldValue(row.fieldId)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear")}</Button>
-      ) : null,
+      cell: (row) => {
+        const fieldId = row.id.startsWith("field:") ? row.id.slice("field:".length) : null;
+
+        return data?.status !== "archived" && fieldId ? (
+          <Button size="sm" tone="danger" onClick={() => handleClearFieldValue(fieldId)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear")}</Button>
+        ) : null;
+      },
     },
   ];
 
@@ -483,9 +605,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
                   </Inline>
                 )}
                 <DataTable
-                  rows={fieldValues}
+                  rows={referenceDetailRows}
                   columns={fieldValueColumns}
-                  getRowId={(row) => row.fieldId}
+                  getRowId={(row) => row.id}
                   emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.field.values")}
                 />
               </Stack>
@@ -849,6 +971,15 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
           />
         </Stack>
       </Dialog>
+
+      <ReferenceDetailDialog
+        reference={selectedReference}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedReference(null);
+          }
+        }}
+      />
     </>
   );
 }
