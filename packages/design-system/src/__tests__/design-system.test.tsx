@@ -1115,6 +1115,8 @@ describe("design-system", () => {
     expect(markup).not.toContain("fixed inset-x-3");
     expect(markup).not.toContain("h-32 md:hidden");
     expect(markup).toContain("xl:col-span-2");
+    expect(markup).toContain("xl:sticky xl:top-20");
+    expect(markup).toContain("xl:max-h-[calc(100dvh-5rem)]");
     expect(markup.indexOf("Offers list")).toBeLessThan(
       markup.indexOf("Mobile buy sell panel")
     );
