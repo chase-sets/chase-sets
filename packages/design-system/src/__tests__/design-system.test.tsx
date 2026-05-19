@@ -48,6 +48,7 @@ import {
   SearchInput,
   Sidebar,
   StickyCtaBar,
+  Tabs as ActionTabs,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
@@ -1397,6 +1398,19 @@ describe("design-system", () => {
 
     expect(screen.getByRole("tab", { name: "Summary" })).toBeTruthy();
     expect(screen.getByText("Summary content")).toBeTruthy();
+  });
+
+  it("renders action tabs with a scroll-stable panel frame", () => {
+    const markup = renderToString(
+      <ActionTabs
+        items={[
+          { value: "listings", label: "Listings", content: <div>Listings content</div> },
+          { value: "offers", label: "Offers", content: <div>Offers content</div> }
+        ]}
+      />
+    );
+
+    expect(markup).toContain("[overflow-anchor:none]");
   });
 
   it("opens dialogs from triggers", async () => {
