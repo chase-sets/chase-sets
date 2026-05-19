@@ -29,7 +29,10 @@ async function bootstrap() {
       (entry) => entry.contextName === "catalog",
     );
     if (catalogContext) {
-      await bootstrapCatalogDatabase(catalogContext.pool);
+      await bootstrapCatalogDatabase(catalogContext.pool, undefined, {
+        enabledDataProfiles: config.dataProfiles,
+        environmentName: config.deploymentEnvironment,
+      });
     }
 
     if (config.platformAdmin) {

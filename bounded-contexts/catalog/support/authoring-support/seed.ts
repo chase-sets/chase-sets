@@ -99,7 +99,7 @@ async function seedCatalogScenarioData(
 ): Promise<void> {
   const services = createCatalogServices(pool);
 
-  if (await tableHasRows(services.db, "catalog_item_pages")) {
+  if (await tableHasRows(services.db, "catalog_items")) {
     console.log("Catalog scenario items already exist. Skipping scenario seed.");
     return;
   }

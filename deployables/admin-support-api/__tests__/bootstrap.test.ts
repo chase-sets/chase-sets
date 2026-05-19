@@ -12,6 +12,8 @@ const bootstrapSource = readFileSync(
 describe("admin-support bootstrap profile", () => {
   it("uses production-safe seed orchestration only", () => {
     expect(bootstrapSource).toContain("bootstrapCatalogDatabase");
+    expect(bootstrapSource).toContain("enabledDataProfiles: config.dataProfiles");
+    expect(bootstrapSource).toContain("environmentName: config.deploymentEnvironment");
     expect(bootstrapSource).toContain("bootstrapPlatformAdminIdentity");
     expect(bootstrapSource).toContain("bootstrapPlatformAdminPassword");
     expect(bootstrapSource).not.toContain("seedApiHostIfEmpty");
