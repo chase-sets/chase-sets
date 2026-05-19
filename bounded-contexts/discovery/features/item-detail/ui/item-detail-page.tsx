@@ -29,6 +29,7 @@ import {
   SegmentedControl,
   Stack,
   Surface,
+  Tabs,
   Text,
   cx,
   formatMarketplaceNumber,
@@ -85,10 +86,15 @@ export type ItemDetailCommerceSections = Readonly<{
   buy: ReactNode;
   offer?: ReactNode;
   sell?: ReactNode;
-  mobile?: Partial<Record<"buy" | "offer" | "sell" | "list", ItemDetailMobileCommerceSection>>;
+  watch?: ReactNode;
+  mobile?: Partial<Record<"buy" | "offer" | "sell" | "list" | "watch", ItemDetailMobileCommerceSection>>;
   sellLabel?: string;
   listLabel?: string;
+  watchLabel?: string;
 }>;
+
+type MarketIntent = "buy" | "sell" | "watch";
+type MarketBookTab = "listings" | "offers" | "sales" | "details";
 
 function productOptionsFromSelectionDetails(
   selections: readonly { label: ReactNode; value: ReactNode }[],
@@ -382,7 +388,7 @@ function selectionsFromListing(
 
 function getInitialSelections(
   data: DiscoveryItemDetail | null,
-  marketIntent: "buy" | "sell",
+  marketIntent: MarketIntent,
   initialSelectedOptions: readonly { dimensionId: string; optionId: string }[] = [],
   hasInitialSelectedOptionFilters = false,
 ): Record<string, string> {
@@ -407,7 +413,7 @@ function getInitialSelections(
   return normalizeProductSearchOptionsForSchema(data.product_schema, selections);
 }
 
-function updateMarketIntentUrl(marketIntent: "buy" | "sell") {
+function updateMarketIntentUrl(marketIntent: "buy" | "sell" | "watch") {
   if (typeof window === "undefined") {
     return;
   }
@@ -670,7 +676,7 @@ export function ItemDetailPage({
   error?: string | null;
   accountOfferMatches?: readonly DiscoveryAccountOfferMatch[];
   viewerAccountId?: string | null;
-  initialMarketIntent?: "buy" | "sell";
+  initialMarketIntent?: MarketIntent;
   initialSelectedOptions?: readonly { dimensionId: string; optionId: string }[];
   hasInitialSelectedOptionFilters?: boolean;
   renderCommerce?: (
@@ -721,7 +727,7 @@ function LoadedItemDetailPage({
   data: DiscoveryItemDetail;
   accountOfferMatches: readonly DiscoveryAccountOfferMatch[];
   viewerAccountId: string | null;
-  initialMarketIntent: "buy" | "sell";
+  initialMarketIntent: MarketIntent;
   initialSelectedOptions: readonly { dimensionId: string; optionId: string }[];
   hasInitialSelectedOptionFilters: boolean;
   renderCommerce?: (
@@ -739,12 +745,15 @@ function LoadedItemDetailPage({
   );
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
-  const [marketIntent, setMarketIntent] = useState<"buy" | "sell">(
+  const [marketIntent, setMarketIntent] = useState<MarketIntent>(
     initialMarketIntent,
   );
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<
-    "buy" | "offer" | "sell" | "list" | null
+    "buy" | "offer" | "sell" | "list" | "watch" | null
   >(null);
+  const [marketBookTab, setMarketBookTab] = useState<MarketBookTab>(
+    initialMarketIntent === "sell" ? "offers" : "listings",
+  );
 
   useEffect(() => {
     setSelections(getInitialSelections(
@@ -756,6 +765,7 @@ function LoadedItemDetailPage({
     setSelectedListingId(null);
     setSelectedOfferId(null);
     setMarketIntent(initialMarketIntent);
+    setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
     setActiveMobileCommerce(null);
   }, [
     data.catalog_item_id,
@@ -889,7 +899,7 @@ function LoadedItemDetailPage({
   const selectedOfferForProduct =
     !suppressImplicitProductSelection && marketIntent === "sell" ? selectedOffer : null;
   const selectedListingForProduct =
-    !suppressImplicitProductSelection && marketIntent === "buy" ? selectedListing : null;
+    !suppressImplicitProductSelection && marketIntent !== "sell" ? selectedListing : null;
   const selectedProductOptions =
     hasCompleteProductSelection ||
     (!selectedListingForProduct && !selectedOfferForProduct && !singleMatchingListing)
@@ -928,7 +938,7 @@ function LoadedItemDetailPage({
           marketIntent === "sell"
             ? itemOfferDemandMatches
             : buyableMarketListings,
-        mode: marketIntent,
+        mode: marketIntent === "sell" ? "sell" : "buy",
         productSchema: data.product_schema,
         selections,
       })
@@ -1033,7 +1043,9 @@ function LoadedItemDetailPage({
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
   const commerceContent = commerceSections
-    ? marketIntent === "sell" && commerceSections.sell
+    ? marketIntent === "watch" && commerceSections.watch
+      ? commerceSections.watch
+      : marketIntent === "sell" && commerceSections.sell
       ? commerceSections.sell
       : commerceSections.offer
         ? (
@@ -1051,11 +1063,14 @@ function LoadedItemDetailPage({
       items={[
         { value: "buy", label: t("discovery.features.itemDetail.ui.itemDetailPage.buy") },
         { value: "sell", label: t("discovery.features.itemDetail.ui.itemDetailPage.sell") },
+        { value: "watch", label: commerceSections?.watchLabel ?? t("discovery.features.search.ui.searchPage.watch") },
       ]}
       value={marketIntent}
       onValueChange={(value) => {
-        const nextMarketIntent = value === "sell" ? "sell" : "buy";
+        const nextMarketIntent: MarketIntent =
+          value === "sell" ? "sell" : value === "watch" ? "watch" : "buy";
         setMarketIntent(nextMarketIntent);
+        setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
         updateMarketIntentUrl(nextMarketIntent);
       }}
     />
@@ -1151,6 +1166,8 @@ function LoadedItemDetailPage({
         ? commerceSections?.offer
         : activeMobileCommerce === "sell"
           ? commerceSections?.sell
+          : activeMobileCommerce === "watch"
+            ? commerceSections?.watch
           : null);
   const activeMobileCommerceTitle =
     activeMobileCommerceSection?.title ??
@@ -1158,6 +1175,8 @@ function LoadedItemDetailPage({
       ? t("discovery.features.itemDetail.ui.itemDetailPage.buy.selected.product")
       : activeMobileCommerce === "offer"
         ? t("discovery.features.itemDetail.ui.itemDetailPage.make.offer")
+        : activeMobileCommerce === "watch"
+          ? commerceSections?.watchLabel ?? t("discovery.features.search.ui.searchPage.watch")
         : activeMobileCommerce === "list"
           ? commerceSections?.listLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.list")
           : commerceSections?.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell"));
@@ -1216,11 +1235,31 @@ function LoadedItemDetailPage({
         {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.list")}</LinkButton>
     )
   ) : null;
+  const mobileWatchAction = (commerceSections?.mobile?.watch ?? commerceSections?.watch) ? (
+    selectedProductId ? (
+      <Button
+        type="button"
+        size="lg"
+        onClick={() => setActiveMobileCommerce("watch")}
+      >
+        {commerceSections.watchLabel ?? t("discovery.features.search.ui.searchPage.watch")}
+      </Button>
+    ) : (
+      <LinkButton href="#select-options" size="sm">
+        {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}</LinkButton>
+    )
+  ) : null;
   const mobileCommerceActionBar = commerce ? (
     <CommerceActionBar
       intentControl={renderMarketIntentControl(t("discovery.features.itemDetail.ui.itemDetailPage.choose.mobile.market.intent"), true)}
       summary={mobileCommerceSummary}
-      primaryAction={marketIntent === "sell" ? mobileSellAction : mobileBuyAction}
+      primaryAction={
+        marketIntent === "sell"
+          ? mobileSellAction
+          : marketIntent === "watch"
+            ? mobileWatchAction
+            : mobileBuyAction
+      }
       secondaryAction={marketIntent === "sell" ? mobileListAction : mobileOfferAction}
     />
   ) : null;
@@ -1369,8 +1408,21 @@ function LoadedItemDetailPage({
             mobileActionBar={mobileCommerceActionBar}
           >
             <Stack gap={6}>
-              {marketIntent === "buy" ? (
-                <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.listings.2")}>
+              <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.market.book")}>
+                <Tabs
+                  value={marketBookTab}
+                  onValueChange={(value) =>
+                    setMarketBookTab(
+                      value === "offers" || value === "sales" || value === "details"
+                        ? value
+                        : "listings",
+                    )
+                  }
+                  items={[
+                    {
+                      value: "listings",
+                      label: t("discovery.features.itemDetail.ui.itemDetailPage.listings.2"),
+                      content: (
                     <Stack gap={3}>
                       <Inline gap={2}>
                         <Text size="sm" tone="secondary">
@@ -1555,9 +1607,12 @@ function LoadedItemDetailPage({
                         />
                       )}
                     </Stack>
-                </PageSection>
-              ) : (
-                <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.offers.2")}>
+                      ),
+                    },
+                    {
+                      value: "offers",
+                      label: t("discovery.features.itemDetail.ui.itemDetailPage.offers.2"),
+                      content: (
                     <Stack gap={3}>
                       <Inline gap={2}>
                         <Text size="sm" tone="secondary">
@@ -1716,8 +1771,33 @@ function LoadedItemDetailPage({
                         />
                       )}
                     </Stack>
-                </PageSection>
-              )}
+                      ),
+                    },
+                    {
+                      value: "sales",
+                      label: t("discovery.features.itemDetail.ui.itemDetailPage.sales"),
+                      content: (
+                        <MarketplaceEmptyState
+                          title={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history")}
+                          description={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history.unavailable")}
+                        />
+                      ),
+                    },
+                    {
+                      value: "details",
+                      label: t("discovery.features.itemDetail.ui.itemDetailPage.details"),
+                      content: detailItems.length > 0 ? (
+                        <KeyValueList density="compact" items={detailItems} />
+                      ) : (
+                        <MarketplaceEmptyState
+                          title={t("discovery.features.itemDetail.ui.itemDetailPage.details")}
+                          description={t("discovery.features.itemDetail.ui.itemDetailPage.no.additional.details")}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+              </PageSection>
             </Stack>
           </MarketplaceProductDetailLayout>
           {mobileCommerceBottomSheet}

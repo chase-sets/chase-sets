@@ -6,6 +6,7 @@ const {
   mockCreateDiscoveryRequestApiClient,
   mockCreateMarketplaceRequestApiClient,
   mockCreateCheckoutRequestApiClient,
+  mockAddSellListLine,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockCreateSubmittedOffer,
@@ -18,6 +19,7 @@ const {
   mockCreateDiscoveryRequestApiClient: vi.fn(),
   mockCreateMarketplaceRequestApiClient: vi.fn(),
   mockCreateCheckoutRequestApiClient: vi.fn(),
+  mockAddSellListLine: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateSubmittedOffer: vi.fn(),
@@ -353,6 +355,67 @@ describe("item detail buy now action", () => {
       itemTitle: "Charizard",
       quantity: 2,
     });
+  });
+
+  it("adds selected products to the Checkout-owned Sell List", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addSellListLine: mockAddSellListLine.mockResolvedValue({ id: "sll_1" }),
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-product-to-sell-list");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set(
+      "selectedOptions",
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    form.set("productSummary", "Raw");
+    form.set("quantity", "3");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
+      request: expect.any(Request),
+      permission: "listings.manage",
+    });
+    expect(mockAddSellListLine).toHaveBeenCalledWith({
+      lineType: "product",
+      offerId: null,
+      buyerAccountId: null,
+      buyerDisplayName: null,
+      offerPriceAmount: null,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: "Base Set 4/102 Holo Rare",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw",
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+      quantity: 3,
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list");
   });
 
   it("starts signed-out buy now at guest checkout contact instead of sign-in", async () => {

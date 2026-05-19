@@ -54,7 +54,7 @@ test.describe("marketplace critical flows", () => {
     await signInWithPassword(page);
 
     await expect(page).toHaveURL(/\/account\/cart/);
-    await expect(page.getByText(/^Cart$/i).first()).toBeVisible();
+    await expect(page.getByText(/^Buy Cart$/i).first()).toBeVisible();
 
     await page.goto("/account/listings");
     await expect(page).toHaveURL(/\/account\/listings/);

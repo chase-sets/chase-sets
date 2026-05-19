@@ -74,14 +74,14 @@ Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a
 
 ## Critical Workflows
 
-Browse to cart:
+Browse to Buy Cart:
 
 1. `GET /api/marketplace/items`
 2. `GET /api/marketplace/items/{id}`
 3. `GET /api/marketplace/products/{productId}/market-summary`
 4. `POST /api/marketplace/account/cart`
 
-Cart to checkout:
+Buy Cart to checkout:
 
 1. `GET /api/marketplace/account/cart`
 2. `POST /api/marketplace/account/checkout-sessions`
@@ -89,6 +89,16 @@ Cart to checkout:
 4. `GET /api/marketplace/account/checkout/status`
 5. `POST /api/marketplace/account/checkout-sessions/{sessionId}/confirm`
 6. `GET /api/marketplace/account/payments/{id}`
+
+Offer Match to Sell List review:
+
+1. `GET /api/marketplace/account/offers/matches`
+2. `GET /api/marketplace/account/offers/matches/{id}`
+3. `POST /api/marketplace/account/sell-list`
+4. `GET /api/marketplace/account/sell-list`
+5. `POST /api/marketplace/account/sell-list/{lineId}/remove`
+
+Checkout owns durable Sell List review state for selected offers and product-level Smart Match offer lines. Marketplace owns the Offer and Listing lifecycle; Offer Matches should source selected offers into Checkout Sell List instead of owning the review plan.
 
 Listing publication:
 
@@ -124,6 +134,8 @@ Offer acceptance:
 2. `GET /api/marketplace/account/offers/matches`
 3. `GET /api/marketplace/account/offers/matches/{id}/terms-preview`
 4. `POST /api/marketplace/account/offers/matches/{id}/accept`
+
+The legacy `POST /api/marketplace/account/offers/match-sell-list` and `POST /api/marketplace/account/offers/match-sell-list/accept` endpoints remain documented in OpenAPI as deprecated compatibility surfaces during the Checkout Sell List transition. New clients should use `/api/marketplace/account/sell-list` for durable review state and the direct offer acceptance endpoint for immediate commitment.
 
 ## Marketplace Sales Fee Confirmation
 

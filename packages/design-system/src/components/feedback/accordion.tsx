@@ -38,6 +38,7 @@ export interface AccordionItem {
   value: string;
   trigger: ReactNode;
   content: ReactNode;
+  disabled?: boolean;
 }
 
 export type AccordionSectionEdge = "card" | "compact" | "panel";
@@ -240,6 +241,7 @@ export function Accordion({
           <AccordionPrimitive.Item
             key={item.value}
             value={item.value}
+            disabled={item.disabled}
             ref={isOpen ? activeItemRef : undefined}
             className={cx(
               "border-muted",
@@ -260,6 +262,7 @@ export function Accordion({
           >
             <AccordionPrimitive.Header>
               <AccordionPrimitive.Trigger
+                disabled={item.disabled}
                 className={cx(
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
                   isSectionList && edgeMode === "compact" && "px-3 py-2.5",
@@ -270,6 +273,7 @@ export function Accordion({
                     "px-4 py-2.5",
                   !isSectionList && "px-4 py-3",
                   isSectionList && isOpen && "text-accent hover:bg-transparent",
+                  item.disabled && "cursor-not-allowed opacity-55 hover:bg-transparent",
                 )}
               >
                 <span className="flex-1">{item.trigger}</span>

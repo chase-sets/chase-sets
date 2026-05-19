@@ -4,6 +4,25 @@
 
 A **Cart** is mutable saved purchase intent for one or more products before an active checkout session starts.
 
+## Sell List
+
+A **Sell List** is mutable saved seller intent for one or more Products before selected offers, Smart Match offers, or fallback listings become sale commitments.
+
+Notes:
+
+- Sell List is owned by Checkout because review, payment readiness, ordering, payout, and fulfillment orchestration follow the checkout-plan shape.
+- Marketplace remains the owner of Offer acceptance and Listing lifecycle commands.
+- Sellers should see Sell List language, not cart language.
+
+## Smart Match
+
+**Smart Match** is the user-facing label for Checkout-owned matching and optimization settings over product-level Cart or Sell List lines.
+
+Examples:
+
+- Smart Match listings for Buy Cart product lines.
+- Smart Match offers for Sell List product lines.
+
 ## Checkout Session
 
 A **Checkout Session** is a short-lived active purchase workflow snapshot created from the cart, a buy-now action, or an offer-intent action.

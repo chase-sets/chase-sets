@@ -4,6 +4,7 @@ const {
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockCreateCheckoutRequestApiClient,
+  mockCreateMarketplaceRequestApiClient,
   mockCreateOrderingRequestApiClient,
   mockCreateAuthRequestApiClient,
   mockCreateCheckoutSession,
@@ -15,10 +16,13 @@ const {
   mockMergeGuestCartToAccount,
   mockGetCart,
   mockGetGuestCart,
+  mockGetOfferMatch,
+  mockAddSellListLine,
 } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateCheckoutRequestApiClient: vi.fn(),
+  mockCreateMarketplaceRequestApiClient: vi.fn(),
   mockCreateOrderingRequestApiClient: vi.fn(),
   mockCreateAuthRequestApiClient: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
@@ -30,6 +34,8 @@ const {
   mockMergeGuestCartToAccount: vi.fn(),
   mockGetCart: vi.fn(),
   mockGetGuestCart: vi.fn(),
+  mockGetOfferMatch: vi.fn(),
+  mockAddSellListLine: vi.fn(),
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -63,6 +69,10 @@ vi.mock("@chase-sets/ordering/server", () => ({
   createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
 }));
 
+vi.mock("@chase-sets/marketplace/server", () => ({
+  createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
+}));
+
 import { AuthApiError } from "@chase-sets/auth/server";
 import {
   action as checkoutStartAction,
@@ -75,6 +85,7 @@ import {
   loader as checkoutSessionLoader,
 } from "./checkout-session";
 import { loader as accountCartLoader } from "./account-cart";
+import { action as accountSellListAction } from "./account-sell-list";
 
 describe("checkout web routes", () => {
   afterEach(() => {
@@ -169,6 +180,63 @@ describe("checkout web routes", () => {
     expect(result).toEqual({ cart: { items: [], count: 0 } });
     expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).not.toHaveBeenCalled();
+  });
+
+  it("adds a Marketplace offer match to the Checkout-owned sell list", async () => {
+    mockGetOfferMatch.mockResolvedValue({
+      offer_id: "off_1",
+      buyer_account_id: "acc_buyer",
+      buyer_display_name: "Collector123",
+      price_amount: "40.00",
+      catalog_catalog_item_id: "cat_mewtwo",
+      product_id: "cat_mewtwo::raw:nm",
+      item_title: "Mewtwo",
+      item_subtitle: "Black Star Promo 3",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw / Near Mint",
+      quantity_requested: 2,
+    });
+    mockAddSellListLine.mockResolvedValue({ status: "added" });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getOfferMatch: mockGetOfferMatch,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addSellListLine: mockAddSellListLine,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-selected-offer");
+    form.set("offerId", "off_1");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockGetOfferMatch).toHaveBeenCalledWith("off_1");
+    expect(mockAddSellListLine).toHaveBeenCalledWith({
+      lineType: "selected-offer",
+      offerId: "off_1",
+      buyerAccountId: "acc_buyer",
+      buyerDisplayName: "Collector123",
+      offerPriceAmount: "40.00",
+      catalogItemId: "cat_mewtwo",
+      productId: "cat_mewtwo::raw:nm",
+      itemTitle: "Mewtwo",
+      itemSubtitle: "Black Star Promo 3",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw / Near Mint",
+      quantity: 2,
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list");
   });
 
   it("preserves buy-now checkout intent in the sign-in return target", async () => {
@@ -454,7 +522,7 @@ describe("checkout web routes", () => {
 
     expect(result).toEqual({
       error:
-        "Sign in to continue checkout with this email. Your cart will stay ready.",
+        "Sign in to continue checkout with this email. Your Buy Cart will stay ready.",
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();

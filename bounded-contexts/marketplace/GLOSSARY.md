@@ -30,6 +30,7 @@ Notes:
 - Accounts see their submitted demand as Submitted Offers.
 - Offers may be captured through Checkout Offer Intent, but Marketplace remains the owner of validation, lifecycle, visibility, matching, and acceptance.
 - Accounts can review Offer Matches only when they have matching active listings.
+- Offer Match source lists can add selected offers to Checkout Sell List; Checkout owns durable Sell List review state.
 - Discovery Product Alerts may consume limited offer demand signals for subscribed accounts without exposing buyer identity or full Offer detail.
 - When accepted, an offer leaves public marketplace-wide demand and becomes a commitment input for the selling account in Ordering.
 

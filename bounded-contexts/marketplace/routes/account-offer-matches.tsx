@@ -6,7 +6,6 @@ import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtim
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
-  type MarketplaceListingTermsPreview,
   type OfferMatchListItem,
 } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
@@ -29,23 +28,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   const api = createMarketplaceRequestApiClient(request);
 
-  const [offerMatches, sellList] = await Promise.all([
-    api.listOfferMatches(DEFAULT_OFFER_QUERY),
-    api.getOfferMatchSellList(),
-  ]);
-  const sellListTermsEntries = await Promise.all(
-    sellList.items
-      .filter((item) => item.status === "submitted")
-      .map(async (item) => [
-        item.offer_id,
-        await api.previewOfferAcceptanceTerms(item.offer_id),
-      ] as const),
-  );
+  const offerMatches = await api.listOfferMatches(DEFAULT_OFFER_QUERY);
 
   return {
     offerMatches,
-    sellList,
-    sellListTermsByOfferId: Object.fromEntries(sellListTermsEntries),
   };
 }
 
@@ -138,10 +124,6 @@ function MarketplaceAccountOfferMatchesRealtimeView({
   return (
     <MarketplaceOfferMatchListPage
       data={offerMatches}
-      cartData={data.sellList as ListResponse<OfferMatchListItem>}
-      cartTermsByOfferId={
-        data.sellListTermsByOfferId as Record<string, MarketplaceListingTermsPreview>
-      }
       errorMessage={actionData?.error ?? null}
     />
   );
