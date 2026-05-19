@@ -272,7 +272,7 @@ function buildItemDetailImages(data: DiscoveryItemDetail) {
     return [{
       src: detailSrc,
       srcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "catalog-detail"),
-      sizes: "(min-width: 768px) 384px, min(100vw, 352px)",
+      sizes: "(min-width: 768px) 308px, min(100vw, 276px)",
       thumbnailSrc: thumbnailSrc ?? detailSrc,
       thumbnailSrcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "thumbnail"),
       alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
@@ -1461,12 +1461,13 @@ function LoadedItemDetailPage({
                 <ImageGallery
                   images={images}
                   aspectRatio="5/7"
-                  maxHeightClassName="mx-auto max-w-[min(100%,22rem)] md:max-w-[min(100%,24rem)] [--gallery-max-height:32rem]"
+                  maxHeightClassName="max-w-[min(100%,17.25rem)] md:max-w-[min(100%,19.25rem)] [--gallery-max-height:27rem]"
+                  thumbnailPlacement="left"
                   fallbackImage={{
                     src: imageFallback.url,
                     alt: imageFallback.alt,
                     srcSet: imageVariantSrcSet(imageFallback, "detail"),
-                    sizes: "(min-width: 768px) 24rem, 100vw",
+                    sizes: "(min-width: 768px) 19.25rem, min(100vw, 17.25rem)",
                   }}
                   fallbackImageMode={imageFallback.usage}
                   emptyState={

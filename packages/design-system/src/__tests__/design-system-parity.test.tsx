@@ -958,6 +958,21 @@ describe("design system", () => {
     expect(markup).toContain("Back");
   });
 
+  it("renders ImageGallery thumbnails on a left rail", () => {
+    const markup = renderToString(
+      <ImageGallery
+        images={[
+          { src: "/img1.jpg", alt: "Front" },
+          { src: "/img2.jpg", alt: "Back" }
+        ]}
+        thumbnailPlacement="left"
+      />
+    );
+
+    expect(markup).toContain("flex items-start justify-center gap-3");
+    expect(markup).toContain("w-16 shrink-0 flex-col");
+  });
+
   it("renders ImageGallery empty states inside the gallery frame", () => {
     const markup = renderToString(
       <ImageGallery
