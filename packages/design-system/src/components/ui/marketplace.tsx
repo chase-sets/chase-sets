@@ -354,13 +354,13 @@ export function TrustBadge({ children, tone = "verified", className }: TrustBadg
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold leading-4",
+        "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold leading-4",
         toneClass,
         className
       )}
     >
-      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      {children}
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 break-words">{children}</span>
     </span>
   );
 }

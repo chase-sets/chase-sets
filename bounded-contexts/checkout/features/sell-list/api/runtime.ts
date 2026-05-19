@@ -1,0 +1,217 @@
+import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import {
+  createCommandHandler,
+  type CommandHandler,
+} from "@chase-sets/event-core/command-handler";
+import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { SellListLineId } from "../../../support/runtime-support/common";
+import {
+  CheckoutDomainError,
+  createCheckoutProductDescriptor,
+  type CheckoutVersionSchema,
+} from "../../../support/runtime-support/common";
+import { drainOwnedProjector } from "../../../support/runtime-support/projectors";
+import {
+  decideCheckoutSellList,
+  evolveCheckoutSellList,
+  initialCheckoutSellListState,
+  type CheckoutSellListCommand,
+  type CheckoutSellListEvent,
+  type CheckoutSellListState,
+} from "../domain/domain";
+import { buildCheckoutSellListProjectionHandlers } from "../read-model/projection";
+import { listSellListLines } from "../read-model/queries";
+
+export type AddCheckoutSellListLineInput = Readonly<{
+  sellerAccountId: AccountId;
+  lineType: "selected-offer" | "product";
+  offerId?: string | null;
+  buyerAccountId?: string | null;
+  buyerDisplayName?: string | null;
+  offerPriceAmount?: string | null;
+  catalogItemId: string;
+  productId: string;
+  itemTitle: string;
+  itemSubtitle: string | null;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary: string | null;
+  quantity: number;
+  fallbackMode?: "none" | "create-listing";
+  minimumListingPriceAmount?: string | null;
+}>;
+
+export type CheckoutSellListRuntimeDeps = Readonly<{
+  eventStore: EventStore;
+  checkpointStore: ProjectionCheckpointStore;
+  db: PgQueryable;
+}>;
+
+export type CheckoutSellListServices = Readonly<{
+  commandHandler: CommandHandler<
+    CheckoutSellListCommand,
+    CheckoutSellListState,
+    CheckoutSellListEvent
+  >;
+  addLine: (
+    params: AddCheckoutSellListLineInput,
+    context: EventStoreContext,
+  ) => Promise<{ lineId: SellListLineId; version: number; status: "added" | "merged" }>;
+  removeLine: (
+    params: Readonly<{ sellerAccountId: AccountId; lineId: SellListLineId }>,
+    context: EventStoreContext,
+  ) => Promise<{ lineId: SellListLineId; version: number }>;
+  listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
+  projectors: readonly Projector[];
+}>;
+
+export function createCheckoutSellListRuntime(
+  deps: CheckoutSellListRuntimeDeps,
+): CheckoutSellListServices {
+  const commandHandler = createCommandHandler({
+    repository: createAggregateRepository({
+      eventStore: deps.eventStore,
+      codec: createPassthroughDomainEventCodec<CheckoutSellListEvent>(),
+      initialState: () => initialCheckoutSellListState,
+      evolve: evolveCheckoutSellList,
+    }),
+    evolve: evolveCheckoutSellList,
+    decide: decideCheckoutSellList,
+  });
+  const sellListProjector = createProjector({
+    projectorName: "checkout.sell-list-projection",
+    eventStore: deps.eventStore,
+    checkpointStore: deps.checkpointStore,
+    handlers: buildCheckoutSellListProjectionHandlers(deps.db),
+  });
+
+  async function getCatalogItemSnapshot(catalogItemId: string) {
+    const result = await deps.db.query<{
+      catalog_item_id: string;
+      status: string;
+      product_schema: unknown;
+    }>(
+      `SELECT catalog_item_id, status, product_schema
+       FROM checkout_catalog_items
+       WHERE catalog_item_id = $1`,
+      [catalogItemId],
+    );
+
+    return result.rows[0] ?? null;
+  }
+
+  async function normalizeInput(params: AddCheckoutSellListLineInput) {
+    const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
+    if (!catalogItem) {
+      throw new CheckoutDomainError("Catalog item not found.");
+    }
+
+    if (catalogItem.status !== "active") {
+      throw new CheckoutDomainError(
+        "Sell list lines may only reference active catalog items.",
+      );
+    }
+
+    const product = createCheckoutProductDescriptor({
+      catalogItemId: params.catalogItemId,
+      productSchema:
+        typeof catalogItem.product_schema === "object" &&
+        catalogItem.product_schema !== null
+          ? (catalogItem.product_schema as CheckoutVersionSchema)
+          : null,
+      selection: params.selectedOptions,
+    });
+
+    if (params.productId.trim() !== product.productId) {
+      throw new CheckoutDomainError(
+        "Sell list product id does not match the selected options.",
+      );
+    }
+
+    return {
+      ...params,
+      offerId: params.offerId ?? null,
+      buyerAccountId: params.buyerAccountId ?? null,
+      buyerDisplayName: params.buyerDisplayName ?? null,
+      offerPriceAmount: params.offerPriceAmount ?? null,
+      productId: product.productId,
+      selectedOptions: product.selection,
+      itemSubtitle: params.itemSubtitle ?? null,
+      productSummary: params.productSummary ?? null,
+      fallbackMode: params.fallbackMode ?? "none",
+      minimumListingPriceAmount: params.minimumListingPriceAmount ?? null,
+    };
+  }
+
+  const addLine: CheckoutSellListServices["addLine"] = async (params, context) => {
+    const normalized = await normalizeInput(params);
+    const existingLine = (await listSellListLines(deps.db, params.sellerAccountId))
+      .find((line) =>
+        normalized.lineType === "selected-offer" && normalized.offerId
+          ? line.offer_id === normalized.offerId
+          : line.line_type === "product" &&
+            line.product_id === normalized.productId &&
+            line.fallback_mode === normalized.fallbackMode &&
+            (line.minimum_listing_price_amount ?? null) === normalized.minimumListingPriceAmount,
+      );
+
+    if (existingLine) {
+      if (existingLine.line_type === "product") {
+        const result = await commandHandler({
+          streamId: `checkout.sell-list-${params.sellerAccountId}`,
+          command: {
+            type: "SetSellListLineQuantity",
+            lineId: existingLine.line_id as SellListLineId,
+            quantity: existingLine.quantity + normalized.quantity,
+          },
+          context,
+        });
+        await drainOwnedProjector(sellListProjector);
+
+        return { lineId: existingLine.line_id as SellListLineId, version: result.version, status: "merged" };
+      }
+
+      return { lineId: existingLine.line_id as SellListLineId, version: 0, status: "merged" };
+    }
+
+    const lineId = createId("sll") as SellListLineId;
+    const result = await commandHandler({
+      streamId: `checkout.sell-list-${params.sellerAccountId}`,
+      command: {
+        type: "AddSellListLine",
+        lineId,
+        ...normalized,
+      },
+      context,
+    });
+    await drainOwnedProjector(sellListProjector);
+
+    return { lineId, version: result.version, status: "added" };
+  };
+
+  return {
+    commandHandler,
+    addLine,
+    removeLine: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `checkout.sell-list-${params.sellerAccountId}`,
+        command: {
+          type: "RemoveSellListLine",
+          lineId: params.lineId,
+        },
+        context,
+      });
+      await drainOwnedProjector(sellListProjector);
+
+      return { lineId: params.lineId, version: result.version };
+    },
+    listLines: (sellerAccountId) => listSellListLines(deps.db, sellerAccountId),
+    projectors: [sellListProjector],
+  };
+}

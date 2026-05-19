@@ -23,12 +23,14 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Listing visibility and activation state
 - Seller Listing Availability
 - Marketplace-wide demand visibility for matching seller supply
+- Source liquidity lists that let sellers send selected offers to Checkout Sell List
 
 ## Does Not Own
 
 - Inventory cost basis
 - Browse, search, and item detail discovery experiences
 - Cart checkout orchestration
+- Durable Buy Cart or Sell List execution-plan state
 - Final order settlement
 - Shipping execution
 
@@ -39,6 +41,8 @@ Marketplace sales fee confirmation rules are documented in [Marketplace Sales Fe
 Limited Product Alert demand visibility is documented in [Limited Offer Demand Signals](./docs/limited-offer-demand-signals.md).
 Seller Listing Availability is documented in [Seller Listing Availability](./docs/seller-listing-availability.md).
 Standard listing Inventory disclosure is documented in [Standard Listing Inventory Disclosure](./docs/standard-listing-inventory-disclosure.md).
+
+Offer Matches is a Marketplace source list. It can surface matching demand and post selected offer ids to the Checkout-owned Sell List route, but it must not own durable Sell List review, fee readiness, payout, fulfillment, or seller checkout orchestration.
 
 ## Core Aggregates and Process Managers
 

@@ -72,6 +72,35 @@ Marketplace search filters must preserve buyer momentum: selections stay visible
 - Mobile uses a compact filter bar plus Bottom Sheet for normal filtering. The sheet body may scroll as one surface with a sticky footer for `Clear` and `Show results`; dense single-facet search should become a focused sheet section or Full Page rather than a scrollbar inside the sheet.
 - Live dynamic filtering should update results, counts, and availability without making the layout jump unpredictably. Preserve active chips, group ordering stability, and the user's current place in the filter surface whenever possible.
 
+## Product Action Surfaces
+
+Marketplace product actions use three user-facing intents: Buy, Sell, and Watch. Search captures intent quickly from item cards. Item detail resolves the exact Product and, when needed, the selected Listing or Offer.
+
+- Search result cards may use compact Buy / Sell / Watch actions because the user is still scanning. The primary action should target the selected or default Product, and secondary menu choices can reveal immediate listing/offer actions.
+- Item detail should use an action accordion rail, not a long flat action list. Buy, Sell, and Watch are the rail's top-level intent sections.
+- Inside Buy and Sell, show selected counterparty actions before product-level actions. For Buy, selected Listing actions are `Buy now` and `Add selected listing to buy cart`; product actions are `Add product to buy cart`, `Make offer`, and `Watch listings`. For Sell, selected Offer actions are `Sell now` and `Add selected offer to sell list`; product actions are `Add product to sell list`, `Create listing`, and `Watch offers`.
+- Watch belongs beside Buy and Sell in the intent control. Listing alerts and offer alerts should not appear as buying or selling actions.
+- Advanced optimization and fallback rules do not belong in item-detail rails by default. Put them in Buy Cart and Sell List review.
+
+## Market Book
+
+Item detail market data should use a market-book tab set for `Listings`, `Offers`, `Sales`, and `Details`.
+
+- Listings and Offers are the active liquidity views and should support row selection when exact counterparty action is available.
+- Sales can be an empty or deferred state until a trustworthy sales-history read model exists.
+- Details can wrap existing catalog facts, but it should not replace the selected Product summary.
+- Keep the market book visually distinct from the action rail: the market book explains liquidity, while the rail commits or saves intent.
+
+## Buy Cart And Sell List Review
+
+Buy Cart and Sell List are checkout-plan review surfaces, not generic dashboards.
+
+- Buy Cart groups `Selected listings` separately from `Products`. Selected listing lines preserve exact Listing intent; product lines use Smart Match listings and may fall back to offers.
+- Sell List groups `Selected offers` separately from `Products`. Selected offer lines preserve exact Offer intent; product lines use Smart Match offers and may fall back to listing creation.
+- Use `Smart Match` as the visible name for matching and optimization. Keep implementation terms such as optimize, locked listing, fulfillment mode, and batch id out of primary UI copy.
+- Review surfaces should show the current optimization goal and fallback posture even when detailed controls are progressively disclosed.
+- Sellers should see Sell List language, never cart language. The Sell List can still live in Checkout because payment readiness, ordering, payout, and fulfillment orchestration follow the checkout-plan shape.
+
 ## Checkout Confidence
 
 Checkout must show item subtotal, shipping, fees, tax, discounts, wallet credit, and final total before payment. The sticky CTA should include the final action, payment confidence copy, and at most one secondary edit or escape action.

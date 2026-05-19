@@ -48,6 +48,7 @@ import {
   SearchInput,
   Sidebar,
   StickyCtaBar,
+  Tabs as ActionTabs,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
@@ -333,6 +334,8 @@ describe("design-system", () => {
     expect(markup).toContain("Verified account");
     expect(markup).toContain("Order protected");
     expect(markup).toContain("Secure payment");
+    expect(markup).toContain("max-w-full");
+    expect(markup).toContain("break-words");
     expect(markup).toContain("<svg");
   });
 
@@ -1097,7 +1100,7 @@ describe("design-system", () => {
     expect(markup).toContain("Edit cart");
   });
 
-  it("renders mobile product commerce above bottom navigation with content spacer", () => {
+  it("renders mobile product commerce as an in-flow sticky action area", () => {
     const markup = renderToString(
       <MarketplaceProductDetailLayout
         summary={<section>Product summary</section>}
@@ -1110,9 +1113,14 @@ describe("design-system", () => {
       </MarketplaceProductDetailLayout>
     );
 
-    expect(markup).toContain("fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
-    expect(markup).toContain("md:sticky");
-    expect(markup).toContain("h-32 md:hidden");
+    expect(markup).toContain("sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
+    expect(markup).not.toContain("fixed inset-x-3");
+    expect(markup).not.toContain("h-32 md:hidden");
+    expect(markup).toContain("xl:col-span-2");
+    expect(markup).toContain("xl:sticky xl:top-20");
+    expect(markup).toContain("xl:max-h-[calc(100dvh-5rem)]");
+    expect(markup).toContain("xl:overflow-x-hidden");
+    expect(markup).toContain("xl:[scrollbar-gutter:stable]");
     expect(markup.indexOf("Offers list")).toBeLessThan(
       markup.indexOf("Mobile buy sell panel")
     );
@@ -1396,6 +1404,19 @@ describe("design-system", () => {
 
     expect(screen.getByRole("tab", { name: "Summary" })).toBeTruthy();
     expect(screen.getByText("Summary content")).toBeTruthy();
+  });
+
+  it("renders action tabs with a scroll-stable panel frame", () => {
+    const markup = renderToString(
+      <ActionTabs
+        items={[
+          { value: "listings", label: "Listings", content: <div>Listings content</div> },
+          { value: "offers", label: "Offers", content: <div>Offers content</div> }
+        ]}
+      />
+    );
+
+    expect(markup).toContain("[overflow-anchor:none]");
   });
 
   it("opens dialogs from triggers", async () => {

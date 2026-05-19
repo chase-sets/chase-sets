@@ -2,7 +2,6 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { MarketplaceOfferMatchListPage } from "./offer-match-list-page";
 import type { OfferMatchListItem } from "./contracts";
-import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 
 const offer: OfferMatchListItem = {
   offer_id: "off_1",
@@ -35,33 +34,21 @@ const offer: OfferMatchListItem = {
   in_sell_list: true,
 };
 
-const terms: MarketplaceListingTermsPreview = {
-  account_type: "business",
-  basis_amount: "20.00",
-  marketplace_sales_fee_unit_amount: "1.00",
-  seller_net_unit_amount: "19.00",
-  shipping_allowance_percentage_bps: 500,
-  schedule_id: "cts_launch",
-  agreement_id: null,
-  resolved_at: "2026-04-28T00:00:00.000Z",
-  fee_quote_fingerprint: "terms-fingerprint",
-};
-
 describe("MarketplaceOfferMatchListPage", () => {
-  it("explains the seller shipping allowance on sell-list offer batches", () => {
+  it("presents offer matches as a source list for checkout sell list review", () => {
     const markup = renderToString(
       <MarketplaceOfferMatchListPage
         data={{ items: [offer] }}
-        cartData={{ items: [offer] }}
-        cartTermsByOfferId={{ [offer.offer_id]: terms }}
       />,
     );
 
-    expect(markup).toContain("Seller shipping allowance");
-    expect(markup).toContain("Queue multiple offers from the same buyer");
-    expect(markup).toContain("Shipping allowance: 5% of accepted offer value");
-    expect(markup).toContain("Listing price: $22.00");
-    expect(markup).toContain("Offer is 90.91% of ask");
+    expect(markup).toContain("Checkout Sell List");
+    expect(markup).toContain("Offer Matches is now a Marketplace source list");
+    expect(markup).toContain("Add selected offers to the Checkout Sell List");
+    expect(markup).toContain('action="/account/sell-list"');
+    expect(markup).toContain('name="intent" value="add-selected-offer"');
+    expect(markup).toContain('name="offerId" value="off_1"');
+    expect(markup).toContain("Add selected offer to Sell List");
   });
 
   it("shows listing price next to the best offer so sellers can judge the gap", () => {

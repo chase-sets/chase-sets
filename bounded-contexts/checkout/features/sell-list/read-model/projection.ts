@@ -1,0 +1,116 @@
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+export function buildCheckoutSellListProjectionHandlers(
+  db: PgQueryable,
+): ProjectorHandlerMap {
+  return {
+    "checkout.sell-list.line-added": async (event) => {
+      const data = event.data as {
+        sellerAccountId: string;
+        lineId: string;
+        lineType: string;
+        offerId: string | null;
+        buyerAccountId: string | null;
+        buyerDisplayName: string | null;
+        offerPriceAmount: string | null;
+        catalogItemId: string;
+        productId: string;
+        itemTitle: string;
+        itemSubtitle: string | null;
+        selectedOptions: unknown;
+        productSummary: string | null;
+        quantity: number;
+        fallbackMode: string;
+        minimumListingPriceAmount: string | null;
+      };
+
+      await db.query(
+        `INSERT INTO checkout_sell_list_line_pages (
+           seller_account_id,
+           line_id,
+           line_type,
+           offer_id,
+           buyer_account_id,
+           buyer_display_name,
+           offer_price_amount,
+           catalog_catalog_item_id,
+           product_id,
+           item_title,
+           item_subtitle,
+           selected_options,
+           product_summary,
+           quantity,
+           fallback_mode,
+           minimum_listing_price_amount,
+           created_at,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
+         ON CONFLICT (seller_account_id, line_id) DO UPDATE
+         SET line_type = EXCLUDED.line_type,
+             offer_id = EXCLUDED.offer_id,
+             buyer_account_id = EXCLUDED.buyer_account_id,
+             buyer_display_name = EXCLUDED.buyer_display_name,
+             offer_price_amount = EXCLUDED.offer_price_amount,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             product_id = EXCLUDED.product_id,
+             item_title = EXCLUDED.item_title,
+             item_subtitle = EXCLUDED.item_subtitle,
+             selected_options = EXCLUDED.selected_options,
+             product_summary = EXCLUDED.product_summary,
+             quantity = EXCLUDED.quantity,
+             fallback_mode = EXCLUDED.fallback_mode,
+             minimum_listing_price_amount = EXCLUDED.minimum_listing_price_amount,
+             updated_at = EXCLUDED.updated_at`,
+        [
+          data.sellerAccountId,
+          data.lineId,
+          data.lineType === "selected-offer" ? "selected-offer" : "product",
+          data.offerId,
+          data.buyerAccountId,
+          data.buyerDisplayName,
+          data.offerPriceAmount,
+          data.catalogItemId,
+          data.productId,
+          data.itemTitle,
+          data.itemSubtitle,
+          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
+          data.productSummary,
+          data.quantity,
+          data.fallbackMode === "create-listing" ? "create-listing" : "none",
+          data.minimumListingPriceAmount,
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "checkout.sell-list.line-quantity-set": async (event) => {
+      const data = event.data as { lineId: string; quantity: number };
+
+      await db.query(
+        `UPDATE checkout_sell_list_line_pages
+         SET quantity = $2,
+             updated_at = $3
+         WHERE line_id = $1`,
+        [data.lineId, data.quantity, event.timing.recordedAt],
+      );
+    },
+    "checkout.sell-list.line-removed": async (event) => {
+      const data = event.data as { lineId: string };
+
+      await db.query(
+        `DELETE FROM checkout_sell_list_line_pages
+         WHERE line_id = $1`,
+        [data.lineId],
+      );
+    },
+    "checkout.sell-list.checked-out": async (event) => {
+      const data = event.data as { sellerAccountId: string };
+
+      await db.query(
+        `DELETE FROM checkout_sell_list_line_pages
+         WHERE seller_account_id = $1`,
+        [data.sellerAccountId],
+      );
+    },
+  };
+}

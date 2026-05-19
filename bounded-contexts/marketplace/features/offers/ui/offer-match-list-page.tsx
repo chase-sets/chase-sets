@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   DataTable,
+  Inline,
   LinkButton,
   MarketplaceDashboardPanel,
   MarketplaceNotice,
@@ -18,7 +19,6 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchListItem } from "./contracts";
-import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 
 function statusTone(status: string) {
   switch (status) {
@@ -59,16 +59,6 @@ function formatPriceGap(amount: string) {
   return t("marketplace.features.offers.ui.offerMatchListPage.meets.ask");
 }
 
-function termsSource(terms: MarketplaceListingTermsPreview) {
-  if (terms.agreement_id) {
-    return "Seller terms";
-  }
-
-  return terms.schedule_id
-    ? "Standard seller terms"
-    : t("marketplace.features.offers.ui.offerMatchListPage.standard.terms");
-}
-
 function formatTimestamp(value: string) {
   const date = new Date(value);
 
@@ -86,16 +76,11 @@ function formatTimestamp(value: string) {
 
 export function MarketplaceOfferMatchListPage({
   data,
-  cartData,
-  cartTermsByOfferId,
   errorMessage,
 }: {
   data: { items: readonly OfferMatchListItem[] };
-  cartData?: { items: readonly OfferMatchListItem[] };
-  cartTermsByOfferId?: Readonly<Record<string, MarketplaceListingTermsPreview>>;
   errorMessage?: string | null;
 }) {
-  const queuedCount = cartData?.items.length ?? 0;
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
   const atOrAboveAskCount = data.items.filter(
     (item) => item.offer_to_listing_price_bps >= 10000,
@@ -108,10 +93,6 @@ export function MarketplaceOfferMatchListPage({
   const listingsUnavailable = data.items.some(
     (item) => item.seller_listing_availability_status === "unavailable",
   );
-  const nextAcceptableOffer = data.items.find((item) => item.can_fulfill && item.status === "submitted")
-    ?? data.items.find((item) => item.status === "submitted")
-    ?? data.items[0];
-
   return (
     <Page>
       <PageHeader
@@ -132,7 +113,7 @@ export function MarketplaceOfferMatchListPage({
           { label: t("marketplace.features.offers.ui.offerMatchListPage.ready.to.accept"), value: fulfillableCount },
           { label: t("marketplace.features.offers.ui.offerMatchListPage.at.or.above.ask"), value: atOrAboveAskCount },
           { label: t("marketplace.features.offers.ui.offerMatchListPage.best.match"), value: bestMatchPercentage },
-          { label: t("marketplace.features.offers.ui.offerMatchListPage.queued"), value: queuedCount },
+          { label: t("marketplace.features.offers.ui.offerMatchListPage.source.list"), value: t("marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list") },
         ]}
       />
 
@@ -156,100 +137,20 @@ export function MarketplaceOfferMatchListPage({
         <Card>
           <Stack gap={3}>
             <Banner
-              title={t("marketplace.features.offers.ui.offerMatchListPage.seller.shipping.allowance")}
-              description={t("marketplace.features.offers.ui.offerMatchListPage.offers.earn.five.percent.of.accepted.value.toward.shipping")}
+              title={t("marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list")}
+              description={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches.source.checkout.sell.list")}
             />
             <Text tone="secondary" size="sm">
-              {queuedCount} offer
-              {queuedCount === 1 ? "" : "s"} {t("marketplace.features.offers.ui.offerMatchListPage.queued.in.your.sell.list")}</Text>
-            {cartData?.items.length ? (
-              <Stack gap={2}>
-                {cartData.items.map((item) => {
-                  const terms = cartTermsByOfferId?.[item.offer_id] ?? null;
-
-                  return (
-                    <Stack key={item.offer_id} gap={1}>
-                      <Text size="sm" weight="semibold">{item.item_title}</Text>
-                      <Text size="sm" tone="secondary">
-                        {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.offer.price", {
-                          price: formatMoney(item.price_amount),
-                        })}
-                      </Text>
-                      <Text size="sm" tone="secondary">
-                        {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.listing.price", {
-                          price: formatMoney(item.listing_price_amount),
-                        })}
-                      </Text>
-                      <Text size="sm" tone="secondary">
-                        {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.offer.to.ask", {
-                          percentage: formatAllowancePercentage(item.offer_to_listing_price_bps),
-                        })}
-                      </Text>
-                      {terms ? (
-                        <>
-                          <Text size="sm" tone="secondary">
-                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.marketplace.fee", {
-                              amount: formatMoney(terms.marketplace_sales_fee_unit_amount),
-                            })}
-                          </Text>
-                          <Text size="sm" tone="secondary">
-                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.seller.net", {
-                              amount: formatMoney(terms.seller_net_unit_amount),
-                            })}
-                          </Text>
-                          <Text size="sm" tone="secondary">
-                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.shipping.allowance", {
-                              percentage: formatAllowancePercentage(terms.shipping_allowance_percentage_bps),
-                            })}
-                          </Text>
-                          <Text size="sm" tone="secondary">
-                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.terms.source", {
-                              source: termsSource(terms),
-                            })}
-                          </Text>
-                          <Text size="sm" tone="secondary">
-                            {t("marketplace.features.offers.ui.offerMatchListPage.sell.list.quote.time", {
-                              time: new Date(terms.resolved_at).toLocaleString(),
-                            })}
-                          </Text>
-                        </>
-                      ) : null}
-                    </Stack>
-                  );
-                })}
-              </Stack>
-            ) : null}
-            <form method="post">
-              {cartData?.items.map((item) => (
-                <input
-                  key={item.offer_id}
-                  type="hidden"
-                  name={`feeQuoteFingerprint:${item.offer_id}`}
-                  value={
-                    cartTermsByOfferId?.[item.offer_id]?.fee_quote_fingerprint ?? ""
-                  }
-                />
-              ))}
-              {cartData && cartData.items.length > 0 ? (
-                <Button
-                  type="submit"
-                  name="intent"
-                  value="accept-sell-list"
-                  disabled={cartData.items.some((item) => item.seller_listing_availability_status === "unavailable")}
-                >
-                  {t("marketplace.features.offers.ui.offerMatchListPage.accept.sell.list")}</Button>
-              ) : nextAcceptableOffer ? (
-                <LinkButton
-                  href={`/account/offers/matches/${nextAcceptableOffer.offer_id}`}
-                  tone="secondary"
-                >
-                  {t("marketplace.features.offers.ui.offerMatchListPage.open.next.match.to.accept")}</LinkButton>
-              ) : (
-                <Button type="submit" disabled>
-                  {t("marketplace.features.offers.ui.offerMatchListPage.no.offers.ready")}
-                </Button>
-              )}
-            </form>
+              {t("marketplace.features.offers.ui.offerMatchListPage.add.selected.offers.then.review")}
+            </Text>
+            <Inline gap={2}>
+              <LinkButton href="/account/sell-list">
+                {t("marketplace.features.offers.ui.offerMatchListPage.review.checkout.sell.list")}
+              </LinkButton>
+              <LinkButton href="/account/listings" tone="secondary">
+                {t("marketplace.features.offers.ui.offerMatchListPage.view.listings")}
+              </LinkButton>
+            </Inline>
           </Stack>
         </Card>
       </PageSection>
@@ -361,8 +262,22 @@ export function MarketplaceOfferMatchListPage({
               key: "actions",
               header: t("marketplace.features.offers.ui.offerMatchListPage.actions"),
               cell: (row) => (
-                <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
-                  {t("marketplace.features.offers.ui.offerMatchListPage.open")}</LinkButton>
+                <Stack gap={2}>
+                  <form method="post" action="/account/sell-list">
+                    <input type="hidden" name="intent" value="add-selected-offer" />
+                    <input type="hidden" name="offerId" value={row.offer_id} />
+                    <Button
+                      type="submit"
+                      tone="secondary"
+                      size="sm"
+                      disabled={!row.can_fulfill || row.status !== "submitted"}
+                    >
+                      {t("marketplace.features.offers.ui.offerMatchListPage.add.to.sell.list")}
+                    </Button>
+                  </form>
+                  <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
+                    {t("marketplace.features.offers.ui.offerMatchListPage.open")}</LinkButton>
+                </Stack>
               ),
             },
           ]}

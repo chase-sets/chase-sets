@@ -185,6 +185,15 @@ function buildItemDetailHref(
   return `/items/${slug}${query ? `?${query}` : ""}`;
 }
 
+function withMarketIntent(href: string, market: "buy" | "sell" | "watch") {
+  const [pathname, query = ""] = href.split("?");
+  const params = new URLSearchParams(query);
+  params.set("market", market);
+  const nextQuery = params.toString();
+
+  return `${pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+}
+
 export interface SearchPageProps {
   search: string;
   committedSearch?: string;
@@ -705,6 +714,9 @@ export function SearchPage({
                   item.product_asset_sets,
                   "search-card",
                 );
+                const buyHref = withMarketIntent(itemDetailHref, "buy");
+                const sellHref = withMarketIntent(itemDetailHref, "sell");
+                const watchHref = withMarketIntent(itemDetailHref, "watch");
 
                 return (
                   <ListingCard
@@ -739,11 +751,17 @@ export function SearchPage({
                         : t("discovery.features.search.ui.searchPage.supply.wanted")
                     }
                     primaryAction={
-                      <LinkButton href={itemDetailHref} size="sm">
-                        {hasActiveListings
-                          ? t("discovery.features.search.ui.searchPage.view.details")
-                          : t("discovery.features.search.ui.searchPage.view.market")}
-                      </LinkButton>
+                      <Inline gap={2}>
+                        <LinkButton href={buyHref} size="sm">
+                          {t("discovery.features.search.ui.searchPage.buy")}
+                        </LinkButton>
+                        <LinkButton href={sellHref} tone="secondary" size="sm">
+                          {t("discovery.features.search.ui.searchPage.sell")}
+                        </LinkButton>
+                        <LinkButton href={watchHref} tone="ghost" size="sm">
+                          {t("discovery.features.search.ui.searchPage.watch")}
+                        </LinkButton>
+                      </Inline>
                     }
                     secondaryAction={false}
                   />

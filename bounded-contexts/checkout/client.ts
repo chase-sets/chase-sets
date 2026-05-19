@@ -3,6 +3,7 @@ import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
+import type { CheckoutSellListLineRow } from "./features/sell-list/read-model/queries";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
@@ -46,6 +47,23 @@ export type AddCheckoutCartLinesResponse = Readonly<{
     status: "added" | "merged" | "failed";
     message: string | null;
   }[];
+}>;
+
+export type AddCheckoutSellListLineRequest = Readonly<{
+  lineType: "selected-offer" | "product";
+  offerId?: string | null;
+  buyerAccountId?: string | null;
+  buyerDisplayName?: string | null;
+  offerPriceAmount?: string | null;
+  catalogItemId: string;
+  productId: string;
+  itemTitle: string;
+  itemSubtitle?: string | null;
+  selectedOptions: readonly CheckoutSelectedOptionInput[];
+  productSummary?: string | null;
+  quantity: number;
+  fallbackMode?: "none" | "create-listing";
+  minimumListingPriceAmount?: string | null;
 }>;
 
 export type UpdateCheckoutCartLineQuantityRequest = Readonly<{
@@ -257,6 +275,25 @@ export function createCheckoutApiClient({
           header: mergeHeaders(headers, {
             "x-checkout-anonymous-cart-id": anonymousCartId,
           }),
+        }),
+      );
+    },
+    async getSellList(): Promise<{ items: readonly CheckoutSellListLineRow[]; count: number }> {
+      return parseJsonResponse(
+        await client.account["sell-list"].$get({ header: headers }),
+      );
+    },
+    async addSellListLine(body: AddCheckoutSellListLineRequest) {
+      return parseJsonResponse(
+        await client.account["sell-list"].$post({ json: body, header: headers }),
+      );
+    },
+    async removeSellListLine(lineId: string) {
+      return parseJsonResponse(
+        await client.account["sell-list"][":lineId"].remove.$post({
+          param: { lineId },
+          json: {},
+          header: headers,
         }),
       );
     },

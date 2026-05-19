@@ -6,12 +6,14 @@ import {
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
+import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
 import { createCheckoutSessionRuntime } from "../../features/sessions/api/runtime";
 
 export type CheckoutServiceOptions = Readonly<Record<string, never>>;
 
 export type CheckoutServices = Readonly<{
   cart: ReturnType<typeof createCheckoutCartRuntime>;
+  sellList: ReturnType<typeof createCheckoutSellListRuntime>;
   sessions: ReturnType<typeof createCheckoutSessionRuntime>;
   projectors: readonly Projector[];
   pool: PgTransactionalPool;
@@ -26,6 +28,7 @@ export function createCheckoutServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
+  const sellList = createCheckoutSellListRuntime({ eventStore, checkpointStore, db });
   const sessions = createCheckoutSessionRuntime({
     eventStore,
     checkpointStore,
@@ -35,8 +38,9 @@ export function createCheckoutServices(
 
   return {
     cart,
+    sellList,
     sessions,
-    projectors: [...cart.projectors, ...sessions.projectors],
+    projectors: [...cart.projectors, ...sellList.projectors, ...sessions.projectors],
     pool,
     db,
   };

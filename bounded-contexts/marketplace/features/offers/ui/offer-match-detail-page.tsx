@@ -105,6 +105,19 @@ export function MarketplaceOfferMatchDetailPage({
         </Button>
       </form>
     ) : null;
+  const addToSellListAction = canAcceptSubmitted ? (
+    <form method="post" action="/account/sell-list">
+      <input type="hidden" name="intent" value="add-selected-offer" />
+      <input type="hidden" name="offerId" value={offer.offer_id} />
+      <Button
+        type="submit"
+        tone="secondary"
+        disabled={!offer.can_fulfill}
+      >
+        {t("marketplace.features.offers.ui.offerMatchDetailPage.add.to.sell.list")}
+      </Button>
+    </form>
+  ) : null;
   return (
     <Page>
       <PageHeader
@@ -192,7 +205,12 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                 ]}
               />
-              {acceptOfferAction}
+              {acceptOfferAction || addToSellListAction ? (
+                <Inline gap={2}>
+                  {acceptOfferAction}
+                  {addToSellListAction}
+                </Inline>
+              ) : null}
             </Stack>
           </Card>
 
@@ -286,11 +304,7 @@ export function MarketplaceOfferMatchDetailPage({
             ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
             : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")}
           primaryAction={acceptOfferAction}
-          secondaryAction={
-            <LinkButton href="/account/offers/matches" tone="secondary">
-              {t("marketplace.features.offers.ui.offerMatchDetailPage.back.to.offer.matches")}
-            </LinkButton>
-          }
+          secondaryAction={addToSellListAction}
         />
       ) : null}
     </Page>

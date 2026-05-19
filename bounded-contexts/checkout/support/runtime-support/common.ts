@@ -1,6 +1,7 @@
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 
 export type CartLineId = TypedUlid<"cli">;
+export type SellListLineId = TypedUlid<"sll">;
 
 export type ShippingOption = "standard" | "expedited" | "priority";
 

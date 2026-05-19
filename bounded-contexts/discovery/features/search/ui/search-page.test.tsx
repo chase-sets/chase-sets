@@ -309,8 +309,12 @@ describe("SearchPage", () => {
       },
     });
 
-    expect(screen.getByRole("link", { name: "View details" }).getAttribute("href"))
-      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo");
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href"))
+      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=buy");
+    expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href"))
+      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=sell");
+    expect(screen.getByRole("link", { name: "Watch product" }).getAttribute("href"))
+      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=watch");
   });
 
   it("renders an accessible fallback action for cursor-loaded results", () => {
@@ -388,7 +392,7 @@ describe("SearchPage", () => {
       },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Add matching to cart" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add matching products to Buy Cart" }));
 
     expect(onPreview).toHaveBeenCalledTimes(1);
   });
@@ -437,7 +441,7 @@ describe("SearchPage", () => {
       },
     });
 
-    expect(screen.getByRole("dialog", { name: "Add matching products" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Add matching products to Buy Cart" })).toBeTruthy();
     expect(screen.getByText("Ready")).toBeTruthy();
     expect(screen.getByText("Need options")).toBeTruthy();
 

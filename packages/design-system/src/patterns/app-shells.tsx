@@ -1790,6 +1790,38 @@ export interface MarketplaceProductDetailLayoutProps {
   children?: ReactNode;
 }
 
+export interface MarketplaceProductCommerceRailProps {
+  children: ReactNode;
+  label?: string;
+}
+
+export function MarketplaceProductCommerceRail({
+  children,
+  label = "Commerce options"
+}: MarketplaceProductCommerceRailProps) {
+  return (
+    <div className="order-5 hidden min-w-0 xl:sticky xl:top-20 xl:order-3 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-x-hidden xl:overflow-y-auto xl:overscroll-contain xl:[scrollbar-gutter:stable]">
+      <Sidebar label={label} purpose="support" width="summary">
+        {children}
+      </Sidebar>
+    </div>
+  );
+}
+
+export interface MarketplaceProductMobileActionDockProps {
+  children: ReactNode;
+}
+
+export function MarketplaceProductMobileActionDock({
+  children
+}: MarketplaceProductMobileActionDockProps) {
+  return (
+    <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-sticky mt-6 xl:hidden">
+      <div className="mx-auto max-w-3xl">{children}</div>
+    </div>
+  );
+}
+
 export function MarketplaceProductDetailLayout({
   summary,
   media,
@@ -1801,27 +1833,18 @@ export function MarketplaceProductDetailLayout({
   return (
     <>
       <div className="grid gap-6 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)_24rem] xl:items-start 2xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)_26rem]">
-        <div className="order-2 xl:order-1 xl:sticky xl:top-24">{media}</div>
+        <div className="order-2 xl:order-1 xl:col-start-1 xl:row-start-1">{media}</div>
         <div className="contents min-w-0 xl:order-2 xl:block">
           <div className="order-1 min-w-0">
             {summary}
           </div>
           <div className="order-3 min-w-0 xl:mt-6">{market}</div>
-          <div className="order-4 min-w-0 xl:mt-6">{children}</div>
         </div>
-        <div className="order-4 hidden min-w-0 xl:order-3 xl:block">
-          <Sidebar label="Commerce options" purpose="support" width="summary" sticky>
-            {commerce}
-          </Sidebar>
-        </div>
+        <div className="order-4 min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-2">{children}</div>
+        <MarketplaceProductCommerceRail>{commerce}</MarketplaceProductCommerceRail>
       </div>
       {mobileActionBar ? (
-        <div className="xl:hidden">
-          <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-sticky md:sticky md:inset-x-auto md:bottom-4 md:mt-6 md:pb-0">
-            <div className="mx-auto max-w-3xl">{mobileActionBar}</div>
-          </div>
-          <div className="h-32 md:hidden" aria-hidden="true" />
-        </div>
+        <MarketplaceProductMobileActionDock>{mobileActionBar}</MarketplaceProductMobileActionDock>
       ) : null}
     </>
   );

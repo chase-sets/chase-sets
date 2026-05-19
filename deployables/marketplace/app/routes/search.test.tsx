@@ -297,8 +297,14 @@ describe("marketplace search route", () => {
     expect(screen.getByRole("link", { name: "View details for Pikachu" }).getAttribute("href")).toBe(
       "/items/pikachu",
     );
-    expect(screen.getByRole("link", { name: "View details" }).getAttribute("href")).toBe(
-      "/items/pikachu",
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
+      "/items/pikachu?market=buy",
+    );
+    expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href")).toBe(
+      "/items/pikachu?market=sell",
+    );
+    expect(screen.getByRole("link", { name: "Watch product" }).getAttribute("href")).toBe(
+      "/items/pikachu?market=watch",
     );
     expect(screen.getAllByText("English").length).toBeGreaterThan(0);
     expect(screen.queryByText("Language: en")).toBeNull();
@@ -320,8 +326,11 @@ describe("marketplace search route", () => {
     expect(screen.getAllByText("Supply wanted").length).toBeGreaterThan(0);
     expect(screen.getByText("Offer or list yours")).toBeTruthy();
     expect(screen.getByText("Make an offer or list yours to help this market form.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View market" }).getAttribute("href")).toBe(
-      "/items/pikachu",
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
+      "/items/pikachu?market=buy",
+    );
+    expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href")).toBe(
+      "/items/pikachu?market=sell",
     );
     expect(screen.queryByText("Watch market")).toBeNull();
   });

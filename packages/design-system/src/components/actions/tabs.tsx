@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-import { useState, useId } from "react";
+import { useEffect, useRef, useState, useId } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { renderActivePill } from "./shared";
@@ -34,18 +34,78 @@ export function Tabs({
 }: TabsProps) {
   const resolvedValue = defaultValue ?? items[0]?.value;
   const [internalValue, setInternalValue] = useState(resolvedValue);
+  const [reservedPanelHeight, setReservedPanelHeight] = useState<number | null>(null);
   const currentValue = value ?? internalValue ?? resolvedValue;
   const groupId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const panelFrameRef = useRef<HTMLDivElement | null>(null);
+  const scrollSnapshotRef = useRef<{ top: number } | null>(null);
+
+  function captureScrollSnapshot() {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const root = rootRef.current;
+
+    return root ? { top: root.getBoundingClientRect().top } : null;
+  }
+
+  function restoreScrollSnapshot(snapshot: { top: number } | null) {
+    if (typeof window === "undefined" || !snapshot) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const root = rootRef.current;
+      if (!root) {
+        return;
+      }
+
+      const nextTop = root.getBoundingClientRect().top;
+      const delta = nextTop - snapshot.top;
+
+      if (Math.abs(delta) > 1) {
+        window.scrollBy(0, delta);
+      }
+    });
+  }
+
+  useEffect(() => {
+    const snapshot = scrollSnapshotRef.current;
+
+    if (snapshot) {
+      scrollSnapshotRef.current = null;
+      restoreScrollSnapshot(snapshot);
+    }
+  }, [currentValue]);
 
   function handleValueChange(nextValue: string) {
+    const panelHeight = panelFrameRef.current?.getBoundingClientRect().height ?? 0;
+    if (panelHeight > 0) {
+      setReservedPanelHeight(Math.ceil(panelHeight));
+    }
+    scrollSnapshotRef.current = captureScrollSnapshot();
+
     if (value === undefined) {
       setInternalValue(nextValue);
     }
     onValueChange?.(nextValue);
   }
 
+  function releaseReservedPanelHeight() {
+    if (reservedPanelHeight === null) {
+      return;
+    }
+
+    const snapshot = captureScrollSnapshot();
+    setReservedPanelHeight(null);
+    restoreScrollSnapshot(snapshot);
+  }
+
   return (
     <TabsPrimitive.Root
+      ref={rootRef}
       defaultValue={resolvedValue}
       value={currentValue}
       onValueChange={handleValueChange}
@@ -78,23 +138,30 @@ export function Tabs({
           })}
         </TabsPrimitive.List>
       </LayoutGroup>
-      <AnimatePresence initial={false} mode="wait">
-        <motion.div
-          key={currentValue}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.18 }}
-        >
-          <TabsPrimitive.Panel
-            value={currentValue}
-            keepMounted
-            className="focus-visible:outline-none"
+      <div
+        ref={panelFrameRef}
+        className="[overflow-anchor:none]"
+        style={reservedPanelHeight === null ? undefined : { minHeight: `${reservedPanelHeight}px` }}
+      >
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div
+            key={currentValue}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            onAnimationComplete={releaseReservedPanelHeight}
           >
-            {items.find((item) => item.value === currentValue)?.content}
-          </TabsPrimitive.Panel>
-        </motion.div>
-      </AnimatePresence>
+            <TabsPrimitive.Panel
+              value={currentValue}
+              keepMounted
+              className="focus-visible:outline-none"
+            >
+              {items.find((item) => item.value === currentValue)?.content}
+            </TabsPrimitive.Panel>
+          </motion.div>
+        </AnimatePresence>
+      </div>
     </TabsPrimitive.Root>
   );
 }

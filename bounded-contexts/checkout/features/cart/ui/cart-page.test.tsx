@@ -56,7 +56,12 @@ describe("checkout cart page", () => {
 
     expect(markup).toContain("Calculated during checkout");
     expect(markup).toContain("Ready for checkout");
-    expect(markup).toContain("Cart status");
+    expect(markup).toContain("Buy cart status");
+    expect(markup).toContain("Smart Match settings");
+    expect(markup).toContain("Lowest total cost");
+    expect(markup).toContain("Place offers for unavailable quantity");
+    expect(markup).toContain("Products");
+    expect(markup).toContain("Product-level lines let Chase Sets Smart Match listings during checkout");
     expect(markup).toContain("Shipping credit grows with same-seller cards");
     expect(markup).toContain("Listings earn 5% of item value toward shipping");
     expect(markup).toContain("Seller option");
@@ -120,7 +125,9 @@ describe("checkout cart page", () => {
       <CheckoutCartPage cartLines={[cartLine, lockedLine, unavailableLine]} />,
     );
 
-    expect(markup).toContain("Optimized at checkout");
+    expect(markup).toContain("Smart Match at checkout");
+    expect(markup).toContain("Selected listings");
+    expect(markup).toContain("Exact listings stay attached to this buy cart");
     expect(markup).toContain("Locked to seller - not reserved yet");
     expect(markup).toContain("Unlock seller");
     expect(markup).toContain("Waiting for supply");

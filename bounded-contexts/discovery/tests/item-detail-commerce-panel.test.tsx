@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { ReactElement } from "react";
@@ -13,6 +13,7 @@ import {
   MarketplaceOfferMatchSection,
   MarketplaceSellerRegistrationSection,
   SellActionCard,
+  WatchActionCard,
 } from "../routes/item-detail";
 import DiscoveryItemDetailRoute from "../routes/item-detail";
 import type {
@@ -200,10 +201,12 @@ function createItem(
 }
 
 describe("item detail commerce panel", () => {
-  it("renders item detail language codes as localized labels", () => {
+  it("renders item detail language codes as localized labels", async () => {
     renderWithDataRouter(<ItemDetailPage data={createItem({ language_code: "ja" })} />);
 
-    expect(screen.getByText("Japanese")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Details" }));
+
+    await waitFor(() => expect(screen.getByText("Japanese")).toBeTruthy());
     expect(screen.queryByText("ja")).toBeNull();
   });
 
@@ -404,7 +407,7 @@ describe("item detail commerce panel", () => {
       .toBeTruthy();
     expect(within(buySheet).getByRole("button", { name: "Buy now" }))
       .not.toHaveProperty("disabled", true);
-    expect(within(buySheet).getByRole("button", { name: "Add to cart" }))
+    expect(within(buySheet).getByRole("button", { name: "Add product to buy cart" }))
       .not.toHaveProperty("disabled", true);
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
@@ -420,7 +423,6 @@ describe("item detail commerce panel", () => {
         renderBuyNow={() => <div>Buy now form</div>}
         renderAddToCart={() => <div>Add to cart form</div>}
         renderOffer={() => <div>Make offer form</div>}
-        renderAlert={() => <div>Set alert form</div>}
       />,
     );
 
@@ -429,14 +431,12 @@ describe("item detail commerce panel", () => {
     expect(screen.getByRole("button", { name: /Buy now/ })).toBeTruthy();
     expect(screen.getByText("Checkout immediately with the best matching live listing."))
       .toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add to cart/ })).toBeTruthy();
-    expect(screen.getByText("Save this exact selection and continue shopping.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add product to buy cart/ })).toBeTruthy();
+    expect(screen.getByText("Save this selected product for Buy Cart checkout.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Make offer/ })).toBeTruthy();
     expect(screen.getByText("Submit product-wide demand eligible sellers can accept."))
       .toBeTruthy();
-    expect(screen.getByRole("button", { name: /Set alert/ })).toBeTruthy();
-    expect(screen.getByText("Get notified when matching supply appears at or below your target."))
-      .toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Set alert/ })).toBeNull();
     expect(screen.getByText("Buy now form")).toBeTruthy();
     expect(screen.queryByText("Make offer form")).toBeNull();
     expect(screen.queryByText("Selected product intent")).toBeNull();
@@ -471,7 +471,6 @@ describe("item detail commerce panel", () => {
         renderBuyNow={() => <div>Buy now form</div>}
         renderAddToCart={() => <div>Add to cart form</div>}
         renderOffer={() => <div>Make offer form</div>}
-        renderAlert={() => <div>Set alert form</div>}
       />,
     );
 
@@ -496,17 +495,18 @@ describe("item detail commerce panel", () => {
         hasMatchingOffer
         canUseSellerFeatures
         renderSellNow={() => <div>Sell now form</div>}
-        renderAddToSellList={() => <div>Add to sell list form</div>}
+        renderAddToSellList={() => <div>Add selected offer to Sell List form</div>}
+        renderAddProductToSellList={() => <div>Add product to Sell List form</div>}
         renderListing={() => <div>List for sale form</div>}
-        renderAlert={() => <div>Set alert form</div>}
       />,
     );
 
     expect(screen.getByText("Sell options")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sell now/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add to sell list/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add selected offer to Sell List/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add product to Sell List/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /List for sale/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Set alert/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Set alert/ })).toBeNull();
     expect(
       screen.getByText("Same-buyer offer batching can improve the 5% shipping allowance."),
     ).toBeTruthy();
@@ -515,17 +515,75 @@ describe("item detail commerce panel", () => {
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
     expect(screen.queryByText("Raw / Near Mint")).toBeNull();
 
-    const addToSellListButton = screen.getByRole("button", { name: /Add to sell list/ });
+    const addToSellListButton = screen.getByRole("button", { name: /Add selected offer to Sell List/ });
     fireEvent.click(addToSellListButton);
 
-    expect(screen.getByText("Add to sell list form")).toBeTruthy();
+    expect(screen.getByText("Add selected offer to Sell List form")).toBeTruthy();
     expect(screen.queryByText("Sell now form")).toBeNull();
 
     fireEvent.click(addToSellListButton);
 
     expect(addToSellListButton.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("Add to sell list form")).toBeNull();
+    expect(screen.queryByText("Add selected offer to Sell List form")).toBeNull();
     expect(container.querySelector('[class*="before:absolute"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Add product to Sell List/ }));
+
+    expect(screen.getByText("Add product to Sell List form")).toBeTruthy();
+  });
+
+  it("disables product-level sell actions for offer-review accounts without listing capability", () => {
+    render(
+      <SellActionCard
+        formIdPrefix="sell-card"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        productSelectionDetails={[]}
+        hasMatchingOffer
+        canUseSellerFeatures
+        canUseListingFeatures={false}
+        renderSellNow={() => <div>Sell now form</div>}
+        renderAddToSellList={() => <div>Add selected offer to Sell List form</div>}
+        renderAddProductToSellList={() => <div>Add product to Sell List form</div>}
+        renderListing={() => <div>List for sale form</div>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Sell now/ }).getAttribute("data-disabled")).toBeNull();
+    expect(screen.getByRole("button", { name: /Add selected offer to Sell List/ }).getAttribute("data-disabled")).toBeNull();
+
+    const productSellListAction = screen.getByRole("button", { name: /Add product to Sell List/ });
+    const listForSaleAction = screen.getByRole("button", { name: /List for sale/ });
+
+    expect(productSellListAction.getAttribute("data-disabled")).toBe("");
+    expect(listForSaleAction.getAttribute("data-disabled")).toBe("");
+
+    fireEvent.click(productSellListAction);
+    expect(screen.queryByText("Add product to Sell List form")).toBeNull();
+    expect(screen.getByText("Sell now form")).toBeTruthy();
+  });
+
+  it("keeps watch actions in the same compact section-list pattern", () => {
+    render(
+      <WatchActionCard
+        formIdPrefix="watch-card"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        productSelectionDetails={[]}
+        renderListingAlert={() => <div>Listing alert form</div>}
+        renderOfferAlert={() => <div>Offer alert form</div>}
+      />,
+    );
+
+    expect(screen.getByText("Watch")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Watch listings/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Watch offers/ })).toBeTruthy();
+    expect(screen.getByText("Listing alert form")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Watch offers/ }));
+
+    expect(screen.getByText("Offer alert form")).toBeTruthy();
+    expect(screen.queryByText("Listing alert form")).toBeNull();
   });
 
   it("changes mobile commerce actions with the selected market intent", () => {
@@ -626,7 +684,7 @@ describe("item detail commerce panel", () => {
     ).toBe(true);
   });
 
-  it("switches market sections with the Buy and Sell intent", () => {
+  it("switches market sections with the Buy and Sell intent", async () => {
     render(
       <ItemDetailPage
         data={createItem()}
@@ -650,16 +708,15 @@ describe("item detail commerce panel", () => {
     fireEvent.click(within(marketIntent).getByRole("tab", { name: "Sell" }));
 
     expect(screen.getByText("Accept offer")).toBeTruthy();
-    expect(screen.getByText("1 matching offer")).toBeTruthy();
-    expect(screen.getByText("Ash Ketchum")).toBeTruthy();
+    expect(await screen.findByText("1 matching offer")).toBeTruthy();
+    expect(await screen.findByText("Ash Ketchum")).toBeTruthy();
     expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
     expect(screen.getByText("Raw · Near Mint")).toBeTruthy();
     expect(screen.queryByText("Status")).toBeNull();
     expect(screen.queryByText("submitted")).toBeNull();
-    expect(screen.queryByText("1 active listing")).toBeNull();
   });
 
-  it("places listing watches in Buy and offer watches in Sell", async () => {
+  it("places listing and offer watches in the Watch intent", async () => {
     renderItemDetailRoute({
       item: createItem(),
       accountOfferMatches: [baseAccountOfferMatch],
@@ -672,6 +729,7 @@ describe("item detail commerce panel", () => {
       hasInitialSelectedOptionFilters: false,
       showSellerTab: true,
       canUseSellerFeatures: true,
+      canUseListingFeatures: true,
       canSubmitOffers: true,
       registerToSellHref: "/register",
       notFound: false,
@@ -683,21 +741,18 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Set alert/ }));
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Watch" }),
+    );
+
+    expect(await screen.findByRole("button", { name: /Watch listings/ })).toBeTruthy();
 
     expect(await screen.findByLabelText("Maximum listing price")).toBeTruthy();
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
 
-    fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Sell" }),
-    );
-
-    expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
-    expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /Set alert/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Watch offers/ }));
 
     expect(await screen.findByLabelText("Minimum offer price")).toBeTruthy();
     expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
@@ -737,7 +792,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Accept offer")).toBeTruthy();
   });
 
-  it("keeps public offer cards focused on listing-equivalent information for selling accounts", () => {
+  it("keeps public offer cards focused on listing-equivalent information for selling accounts", async () => {
     render(
       <ItemDetailPage
         data={createItem()}
@@ -756,9 +811,9 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    expect(screen.getByText("Selected")).toBeTruthy();
+    expect(await screen.findByText("Selected")).toBeTruthy();
     expect(screen.getAllByText("Best offer").length).toBeGreaterThan(0);
-    expect(screen.getByText("Ash Ketchum")).toBeTruthy();
+    expect(await screen.findByText("Ash Ketchum")).toBeTruthy();
     expect(screen.getAllByText("$350.00").length).toBeGreaterThan(0);
     expect(screen.getByText("Raw · Near Mint")).toBeTruthy();
     expect(screen.getByText("1 requested")).toBeTruthy();
@@ -772,7 +827,7 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Can fulfill")).toBeNull();
   });
 
-  it("shows account reputation on listing and offer rows", () => {
+  it("shows account reputation on listing and offer rows", async () => {
     render(
       <ItemDetailPage
         data={createItem({
@@ -813,7 +868,7 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    const buyerReputationLink = screen.getByRole("link", { name: /Ash Ketchum/ });
+    const buyerReputationLink = await screen.findByRole("link", { name: /Ash Ketchum/ });
     expect(screen.getByText("4.2")).toBeTruthy();
     expect(screen.getByText("(5)")).toBeTruthy();
     expect(buyerReputationLink.getAttribute("href")).toBe("/accounts/ash-ketchum#feedback");
@@ -1152,7 +1207,6 @@ describe("item detail commerce panel", () => {
         renderBuyNow={() => <div>Buy now workflow body</div>}
         renderAddToCart={() => <div>Add to cart workflow body</div>}
         renderOffer={() => <div>Make offer workflow body</div>}
-        renderAlert={() => <div>Set alert workflow body</div>}
       />,
     );
 
@@ -1173,7 +1227,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Make offer workflow body")).toBeTruthy();
   });
 
-  it("keeps offer and alert workflow details product-wide inside the buyer accordion", async () => {
+  it("keeps offer details in Buy and listing alerts in Watch", async () => {
     renderItemDetailRoute({
       item: createItem(),
       accountOfferMatches: [],
@@ -1186,6 +1240,7 @@ describe("item detail commerce panel", () => {
       hasInitialSelectedOptionFilters: false,
       showSellerTab: false,
       canUseSellerFeatures: false,
+      canUseListingFeatures: false,
       canSubmitOffers: true,
       registerToSellHref: "/register",
       notFound: false,
@@ -1214,9 +1269,13 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Selected seller")).toBeNull();
     expect(screen.queryByText("Selected seller signal")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Set alert/ }));
+    fireEvent.click(
+      within(
+        screen.getByRole("tablist", { name: "Choose market intent" }),
+      ).getByRole("tab", { name: "Watch" }),
+    );
 
-    expect(screen.getByText("Alert criteria")).toBeTruthy();
+    expect(await screen.findByText("Alert criteria")).toBeTruthy();
     expect(
       screen.getAllByText("Get notified when matching supply appears at or below your target.")
         .length,
@@ -1278,7 +1337,7 @@ describe("item detail commerce panel", () => {
 
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Buy locked to this seller" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add to cart" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add product to buy cart" })).toBeTruthy();
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
     expect(screen.getByText("Chase Sets")).toBeTruthy();
@@ -1335,7 +1394,7 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText(/csg_seller_override/)).toBeNull();
   });
 
-  it("changes the selected offer when another offer is clicked", () => {
+  it("changes the selected offer when another offer is clicked", async () => {
     render(
       <ItemDetailPage
         data={createItem({
@@ -1366,9 +1425,11 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    expect(
-      screen.getByRole("button", { name: /Misty/ }).getAttribute("aria-pressed"),
-    ).toBe("true");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Misty/ }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
     expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
       "value",
       "offer_charizard_alt",
@@ -1385,7 +1446,7 @@ describe("item detail commerce panel", () => {
     );
   });
 
-  it("shows the viewer's own offer without selecting it for seller acceptance", () => {
+  it("shows the viewer's own offer without selecting it for seller acceptance", async () => {
     render(
       <ItemDetailPage
         data={createItem({
@@ -1417,7 +1478,7 @@ describe("item detail commerce panel", () => {
       ).getByRole("tab", { name: "Sell" }),
     );
 
-    expect(screen.getByRole("button", { name: /Misty/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Misty/ })).toBeTruthy();
     expect(screen.getByText("Your offer")).toBeTruthy();
     expect(
       screen.getByText("Visible to eligible sellers. You cannot accept your own offer."),

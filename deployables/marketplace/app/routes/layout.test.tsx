@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
@@ -91,9 +93,10 @@ describe("marketplace route layout", () => {
       "Browse",
       "Purchases",
       "Notifications",
+      "Sell List",
       "Support",
       "Sell",
-      "Cart",
+      "Buy Cart",
     ]);
     expect(sellNav?.children?.map((item) => item.label)).toEqual([
       "Listings",
@@ -112,7 +115,7 @@ describe("marketplace route layout", () => {
       resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
     ).toEqual([
       "Browse",
-      "Cart",
+      "Buy Cart",
       "Notifications",
       "Sell",
       "Wallet",
@@ -140,7 +143,7 @@ describe("marketplace route layout", () => {
   });
 
   it("opens a combined account menu with user context, account links, and sign out", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ document });
     const actor = {
       permissions: [
         "accounts.view",
@@ -186,7 +189,8 @@ describe("marketplace route layout", () => {
       "Browse",
       "Purchases",
       "Notifications",
-      "Cart",
+      "Sell List",
+      "Buy Cart",
     ]);
     expect(accountNav).toBeUndefined();
     expect(resolveMarketplaceAccountMenuItems(actor).map((item) => item.label)).toEqual([
@@ -197,7 +201,7 @@ describe("marketplace route layout", () => {
       resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
     ).toEqual([
       "Browse",
-      "Cart",
+      "Buy Cart",
       "Purchases",
       "Notifications",
       "Account",
@@ -233,7 +237,7 @@ describe("marketplace route layout", () => {
     ]);
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
-      "Cart",
+      "Buy Cart",
       "Notifications",
       "Wallet",
       "Account",
@@ -249,10 +253,10 @@ describe("marketplace route layout", () => {
 
     expect(
       resolveMarketplaceNavItems("top-nav", actor).map((item) => item.label),
-    ).toContain("Cart");
+    ).toContain("Buy Cart");
     expect(
       resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
-    ).toContain("Cart");
+    ).toContain("Buy Cart");
   });
 
   it("keeps sign-in and registration entry points for signed-out actors", () => {
@@ -297,7 +301,7 @@ describe("marketplace route layout", () => {
       resolveMarketplaceNavItems("top-nav", null, { cartCount: 2 }).find((item) => item.key === "cart")?.placement,
     ).toBe("utility");
     expect(html).toContain('href="/account/cart"');
-    expect(html).toContain("Cart");
+    expect(html).toContain("Buy Cart");
     expect(html).toContain("2");
     expect(html.indexOf('href="/register"')).toBeLessThan(
       html.indexOf('href="/account/cart"'),

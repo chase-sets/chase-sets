@@ -32,7 +32,10 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Listing | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Seller-published ask before an order exists. |
 | Offer | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-submitted purchase proposal before an order exists. |
 | Seller Listing Availability | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Account-level overlay that temporarily prevents active listings from creating new seller commitments without changing listing status. |
-| Cart | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Mutable saved purchase intent. |
+| Cart | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Internal Checkout term for mutable saved buyer purchase intent. Use `Buy Cart` in marketplace UI when seller-side Sell List is also present. |
+| Buy Cart | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Account-facing buyer review surface for selected listings and product-level Smart Match listing lines before checkout commitment. |
+| Sell List | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Account-facing seller review surface for selected offers and product-level Smart Match offer lines before sale commitment. Marketplace Offer Matches can source selected offers into it, but Checkout owns the durable review state. |
+| Smart Match | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | User-facing label for Checkout-owned matching and optimization over product-level Buy Cart or Sell List lines. |
 | Checkout Session | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Active purchase workflow before orders and payment. |
 | Offer Intent | [Checkout](../bounded-contexts/checkout/GLOSSARY.md) | Checkout-owned source intent that captures purchase intent before submitting a Marketplace-owned Offer. |
 | Order | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Commercial commitment between buyer and seller accounts. |

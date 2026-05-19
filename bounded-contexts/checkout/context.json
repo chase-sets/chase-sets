@@ -3,12 +3,14 @@
   "packageName": "@chase-sets/checkout",
   "ownedNouns": [
     "cart",
+    "sell list",
     "checkout session"
   ],
   "streamPrefix": "checkout.",
   "apiBasePath": "/api/marketplace",
   "slices": [
     "cart",
+    "sell-list",
     "sessions"
   ],
   "allowedSupportDirectories": [
@@ -106,6 +108,13 @@
           "sourceContext": "checkout"
         },
         {
+          "routeId": "account-sell-list",
+          "routePath": "account/sell-list",
+          "fileExport": "./routes/account-sell-list",
+          "routeType": "route",
+          "sourceContext": "checkout"
+        },
+        {
           "routeId": "checkout-start",
           "routePath": "checkout/start",
           "fileExport": "./routes/checkout-start",
@@ -126,8 +135,19 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
+      "key": "sell-list",
+      "label": "Sell List",
+      "icon": "store",
+      "href": "/account/sell-list",
+      "order": 111,
+      "visibility": "signed-in",
+      "requiredPermissions": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
       "key": "cart",
-      "label": "Cart",
+      "label": "Buy Cart",
       "icon": "cart",
       "href": "/account/cart",
       "order": 110,
@@ -137,8 +157,19 @@
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
+      "key": "sell-list",
+      "label": "Sell List",
+      "icon": "store",
+      "href": "/account/sell-list",
+      "order": 111,
+      "visibility": "signed-in",
+      "requiredPermissions": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
       "key": "cart",
-      "label": "Cart",
+      "label": "Buy Cart",
       "icon": "cart",
       "href": "/account/cart",
       "order": 110,
@@ -149,10 +180,19 @@
   "directoryIntent": {
     "cart": {
       "classification": "slice",
-      "purpose": "Own long-lived cart intent before an active checkout session starts.",
+      "purpose": "Own long-lived buy cart intent before an active checkout session starts.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal checkout module composition"
+      ]
+    },
+    "sell-list": {
+      "classification": "slice",
+      "purpose": "Own seller checkout intent before selected offers or product-level Smart Match lines become sale commitments.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal checkout module composition",
+        "Discovery item detail sell actions"
       ]
     },
     "sessions": {
@@ -181,6 +221,7 @@
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "cart",
+        "sell-list",
         "sessions"
       ],
       "justification": "runtime-support centralizes context-local service and schema composition.",
