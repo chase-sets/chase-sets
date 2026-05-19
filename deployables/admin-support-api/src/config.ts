@@ -1,6 +1,9 @@
 import {
   getApiHostContextNames,
+  nonProductionDataProfiles,
+  productionLikeDataProfiles,
   type ApiHostContextName,
+  type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
 import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
@@ -26,6 +29,8 @@ export type AdminSupportApiConfig = Readonly<{
   adminRegistrationEnabled: boolean;
   catalogAssetStorage: AdminSupportCatalogAssetStorageConfig;
   platformAdmin: AdminSupportPlatformAdminConfig | null;
+  deploymentEnvironment: string;
+  dataProfiles: readonly EnvironmentDataProfile[];
 }>;
 
 export type AdminSupportCatalogAssetStorageConfig =
@@ -80,13 +85,65 @@ function getBooleanEnv(name: string, defaultValue: boolean) {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
-function isProductionDeployment() {
+function getOptionalCsvEnv(name: string) {
+  const value = getOptionalEnv(name);
+
+  return value
+    ? value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function getDeploymentEnvironment() {
   const deploymentEnvironment = getOptionalEnv("DEPLOYMENT_ENVIRONMENT");
   if (deploymentEnvironment) {
-    return deploymentEnvironment === "production";
+    return deploymentEnvironment;
   }
 
-  return process.env.NODE_ENV === "production";
+  if (process.env.NODE_ENV === "production") {
+    return "production";
+  }
+  if (process.env.NODE_ENV === "test") {
+    return "test";
+  }
+
+  return "dev";
+}
+
+function isProductionDeployment(environmentName: string) {
+  return environmentName === "production";
+}
+
+function isLongLivedEnvironment(environmentName: string) {
+  return environmentName === "production" || environmentName === "staging";
+}
+
+function loadDataProfiles(environmentName: string): readonly EnvironmentDataProfile[] {
+  const explicitProfiles = getOptionalCsvEnv("PLATFORM_DATA_PROFILES");
+  if (explicitProfiles.length > 0) {
+    const allowedProfiles = new Set<EnvironmentDataProfile>([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+      "scenario-seed",
+    ]);
+    for (const profile of explicitProfiles) {
+      if (!allowedProfiles.has(profile as EnvironmentDataProfile)) {
+        throw new Error(
+          `PLATFORM_DATA_PROFILES contains unsupported data profile '${profile}'.`,
+        );
+      }
+    }
+
+    return explicitProfiles as readonly EnvironmentDataProfile[];
+  }
+
+  if (isLongLivedEnvironment(environmentName)) {
+    return productionLikeDataProfiles;
+  }
+
+  return nonProductionDataProfiles;
 }
 
 export function getContextDatabaseEnvName(contextName: AdminSupportApiContextName) {
@@ -172,6 +229,7 @@ function loadCatalogAssetStorageConfig(
 }
 
 export function loadConfig(): AdminSupportApiConfig {
+  const deploymentEnvironment = getDeploymentEnvironment();
   const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
   const controlDatabaseUrl =
     getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL") ?? sharedDatabaseUrl;
@@ -214,9 +272,11 @@ export function loadConfig(): AdminSupportApiConfig {
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
     catalogAssetStorage: loadCatalogAssetStorageConfig(
       port,
-      isProductionDeployment(),
+      isProductionDeployment(deploymentEnvironment),
     ),
     platformAdmin: loadPlatformAdminConfig(),
+    deploymentEnvironment,
+    dataProfiles: loadDataProfiles(deploymentEnvironment),
   };
 }
 

@@ -43,6 +43,11 @@ describe("admin-support API configuration", () => {
       email: "ops@chasesets.com",
       accountName: "Chase Sets Platform",
     });
+    expect(config.deploymentEnvironment).toBe("production");
+    expect(config.dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+    ]);
     expect(config.catalogAssetStorage).toMatchObject({
       kind: "s3",
       bucket: "catalog-assets",
@@ -65,11 +70,63 @@ describe("admin-support API configuration", () => {
     vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "dev-internal-secret");
     vi.stubEnv("PORT", "7552");
 
-    expect(loadConfig().catalogAssetStorage).toEqual({
+    const config = loadConfig();
+
+    expect(config.deploymentEnvironment).toBe("test");
+    expect(config.dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+      "scenario-seed",
+    ]);
+    expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: "http://localhost:7552/catalog-assets",
     });
+  });
+
+  it("treats staging as production-like data with no scenario seed", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "staging-internal-secret");
+    vi.stubEnv("CATALOG_ASSET_STORAGE_KIND", "s3");
+    vi.stubEnv("CATALOG_ASSET_S3_BUCKET", "catalog-assets-staging");
+    vi.stubEnv("CATALOG_ASSET_S3_REGION", "nyc3");
+    vi.stubEnv(
+      "CATALOG_ASSET_PUBLIC_BASE_URL",
+      "https://assets.staging.chasesets.com",
+    );
+
+    const config = loadConfig();
+
+    expect(config.deploymentEnvironment).toBe("staging");
+    expect(config.dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+    ]);
+  });
+
+  it("allows explicit admin-support bootstrap profile overrides", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production");
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "production-internal-secret");
+    vi.stubEnv("CATALOG_ASSET_STORAGE_KIND", "s3");
+    vi.stubEnv("CATALOG_ASSET_S3_BUCKET", "catalog-assets");
+    vi.stubEnv("CATALOG_ASSET_S3_REGION", "nyc3");
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.chasesets.com");
+    vi.stubEnv("PLATFORM_DATA_PROFILES", "critical-bootstrap");
+
+    expect(loadConfig().dataProfiles).toEqual(["critical-bootstrap"]);
+  });
+
+  it("rejects unsupported admin-support bootstrap profile overrides", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "dev-internal-secret");
+    vi.stubEnv("PLATFORM_DATA_PROFILES", "scenario-seed,unknown");
+
+    expect(() => loadConfig()).toThrow(
+      "PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.",
+    );
   });
 
   it("requires platform admin email and password to be configured together", () => {
