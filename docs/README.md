@@ -9,6 +9,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, export, deployable-composition, and typed-ID rules.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
+- [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
 - [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification side sheet, settings, Product Alert placement, and Notifications bounded-context ownership.
 - [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
 - [Email Delivery Completion Task List](./architecture/email-delivery-task-list.md): implementation checklist covering follow-up findings.
@@ -43,6 +44,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [UCP Contract](../contracts/ucp/README.md)
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
 - [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
+- [Catalog Provider Integration Profiles](../bounded-contexts/catalog/docs/provider-integration-profiles.md)
 - [Catalog Admin Bulk Workflows](../bounded-contexts/catalog/docs/admin-bulk-workflows.md)
 - [Catalog Bulk Catalog Item Publish](../bounded-contexts/catalog/docs/bulk-catalog-item-publish.md)
 - [Catalog Item Imagery](../bounded-contexts/catalog/docs/catalog-item-imagery.md)
@@ -64,6 +66,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 
 - [ADR 0001: Platform API Observability](./adr/0001-platform-api-observability.md)
 - [ADR 0002: Adopt UCP For Agent Commerce](./adr/0002-adopt-ucp-for-agent-commerce.md)
+- [ADR 0003: Environment Bootstrap And Scenario Data](./adr/0003-environment-bootstrap-and-scenario-data.md)
 
 ## Maintenance
 

@@ -4,6 +4,7 @@ import {
   catalogSeedIds,
   type SeedCatalogItemId,
 } from "@chase-sets/catalog/seed-support/ids";
+import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import {
   demoIdentitySeedIds,
   identitySeedIds,
@@ -186,7 +187,7 @@ const storageLocations: readonly StorageLocationSeed[] = [
 const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.charizardBaseSetNearMint,
-    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    catalogItemId: catalogScenarioItems.charizardBaseSet,
     selectedOptions: rawCardSelection(
       catalogSeedIds.dimensions.condition.optionIds.nearMint,
     ),
@@ -196,7 +197,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.charizardBaseSetPsa8,
-    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    catalogItemId: catalogScenarioItems.charizardBaseSet,
     selectedOptions: gradedCardSelection(
       catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
       catalogSeedIds.dimensions.grade.optionIds.nmMt8,
@@ -223,7 +224,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
-    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    catalogItemId: catalogScenarioItems.pikachuJungle,
     selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
@@ -240,7 +241,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.lugiaNeoGenesisNearMint,
-    catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
+    catalogItemId: catalogScenarioItems.lugiaNeoGenesis,
     selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
@@ -257,7 +258,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.lugiaNeoGenesisBgs95,
-    catalogItemId: catalogSeedIds.items.lugiaNeoGenesis,
+    catalogItemId: catalogScenarioItems.lugiaNeoGenesis,
     selectedOptions: gradedCardSelection(
       catalogSeedIds.dimensions.gradingCompany.optionIds.bgs,
       catalogSeedIds.dimensions.grade.optionIds.mint95,
@@ -279,7 +280,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
-    catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
+    catalogItemId: catalogScenarioItems.mewtwoBlackStarPromo,
     selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
@@ -296,7 +297,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
-    catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
+    catalogItemId: catalogScenarioItems.pikachuPrismaticEvolutions,
     selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
@@ -313,7 +314,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsPsa10,
-    catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
+    catalogItemId: catalogScenarioItems.pikachuPrismaticEvolutions,
     selectedOptions: gradedCardSelection(
       catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
       catalogSeedIds.dimensions.grade.optionIds.gemMint10,
@@ -340,7 +341,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.prismaticEvolutionsBoosterPack,
-    catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+    catalogItemId: catalogScenarioItems.prismaticEvolutionsBoosterPack,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 24,
@@ -348,7 +349,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.surgingSparksBoosterBox,
-    catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
+    catalogItemId: catalogScenarioItems.surgingSparksBoosterBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 6,
@@ -356,7 +357,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   },
   {
     itemId: inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
-    catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 4,
@@ -365,7 +366,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     accountId: identitySeedIds.cardVault.accountId,
-    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    catalogItemId: catalogScenarioItems.charizardBaseSet,
     selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
@@ -383,7 +384,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.cardVaultCharizardPsa8,
     accountId: identitySeedIds.cardVault.accountId,
-    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    catalogItemId: catalogScenarioItems.charizardBaseSet,
     selectedOptions: gradedCardSelection(
       catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
       catalogSeedIds.dimensions.grade.optionIds.nmMt8,
@@ -411,7 +412,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     accountId: identitySeedIds.cardVault.accountId,
-    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    catalogItemId: catalogScenarioItems.pikachuJungle,
     selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
@@ -429,7 +430,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
     accountId: identitySeedIds.cardVault.accountId,
-    catalogItemId: catalogSeedIds.items.mewtwoBlackStarPromo,
+    catalogItemId: catalogScenarioItems.mewtwoBlackStarPromo,
     selectedOptions: [
       {
         dimensionId: catalogSeedIds.dimensions.form.dimensionId,
@@ -447,7 +448,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
     accountId: identitySeedIds.cardVault.accountId,
-    catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 6,
@@ -456,7 +457,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.sealedStockroomPrismaticEvolutionsBoosterPack,
     accountId: identitySeedIds.sealedStockroom.accountId,
-    catalogItemId: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+    catalogItemId: catalogScenarioItems.prismaticEvolutionsBoosterPack,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 96,
@@ -465,7 +466,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
     accountId: identitySeedIds.sealedStockroom.accountId,
-    catalogItemId: catalogSeedIds.items.surgingSparksBoosterBox,
+    catalogItemId: catalogScenarioItems.surgingSparksBoosterBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 10,
@@ -474,7 +475,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
     accountId: identitySeedIds.sealedStockroom.accountId,
-    catalogItemId: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+    catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     selectedOptions: [],
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 8,

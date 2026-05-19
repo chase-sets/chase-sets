@@ -1,3 +1,4 @@
+import type { BcSeedOptions } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { commercialTermsSeedIds } from "../seed-support/ids";
@@ -25,87 +26,143 @@ async function drainProjectors(projectors: readonly { runOnce: () => Promise<{ p
   } while (processed > 0);
 }
 
-export async function seedCommercialTermsDatabase(pool: PgTransactionalPool) {
+export async function seedCommercialTermsDatabase(
+  pool: PgTransactionalPool,
+  _services?: unknown,
+  options?: BcSeedOptions,
+) {
   const services = createCommercialTermsServices(pool);
+  const shouldSeedCritical = profileEnabled(options, "critical-bootstrap");
+  const shouldSeedScenario = profileEnabled(options, "scenario-seed");
 
-  try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages",
-    );
-    if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Commercial Terms already contains data. Skipping seed.");
-      return;
-    }
-  } catch {
-    // Table may not exist yet. Proceed with seeding.
+  if (!shouldSeedCritical && !shouldSeedScenario) {
+    console.log("Commercial Terms seed skipped for selected data profiles.");
+    return;
   }
 
   const context = createSeedContext();
   const effectiveFrom = "2026-01-01T00:00:00.000Z";
 
-  await services.schedules.commandHandler({
-    streamId: `commercial-terms.schedule-${commercialTermsSeedIds.schedules.personalDefault}`,
-    command: {
-      type: "CreateSchedule",
+  if (shouldSeedCritical) {
+    await seedDefaultScheduleIfMissing(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.personalDefault,
       label: "Personal Default",
       accountType: "personal",
       marketplaceSalesFeePercentageBps: 900,
       marketplaceSalesFeeFixedAmount: "0.15",
-      status: "active",
       effectiveFrom,
-      effectiveUntil: null,
-    },
-    context,
-  });
+    });
 
-  await services.schedules.commandHandler({
-    streamId: `commercial-terms.schedule-${commercialTermsSeedIds.schedules.businessDefault}`,
-    command: {
-      type: "CreateSchedule",
+    await seedDefaultScheduleIfMissing(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.businessDefault,
       label: "Business Default",
       accountType: "business",
       marketplaceSalesFeePercentageBps: 850,
       marketplaceSalesFeeFixedAmount: "0.10",
-      status: "active",
       effectiveFrom,
-      effectiveUntil: null,
-    },
-    context,
-  });
+    });
 
-  await services.schedules.commandHandler({
-    streamId: `commercial-terms.schedule-${commercialTermsSeedIds.schedules.enterpriseDefault}`,
-    command: {
-      type: "CreateSchedule",
+    await seedDefaultScheduleIfMissing(services, context, {
       scheduleId: commercialTermsSeedIds.schedules.enterpriseDefault,
       label: "Enterprise Default",
       accountType: "enterprise",
       marketplaceSalesFeePercentageBps: 600,
       marketplaceSalesFeeFixedAmount: "0.00",
-      status: "active",
       effectiveFrom,
-      effectiveUntil: null,
-    },
-    context,
-  });
+    });
+  }
 
-  await services.agreements.commandHandler({
-    streamId: `commercial-terms.agreement-${commercialTermsSeedIds.agreements.sellerOverride}`,
-    command: {
-      type: "CreateAgreement",
-      agreementId: commercialTermsSeedIds.agreements.sellerOverride,
-      accountId: identitySeedIds.demo.accountId,
-      label: "Chase Sets Seller Agreement",
-      marketplaceSalesFeePercentageBps: 700,
-      marketplaceSalesFeeFixedAmount: "0.05",
-      status: "active",
-      effectiveFrom,
-      effectiveUntil: null,
-    },
-    context,
-  });
+  if (shouldSeedScenario && !(await agreementExists(pool, commercialTermsSeedIds.agreements.sellerOverride))) {
+    await services.agreements.commandHandler({
+      streamId: `commercial-terms.agreement-${commercialTermsSeedIds.agreements.sellerOverride}`,
+      command: {
+        type: "CreateAgreement",
+        agreementId: commercialTermsSeedIds.agreements.sellerOverride,
+        accountId: identitySeedIds.demo.accountId,
+        label: "Chase Sets Seller Agreement",
+        marketplaceSalesFeePercentageBps: 700,
+        marketplaceSalesFeeFixedAmount: "0.05",
+        status: "active",
+        effectiveFrom,
+        effectiveUntil: null,
+      },
+      context,
+    });
+  }
 
   await drainProjectors(services.projectors);
+}
+
+function profileEnabled(
+  options: BcSeedOptions | undefined,
+  profile: "critical-bootstrap" | "scenario-seed",
+) {
+  return (options?.enabledDataProfiles ?? [
+    "critical-bootstrap",
+    "catalog-integration-bootstrap",
+    "scenario-seed",
+  ]).includes(profile);
+}
+
+async function seedDefaultScheduleIfMissing(
+  services: ReturnType<typeof createCommercialTermsServices>,
+  context: ReturnType<typeof createSeedContext>,
+  input: Readonly<{
+    scheduleId: string;
+    label: string;
+    accountType: "personal" | "business" | "enterprise";
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    effectiveFrom: string;
+  }>,
+) {
+  if (await scheduleExists(services.db, input.scheduleId)) {
+    return;
+  }
+
+  await services.schedules.commandHandler({
+    streamId: `commercial-terms.schedule-${input.scheduleId}`,
+    command: {
+      type: "CreateSchedule",
+      scheduleId: input.scheduleId as never,
+      label: input.label,
+      accountType: input.accountType,
+      marketplaceSalesFeePercentageBps: input.marketplaceSalesFeePercentageBps,
+      marketplaceSalesFeeFixedAmount: input.marketplaceSalesFeeFixedAmount,
+      status: "active",
+      effectiveFrom: input.effectiveFrom,
+      effectiveUntil: null,
+    },
+    context,
+  });
+}
+
+async function scheduleExists(
+  db: Pick<PgTransactionalPool, "query">,
+  scheduleId: string,
+): Promise<boolean> {
+  try {
+    const existing = await db.query(
+      "SELECT 1 FROM commercial_terms_schedule_pages WHERE schedule_id = $1 LIMIT 1",
+      [scheduleId],
+    );
+    return existing.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function agreementExists(
+  db: PgTransactionalPool,
+  agreementId: string,
+): Promise<boolean> {
+  try {
+    const existing = await db.query(
+      "SELECT 1 FROM commercial_terms_agreement_pages WHERE agreement_id = $1 LIMIT 1",
+      [agreementId],
+    );
+    return existing.rows.length > 0;
+  } catch {
+    return false;
+  }
 }

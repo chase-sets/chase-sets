@@ -24,5 +24,6 @@ export const module: BcApiModule<CatalogServices, PgTransactionalPool, CatalogHo
   createServices: (pool, ports) => createCatalogServices(pool, ports),
   buildApis: (services) => [buildCatalogAuthoringApi(services)],
   projectors: (services) => services.projectors,
+  seedProfiles: ["catalog-integration-bootstrap", "scenario-seed"],
   seed: seedCatalogDatabase,
 };

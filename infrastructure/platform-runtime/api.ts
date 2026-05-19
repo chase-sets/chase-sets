@@ -13,10 +13,25 @@ import type {
   BcApiModule,
   BcApiMount,
   BcHostPort,
+  BcSeedOptions,
+  EnvironmentDataProfile,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
+export type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+
 export type ApiHostName = "platform-api" | "admin-support-api";
+
+export const productionLikeDataProfiles: readonly EnvironmentDataProfile[] = [
+  "critical-bootstrap",
+  "catalog-integration-bootstrap",
+];
+
+export const nonProductionDataProfiles: readonly EnvironmentDataProfile[] = [
+  "critical-bootstrap",
+  "catalog-integration-bootstrap",
+  "scenario-seed",
+];
 
 export type ApiContextManifest = Readonly<{
   contextName: string;
@@ -226,6 +241,10 @@ export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
   runtime: ApiHostRuntime,
+  options: BcSeedOptions = {
+    enabledDataProfiles: nonProductionDataProfiles,
+    environmentName: null,
+  },
 ): Promise<void> {
   const mountedContextsByName = new Map(
     runtime.mountedContexts.map((entry) => [entry.contextName, entry]),
@@ -246,7 +265,12 @@ export async function seedApiHostIfEmpty(
     await syncContextProjectionGroups(runtime, contextName, {
       requiredOnly: true,
     });
-    await seedApiModuleIfEmpty(context.module, context.pool, context.services);
+    await seedApiModuleIfEmpty(
+      context.module,
+      context.pool,
+      context.services,
+      options,
+    );
     await syncContextProjectionGroups(runtime, contextName);
     await drainContextRuntime(runtime);
   }

@@ -4,6 +4,7 @@ import type {
   PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
+import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -40,7 +41,7 @@ const rawExcellentVersionSelection = [
 
 const demoCartLines = [
   {
-    catalogItemId: catalogSeedIds.items.charizardBaseSet,
+    catalogItemId: catalogScenarioItems.charizardBaseSet,
     itemTitle: "Charizard",
     itemSubtitle: "Base Set 4/102 Holo Rare",
     itemImageUrl: null,
@@ -49,7 +50,7 @@ const demoCartLines = [
     quantity: 1,
   },
   {
-    catalogItemId: catalogSeedIds.items.pikachuJungle,
+    catalogItemId: catalogScenarioItems.pikachuJungle,
     itemTitle: "Pikachu",
     itemSubtitle: "Jungle 60/64 Common",
     itemImageUrl: null,

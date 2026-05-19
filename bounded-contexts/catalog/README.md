@@ -24,6 +24,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
+Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
 
 ## Owns
 

@@ -23,7 +23,10 @@ async function bootstrap() {
         moneyMovementGateway: createFakeMoneyMovementGateway(),
       },
     });
-    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime);
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+      enabledDataProfiles: config.dataProfiles ?? [],
+      environmentName: config.deploymentEnvironment ?? null,
+    });
 
     if (config.platformAdmin) {
       const identityServices = runtime.services.identity as Parameters<

@@ -72,6 +72,7 @@ function resetConfigEnv() {
   delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
   delete process.env.NODE_ENV;
   delete process.env.DEPLOYMENT_ENVIRONMENT;
+  delete process.env.PLATFORM_DATA_PROFILES;
   delete process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV];
   delete process.env.PLATFORM_ADMIN_EMAIL;
   delete process.env.PLATFORM_ADMIN_PASSWORD;
@@ -107,6 +108,12 @@ describe("platform api config", () => {
     expect(config.paymentReconciliationIntervalMs).toBe(300_000);
     expect(config.payoutReconciliationIntervalMs).toBe(300_000);
     expect(config.sellerFundsReleaseIntervalMs).toBe(300_000);
+    expect(config.deploymentEnvironment).toBe("dev");
+    expect(config.dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+      "scenario-seed",
+    ]);
     expect(config.realtime).toMatchObject({
       batchSize: 100,
       pollIntervalMs: 1_000,
@@ -161,6 +168,37 @@ describe("platform api config", () => {
       displayName: "Ops Admin",
       accountName: "Chase Sets Ops",
     });
+  });
+
+  it("loads long-lived environment data profiles for staging and production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+
+    expect(loadBootstrapConfig().dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+    ]);
+
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+
+    expect(loadBootstrapConfig().dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+    ]);
+  });
+
+  it("allows explicit data profile overrides", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_DATA_PROFILES = "critical-bootstrap";
+
+    expect(loadBootstrapConfig().dataProfiles).toEqual(["critical-bootstrap"]);
+
+    process.env.PLATFORM_DATA_PROFILES = "scenario-seed,unknown";
+
+    expect(() => loadBootstrapConfig()).toThrow(
+      "PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.",
+    );
   });
 
   it("requires platform admin email and password together", () => {
