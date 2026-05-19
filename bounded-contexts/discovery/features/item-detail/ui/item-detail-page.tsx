@@ -2,7 +2,6 @@ import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   useEffect,
   useState,
-  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import {
@@ -14,7 +13,6 @@ import {
   CommerceActionBar,
   CommerceBottomSheet,
   Container,
-  Grid,
   Heading,
   Icon,
   ImageGallery,
@@ -236,6 +234,14 @@ function formatListingAvailability(
     : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
 }
 
+function formatOfferRequestedQuantity(
+  offer: Pick<DiscoveryOffer, "quantity_requested">,
+): string {
+  return t("discovery.features.itemDetail.ui.itemDetailPage.offer.requested.count", {
+    count: offer.quantity_requested,
+  });
+}
+
 function formatListingPurchaseLimit(
   listing: Pick<
     DiscoveryMarketListing,
@@ -313,6 +319,16 @@ function isLowestPriceListing(
   return listingPrice !== null && lowestPrice !== null && listingPrice === lowestPrice;
 }
 
+function isBestOffer(
+  offer: DiscoveryOffer,
+  offers: readonly DiscoveryOffer[],
+): boolean {
+  const offerPrice = toPriceNumber(offer.price_amount);
+  const highestPrice = toPriceNumber(getHighestOfferPrice(offers) ?? "");
+
+  return offerPrice !== null && highestPrice !== null && offerPrice === highestPrice;
+}
+
 function matchesSelectedOptions(
   listing: Readonly<{
     selected_options: readonly { dimensionId: string; optionId: string }[];
@@ -362,18 +378,6 @@ function selectionsFromListing(
   return Object.fromEntries(
     listing.selected_options.map((entry) => [entry.dimensionId, entry.optionId]),
   );
-}
-
-function handleSelectionKeyDown(
-  event: KeyboardEvent<HTMLDivElement>,
-  select: () => void,
-) {
-  if (event.key !== "Enter" && event.key !== " ") {
-    return;
-  }
-
-  event.preventDefault();
-  select();
 }
 
 function getInitialSelections(
@@ -1456,7 +1460,7 @@ function LoadedItemDetailPage({
                                 })}
                               >
                                 {isSelected ? (
-                                  <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-accent" />
+                                  <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
                                 ) : null}
                                 <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
                                   <div className="min-w-0">
@@ -1470,11 +1474,6 @@ function LoadedItemDetailPage({
                                         </Badge>
                                       ) : null}
                                     </div>
-                                    {isSelected ? (
-                                      <div className="mt-0.5 hidden text-xs font-semibold text-accent lg:block">
-                                        {t("discovery.features.itemDetail.ui.itemDetailPage.selected.for.checkout")}
-                                      </div>
-                                    ) : null}
                                   </div>
                                   <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
                                     <ListingTrustSignal
@@ -1582,81 +1581,130 @@ function LoadedItemDetailPage({
                         ) : null}
                       </Inline>
                       {matchingOffers.length > 0 ? (
-                        matchingOffers.map((offer) => {
-                          const isViewerOffer =
-                            viewerAccountId !== null &&
-                            offer.buyer_account_id === viewerAccountId;
-                          const isSelected =
-                            selectedOffer?.offer_id === offer.offer_id;
-                          const selectOffer = () => {
-                            setSelectedOfferId(offer.offer_id);
-                            if (data.product_schema) {
-                              setSelections(
-                                normalizeProductSearchOptionsForSchema(
-                                  data.product_schema,
-                                  selectionsFromListing(offer),
-                                ),
-                              );
-                            }
-                          };
-
-                          return (
-                            <Card
-                              key={offer.offer_id}
-                              glow={isSelected}
-                              interactive
-                              role="button"
-                              tabIndex={0}
-                              aria-pressed={isSelected}
-                              onClick={selectOffer}
-                              onKeyDown={(event) =>
-                                handleSelectionKeyDown(event, selectOffer)
+                        <div className="grid gap-3">
+                          <div
+                            className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
+                            aria-hidden="true"
+                          >
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.buyer")}</span>
+                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
+                            <span className="text-right">{t("discovery.features.itemDetail.ui.itemDetailPage.action")}</span>
+                          </div>
+                          {matchingOffers.map((offer) => {
+                            const isViewerOffer =
+                              viewerAccountId !== null &&
+                              offer.buyer_account_id === viewerAccountId;
+                            const isSelected =
+                              selectedOffer?.offer_id === offer.offer_id;
+                            const isBestOfferPrice = isBestOffer(offer, matchingOffers);
+                            const buyerName = offer.buyer_display_name ?? offer.buyer_account_id;
+                            const buyerFeedbackHref = offer.buyer_slug
+                              ? `/accounts/${offer.buyer_slug}#feedback`
+                              : null;
+                            const compactProductSummary = formatCompactProductSummary(
+                              offer.product_summary,
+                              getProductSelectionDetails(offer.selected_options),
+                              t("discovery.features.itemDetail.ui.itemDetailPage.standard.2"),
+                            );
+                            const selectOffer = () => {
+                              setSelectedOfferId(offer.offer_id);
+                              if (data.product_schema) {
+                                setSelections(
+                                  normalizeProductSearchOptionsForSchema(
+                                    data.product_schema,
+                                    selectionsFromListing(offer),
+                                  ),
+                                );
                               }
-                            >
-                              <Grid columns={{ base: 1, md: 3 }} gap={3}>
-                                <Stack gap={1}>
-                                  <Inline gap={2}>
-                                    <Text weight="semibold">
-                                    {formatMoney(offer.price_amount)}
-                                  </Text>
-                                  {isSelected ? <Badge tone="success">{t("discovery.features.itemDetail.ui.itemDetailPage.selected.2")}</Badge> : null}
-                                  {isViewerOffer ? (
-                                    <Badge tone="accent">
-                                      {t("discovery.features.itemDetail.ui.itemDetailPage.your.offer")}
-                                    </Badge>
-                                  ) : null}
-                                </Inline>
-                                  <AccountReputationSummary
-                                    accountName={offer.buyer_display_name ?? offer.buyer_account_id}
-                                    href={offer.buyer_slug ? `/accounts/${offer.buyer_slug}#feedback` : null}
-                                    averageRating={offer.buyer_average_rating}
-                                    reviewCount={offer.buyer_review_count ?? 0}
-                                    ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
-                                    onLinkClick={(event) => event.stopPropagation()}
-                                  />
-                                  {isViewerOffer ? (
-                                    <Text size="xs" tone="secondary">
-                                      {t("discovery.features.itemDetail.ui.itemDetailPage.own.offer.visibility")}
-                                    </Text>
-                                  ) : null}
-                                </Stack>
-                                <Stack gap={1}>
-                                  <Text size="sm" tone="secondary">
-                                    {t("discovery.features.itemDetail.ui.itemDetailPage.quantity")}</Text>
-                                  <Text>{offer.quantity_requested}</Text>
-                                </Stack>
-                                <Stack gap={1}>
-                                  <Text size="sm" tone="secondary">
-                                    {t("discovery.features.itemDetail.ui.itemDetailPage.product.2")}</Text>
-                                  <ProductOptions
-                                    options={productOptionsFromSelectionDetails(getProductSelectionDetails(offer.selected_options))}
-                                    emptyLabel={offer.product_summary ?? t("discovery.features.itemDetail.ui.itemDetailPage.standard.2")}
-                                  />
-                                </Stack>
-                              </Grid>
-                            </Card>
-                          );
-                        })
+                            };
+
+                            return (
+                              <article
+                                key={offer.offer_id}
+                                className={cx(
+                                  "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
+                                  isSelected
+                                    ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
+                                    : "border-muted",
+                                )}
+                                aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.offer.row.label", {
+                                  price: formatMoney(offer.price_amount),
+                                  buyer: buyerName,
+                                })}
+                              >
+                                {isSelected ? (
+                                  <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
+                                ) : null}
+                                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
+                                  <div className="min-w-0">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                      <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
+                                        {formatMoney(offer.price_amount)}
+                                      </span>
+                                      {isBestOfferPrice ? (
+                                        <Badge tone="success">
+                                          {t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")}
+                                        </Badge>
+                                      ) : null}
+                                      {isViewerOffer ? (
+                                        <Badge tone="accent">
+                                          {t("discovery.features.itemDetail.ui.itemDetailPage.your.offer")}
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
+                                    <AccountReputationSummary
+                                      accountName={buyerName}
+                                      href={buyerFeedbackHref}
+                                      averageRating={offer.buyer_average_rating}
+                                      reviewCount={offer.buyer_review_count ?? 0}
+                                      ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
+                                      onLinkClick={(event) => event.stopPropagation()}
+                                    />
+                                    {isViewerOffer ? (
+                                      <Text size="xs" tone="secondary">
+                                        {t("discovery.features.itemDetail.ui.itemDetailPage.own.offer.visibility")}
+                                      </Text>
+                                    ) : null}
+                                  </div>
+                                  <div className="col-span-2 col-start-1 row-start-3 min-w-0 lg:col-span-1 lg:col-start-auto lg:row-start-auto">
+                                    <ProductOptions
+                                      options={productOptionsFromSelectionDetails(getProductSelectionDetails(offer.selected_options))}
+                                      emptyLabel={compactProductSummary}
+                                      variant="compact"
+                                      className="block max-w-full truncate text-sm font-semibold leading-5"
+                                    />
+                                    <span className="mt-0.5 block text-xs font-medium text-secondary">
+                                      {formatOfferRequestedQuantity(offer)}
+                                    </span>
+                                  </div>
+                                  <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
+                                    <Button
+                                      type="button"
+                                      tone={isSelected ? "primary" : "secondary"}
+                                      size="sm"
+                                      aria-pressed={isSelected}
+                                      aria-label={t(
+                                        isSelected
+                                          ? "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.action"
+                                          : "discovery.features.itemDetail.ui.itemDetailPage.select.offer.action",
+                                        { buyer: buyerName, price: formatMoney(offer.price_amount) },
+                                      )}
+                                      leadingIcon={isSelected ? "check" : undefined}
+                                      onClick={selectOffer}
+                                    >
+                                      {isSelected
+                                        ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
+                                        : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
                       ) : (
                         <MarketplaceEmptyState
                           title={t("discovery.features.itemDetail.ui.itemDetailPage.no.matching.offers")}
