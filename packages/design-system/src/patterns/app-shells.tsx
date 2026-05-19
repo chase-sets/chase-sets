@@ -1800,7 +1800,7 @@ export function MarketplaceProductCommerceRail({
   label = "Commerce options"
 }: MarketplaceProductCommerceRailProps) {
   return (
-    <div className="order-5 hidden min-w-0 xl:sticky xl:top-20 xl:order-3 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-y-auto">
+    <div className="order-5 hidden min-w-0 xl:sticky xl:top-20 xl:order-3 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-x-hidden xl:overflow-y-auto xl:overscroll-contain xl:[scrollbar-gutter:stable]">
       <Sidebar label={label} purpose="support" width="summary">
         {children}
       </Sidebar>

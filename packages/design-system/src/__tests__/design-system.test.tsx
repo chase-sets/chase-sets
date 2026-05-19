@@ -334,6 +334,8 @@ describe("design-system", () => {
     expect(markup).toContain("Verified account");
     expect(markup).toContain("Order protected");
     expect(markup).toContain("Secure payment");
+    expect(markup).toContain("max-w-full");
+    expect(markup).toContain("break-words");
     expect(markup).toContain("<svg");
   });
 
@@ -1117,6 +1119,8 @@ describe("design-system", () => {
     expect(markup).toContain("xl:col-span-2");
     expect(markup).toContain("xl:sticky xl:top-20");
     expect(markup).toContain("xl:max-h-[calc(100dvh-5rem)]");
+    expect(markup).toContain("xl:overflow-x-hidden");
+    expect(markup).toContain("xl:[scrollbar-gutter:stable]");
     expect(markup.indexOf("Offers list")).toBeLessThan(
       markup.indexOf("Mobile buy sell panel")
     );
