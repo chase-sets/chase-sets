@@ -1253,6 +1253,11 @@ describe("item detail commerce panel", () => {
     expect(
       screen.getByLabelText("Product options: Form Raw, Condition Excellent"),
     ).toBeTruthy();
+    const productQuantityText = screen.getByText("2 available").parentElement?.textContent ?? "";
+    expect(productQuantityText.indexOf("Raw"))
+      .toBeGreaterThanOrEqual(0);
+    expect(productQuantityText.indexOf("Raw"))
+      .toBeLessThan(productQuantityText.indexOf("2 available"));
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Buy optimized" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add product to cart" })).toBeNull();
