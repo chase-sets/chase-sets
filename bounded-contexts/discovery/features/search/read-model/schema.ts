@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS discovery_search_items (
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   field_values_text text NOT NULL DEFAULT '',
   field_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
+  reference_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   dimension_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -160,6 +161,7 @@ ALTER TABLE discovery_search_items
 
 ALTER TABLE discovery_search_items
   ADD COLUMN IF NOT EXISTS field_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS reference_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS dimension_filter_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
@@ -173,4 +175,5 @@ CREATE INDEX IF NOT EXISTS discovery_search_items_tags_idx ON discovery_search_i
 CREATE INDEX IF NOT EXISTS discovery_search_items_category_slugs_idx ON discovery_search_items USING gin (category_slugs);
 CREATE INDEX IF NOT EXISTS discovery_search_items_category_names_idx ON discovery_search_items USING gin (category_names);
 CREATE INDEX IF NOT EXISTS discovery_search_items_field_filter_values_idx ON discovery_search_items USING gin (field_filter_values);
+CREATE INDEX IF NOT EXISTS discovery_search_items_reference_filter_values_idx ON discovery_search_items USING gin (reference_filter_values);
 CREATE INDEX IF NOT EXISTS discovery_search_items_dimension_filter_values_idx ON discovery_search_items USING gin (dimension_filter_values);`;

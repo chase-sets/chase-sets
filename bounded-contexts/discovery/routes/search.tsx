@@ -56,7 +56,7 @@ const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
 const EMPTY_EXTRA_PAGES: readonly DiscoverySearchResponse[] = [];
 
 type DynamicSearchFilterSelection = Readonly<{
-  kind: "field" | "dimension";
+  kind: "field" | "reference" | "dimension";
   id: string;
   value: string;
 }>;
@@ -612,6 +612,9 @@ function readDynamicSearchFilters(searchParams: URLSearchParams): DynamicSearchF
     .flatMap(([key, value]): DynamicSearchFilterSelection[] => {
       if (key.startsWith("field.") && value) {
         return [{ kind: "field", id: key.slice("field.".length), value }];
+      }
+      if (key.startsWith("reference.") && value) {
+        return [{ kind: "reference", id: key.slice("reference.".length), value }];
       }
       if (key.startsWith("dimension.") && value) {
         return [{ kind: "dimension", id: key.slice("dimension.".length), value }];

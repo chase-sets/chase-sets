@@ -73,7 +73,7 @@ export interface DiscoveryFacetValue {
 
 export interface DiscoveryFacetGroup {
   id: string;
-  kind: "field" | "dimension";
+  kind: "field" | "reference" | "dimension";
   label: string;
   values: DiscoveryFacetValue[];
 }

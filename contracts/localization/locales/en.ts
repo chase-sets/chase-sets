@@ -1575,6 +1575,7 @@ export const englishTranslations = {
   "discovery.features.search.ui.searchPage.facet.option.show.less": "Show less",
   "discovery.features.search.ui.searchPage.facet.option.show.more": "Show more",
   "discovery.features.search.ui.searchPage.field.facet.description": "Narrow by catalog attributes on matching items.",
+  "discovery.features.search.ui.searchPage.reference.facet.description": "Narrow by rich catalog references on matching items.",
   "discovery.features.search.ui.searchPage.filters": "Filters",
   "discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and": "Find cards, comics, figures, sneakers, and memorabilia worth chasing.",
   "discovery.features.search.ui.searchPage.get.alerts.when.supply.matches": "Get alerted when active supply matches this search.",

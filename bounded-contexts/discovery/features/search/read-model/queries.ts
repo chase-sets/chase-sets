@@ -16,6 +16,7 @@ export type DiscoverySearchParams = {
   language?: string;
   status?: string;
   fieldFilters?: readonly DiscoveryFieldFilter[];
+  referenceFilters?: readonly DiscoveryReferenceFilter[];
   dimensionFilters?: readonly DiscoveryDimensionFilter[];
   sort?: string;
   limit?: number;
@@ -25,8 +26,9 @@ export type DiscoverySearchParams = {
 };
 
 export type DiscoveryFieldFilter = Readonly<{ fieldId: string; value: string }>;
+export type DiscoveryReferenceFilter = Readonly<{ typeKey: string; referenceId: string }>;
 export type DiscoveryDimensionFilter = Readonly<{ dimensionId: string; optionId: string }>;
-export type DiscoveryFacetKind = "field" | "dimension";
+export type DiscoveryFacetKind = "field" | "reference" | "dimension";
 export type DiscoveryFacetGroup = Readonly<{
   id: string;
   kind: DiscoveryFacetKind;
@@ -234,6 +236,23 @@ function buildSearchFilter(
     paramIndex += 2;
   }
 
+  for (const [typeKey, selectedReferenceIds] of groupReferenceFilters(params.referenceFilters).entries()) {
+    if (options.excludeFacet?.kind === "reference" && options.excludeFacet.id === typeKey) {
+      continue;
+    }
+
+    conditions.push(
+      `EXISTS (
+         SELECT 1
+         FROM jsonb_array_elements(reference_filter_values) AS facet(value)
+         WHERE facet.value->>'typeKey' = $${paramIndex}
+           AND facet.value->>'referenceId' = ANY($${paramIndex + 1}::text[])
+       )`,
+    );
+    values.push(typeKey, selectedReferenceIds);
+    paramIndex += 2;
+  }
+
   for (const [dimensionId, selectedOptionIds] of groupDimensionFilters(params.dimensionFilters).entries()) {
     if (options.excludeFacet?.kind === "dimension" && options.excludeFacet.id === dimensionId) {
       continue;
@@ -273,6 +292,22 @@ function groupFieldFilters(filters: readonly DiscoveryFieldFilter[] | undefined)
     }
 
     grouped.set(fieldId, uniqueValues([...(grouped.get(fieldId) ?? []), value]));
+  }
+
+  return grouped;
+}
+
+function groupReferenceFilters(filters: readonly DiscoveryReferenceFilter[] | undefined): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+
+  for (const filter of filters ?? []) {
+    const typeKey = filter.typeKey.trim();
+    const referenceId = normalizeFilterParamValue(filter.referenceId);
+    if (!typeKey || !referenceId) {
+      continue;
+    }
+
+    grouped.set(typeKey, uniqueValues([...(grouped.get(typeKey) ?? []), referenceId]));
   }
 
   return grouped;
@@ -685,6 +720,7 @@ async function loadSearchFacets(
 ): Promise<DiscoveryFacetGroup[]> {
   const filter = buildSearchFilter(params);
   const selectedFields = groupFieldFilters(params.fieldFilters);
+  const selectedReferences = groupReferenceFilters(params.referenceFilters);
   const selectedDimensions = groupDimensionFilters(params.dimensionFilters);
   const summarySql = `
     SELECT *
@@ -698,7 +734,19 @@ async function loadSearchFacets(
       FROM discovery_search_items AS item
       CROSS JOIN LATERAL jsonb_array_elements(item.field_filter_values) AS facet(value)
       ${filter.where}
+        AND COALESCE(facet.value->>'valueType', '') <> 'reference'
       GROUP BY facet.value->>'fieldId'
+      UNION ALL
+      SELECT
+        'reference'::text AS kind,
+        facet.value->>'typeKey' AS id,
+        MAX(facet.value->>'label') AS label,
+        COUNT(DISTINCT item.catalog_item_id)::integer AS coverage,
+        COUNT(DISTINCT facet.value->>'referenceId')::integer AS distinct_count
+      FROM discovery_search_items AS item
+      CROSS JOIN LATERAL jsonb_array_elements(item.reference_filter_values) AS facet(value)
+      ${filter.where}
+      GROUP BY facet.value->>'typeKey'
       UNION ALL
       SELECT
         'dimension'::text AS kind,
@@ -724,6 +772,7 @@ async function loadSearchFacets(
   for (const summary of topSummaries) {
     if (
       (summary.kind === "field" && selectedFields.has(summary.id)) ||
+      (summary.kind === "reference" && selectedReferences.has(summary.id)) ||
       (summary.kind === "dimension" && selectedDimensions.has(summary.id))
     ) {
       chosen.set(facetKey(summary.kind, summary.id), summary);
@@ -741,6 +790,8 @@ async function loadSearchFacets(
   for (const summary of chosen.values()) {
     const values = summary.kind === "field"
       ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [])
+      : summary.kind === "reference"
+      ? await loadReferenceFacetValues(db, params, summary.id, selectedReferences.get(summary.id) ?? [])
       : await loadDimensionFacetValues(db, params, summary.id, selectedDimensions.get(summary.id) ?? []);
 
     if (values.length > 0) {
@@ -761,6 +812,60 @@ async function loadSearchFacets(
       left.label.localeCompare(right.label) ||
       left.id.localeCompare(right.id);
   });
+}
+
+async function loadReferenceFacetValues(
+  db: PgQueryable,
+  params: DiscoverySearchParams,
+  typeKey: string,
+  selectedReferenceIds: readonly string[],
+): Promise<DiscoveryFacetValue[]> {
+  const filter = buildSearchFilter(params, { excludeFacet: { kind: "reference", id: typeKey } });
+  const orderBy = fieldFacetValueOrderSql({
+    sortKind: "sort_kind",
+    sortValue: "sort_value",
+    sortNumber: "sort_number",
+    count: "count",
+    label: "label",
+    id: "reference_id",
+  });
+  const result = await db.query<{
+    reference_id: string;
+    label: string;
+    count: number;
+  }>(
+    `WITH facet_values AS (
+       SELECT
+         facet.value->>'referenceId' AS reference_id,
+         MAX(facet.value->>'referenceLabel') AS label,
+         COUNT(DISTINCT item.catalog_item_id)::integer AS count,
+         MAX(facet.value->>'sortKind') AS sort_kind,
+         MAX(facet.value->>'sortValue') AS sort_value,
+         MAX(NULLIF(facet.value->>'sortValue', '')::numeric) FILTER (WHERE facet.value->>'sortKind' = 'number-desc') AS sort_number,
+         BOOL_OR(facet.value->>'referenceId' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
+       FROM discovery_search_items AS item
+       CROSS JOIN LATERAL jsonb_array_elements(item.reference_filter_values) AS facet(value)
+       ${filter.where}
+         AND facet.value->>'typeKey' = $${filter.nextParamIndex}
+       GROUP BY facet.value->>'referenceId'
+     ),
+     ranked AS (
+       SELECT *, ROW_NUMBER() OVER (ORDER BY selected DESC, ${orderBy}) AS facet_rank
+       FROM facet_values
+     )
+     SELECT reference_id, label, count
+     FROM ranked
+     WHERE selected OR facet_rank <= ${FACET_VALUE_LIMIT}
+     ORDER BY selected DESC, ${orderBy}`,
+    [...filter.values, typeKey, selectedReferenceIds],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.reference_id,
+    label: row.label,
+    count: Number(row.count),
+    selected: selectedReferenceIds.includes(row.reference_id),
+  }));
 }
 
 async function loadFieldFacetValues(

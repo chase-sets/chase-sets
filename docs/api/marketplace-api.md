@@ -74,6 +74,8 @@ Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a
 
 ## Critical Workflows
 
+Marketplace item search accepts URL-backed Discovery filters. Dynamic filters use stable Catalog identifiers: `field.<field_id>` for descriptive Field values, `reference.<reference_type_key>` for Reference Records such as Pokemon Trading Card Product Line, Series, and Expansion, and `dimension.<dimension_id>` for Product-defining Options. Repeating the same filter key applies OR within that facet group; different facet groups combine as AND.
+
 Browse to Buy Cart:
 
 1. `GET /api/marketplace/items`

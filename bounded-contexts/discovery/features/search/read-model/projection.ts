@@ -43,6 +43,14 @@ type SearchDimensionFilterValue = Readonly<{
   displayOrder: number;
   numericValue: number | null;
 }>;
+type SearchReferenceFilterValue = Readonly<{
+  typeKey: string;
+  label: string;
+  referenceId: string;
+  referenceLabel: string;
+  sortKind: string | null;
+  sortValue: string | null;
+}>;
 
 type SearchCatalogItemRow = Readonly<{
   catalog_item_id: string;
@@ -257,6 +265,12 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       sortValue: sort.sortValue,
     }];
   });
+  const referenceFilterValues = uniqueReferenceFilterValues(
+    fieldValues.flatMap((fieldValue) => {
+      const reference = references.get(referenceIdFromValue(fieldValue.value) ?? "");
+      return buildReferenceTypeFilterValues(reference);
+    }),
+  );
   const dimensionFilterValues = await loadDimensionFilterValues(db, item.blueprint_id);
 
   if (categoryIds.length !== rawCategoryIds.length) {
@@ -330,6 +344,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       tags,
       field_values_text,
       field_filter_values,
+      reference_filter_values,
       dimension_filter_values,
       image_urls,
       product_asset_sets,
@@ -337,7 +352,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       search_text,
       search_text_simple,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, to_tsvector('english', $22), to_tsvector('simple', $23), $24)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, to_tsvector('english', $23), to_tsvector('simple', $24), $25)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -355,6 +370,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       tags = EXCLUDED.tags,
       field_values_text = EXCLUDED.field_values_text,
       field_filter_values = EXCLUDED.field_filter_values,
+      reference_filter_values = EXCLUDED.reference_filter_values,
       dimension_filter_values = EXCLUDED.dimension_filter_values,
       image_urls = EXCLUDED.image_urls,
       product_asset_sets = EXCLUDED.product_asset_sets,
@@ -380,6 +396,7 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       JSON.stringify(tags),
       fieldValuesText,
       JSON.stringify(fieldFilterValues),
+      JSON.stringify(referenceFilterValues),
       JSON.stringify(dimensionFilterValues),
       JSON.stringify(imageUrls),
       JSON.stringify(productAssetSets),
@@ -455,11 +472,55 @@ function buildReferenceFieldFilterValues(
   });
 }
 
+function buildReferenceTypeFilterValues(
+  reference: ReferenceRecordRef | undefined,
+): SearchReferenceFilterValue[] {
+  return collectReferenceRecords(reference).map((record) => {
+    const label = formatReferenceTypeLabel(record.typeKey);
+    const sort = fieldFacetSortMetadata({
+      fieldId: `reference:${record.typeKey}`,
+      label,
+      value: record.referenceId,
+      valueType: "reference",
+      reference: record,
+    });
+
+    return {
+      typeKey: record.typeKey,
+      label,
+      referenceId: record.referenceId.toLocaleLowerCase("en-US"),
+      referenceLabel: record.name,
+      sortKind: sort.sortKind,
+      sortValue: sort.sortValue,
+    };
+  });
+}
+
+function uniqueReferenceFilterValues(
+  values: readonly SearchReferenceFilterValue[],
+): SearchReferenceFilterValue[] {
+  const byKey = new Map<string, SearchReferenceFilterValue>();
+  for (const value of values) {
+    byKey.set(`${value.typeKey}:${value.referenceId}`, value);
+  }
+  return [...byKey.values()];
+}
+
 function titleizeKey(value: string): string {
   return value
     .split(/[-_\s]+/)
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toLocaleUpperCase("en-US")}${part.slice(1)}`)
+    .join(" ");
+}
+
+function formatReferenceTypeLabel(typeKey: string): string {
+  return typeKey
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((part) => part === "tcg"
+      ? "TCG"
+      : `${part.charAt(0).toLocaleUpperCase("en-US")}${part.slice(1)}`)
     .join(" ");
 }
 

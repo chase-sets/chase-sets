@@ -244,6 +244,41 @@ describe("SearchPage", () => {
     });
   });
 
+  it("renders reference facets with buyer-facing labels", () => {
+    const props = renderSearchPage({
+      dynamicFilters: [
+        { kind: "reference", id: "series", value: "ref_mega_evolution" },
+      ],
+      data: {
+        items: [searchResult],
+        facets: [{
+          id: "series",
+          kind: "reference",
+          label: "Series",
+          values: [
+            { id: "ref_mega_evolution", label: "Mega Evolution", count: 4, selected: true },
+            { id: "ref_scarlet_violet", label: "Scarlet & Violet", count: 3, selected: false },
+          ],
+        }],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+      },
+    });
+
+    expect(screen.getByText("Series")).toBeTruthy();
+    expect(screen.getByText("Narrow by rich catalog references on matching items.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Scarlet & Violet (3)" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Series: Mega Evolution" }));
+
+    expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
+      kind: "reference",
+      id: "series",
+      value: "ref_mega_evolution",
+    });
+  });
+
   it("searches within large dynamic facet option sets", () => {
     renderSearchPage({
       category: "booster-packs",
