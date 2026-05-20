@@ -142,7 +142,14 @@ describe("catalog item routes", () => {
         body: JSON.stringify({
           selection: {
             mode: "filter",
-            query: { status: "active", source: "tcgplayer" },
+            query: {
+              status: "active",
+              source: "tcgplayer",
+              blueprintState: "assigned",
+              hasImages: "true",
+              hasSourceReferences: "true",
+              missingRequiredFields: "false",
+            },
           },
         }),
       }),
@@ -158,6 +165,10 @@ describe("catalog item routes", () => {
         tag: undefined,
         language: undefined,
         source: "tcgplayer",
+        blueprintState: "assigned",
+        hasImages: "true",
+        hasSourceReferences: "true",
+        missingRequiredFields: "false",
       },
     });
   });

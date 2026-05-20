@@ -419,6 +419,10 @@ function toBulkPublishSelection(value: unknown): BulkPublishSelection {
         tag: toOptionalString(query.tag),
         language: toOptionalString(query.language),
         source: toOptionalString(query.source),
+        blueprintState: toOptionalString(query.blueprintState),
+        hasImages: toOptionalString(query.hasImages),
+        hasSourceReferences: toOptionalString(query.hasSourceReferences),
+        missingRequiredFields: toOptionalString(query.missingRequiredFields),
       },
     };
   }
