@@ -3,10 +3,12 @@ import { normalizeSimpleSearchText } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   dimensionFacetValueOrderSql,
+  facetGroupDecisionPriority,
   fieldFacetValueOrderSql,
 } from "./facet-ordering";
 
 const FACET_VALUE_LIMIT = 50;
+const FACET_GROUP_LIMIT = 10;
 
 export type DiscoverySearchParams = {
   search?: string;
@@ -766,7 +768,8 @@ async function loadSearchFacets(
   const summaryResult = await db.query<FacetSummaryRow>(summarySql, filter.values);
   const topSummaries = summaryResult.rows
     .filter((row) => Number(row.coverage) > 0)
-    .filter((row) => Number(row.distinct_count) > 0);
+    .filter((row) => Number(row.distinct_count) > 0)
+    .sort(compareFacetSummaries);
   const chosen = new Map<string, FacetSummaryRow>();
 
   for (const summary of topSummaries) {
@@ -780,7 +783,7 @@ async function loadSearchFacets(
   }
 
   for (const summary of topSummaries) {
-    if (chosen.size >= 5) {
+    if (chosen.size >= FACET_GROUP_LIMIT) {
       break;
     }
     chosen.set(facetKey(summary.kind, summary.id), summary);
@@ -807,11 +810,29 @@ async function loadSearchFacets(
   return groups.sort((left, right) => {
     const leftSummary = chosen.get(facetKey(left.kind, left.id));
     const rightSummary = chosen.get(facetKey(right.kind, right.id));
-    return Number(rightSummary?.coverage ?? 0) - Number(leftSummary?.coverage ?? 0) ||
-      Number(rightSummary?.distinct_count ?? 0) - Number(leftSummary?.distinct_count ?? 0) ||
-      left.label.localeCompare(right.label) ||
-      left.id.localeCompare(right.id);
+    return compareFacetSummaries(leftSummary, rightSummary);
   });
+}
+
+function compareFacetSummaries(
+  left: FacetSummaryRow | undefined,
+  right: FacetSummaryRow | undefined,
+): number {
+  if (!left && !right) {
+    return 0;
+  }
+  if (!left) {
+    return 1;
+  }
+  if (!right) {
+    return -1;
+  }
+
+  return facetGroupDecisionPriority(right) - facetGroupDecisionPriority(left) ||
+    Number(right.coverage) - Number(left.coverage) ||
+    Number(right.distinct_count) - Number(left.distinct_count) ||
+    left.label.localeCompare(right.label) ||
+    left.id.localeCompare(right.id);
 }
 
 async function loadReferenceFacetValues(

@@ -259,4 +259,71 @@ describe("searchDiscoveryItems facets", () => {
       },
     ]);
   });
+
+  it("keeps rich reference facets visible when generic facets have higher raw coverage", async () => {
+    const summaryRows = [
+      { kind: "field", id: "fld_seed_card_name", label: "Card Name", coverage: 100, distinct_count: 20 },
+      { kind: "field", id: "fld_seed_card_number", label: "Card Number", coverage: 100, distinct_count: 20 },
+      { kind: "field", id: "fld_seed_card_illustrator", label: "Card Illustrator", coverage: 100, distinct_count: 20 },
+      { kind: "field", id: "fld_seed_pack_count", label: "Pack Count", coverage: 100, distinct_count: 20 },
+      { kind: "field", id: "fld_seed_language", label: "Language", coverage: 100, distinct_count: 20 },
+      { kind: "field", id: "fld_seed_sku", label: "SKU", coverage: 100, distinct_count: 20 },
+      { kind: "field", id: "fld_seed_source", label: "Source", coverage: 100, distinct_count: 20 },
+      { kind: "reference", id: "expansion", label: "Expansion", coverage: 50, distinct_count: 4 },
+      { kind: "reference", id: "series", label: "Series", coverage: 50, distinct_count: 2 },
+      { kind: "reference", id: "manufacturer", label: "Manufacturer", coverage: 50, distinct_count: 1 },
+      { kind: "dimension", id: "dim_seed_condition", label: "Condition", coverage: 90, distinct_count: 7 },
+      { kind: "field", id: "fld_seed_rarity", label: "Rarity", coverage: 80, distinct_count: 6 },
+    ] as const;
+    const db = {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("AS summaries")) {
+          return { rows: summaryRows as readonly unknown[] as T[] };
+        }
+
+        if (sql.includes("facet.value->>'fieldId'")) {
+          const fieldId = values.at(-2);
+          return {
+            rows: [{
+              value: `${fieldId}_value`,
+              label: `${fieldId} value`,
+              count: 1,
+            }] as T[],
+          };
+        }
+
+        if (sql.includes("facet.value->>'typeKey'")) {
+          const typeKey = values.at(-2);
+          return {
+            rows: [{
+              reference_id: `${typeKey}_reference`,
+              label: `${typeKey} reference`,
+              count: 1,
+            }] as T[],
+          };
+        }
+
+        if (sql.includes("facet.value->>'dimensionId'")) {
+          const dimensionId = values.at(-2);
+          return {
+            rows: [{
+              option_id: `${dimensionId}_option`,
+              label: `${dimensionId} option`,
+              count: 1,
+            }] as T[],
+          };
+        }
+
+        return { rows: [] as T[] };
+      },
+    } as PgQueryable;
+
+    const result = await searchDiscoveryItems(db);
+    const facetIds = result.facets.map((facet) => facet.id);
+
+    expect(facetIds).toContain("expansion");
+    expect(facetIds).toContain("series");
+    expect(facetIds).toContain("manufacturer");
+    expect(facetIds).not.toContain("fld_seed_source");
+  });
 });

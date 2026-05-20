@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dimensionFacetValueOrderSql,
+  facetGroupDecisionPriority,
   fieldFacetSortMetadata,
   fieldFacetValueOrderSql,
 } from "./facet-ordering";
@@ -46,6 +47,22 @@ describe("Discovery facet ordering policy", () => {
         valueType: "string",
       }),
     ).toEqual({ sortKind: null, sortValue: null });
+  });
+
+  it("prioritizes buyer-critical reference facet groups", () => {
+    expect(
+      facetGroupDecisionPriority({
+        kind: "reference",
+        id: "manufacturer",
+        label: "Manufacturer",
+      }),
+    ).toBeGreaterThan(
+      facetGroupDecisionPriority({
+        kind: "field",
+        id: "fld_seed_card_illustrator",
+        label: "Card Illustrator",
+      }),
+    );
   });
 
   it("builds numeric and date field ordering before count fallback", () => {
