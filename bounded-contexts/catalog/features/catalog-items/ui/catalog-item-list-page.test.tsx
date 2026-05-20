@@ -7,6 +7,7 @@ import type { CatalogItemListItem } from "./contracts";
 
 const {
   mockPreviewBulkCatalogItemEdit,
+  mockPreviewBulkCatalogItemLifecycle,
   mockPreviewBulkPublishCatalogItems,
   mockRemoveDraftCatalogItem,
   mockUseNavigation,
@@ -14,6 +15,7 @@ const {
   mockUseSearchParams,
 } = vi.hoisted(() => ({
   mockPreviewBulkCatalogItemEdit: vi.fn(),
+  mockPreviewBulkCatalogItemLifecycle: vi.fn(),
   mockPreviewBulkPublishCatalogItems: vi.fn(),
   mockRemoveDraftCatalogItem: vi.fn(),
   mockUseNavigation: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock("./use-catalog-items", () => ({
   createCatalogItem: vi.fn(),
   localizedTextMapFromEnglish: (value: string) => ({ defaultLocale: "en", values: { en: value } }),
   previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
-  previewBulkCatalogItemLifecycle: vi.fn(),
+  previewBulkCatalogItemLifecycle: mockPreviewBulkCatalogItemLifecycle,
   previewBulkPublishCatalogItems: mockPreviewBulkPublishCatalogItems,
   removeDraftCatalogItem: mockRemoveDraftCatalogItem,
 }));
@@ -151,7 +153,7 @@ describe("CatalogItemListPage", () => {
 
     expect(screen.getAllByText("tcgplayer").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Preview matching drafts" })).toBeTruthy();
-    expect(screen.getAllByText("1 matching Catalog Items").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     expect(selectRow).toBeTruthy();
@@ -234,13 +236,64 @@ describe("CatalogItemListPage", () => {
       />,
     );
 
-    expect(screen.getAllByText("1 matching Catalog Items").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
 
     expect(screen.getAllByText("1 Catalog Items selected").length).toBeGreaterThan(0);
     expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+  });
+
+  it("previews matching bulk edits from a single side-panel action surface", async () => {
+    const user = userEvent.setup();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockPreviewBulkCatalogItemEdit.mockResolvedValue({
+      mode: "filter",
+      action: "assignBlueprint",
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "draft",
+          blueprint_id: null,
+          category_ids: [],
+          tags: [],
+          outcome: "ready",
+          reason: null,
+        },
+      ],
+    });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
+    expect(screen.queryByLabelText("Action")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(await screen.findByRole("combobox", { name: "Action" }));
+    await user.click(await screen.findByRole("option", { name: "Assign Blueprint" }));
+    fireEvent.change(screen.getByLabelText("Blueprint ID or slug"), { target: { value: "bpr_card" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview matching items" }));
+
+    await waitFor(() => {
+      expect(mockPreviewBulkCatalogItemEdit).toHaveBeenCalledWith(
+        { action: "assignBlueprint", blueprintId: "bpr_card" },
+        { mode: "filter", query: { search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 } },
+      );
+    });
+    expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();
   });
 
   it("removes selected draft items from the grid", async () => {

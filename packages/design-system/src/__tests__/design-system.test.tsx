@@ -11,6 +11,8 @@ import {
   BottomSheet,
   BottomNav,
   BulkActionBar,
+  BulkActionPanel,
+  BulkActionSurface,
   CommerceSheet,
   UiBadge as Badge,
   UiButton as Button,
@@ -652,6 +654,51 @@ describe("design-system", () => {
     expect(markup).toContain("Clear Selection");
     expect(markup).toContain('data-bulk-action-region="overflow"');
     expect(markup).toContain("More actions");
+  });
+
+  it("prevents more than one bottom bulk action bar in a bulk action surface", () => {
+    expect(() =>
+      renderToString(
+        <BulkActionSurface>
+          <BulkActionBar count={12} primaryActions={<Button>Preview publish</Button>} />
+          <BulkActionBar count={12} primaryActions={<Button>Preview edit</Button>} />
+        </BulkActionSurface>,
+      ),
+    ).toThrow("BulkActionSurface can render only one BulkActionBar");
+  });
+
+  it("moves large bulk action sets into a reusable side panel", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <BulkActionSurface>
+        <BulkActionBar
+          count={364}
+          formatSelectedLabel={(count) => `${count} matching Catalog Items`}
+          primaryActions={
+            <BulkActionPanel
+              title="Bulk actions"
+              triggerLabel="Configure action"
+              footer={<Button>Preview matching items</Button>}
+            >
+              <Select label="Action" items={[{ label: "Assign Blueprint", value: "assignBlueprint" }]} />
+              <TextInput label="Blueprint ID or slug" defaultValue="bpr_card" />
+            </BulkActionPanel>
+          }
+          secondaryActions={<Button variant="secondary">Preview retire</Button>}
+        />
+      </BulkActionSurface>,
+    );
+
+    expect(screen.getByText("364 matching Catalog Items")).toBeTruthy();
+    expect(screen.queryByLabelText("Blueprint ID or slug")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Configure action" }));
+
+    expect(await screen.findByText("Bulk actions")).toBeTruthy();
+    expect(screen.getByLabelText("Action")).toBeTruthy();
+    expect(screen.getByLabelText("Blueprint ID or slug")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview matching items" })).toBeTruthy();
   });
 
   it("moves overflow filters into an accessible filter panel", async () => {

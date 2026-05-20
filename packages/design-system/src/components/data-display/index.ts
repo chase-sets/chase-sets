@@ -26,5 +26,9 @@ export {
   type FilterBottomSheetProps,
   BulkActionBar,
   type BulkActionBarProps,
+  BulkActionPanel,
+  type BulkActionPanelProps,
+  BulkActionSurface,
+  type BulkActionSurfaceProps,
 } from "./filter";
 export { ImageGallery, type GalleryImage, type ImageGalleryProps } from "./image-gallery";

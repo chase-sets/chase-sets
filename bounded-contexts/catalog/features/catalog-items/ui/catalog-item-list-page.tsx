@@ -6,6 +6,7 @@ import {
   AlertDialog,
   BottomSheet,
   BulkActionBar,
+  BulkActionPanel,
   Button,
   DataTable,
   Dialog,
@@ -20,7 +21,6 @@ import {
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import {
-  BulkLifecycleActionBar,
   type BulkLifecycleCandidate,
   type BulkLifecyclePreview,
   type BulkLifecycleResult,
@@ -150,11 +150,22 @@ type CatalogItemSelectedOperation =
   | "removeDrafts"
   | BulkEditCatalogItemOperation["action"];
 
+type CatalogItemMatchingOperation =
+  | "retire"
+  | "archive"
+  | BulkEditCatalogItemOperation["action"];
+
 const selectedOperationOptions = [
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.publish"), value: "publish" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.retire"), value: "retire" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.archive"), value: "archive" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.remove.drafts"), value: "removeDrafts" },
+  ...bulkEditActions,
+];
+
+const matchingOperationOptions = [
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.retire"), value: "retire" },
+  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.archive"), value: "archive" },
   ...bulkEditActions,
 ];
 
@@ -205,7 +216,7 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   const [bulkLifecycleBusy, setBulkLifecycleBusy] = useState(false);
   const bulkLifecycleColumns = useMemo(() => buildBulkLifecycleColumns(), []);
   const bulkLifecycleRows = (bulkLifecycleResult?.candidates ?? bulkLifecyclePreview?.candidates ?? []).slice(0, 20);
-  const [bulkEditAction, setBulkEditAction] = useState<BulkEditCatalogItemOperation["action"]>("assignBlueprint");
+  const [matchingOperation, setMatchingOperation] = useState<CatalogItemMatchingOperation>("retire");
   const [bulkEditBlueprintId, setBulkEditBlueprintId] = useState("");
   const [bulkEditCategoryId, setBulkEditCategoryId] = useState("");
   const [bulkEditTags, setBulkEditTags] = useState("");
@@ -216,9 +227,10 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   const [bulkEditBusy, setBulkEditBusy] = useState(false);
   const bulkEditColumns = useMemo(() => buildBulkEditColumns(), []);
   const bulkEditRows = (bulkEditResult?.candidates ?? bulkEditPreview?.candidates ?? []).slice(0, 20);
-  const dialogBulkEditAction = bulkEditResult?.action ?? bulkEditPreview?.action ?? bulkEditOperation?.action ?? bulkEditAction;
+  const dialogBulkEditAction = bulkEditResult?.action ?? bulkEditPreview?.action ?? bulkEditOperation?.action ?? "assignBlueprint";
   const bulkEditActionLabel = getBulkEditActionLabel(dialogBulkEditAction);
-  const canPreviewBulkEdit = canPreviewBulkEditAction(bulkEditAction);
+  const canPreviewMatchingOperation = isLifecycleOperation(matchingOperation)
+    || (isBulkEditOperation(matchingOperation) && canPreviewBulkEditAction(matchingOperation));
   const canPreviewSelectedOperation = selectedOperation === "publish"
     || isLifecycleOperation(selectedOperation)
     || (isBulkEditOperation(selectedOperation) && canPreviewBulkEditAction(selectedOperation));
@@ -422,7 +434,7 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     return { action: "clearTags" };
   }
 
-  async function handlePreviewBulkEdit(selection: unknown, action: BulkEditCatalogItemOperation["action"] = bulkEditAction) {
+  async function handlePreviewBulkEdit(selection: unknown, action: BulkEditCatalogItemOperation["action"]) {
     const operation = buildBulkEditOperation(action);
     setBulkEditBusy(true);
     setBulkEditResult(null);
@@ -523,6 +535,17 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     }
 
     await handlePreviewBulkEdit(selection, selectedOperation);
+  }
+
+  async function handlePreviewMatchingOperation() {
+    const selection = { mode: "filter" as const, query };
+
+    if (isLifecycleOperation(matchingOperation)) {
+      await handlePreviewBulkLifecycle(matchingOperation, selection);
+      return;
+    }
+
+    await handlePreviewBulkEdit(selection, matchingOperation);
   }
 
   function renderBulkEditFields(action: BulkEditCatalogItemOperation["action"]) {
@@ -732,60 +755,49 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         selectedKeys={selectedKeys}
         onSelectionChange={setSelectedKeys}
         bulkActionBar={
-          <>
-            {selectedKeys.size > 0 ? renderSelectedBulkActionBar() : (
-              <BulkLifecycleActionBar
-                entityName="Catalog Items"
-                selectedKeys={selectedKeys}
-                filterSelection={{ mode: "filter", query }}
-                filterCount={data.total}
-                actions={lifecycleActions}
-                extraActions={
-                  listControls.status === "draft" ? (
+          selectedKeys.size > 0 ? renderSelectedBulkActionBar() : data.total > 0 ? (
+            <BulkActionBar
+              count={data.total}
+              formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count })}
+              primaryActions={
+                <BulkActionPanel
+                  title={t("catalog.features.catalogItems.ui.catalogItemListPage.actions")}
+                  triggerLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.actions")}
+                  footer={
                     <Button
-                      size="sm"
-                      tone="secondary"
-                      onClick={handlePreviewMatchingDrafts}
-                      loading={bulkBusy}
-                      disabled={data.total === 0}
-                    >
-                      {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.matching.drafts")}
-                    </Button>
-                  ) : null
-                }
-                clearSelection={() => setSelectedKeys(new Set())}
-                preview={previewBulkCatalogItemLifecycle}
-                confirm={confirmBulkCatalogItemLifecycle}
-                onCompleted={revalidator.revalidate}
-              />
-            )}
-            {selectedKeys.size === 0 && data.total > 0 && (
-              <BulkActionBar
-                count={data.total}
-                formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count })}
-                actions={
-                  <Inline gap={2}>
-                    <Select
-                      label={t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.action")}
-                      value={bulkEditAction}
-                      onValueChange={(value) => setBulkEditAction(value as BulkEditCatalogItemOperation["action"])}
-                      items={bulkEditActions}
-                    />
-                    {renderBulkEditFields(bulkEditAction)}
-                    <Button
-                      size="sm"
-                      tone="secondary"
-                      onClick={() => handlePreviewBulkEdit({ mode: "filter", query })}
-                      loading={bulkEditBusy}
-                      disabled={data.total === 0 || !canPreviewBulkEdit}
+                      block
+                      onClick={handlePreviewMatchingOperation}
+                      loading={bulkLifecycleBusy || bulkEditBusy}
+                      disabled={data.total === 0 || !canPreviewMatchingOperation}
                     >
                       {t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.matching.items")}
                     </Button>
-                  </Inline>
-                }
-              />
-            )}
-          </>
+                  }
+                >
+                  <Select
+                    label={t("catalog.support.shellSupport.ui.bulkLifecycleActions.action")}
+                    value={matchingOperation}
+                    onValueChange={(value) => setMatchingOperation(value as CatalogItemMatchingOperation)}
+                    items={matchingOperationOptions}
+                  />
+                  {isBulkEditOperation(matchingOperation) ? renderBulkEditFields(matchingOperation) : null}
+                </BulkActionPanel>
+              }
+              secondaryActions={
+                listControls.status === "draft" ? (
+                  <Button
+                    size="sm"
+                    tone="secondary"
+                    onClick={handlePreviewMatchingDrafts}
+                    loading={bulkBusy}
+                    disabled={data.total === 0}
+                  >
+                    {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.matching.drafts")}
+                  </Button>
+                ) : null
+              }
+            />
+          ) : null
         }
         page={listControls.page}
         pageSize={listControls.pageSize}
