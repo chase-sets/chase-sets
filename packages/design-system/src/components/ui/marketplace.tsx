@@ -570,6 +570,7 @@ export function AccountReputationSummary({
 export interface ListingCardProps {
   href?: string;
   title: string;
+  subtitle?: ReactNode;
   model?: ListingModel;
   imageSrc?: string;
   imageSrcSet?: string;
@@ -619,6 +620,7 @@ export interface ListingCardProps {
 export function ListingCard({
   href,
   title,
+  subtitle,
   model = "product",
   imageSrc,
   imageSrcSet,
@@ -796,6 +798,11 @@ export function ListingCard({
           <h3 className="m-0 line-clamp-2 text-base font-semibold leading-6 text-[var(--foreground)]">
             {title}
           </h3>
+          {subtitle ? (
+            <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">
+              {subtitle}
+            </p>
+          ) : null}
           {valueCue ? (
             <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
               {valueCue}

@@ -325,7 +325,8 @@ describe("marketplace search route", () => {
     expect(screen.getByText("Market open")).toBeTruthy();
     expect(screen.getAllByText("Supply wanted").length).toBeGreaterThan(0);
     expect(screen.getByText("Offer or list yours")).toBeTruthy();
-    expect(screen.getByText("Make an offer or list yours to help this market form.")).toBeTruthy();
+    expect(screen.getByText("Jungle 60/64 Common")).toBeTruthy();
+    expect(screen.queryByText("Make an offer or list yours to help this market form.")).toBeNull();
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
       "/items/pikachu?market=buy",
     );
