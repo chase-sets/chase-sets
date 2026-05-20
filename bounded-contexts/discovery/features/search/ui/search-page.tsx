@@ -50,7 +50,7 @@ const sortOptions = [
 ];
 
 type DynamicSearchFilterSelection = Readonly<{
-  kind: "field" | "dimension";
+  kind: "field" | "reference" | "dimension";
   id: string;
   value: string;
 }>;
@@ -118,9 +118,15 @@ function findLanguageLabel(language: string): string {
 }
 
 function formatFacetDescription(facet: DiscoveryFacetGroup): string {
-  return facet.kind === "dimension"
-    ? t("discovery.features.search.ui.searchPage.dimension.facet.description")
-    : t("discovery.features.search.ui.searchPage.field.facet.description");
+  switch (facet.kind) {
+    case "dimension":
+      return t("discovery.features.search.ui.searchPage.dimension.facet.description");
+    case "reference":
+      return t("discovery.features.search.ui.searchPage.reference.facet.description");
+    case "field":
+    default:
+      return t("discovery.features.search.ui.searchPage.field.facet.description");
+  }
 }
 
 function facetOptionSearchProps(facet: DiscoveryFacetGroup) {

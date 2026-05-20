@@ -58,6 +58,7 @@ function searchParamsFromRequest(
     cursor: cursor || undefined,
     includeTotal: includeTotal === "true",
     fieldFilters: readFieldFilters(url.searchParams),
+    referenceFilters: readReferenceFilters(url.searchParams),
     dimensionFilters: readDimensionFilters(url.searchParams),
   };
 }
@@ -70,6 +71,16 @@ function readFieldFilters(searchParams: URLSearchParams) {
       value,
     }))
     .filter((filter) => filter.fieldId.length > 0 && filter.value.length > 0);
+}
+
+function readReferenceFilters(searchParams: URLSearchParams) {
+  return [...searchParams.entries()]
+    .filter(([key]) => key.startsWith("reference."))
+    .map(([key, value]) => ({
+      typeKey: key.slice("reference.".length),
+      referenceId: value,
+    }))
+    .filter((filter) => filter.typeKey.length > 0 && filter.referenceId.length > 0);
 }
 
 function readDimensionFilters(searchParams: URLSearchParams) {

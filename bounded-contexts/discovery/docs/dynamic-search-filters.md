@@ -8,7 +8,9 @@ Category remains the primary browse facet.
 
 Field facets are eligible only when the Catalog Field is marked `filterable`. Discovery may denormalize the field name, value type, and item values into its search read model, but Catalog remains the owner of what the Field means.
 
-Reference Field facets use stable `reference_record_id` values and human-readable Reference Record names. When a Reference Record has relationships, Discovery may expose additional derived Field facets for related Reference Record types, such as filtering an Expansion field by its related Series. These derived facets are projection-only browse affordances; Catalog remains the source of the Reference Record hierarchy.
+Reference facets use stable `reference_record_id` values and human-readable Reference Record names. Direct and inherited Reference Records are presented by Catalog Reference Type, such as Product Line, Series, and Expansion for Pokemon Trading Cards. When a Catalog Item selects an Expansion Reference Record, Discovery may expose that Expansion plus inherited Series and Product Line Reference facets. These facets are projection-only browse affordances; Catalog remains the source of the Reference Record hierarchy.
+
+Reference-shaped Field filters remain accepted as compatibility aliases for existing links and tests, but buyer-facing search presents first-class Reference Type facets instead of field-derived labels such as `Expansion Series`.
 
 Dimension facets are eligible when a Dimension appears in a Catalog Item's active Blueprint product schema. Discovery filters by stable `dimension_id` and `option_id` values and uses denormalized labels only for presentation.
 
@@ -32,7 +34,7 @@ Selected Filters remain visible in active chips and in their owning facet group 
 
 Mobile search uses the canonical marketplace mobile filter pattern from the design system. Focused result pages show one compact filter bar with result summary and active filter count before the result list. Applied filters remain visible and reversible as chips outside the filter sheet.
 
-Opening filters presents a bottom sheet with top-level vertically grouped choices for Category, Language, and ranked dynamic Field and Dimension facets. The sheet keeps 44px touch targets, clear-all access, and a show-results action. Discovery still owns URL-backed Filter State and selection behavior; the design system owns the reusable mobile filter shell and choice-group presentation.
+Opening filters presents a bottom sheet with top-level vertically grouped choices for Category, Language, and ranked dynamic Reference, Field, and Dimension facets. The sheet keeps 44px touch targets, clear-all access, and a show-results action. Discovery still owns URL-backed Filter State and selection behavior; the design system owns the reusable mobile filter shell and choice-group presentation.
 
 The mobile filter sheet owns the vertical scroll. Individual facet groups must not introduce their own scrollbars. Dense facets should use search, show more/show less, or replace the sheet body with a focused facet-picking section. If the focused section becomes long, stateful, or route-worthy, promote it to a Full Page instead of nesting scroll regions inside the sheet.
 
@@ -57,11 +59,12 @@ Changing search text, Category, Language, Sort Order, or dynamic Filters starts 
 Dynamic filter URLs use stable Catalog identifiers:
 
 - Field filters: `field.<field_id>=<normalized-value>`
-- Reference Field filters: `field.<field_id>=<reference_record_id>`
-- Related Reference Field filters: `field.<field_id>:<reference_type_key>=<reference_record_id>`
+- Reference filters: `reference.<reference_type_key>=<reference_record_id>`
+- Legacy Reference Field filters: `field.<field_id>=<reference_record_id>`
+- Legacy Related Reference Field filters: `field.<field_id>:<reference_type_key>=<reference_record_id>`
 - Dimension filters: `dimension.<dimension_id>=<option_id>`
 
-Multiple values for the same Field or Dimension use repeated query parameters. Discovery treats multiple values within one facet group as an OR filter and different facet groups as AND filters.
+Multiple values for the same Field, Reference Type, or Dimension use repeated query parameters. Discovery treats multiple values within one facet group as an OR filter and different facet groups as AND filters.
 
 Labels, display order, and localized copy must not be used as durable filter identifiers.
 
@@ -69,7 +72,7 @@ Labels, display order, and localized copy must not be used as durable filter ide
 
 Search Result links preserve selected Dimension filters on item detail URLs so a buyer who narrows search by Product-defining Options lands on the Detail Page with the same Product Options selected. This keeps the path from filter to listing purchase short: matching listings, add-to-cart, buy-now, offer, and Product Alert affordances all receive the selected Product context immediately.
 
-Field filters are intentionally not carried into Product selection because Fields describe Catalog Items and do not define Products.
+Field and Reference filters are intentionally not carried into Product selection because Fields and Reference Records describe Catalog Items and do not define Products.
 
 If Search carries exactly one selected Option for a Dimension, Item Detail validates and applies that selection against the projected Product Schema. If Search carries multiple selected Options for the same Dimension, Item Detail leaves that Dimension unset rather than guessing. Invalid or inapplicable Dimension selections are ignored during Product Schema normalization.
 
@@ -79,7 +82,7 @@ Discovery owns the buyer-facing bulk action from a Result Set because the scope 
 
 Bulk add previews the active Discovery Query before committing. The preview resolves eligible Products from selected Dimension filters, shows how many Products are ready, shows skipped items that still need Product Options, and blocks commit when the query is too broad. The first implementation allows up to 250 matching resolved Products in one action so full set-sized adds stay practical without letting very broad tags become long-running cart writes.
 
-Field filters and tags can define Result Set scope, but they do not define Product identity. They may decide which Catalog Items are included in the preview; Dimension filters decide which Product Options can be carried into Cart lines.
+Field filters, Reference filters, and tags can define Result Set scope, but they do not define Product identity. They may decide which Catalog Items are included in the preview; Dimension filters decide which Product Options can be carried into Cart lines.
 
 ## Boundary Rules
 

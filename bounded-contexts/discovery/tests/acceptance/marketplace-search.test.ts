@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { module as reputationModule } from "@chase-sets/reputation";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
   bootstrapContextDatabase,
@@ -30,6 +31,7 @@ const discoveryContextNames = [
   "catalog",
   "identity",
   "marketplace",
+  "reputation",
   "discovery",
 ] as const;
 
@@ -99,6 +101,7 @@ describeWithDatabase("marketplace search", () => {
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
+    const reputationServices = reputationModule.createServices(pools.reputation, undefined);
     discoveryServices = createDiscoveryServices(pools.discovery);
     const mountedContexts = [
       {
@@ -125,6 +128,14 @@ describeWithDatabase("marketplace search", () => {
         projectors: [],
       },
       {
+        contextName: "reputation",
+        mountRole: "source-only",
+        module: reputationModule,
+        services: reputationServices,
+        pool: pools.reputation,
+        projectors: [],
+      },
+      {
         contextName: "discovery",
         module: discoveryModule,
         services: discoveryServices,
@@ -147,6 +158,7 @@ describeWithDatabase("marketplace search", () => {
     await bootstrapContextDatabase(catalogModule, pools.catalog);
     await bootstrapContextDatabase(identityModule, pools.identity);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
+    await bootstrapContextDatabase(reputationModule, pools.reputation);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
   });
 
@@ -401,7 +413,7 @@ describeWithDatabase("marketplace search", () => {
     const blueprintId = "bpr_reference_card";
     const itemId = "cat_azumarill_ex";
     const manufacturerReferenceId = "ref_pokemon_company";
-    const tcgReferenceId = "ref_pokemon_tcg";
+    const productLineReferenceId = "ref_pokemon_tcg";
     const seriesReferenceId = "ref_mega_evolution";
     const expansionReferenceId = "ref_ascended_heroes";
 
@@ -414,10 +426,10 @@ describeWithDatabase("marketplace search", () => {
       attributes: {},
       relationships: [],
     });
-    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${tcgReferenceId}`, {
+    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${productLineReferenceId}`, {
       type: "CreateReferenceRecord",
-      referenceRecordId: tcgReferenceId as never,
-      typeKey: "tcg",
+      referenceRecordId: productLineReferenceId as never,
+      typeKey: "product-line",
       key: "pokemon-tcg",
       name: l10n("Pokemon TCG"),
       attributes: {},
@@ -430,7 +442,7 @@ describeWithDatabase("marketplace search", () => {
       key: "mega-evolution",
       name: l10n("Mega Evolution"),
       attributes: {},
-      relationships: [{ relationshipType: "part-of-tcg", referenceId: tcgReferenceId as never }],
+      relationships: [{ relationshipType: "part-of", referenceId: productLineReferenceId as never }],
     });
     await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${expansionReferenceId}`, {
       type: "CreateReferenceRecord",
@@ -504,28 +516,88 @@ describeWithDatabase("marketplace search", () => {
     expect(seriesSearchBody.total).toBe(1);
     expect(seriesSearchBody.items[0].catalog_item_id).toBe(itemId);
 
-    const tcgSearchResponse = await app.request("/api/marketplace/items?search=pokemon%20tcg&includeTotal=true");
-    expect(tcgSearchResponse.status).toBe(200);
-    const tcgSearchBody = await tcgSearchResponse.json();
-    expect(tcgSearchBody.total).toBe(1);
-    expect(tcgSearchBody.items[0].catalog_item_id).toBe(itemId);
+    const productLineSearchResponse = await app.request("/api/marketplace/items?search=pokemon%20tcg&includeTotal=true");
+    expect(productLineSearchResponse.status).toBe(200);
+    const productLineSearchBody = await productLineSearchResponse.json();
+    expect(productLineSearchBody.total).toBe(1);
+    expect(productLineSearchBody.items[0].catalog_item_id).toBe(itemId);
+
+    expect(productLineSearchBody.facets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "expansion",
+          kind: "reference",
+          label: "Expansion",
+          values: expect.arrayContaining([
+            expect.objectContaining({
+              id: expansionReferenceId,
+              label: "Ascended Heroes",
+              count: 1,
+            }),
+          ]),
+        }),
+        expect.objectContaining({
+          id: "series",
+          kind: "reference",
+          label: "Series",
+          values: expect.arrayContaining([
+            expect.objectContaining({
+              id: seriesReferenceId,
+              label: "Mega Evolution",
+              count: 1,
+            }),
+          ]),
+        }),
+        expect.objectContaining({
+          id: "product-line",
+          kind: "reference",
+          label: "Product Line",
+          values: expect.arrayContaining([
+            expect.objectContaining({
+              id: productLineReferenceId,
+              label: "Pokemon TCG",
+              count: 1,
+            }),
+          ]),
+        }),
+      ]),
+    );
 
     const expansionFilterResponse = await app.request(`/api/marketplace/items?field.${expansionFieldId}=${expansionReferenceId}&includeTotal=true`);
     expect(expansionFilterResponse.status).toBe(200);
     const expansionFilterBody = await expansionFilterResponse.json();
     expect(expansionFilterBody.total).toBe(1);
-    expect(
-      expansionFilterBody.facets
-        .find((facet: { id: string }) => facet.id === expansionFieldId)
-        .values.find((value: { id: string }) => value.id === expansionReferenceId)
-        .label,
-    ).toBe("Ascended Heroes");
+    expect(expansionFilterBody.items[0].catalog_item_id).toBe(itemId);
 
     const seriesFilterResponse = await app.request(`/api/marketplace/items?field.${expansionFieldId}:series=${seriesReferenceId}&includeTotal=true`);
     expect(seriesFilterResponse.status).toBe(200);
     const seriesFilterBody = await seriesFilterResponse.json();
     expect(seriesFilterBody.total).toBe(1);
     expect(seriesFilterBody.items[0].catalog_item_id).toBe(itemId);
+
+    const referenceExpansionFilterResponse = await app.request(`/api/marketplace/items?reference.expansion=${expansionReferenceId}&includeTotal=true`);
+    expect(referenceExpansionFilterResponse.status).toBe(200);
+    const referenceExpansionFilterBody = await referenceExpansionFilterResponse.json();
+    expect(referenceExpansionFilterBody.total).toBe(1);
+    expect(referenceExpansionFilterBody.items[0].catalog_item_id).toBe(itemId);
+    expect(
+      referenceExpansionFilterBody.facets
+        .find((facet: { id: string; kind: string }) => facet.id === "expansion" && facet.kind === "reference")
+        .values.find((value: { id: string }) => value.id === expansionReferenceId)
+        .selected,
+    ).toBe(true);
+
+    const referenceSeriesFilterResponse = await app.request(`/api/marketplace/items?reference.series=${seriesReferenceId}&includeTotal=true`);
+    expect(referenceSeriesFilterResponse.status).toBe(200);
+    const referenceSeriesFilterBody = await referenceSeriesFilterResponse.json();
+    expect(referenceSeriesFilterBody.total).toBe(1);
+    expect(referenceSeriesFilterBody.items[0].catalog_item_id).toBe(itemId);
+
+    const referenceProductLineFilterResponse = await app.request(`/api/marketplace/items?reference.product-line=${productLineReferenceId}&includeTotal=true`);
+    expect(referenceProductLineFilterResponse.status).toBe(200);
+    const referenceProductLineFilterBody = await referenceProductLineFilterResponse.json();
+    expect(referenceProductLineFilterBody.total).toBe(1);
+    expect(referenceProductLineFilterBody.items[0].catalog_item_id).toBe(itemId);
 
     const detailResponse = await app.request(`/api/marketplace/items/${itemId}`);
     expect(detailResponse.status).toBe(200);
@@ -542,9 +614,9 @@ describeWithDatabase("marketplace search", () => {
             name: "Mega Evolution",
             relationships: [
               {
-                relationshipType: "part-of-tcg",
+                relationshipType: "part-of",
                 reference: {
-                  referenceId: tcgReferenceId,
+                  referenceId: productLineReferenceId,
                   name: "Pokemon TCG",
                   relationships: [
                     {
@@ -563,9 +635,9 @@ describeWithDatabase("marketplace search", () => {
       ],
     });
 
-    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${tcgReferenceId}`, {
+    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${productLineReferenceId}`, {
       type: "ReviseReferenceRecord",
-      typeKey: "tcg",
+      typeKey: "product-line",
       key: "pokemon-tcg",
       name: l10n("Pokemon Trading Card Game"),
       attributes: {},

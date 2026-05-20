@@ -327,6 +327,9 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
+      '@chase-sets/reputation':
+        specifier: workspace:*
+        version: link:../reputation
 
   bounded-contexts/experience:
     dependencies:

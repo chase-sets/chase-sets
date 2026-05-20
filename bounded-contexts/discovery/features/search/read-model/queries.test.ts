@@ -107,6 +107,32 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(listCall?.values.slice(-4)).toEqual([0.75, "Bulbasaur", "cat_002", 25]);
   });
 
+  it("applies first-class reference filters by Reference Type", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, {
+      referenceFilters: [
+        { typeKey: "series", referenceId: "ref_mega_evolution" },
+        { typeKey: "series", referenceId: "ref_scarlet_violet" },
+        { typeKey: "product-line", referenceId: "ref_pokemon_tcg" },
+      ],
+      limit: 24,
+    });
+
+    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+    expect(listCall?.sql).toContain("jsonb_array_elements(reference_filter_values)");
+    expect(listCall?.sql).toContain("facet.value->>'typeKey' = $2");
+    expect(listCall?.sql).toContain("facet.value->>'typeKey' = $4");
+    expect(listCall?.values).toEqual([
+      "active",
+      "series",
+      ["ref_mega_evolution", "ref_scarlet_violet"],
+      "product-line",
+      ["ref_pokemon_tcg"],
+      25,
+    ]);
+  });
+
   it("orders field facet values with semantic sort metadata before count fallback", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const db: PgQueryable = {
