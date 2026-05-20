@@ -197,9 +197,13 @@ export function PublicPresenceHomePage({
           <HeroSignalStrip />
         </Stack>
 
+        <AudiencePathSection />
+
         <SellerEconomicsSection />
 
         <WhyJoinNow />
+
+        <BuyerBundleProofSection />
 
         <ProductSignalPreview />
 
@@ -220,6 +224,60 @@ export function PublicPresenceHomePage({
         <FaqPreview />
       </Page>
     </PublicPresencePageShell>
+  );
+}
+
+function AudiencePathSection() {
+  return (
+    <PageSection
+      title={t("publicPresence.home.paths.title")}
+      description={t("publicPresence.home.paths.description")}
+    >
+      <Grid columns={{ base: 1, md: 2 }} gap={4}>
+        <Surface tone="subtle" elevated>
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="warning">{t("publicPresence.home.paths.sell.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.paths.sell.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.paths.sell.description")}</Text>
+            <List
+              items={[
+                t("publicPresence.home.paths.sell.point.feeLock"),
+                t("publicPresence.home.paths.sell.point.bulk"),
+                t("publicPresence.home.paths.sell.point.offers"),
+              ]}
+            />
+            <Inline>
+              <LinkButton href="#seller-economics" tone="secondary" size="sm">
+                {t("publicPresence.home.paths.sell.action")}
+              </LinkButton>
+            </Inline>
+          </Stack>
+        </Surface>
+        <Surface tone="subtle" elevated>
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="success">{t("publicPresence.home.paths.buy.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.paths.buy.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.paths.buy.description")}</Text>
+            <List
+              items={[
+                t("publicPresence.home.paths.buy.point.total"),
+                t("publicPresence.home.paths.buy.point.shipping"),
+                t("publicPresence.home.paths.buy.point.trust"),
+              ]}
+            />
+            <Inline>
+              <LinkButton href="#buyer-proof" tone="secondary" size="sm">
+                {t("publicPresence.home.paths.buy.action")}
+              </LinkButton>
+            </Inline>
+          </Stack>
+        </Surface>
+      </Grid>
+    </PageSection>
   );
 }
 
@@ -293,6 +351,7 @@ function HeroSignalStrip() {
 function SellerEconomicsSection() {
   return (
     <PageSection
+      id="seller-economics"
       title={t("publicPresence.home.sellerEconomics.title")}
       description={t("publicPresence.home.sellerEconomics.description")}
     >
@@ -336,6 +395,77 @@ function SellerEconomicsSection() {
         />
       </Grid>
     </PageSection>
+  );
+}
+
+function BuyerBundleProofSection() {
+  return (
+    <PageSection
+      id="buyer-proof"
+      title={t("publicPresence.home.buyerProof.title")}
+      description={t("publicPresence.home.buyerProof.description")}
+    >
+      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+        <PriceBreakdown
+          title={t("publicPresence.home.buyerProof.math.title")}
+          description={t("publicPresence.home.buyerProof.math.description")}
+          lines={[
+            {
+              label: t("publicPresence.home.buyerProof.math.items"),
+              value: t("publicPresence.home.buyerProof.math.items.value"),
+            },
+            {
+              label: t("publicPresence.home.buyerProof.math.shipping"),
+              value: <BuyerProofShippingValue />,
+            },
+            {
+              label: t("publicPresence.home.buyerProof.math.shippingCredit"),
+              value: t("publicPresence.home.buyerProof.math.shippingCredit.value"),
+            },
+            {
+              label: t("publicPresence.home.buyerProof.math.orderProcessing"),
+              value: t("publicPresence.home.buyerProof.math.orderProcessing.value"),
+            },
+            {
+              label: t("publicPresence.home.buyerProof.math.protection"),
+              value: t("publicPresence.home.buyerProof.math.protection.value"),
+            },
+          ]}
+          totalLabel={t("publicPresence.home.buyerProof.math.total")}
+          total={t("publicPresence.home.buyerProof.math.total.value")}
+          reassurance={t("publicPresence.home.buyerProof.math.reassurance")}
+        />
+        <Surface tone="subtle" elevated>
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="success">{t("publicPresence.home.buyerProof.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.buyerProof.workflow.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.buyerProof.workflow.description")}</Text>
+            <List
+              items={[
+                t("publicPresence.home.buyerProof.workflow.point.compare"),
+                t("publicPresence.home.buyerProof.workflow.point.bundle"),
+                t("publicPresence.home.buyerProof.workflow.point.review"),
+              ]}
+            />
+          </Stack>
+        </Surface>
+      </Grid>
+    </PageSection>
+  );
+}
+
+function BuyerProofShippingValue() {
+  return (
+    <span className="inline-flex flex-wrap justify-end gap-x-1">
+      <s className="text-[var(--destructive)] decoration-[var(--destructive)]">
+        {t("publicPresence.home.buyerProof.math.shipping.original")}
+      </s>
+      <span className="text-[var(--trust)]">
+        {t("publicPresence.home.buyerProof.math.shipping.net")}
+      </span>
+    </span>
   );
 }
 
@@ -695,7 +825,7 @@ function WaitlistSignupPanel({
               placeholder={t("publicPresence.waitlist.email.placeholder")}
             />
             {compact ? (
-              <>
+              <Grid columns={{ base: 1, md: 2 }} gap={2}>
                 <NativeSelect
                   label={t("publicPresence.waitlist.role")}
                   name="role"
@@ -703,8 +833,14 @@ function WaitlistSignupPanel({
                   items={roleItems}
                   required
                 />
-                <input type="hidden" name="interests" value="set-completion" readOnly />
-              </>
+                <NativeSelect
+                  label={t("publicPresence.waitlist.interests")}
+                  name="interests"
+                  defaultValue="low-sales-fees"
+                  items={interestSelectItems}
+                  required
+                />
+              </Grid>
             ) : (
               <Grid columns={{ base: 1, md: 2 }} gap={3}>
                 <NativeSelect
@@ -717,7 +853,7 @@ function WaitlistSignupPanel({
                 <NativeSelect
                   label={t("publicPresence.waitlist.interests")}
                   name="interests"
-                  defaultValue="set-completion"
+                  defaultValue="low-sales-fees"
                   description={t("publicPresence.waitlist.interests.description")}
                   items={interestSelectItems}
                   required
