@@ -93,9 +93,8 @@ export type ItemDetailCommerceSections = Readonly<{
   offer?: ReactNode;
   sell?: ReactNode;
   watch?: ReactNode;
-  mobile?: Partial<Record<"buy" | "offer" | "sell" | "list" | "watch", ItemDetailMobileCommerceSection>>;
+  mobile?: Partial<Record<"buy" | "sell" | "watch", ItemDetailMobileCommerceSection>>;
   sellLabel?: string;
-  listLabel?: string;
   watchLabel?: string;
 }>;
 
@@ -854,7 +853,7 @@ function LoadedItemDetailPage({
     initialMarketIntent,
   );
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<
-    "buy" | "offer" | "sell" | "list" | "watch" | null
+    "buy" | "sell" | "watch" | null
   >(null);
   const [marketBookTab, setMarketBookTab] = useState<MarketBookTab>(
     initialMarketIntent === "sell" ? "offers" : "listings",
@@ -1273,56 +1272,45 @@ function LoadedItemDetailPage({
     activeMobileCommerceSection?.content ??
     (activeMobileCommerce === "buy"
       ? commerceSections?.buy
-      : activeMobileCommerce === "offer"
-        ? commerceSections?.offer
-        : activeMobileCommerce === "sell"
-          ? commerceSections?.sell
-          : activeMobileCommerce === "watch"
-            ? commerceSections?.watch
+      : activeMobileCommerce === "sell"
+        ? commerceSections?.sell
+        : activeMobileCommerce === "watch"
+          ? commerceSections?.watch
           : null);
   const activeMobileCommerceTitle =
     activeMobileCommerceSection?.title ??
     (activeMobileCommerce === "buy"
       ? t("discovery.features.itemDetail.ui.itemDetailPage.buy.selected.product")
-      : activeMobileCommerce === "offer"
-        ? t("discovery.features.itemDetail.ui.itemDetailPage.make.offer")
-        : activeMobileCommerce === "watch"
-          ? commerceSections?.watchLabel ?? t("discovery.features.search.ui.searchPage.watch")
-        : activeMobileCommerce === "list"
-          ? commerceSections?.listLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.list")
-          : commerceSections?.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell"));
+      : activeMobileCommerce === "watch"
+        ? commerceSections?.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch")
+        : commerceSections?.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell"));
   const activeMobileCommerceDescription = activeMobileCommerceSection?.description;
+  const openMobileCommerce = (
+    action: "buy" | "sell" | "watch",
+    nextMarketIntent: MarketIntent,
+  ) => {
+    setMarketIntent(nextMarketIntent);
+    setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
+    updateMarketIntentUrl(nextMarketIntent);
+    setActiveMobileCommerce(action);
+  };
   const mobileBuyAction = selectedProductId ? (
     <Button
       type="button"
       size="lg"
-      onClick={() => setActiveMobileCommerce("buy")}
+      onClick={() => openMobileCommerce("buy", "buy")}
     >
       {t("discovery.features.itemDetail.ui.itemDetailPage.buy.2")}</Button>
   ) : (
     <LinkButton href="#select-options" size="lg">
       {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}</LinkButton>
   );
-  const mobileOfferAction = (commerceSections?.mobile?.offer ?? commerceSections?.offer) ? (
-    selectedProductId ? (
-      <Button
-        type="button"
-        tone="secondary"
-        size="md"
-        onClick={() => setActiveMobileCommerce("offer")}
-      >
-        {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.2")}</Button>
-    ) : (
-      <LinkButton href="#select-options" tone="secondary" size="sm">
-        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.offer")}</LinkButton>
-    )
-  ) : null;
   const mobileSellAction = (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
     selectedProductId ? (
       <Button
         type="button"
         size="lg"
-        onClick={() => setActiveMobileCommerce("sell")}
+        onClick={() => openMobileCommerce("sell", "sell")}
       >
         {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
       </Button>
@@ -1331,47 +1319,27 @@ function LoadedItemDetailPage({
         {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.sell")}</LinkButton>
     )
   ) : null;
-  const mobileListAction = commerceSections?.mobile?.list ? (
+  const mobileWatchAction = commerceSections?.mobile?.watch ? (
     selectedProductId ? (
       <Button
         type="button"
         tone="secondary"
-        size="sm"
-        onClick={() => setActiveMobileCommerce("list")}
+        size="lg"
+        onClick={() => openMobileCommerce("watch", "watch")}
       >
-        {commerceSections.listLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.list.2")}
+        {commerceSections.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch")}
       </Button>
     ) : (
       <LinkButton href="#select-options" tone="secondary" size="sm">
-        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.list")}</LinkButton>
-    )
-  ) : null;
-  const mobileWatchAction = (commerceSections?.mobile?.watch ?? commerceSections?.watch) ? (
-    selectedProductId ? (
-      <Button
-        type="button"
-        size="lg"
-        onClick={() => setActiveMobileCommerce("watch")}
-      >
-        {commerceSections.watchLabel ?? t("discovery.features.search.ui.searchPage.watch")}
-      </Button>
-    ) : (
-      <LinkButton href="#select-options" size="sm">
-        {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}</LinkButton>
+        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.watch")}</LinkButton>
     )
   ) : null;
   const mobileCommerceActionBar = commerce ? (
     <CommerceActionBar
-      intentControl={renderMarketIntentControl(t("discovery.features.itemDetail.ui.itemDetailPage.choose.mobile.market.intent"), true)}
       summary={mobileCommerceSummary}
-      primaryAction={
-        marketIntent === "sell"
-          ? mobileSellAction
-          : marketIntent === "watch"
-            ? mobileWatchAction
-            : mobileBuyAction
-      }
-      secondaryAction={marketIntent === "sell" ? mobileListAction : mobileOfferAction}
+      primaryAction={mobileBuyAction}
+      secondaryAction={mobileSellAction}
+      tertiaryAction={mobileWatchAction}
     />
   ) : null;
   const mobileCommerceBottomSheet = commerce ? (
