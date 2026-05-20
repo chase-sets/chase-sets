@@ -88,26 +88,72 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
 
   for (const def of fieldDefs) {
     const streamId = `catalog.field-${def.fieldId}`;
+    const existing = await findSeedField(services, def);
 
-    await sendSeedCommand(services.fields.commandHandler, streamId, {
-      type: "CreateField",
-      fieldId: def.fieldId,
-      key: def.key,
-      name: def.name,
-      description: def.description,
-      valueType: def.valueType,
-      behavior: def.behavior,
-    });
+    if (!existing) {
+      await sendSeedCommand(services.fields.commandHandler, streamId, {
+        type: "CreateField",
+        fieldId: def.fieldId,
+        key: def.key,
+        name: def.name,
+        description: def.description,
+        valueType: def.valueType,
+        behavior: def.behavior,
+      });
 
-    await sendSeedCommand(services.fields.commandHandler, streamId, {
-      type: "ActivateField",
-    });
+      await sendSeedCommand(services.fields.commandHandler, streamId, {
+        type: "ActivateField",
+      });
+    } else if (existing.status === "draft") {
+      await sendSeedCommand(services.fields.commandHandler, streamId, {
+        type: "ActivateField",
+      });
+    } else if (existing.status !== "active") {
+      throw new Error(
+        `Catalog integration bootstrap requires active field '${def.key}', but found status '${existing.status}'.`,
+      );
+    }
 
     result[def.key] = def.fieldId;
-    console.log(`  Field "${def.name.values.en}" created`);
+    console.log(
+      existing
+        ? `  Field "${def.name.values.en}" reconciled`
+        : `  Field "${def.name.values.en}" created`,
+    );
   }
 
   return result;
+}
+
+async function findSeedField(
+  services: CatalogServices,
+  def: FieldDef,
+): Promise<{ status: string } | null> {
+  const existing = await services.db.query<{
+    field_id: string;
+    key: string;
+    status: string;
+  }>(
+    `SELECT field_id, key, status
+     FROM catalog_fields
+     WHERE field_id = $1 OR key = $2`,
+    [def.fieldId, def.key],
+  );
+  const row = existing.rows.find(
+    (field) => field.field_id === def.fieldId && field.key === def.key,
+  );
+
+  if (existing.rows.length === 0) {
+    return null;
+  }
+
+  if (!row || existing.rows.length > 1) {
+    throw new Error(
+      `Catalog integration bootstrap field '${def.key}' conflicts with existing field metadata.`,
+    );
+  }
+
+  return { status: row.status };
 }
 
 function l10n(en: string): LocalizedTextMap {
