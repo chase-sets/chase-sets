@@ -8,6 +8,8 @@ import {
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
 import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
 
+const publicSiteUrl = "https://chasesets.com";
+
 function optional(value: FormDataEntryValue | null) {
   const text = typeof value === "string" ? value.trim() : "";
   return text || null;
@@ -68,22 +70,63 @@ export async function action({ request }: ActionFunctionArgs) {
 export const meta: MetaFunction = () => [
   { title: t("publicPresence.routes.home.meta.title") },
   { name: "description", content: t("publicPresence.routes.home.meta.description") },
+  { tagName: "link", rel: "canonical", href: `${publicSiteUrl}/` },
   { property: "og:site_name", content: t("publicPresence.brand") },
   { property: "og:title", content: t("publicPresence.routes.home.meta.title") },
   { property: "og:description", content: t("publicPresence.routes.home.meta.description") },
   { property: "og:type", content: "website" },
-  { property: "og:image", content: `https://chasesets.com${heroImageUrl}` },
+  { property: "og:url", content: `${publicSiteUrl}/` },
+  { property: "og:image", content: `${publicSiteUrl}${heroImageUrl}` },
   { name: "twitter:card", content: "summary_large_image" },
+  { name: "twitter:title", content: t("publicPresence.routes.home.meta.title") },
+  { name: "twitter:description", content: t("publicPresence.routes.home.meta.description") },
+  { name: "twitter:image", content: `${publicSiteUrl}${heroImageUrl}` },
 ];
+
+export function buildHomeStructuredData() {
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${publicSiteUrl}/#organization`,
+        name: t("publicPresence.brand"),
+        url: `${publicSiteUrl}/`,
+        contactPoint: {
+          "@type": "ContactPoint",
+          email: "support@chasesets.com",
+          contactType: "customer support",
+        },
+      },
+      {
+        "@type": "WebSite",
+        "@id": `${publicSiteUrl}/#website`,
+        name: t("publicPresence.brand"),
+        url: `${publicSiteUrl}/`,
+        publisher: {
+          "@id": `${publicSiteUrl}/#organization`,
+        },
+      },
+    ],
+  } as const;
+}
 
 export default function PublicPresenceHomeRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() ?? null;
   return (
-    <PublicPresenceHomePage
-      actionData={actionData}
-      discordInviteUrl={data.discordInviteUrl}
-      source={data.source}
-    />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(buildHomeStructuredData()).replace(/</g, "\\u003c"),
+        }}
+      />
+      <PublicPresenceHomePage
+        actionData={actionData}
+        discordInviteUrl={data.discordInviteUrl}
+        source={data.source}
+      />
+    </>
   );
 }
