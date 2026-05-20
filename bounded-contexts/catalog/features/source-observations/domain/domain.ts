@@ -7,7 +7,7 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import { assert, assertNever } from "../../../support/runtime-support/common";
 
-export type SourceObservationStatus = "observed" | "promoted" | "rejected";
+export type SourceObservationStatus = "observed" | "changed" | "promoted" | "rejected";
 
 export type SourceObservationNormalized = JsonObject & Readonly<{
   kind: "pokemon-card";
@@ -112,6 +112,13 @@ export type SourceObservationRecordedEvent = DomainEvent<
     Readonly<{ sourceUpdatedAt: string | null }>
 >;
 
+export type SourceObservationChangedEvent = DomainEvent<
+  "catalog.source-observation.changed",
+  JsonObject &
+    Omit<RecordSourceObservationCommand, "type" | "sourceUpdatedAt"> &
+    Readonly<{ sourceUpdatedAt: string | null }>
+>;
+
 export type SourceObservationPromotedEvent = DomainEvent<
   "catalog.source-observation.promoted",
   Readonly<{
@@ -129,6 +136,7 @@ export type SourceObservationRejectedEvent = DomainEvent<
 
 export type SourceObservationEvent =
   | SourceObservationRecordedEvent
+  | SourceObservationChangedEvent
   | SourceObservationPromotedEvent
   | SourceObservationRejectedEvent;
 
@@ -145,38 +153,38 @@ export const decideSourceObservation: AggregateDecider<
       assert(command.sourceRecordHash.trim().length > 0, "Source observations require a source hash.");
 
       if (state.id !== null) {
-        assert(
-          state.status === "observed",
-          "Only observed source observations can be refreshed.",
-        );
-
         if (
           state.sourceRecordHash === command.sourceRecordHash &&
           state.sourceUpdatedAt === (command.sourceUpdatedAt ?? null)
         ) {
           return [];
         }
+
+        assert(
+          state.status === "observed" ||
+            state.status === "changed" ||
+            state.status === "promoted",
+          "Only observed, changed, or promoted source observations can be refreshed.",
+        );
+
+        if (state.status === "changed" || state.status === "promoted") {
+          return [
+            {
+              type: "catalog.source-observation.changed",
+              data: recordEventData(command),
+            },
+          ];
+        }
       }
 
       return [
         {
           type: "catalog.source-observation.recorded",
-          data: {
-            observationId: command.observationId,
-            providerKey: normalizeKey(command.providerKey),
-            externalKey: command.externalKey.trim(),
-            sourceUrl: command.sourceUrl.trim(),
-            languageCode: normalizeKey(command.languageCode),
-            sourceRecordHash: command.sourceRecordHash,
-            sourceUpdatedAt: command.sourceUpdatedAt ?? null,
-            observedAt: command.observedAt,
-            normalized: command.normalized,
-            sourcePayload: command.sourcePayload,
-          },
+          data: recordEventData(command),
         },
       ];
     case "PromoteSourceObservation":
-      requireObserved(state);
+      requirePromotable(state);
       assert(command.catalogItemId.trim().length > 0, "Promotion requires a catalog item.");
 
       return [
@@ -226,6 +234,22 @@ export const evolveSourceObservation: AggregateEvolver<
         status: "observed",
         statusReason: null,
       };
+    case "catalog.source-observation.changed":
+      return {
+        ...state,
+        id: event.data.observationId,
+        providerKey: event.data.providerKey,
+        externalKey: event.data.externalKey,
+        sourceUrl: event.data.sourceUrl,
+        languageCode: event.data.languageCode,
+        sourceRecordHash: event.data.sourceRecordHash,
+        sourceUpdatedAt: event.data.sourceUpdatedAt,
+        observedAt: event.data.observedAt,
+        normalized: event.data.normalized,
+        sourcePayload: event.data.sourcePayload,
+        status: "changed",
+        statusReason: null,
+      };
     case "catalog.source-observation.promoted":
       return {
         ...state,
@@ -247,6 +271,31 @@ export const evolveSourceObservation: AggregateEvolver<
 function requireObserved(state: SourceObservationState): void {
   assert(state.id !== null, "Source observation must be recorded first.");
   assert(state.status === "observed", "Only observed source observations can transition.");
+}
+
+function requirePromotable(state: SourceObservationState): void {
+  assert(state.id !== null, "Source observation must be recorded first.");
+  assert(
+    state.status === "observed" || state.status === "changed",
+    "Only observed or changed source observations can be promoted.",
+  );
+}
+
+function recordEventData(
+  command: RecordSourceObservationCommand,
+): SourceObservationRecordedEvent["data"] {
+  return {
+    observationId: command.observationId,
+    providerKey: normalizeKey(command.providerKey),
+    externalKey: command.externalKey.trim(),
+    sourceUrl: command.sourceUrl.trim(),
+    languageCode: normalizeKey(command.languageCode),
+    sourceRecordHash: command.sourceRecordHash,
+    sourceUpdatedAt: command.sourceUpdatedAt ?? null,
+    observedAt: command.observedAt,
+    normalized: command.normalized,
+    sourcePayload: command.sourcePayload,
+  };
 }
 
 function normalizeKey(value: string): string {

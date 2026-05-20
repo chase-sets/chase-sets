@@ -223,6 +223,7 @@ export const englishTranslations = {
   "catalog.features.sourceObservations.ui.list.name": "Name",
   "catalog.features.sourceObservations.ui.list.number": "Number",
   "catalog.features.sourceObservations.ui.list.observed": "Observed",
+  "catalog.features.sourceObservations.ui.list.changed": "Changed",
   "catalog.features.sourceObservations.ui.list.other.tcgdex.expansion.id": "Other TCGdex Expansion ID",
   "catalog.features.sourceObservations.ui.list.promoted": "Promoted",
   "catalog.features.sourceObservations.ui.list.rejected": "Rejected",

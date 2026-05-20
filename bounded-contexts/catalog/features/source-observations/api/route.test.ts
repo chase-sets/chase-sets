@@ -104,6 +104,7 @@ describe("source observation routes", () => {
         series_name: "Base",
         total_observations: 102,
         observed_observations: 100,
+        changed_observations: 0,
         promoted_observations: 2,
         rejected_observations: 0,
         first_observed_at: "2026-05-16T00:00:00.000Z",
