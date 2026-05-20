@@ -45,6 +45,8 @@ Use `packages/design-system/src/` as the canonical component inventory. Marketpl
 
 Cards may adapt to products, services, rentals, bookings, digital goods, quotes, and local listings, but the signal hierarchy stays stable: item identity, price, account trust, fulfillment, availability, risk reduction, then action.
 
+Real product media renders as the collectible, not as a framed UI thumbnail. Use the shared product media treatment for catalog imagery so alpha-shaped assets, such as Pokemon cards with transparent rounded corners, remain chrome-less in light and dark mode. Do not add image borders, square media backgrounds, wrapper shadows, padding, or forced corner radii around real product images. Empty states, placeholders, and loading-only fallbacks may use neutral surfaces because they describe UI state rather than the physical card.
+
 ## Product Options Display Contract
 
 Use `ProductOptions` whenever a resolved product's selected options are displayed. Visual presentation is option-only: `Raw • Excellent` or `Graded • PSA • 10 Gem Mint`. Do not show Dimension labels such as `Form:` or `Condition:` in the visual label unless the surface is explicitly Catalog authoring or technical diagnostics.

@@ -22,3 +22,9 @@ Fallback images carry the same variant map shape expected by UI image consumers:
 ```
 
 Product-line differences, such as English Pokemon cards, Japanese Pokemon cards, and sealed products, should be expressed by assigning the appropriate Catalog-owned fallback asset to each Catalog Item.
+
+## Product Asset Presentation
+
+Product Asset Set display variants preserve the visible collectible shape. Catalog keeps the imported source asset unchanged, then generates browser display variants from an alpha-preserving normalized source that trims empty outer padding before resizing.
+
+Consumers should treat Product Asset Set URLs as the preferred public item imagery. Discovery and other UI consumers should render those images with `object-fit: contain` and without decorative image borders, square backgrounds, or forced corner rounding around real product imagery. Empty states and loading-only fallbacks may use design-system surfaces because they are UI states rather than the physical collectible.

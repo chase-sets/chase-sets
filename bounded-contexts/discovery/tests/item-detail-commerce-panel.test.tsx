@@ -202,6 +202,72 @@ function createItem(
 }
 
 describe("item detail commerce panel", () => {
+  it("uses Product Asset Set detail variants before compatibility image URLs", () => {
+    renderWithDataRouter(
+      <ItemDetailPage
+        data={createItem({
+          image_urls: ["/legacy-detail.webp"],
+          product_asset_sets: [{
+            kind: "product-image",
+            sourceHash: "source_hash",
+            source: {
+              role: "source",
+              width: 480,
+              height: 672,
+              density: null,
+              mediaType: "image/webp",
+              storageKey: "catalog/items/cat_test/product-image/source.webp",
+              publicUrl: "/source.webp",
+              byteSize: 100,
+              generatedAt: "2026-05-20T00:00:00.000Z",
+            },
+            variants: [
+              {
+                role: "catalog-detail",
+                width: 480,
+                height: 672,
+                density: 1,
+                mediaType: "image/webp",
+                storageKey: "catalog/items/cat_test/product-image/catalog-detail-480w-1x.webp",
+                publicUrl: "/catalog-detail-480w.webp",
+                byteSize: 80,
+                generatedAt: "2026-05-20T00:00:00.000Z",
+              },
+              {
+                role: "catalog-detail",
+                width: 960,
+                height: 1344,
+                density: 2,
+                mediaType: "image/webp",
+                storageKey: "catalog/items/cat_test/product-image/catalog-detail-960w-2x.webp",
+                publicUrl: "/catalog-detail-960w.webp",
+                byteSize: 120,
+                generatedAt: "2026-05-20T00:00:00.000Z",
+              },
+              {
+                role: "thumbnail",
+                width: 96,
+                height: 134,
+                density: 1,
+                mediaType: "image/webp",
+                storageKey: "catalog/items/cat_test/product-image/thumbnail-96w-1x.webp",
+                publicUrl: "/thumbnail-96w.webp",
+                byteSize: 40,
+                generatedAt: "2026-05-20T00:00:00.000Z",
+              },
+            ],
+          }],
+        })}
+      />,
+    );
+
+    const image = screen.getByRole("img", { name: "Charizard image 1" });
+    expect(image.getAttribute("src")).toBe("/catalog-detail-480w.webp");
+    expect(image.getAttribute("srcset")).toBe(
+      "/catalog-detail-480w.webp 480w, /catalog-detail-960w.webp 960w",
+    );
+  });
+
   it("renders item detail language codes as localized labels", async () => {
     renderWithDataRouter(<ItemDetailPage data={createItem({ language_code: "ja" })} />);
 

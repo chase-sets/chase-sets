@@ -958,6 +958,20 @@ describe("design system", () => {
     expect(markup).toContain("Back");
   });
 
+  it("renders ImageGallery product imagery in a chrome-less alpha-preserving frame", () => {
+    const markup = renderToString(
+      <ImageGallery
+        images={[
+          { src: "/img1.webp", alt: "Front" }
+        ]}
+      />
+    );
+
+    expect(markup).toContain("relative overflow-visible");
+    expect(markup).toContain("object-contain");
+    expect(markup).not.toContain("modern-surface relative overflow-hidden rounded-tokenLg border border-muted");
+  });
+
   it("renders ImageGallery thumbnails on a left rail", () => {
     const markup = renderToString(
       <ImageGallery
