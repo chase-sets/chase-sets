@@ -1385,6 +1385,9 @@ export interface MarketingImageHeroProps {
   imageAlt: string;
   imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
   imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
+  imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
+  imageWidth?: ImgHTMLAttributes<HTMLImageElement>["width"];
+  imageHeight?: ImgHTMLAttributes<HTMLImageElement>["height"];
   imagePosition?: "left" | "center" | "right";
   eyebrow?: ReactNode;
   title: ReactNode;
@@ -1399,6 +1402,9 @@ export function MarketingImageHero({
   imageAlt,
   imageFetchPriority = "high",
   imageLoading = "eager",
+  imageDecoding = "async",
+  imageWidth,
+  imageHeight,
   imagePosition = "center",
   eyebrow,
   title,
@@ -1419,8 +1425,11 @@ export function MarketingImageHero({
       <img
         src={imageSrc}
         alt={imageAlt}
-        fetchPriority={imageFetchPriority}
         loading={imageLoading}
+        decoding={imageDecoding}
+        fetchPriority={imageFetchPriority}
+        width={imageWidth}
+        height={imageHeight}
         className={cx("absolute inset-0 h-full w-full object-cover", imagePositionClass)}
       />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,transparent)_0%,color-mix(in_srgb,var(--background)_78%,transparent)_48%,color-mix(in_srgb,var(--background)_46%,transparent)_100%)] lg:bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_94%,transparent)_0%,color-mix(in_srgb,var(--background)_76%,transparent)_44%,color-mix(in_srgb,var(--background)_14%,transparent)_100%)]" />
@@ -1475,6 +1484,9 @@ export interface MarketingVisualCardProps
   imageAlt: string;
   imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
   imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
+  imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
+  imageWidth?: ImgHTMLAttributes<HTMLImageElement>["width"];
+  imageHeight?: ImgHTMLAttributes<HTMLImageElement>["height"];
   imagePosition?: "left" | "center" | "right";
   badge?: ReactNode;
   badgeTone?: BadgeProps["tone"];
@@ -1496,6 +1508,9 @@ export function MarketingVisualCard({
   imageAlt,
   imageFetchPriority = "auto",
   imageLoading = "lazy",
+  imageDecoding = "async",
+  imageWidth,
+  imageHeight,
   imagePosition = "center",
   badge,
   badgeTone = "neutral",
@@ -1511,8 +1526,11 @@ export function MarketingVisualCard({
       <img
         src={imageSrc}
         alt={imageAlt}
-        fetchPriority={imageFetchPriority}
         loading={imageLoading}
+        decoding={imageDecoding}
+        fetchPriority={imageFetchPriority}
+        width={imageWidth}
+        height={imageHeight}
         className={cx(
           "absolute inset-0 h-full w-full object-cover",
           marketingVisualCardImagePositionClasses[imagePosition]

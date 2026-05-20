@@ -106,10 +106,17 @@ export function buildHomeStructuredData() {
         publisher: {
           "@id": `${publicSiteUrl}/#organization`,
         },
+        potentialAction: {
+          "@type": "RegisterAction",
+          name: t("publicPresence.waitlist.submit"),
+          target: `${publicSiteUrl}/#waitlist-form`,
+        },
       },
     ],
   } as const;
 }
+
+export const publicPresenceHomeJsonLd = buildHomeStructuredData;
 
 export default function PublicPresenceHomeRoute() {
   const data = useLoaderData<typeof loader>();

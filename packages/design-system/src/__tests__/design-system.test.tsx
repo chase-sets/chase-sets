@@ -60,6 +60,7 @@ import {
   MarketplaceTemplateGallery,
   MessageThreadPreview,
   ListingPurchasePanel,
+  MarketingImageHero,
   MarketingVisualCard,
   OrderIntentSummary,
   OfferCard,
@@ -203,6 +204,10 @@ describe("design-system", () => {
       <MarketingVisualCard
         imageSrc="/assets/waitlist-panels.png"
         imageAlt="Sorted collectible inventory"
+        imageLoading="lazy"
+        imageDecoding="async"
+        imageWidth={1200}
+        imageHeight={900}
         badge="Beta signal"
         title="Move more inventory"
         description="Bulk, raw, graded, and chase cards stay practical to list."
@@ -210,14 +215,42 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain("Sorted collectible inventory");
+    expect(markup).toContain('loading="lazy"');
+    expect(markup).toContain('decoding="async"');
+    expect(markup).toContain('width="1200"');
     expect(markup).toContain("Beta signal");
     expect(markup).toContain("Move more inventory");
+  });
+
+  it("passes first-paint image hints through marketing heroes", () => {
+    const markup = renderToString(
+      <MarketingImageHero
+        imageSrc="/assets/hero.webp"
+        imageAlt="Cards ready to list"
+        imageLoading="eager"
+        imageDecoding="async"
+        imageFetchPriority="high"
+        imageWidth={1600}
+        imageHeight={1000}
+        title="List cards without giving up margin"
+      />,
+    );
+
+    expect(markup).toContain("Cards ready to list");
+    expect(markup).toContain('loading="eager"');
+    expect(markup).toContain('decoding="async"');
+    expect(markup).toContain('fetchPriority="high"');
+    expect(markup).toContain('width="1600"');
   });
 
   it("renders conversion-first marketplace listing signals", () => {
     const markup = renderToString(
       <ListingCard
         title="2020 Pikachu VMAX"
+        imageSrc="/assets/pikachu.webp"
+        imageAlt="Pikachu VMAX card"
+        imageLoading="lazy"
+        imageDecoding="async"
         price="$1,250.00"
         priceDetail="Free insured shipping"
         condition="PSA 10"
@@ -235,6 +268,8 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain("2020 Pikachu VMAX");
+    expect(markup).toContain("Pikachu VMAX card");
+    expect(markup).toContain('loading="lazy"');
     expect(markup).toContain("$1,250.00");
     expect(markup).toContain("Verified account");
     expect(markup).toContain("Order protected");
