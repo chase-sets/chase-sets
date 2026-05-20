@@ -26,6 +26,55 @@ import {
   resolvePublicOrigin,
   shouldIndexPublicWeb,
 } from "./seo";
+import { waitlistAnalyticsEventNames } from "@chase-sets/public-presence/web";
+
+export const waitlistAnalyticsBridgeScript = `
+(() => {
+  const endpoint = "/analytics/waitlist";
+  const allowedEvents = new Set(${JSON.stringify(waitlistAnalyticsEventNames)});
+
+  function readBounded(value) {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const text = value.trim();
+    return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
+  }
+
+  window.addEventListener("chase-sets:waitlist-analytics", (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    if (!detail || typeof detail.event !== "string" || !allowedEvents.has(detail.event)) {
+      return;
+    }
+
+    const payload = {
+      event: detail.event,
+      section: readBounded(detail.section),
+      target: readBounded(detail.target),
+      field: readBounded(detail.field),
+      role: readBounded(detail.role),
+      interest: readBounded(detail.interest),
+      variant: readBounded(detail.variant),
+      status: readBounded(detail.status),
+      checked: typeof detail.checked === "boolean" ? detail.checked : null,
+    };
+    const body = JSON.stringify(payload);
+
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(endpoint, new Blob([body], { type: "application/json" }));
+      return;
+    }
+
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      credentials: "same-origin",
+      keepalive: true,
+    }).catch(() => undefined);
+  });
+})();
+`.trim();
 
 export function loader(_args: LoaderFunctionArgs) {
   return {
@@ -62,6 +111,9 @@ export function Layout({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
+        <script
+          dangerouslySetInnerHTML={{ __html: waitlistAnalyticsBridgeScript }}
+        />
         <ScrollRestoration />
         <Scripts />
       </body>

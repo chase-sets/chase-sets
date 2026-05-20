@@ -35,6 +35,10 @@ describe("observability stack contracts", () => {
       .toContain("Platform API Overview");
     expect(readStackFile("grafana/dashboards/platform-api-overview.json"))
       .toContain("UCP operation rate");
+    expect(readStackFile("grafana/dashboards/public-presence-waitlist.json"))
+      .toContain("Public Presence Waitlist Funnel");
+    expect(readStackFile("grafana/dashboards/public-presence-waitlist.json"))
+      .toContain("chase_sets_public_presence_waitlist_events_total");
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml"))
       .toContain("Platform API elevated 5xx rate");
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml"))

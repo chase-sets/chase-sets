@@ -36,7 +36,7 @@ describe("public presence homepage", () => {
     );
 
     expect(screen.getByRole("heading", {
-      name: "List cards without giving up the margin.",
+      name: "Sell cards without giving up margin.",
     })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });

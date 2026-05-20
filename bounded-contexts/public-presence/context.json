@@ -13,7 +13,8 @@
   "allowedSupportDirectories": [
     "request-support",
     "runtime-support",
-    "shell-support"
+    "shell-support",
+    "ui-support"
   ],
   "publicExports": [
     ".",
@@ -247,6 +248,17 @@
       "justification": "shell-support keeps deployable-facing page shell exports out of feature internals.",
       "createdFor": "public-presence waitlist page shell composition.",
       "sunsetWhen": "Remove when public presence no longer exports deployable-facing shell modules."
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Expose the public-presence waitlist analytics event contract to deployable browser bridges without moving waitlist behavior out of the slice.",
+      "allowedWhen": "Allowed only for browser-safe Public Presence UI contracts consumed through the context web export.",
+      "expectedConsumers": [
+        "Public web deployable analytics bridge"
+      ],
+      "justification": "The waitlist slice owns analytics event names; public-web needs the event allowlist to validate provider-neutral analytics without duplicating bounded-context vocabulary.",
+      "createdFor": "Public Presence waitlist analytics capture.",
+      "sunsetWhen": "Remove if analytics capture moves fully into a bounded context browser entrypoint or an approved experimentation context."
     },
     "routes": {
       "classification": "routes",

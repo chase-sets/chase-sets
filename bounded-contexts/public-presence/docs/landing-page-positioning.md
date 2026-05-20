@@ -19,4 +19,12 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 
 Do not invent testimonials, waitlist counts, partnerships, founder bios, launch dates, transaction volume, or community proof.
 
+Promote new trust proof only when all of these are true:
+
+- the source is durable and public or owned by Chase Sets
+- the metric or claim has an owner and a freshness window
+- privacy/legal review allows the claim on a public page
+- stale or unavailable proof can be removed without changing the offer
+- the proof reinforces seller economics or buyer confidence without replacing the seller-first first screen
+
 The primary conversion action is joining the beta waitlist. The embedded hero form should remain compact, seller-first, and explicit that joining does not require buying, listing, or payment.

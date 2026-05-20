@@ -107,6 +107,18 @@ const ucpSignatureVerificationFailedCounter = meter.createCounter(
   "chase_sets_ucp_signature_verification_failed_total",
 );
 const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_total");
+const publicPresenceWaitlistEventCounter = meter.createCounter(
+  "chase_sets_public_presence_waitlist_events_total",
+);
+
+export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
+  event: string;
+  section?: string | null;
+  role?: string | null;
+  interest?: string | null;
+  variant?: string | null;
+  status?: string | null;
+}>;
 
 let runtime: ObservabilityRuntime | null = null;
 
@@ -571,6 +583,29 @@ export function recordUcpIdempotencyConflict(event: Readonly<{
   });
 }
 
+export function publicPresenceWaitlistAnalyticsAttributes(
+  event: PublicPresenceWaitlistAnalyticsSignal,
+): Attributes {
+  return {
+    context: "public-presence",
+    event: boundedMetricLabel(event.event),
+    section: boundedMetricLabel(event.section),
+    role: boundedMetricLabel(event.role),
+    interest: boundedMetricLabel(event.interest),
+    variant: boundedMetricLabel(event.variant),
+    status: boundedMetricLabel(event.status),
+  };
+}
+
+export function recordPublicPresenceWaitlistAnalytics(
+  event: PublicPresenceWaitlistAnalyticsSignal,
+): void {
+  publicPresenceWaitlistEventCounter.add(
+    1,
+    publicPresenceWaitlistAnalyticsAttributes(event),
+  );
+}
+
 export function sanitizeLogFields(fields: LogFields): LogFields {
   return Object.fromEntries(
     Object.entries(fields).map(([key, value]) => [
@@ -720,6 +755,16 @@ function toStatusClass(status: number): string {
 
 function normalizeReason(reason: string): string {
   return reason.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "unknown";
+}
+
+function boundedMetricLabel(value: string | null | undefined): string {
+  const text = value?.trim();
+  if (!text) {
+    return "none";
+  }
+
+  const normalized = text.replace(/[^a-zA-Z0-9_.-]+/g, "_").slice(0, 80);
+  return normalized || "other";
 }
 
 function normalizeError(error: unknown): Error {
