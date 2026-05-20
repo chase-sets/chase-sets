@@ -101,10 +101,13 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(importButton);
 
     await waitFor(() =>
-      expect(mockImportTcgdexSet).toHaveBeenCalledWith({
-        languageCode: "en",
-        setId: "base1",
-      }),
+      expect(mockImportTcgdexSet).toHaveBeenCalledWith(
+        {
+          languageCode: "en",
+          setId: "base1",
+        },
+        { onProgress: expect.any(Function) },
+      ),
     );
     expect(mockSetSearchParams).toHaveBeenCalled();
     expect(mockRevalidate).toHaveBeenCalled();

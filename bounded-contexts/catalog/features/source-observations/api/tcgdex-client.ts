@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
-import { productAssetSetCompatibilityImageUrls } from "../../../support/runtime-support/product-assets";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { CatalogAssetStorage } from "./asset-storage";
 import {
@@ -117,6 +116,13 @@ export type TcgdexSetImportResult = Readonly<{
   observationIds: readonly string[];
 }>;
 
+export type TcgdexSetImportProgress = Readonly<{
+  phase: "fetching" | "recording" | "completed";
+  completed: number;
+  total: number;
+  currentName: string | null;
+}>;
+
 const TCGDEX_LANGUAGE_OPTIONS: readonly TcgdexLanguageOption[] = [
   { languageCode: "en" },
   { languageCode: "fr" },
@@ -185,8 +191,7 @@ export async function fetchTcgdexSetObservations(input: {
   languageCode: string;
   setId: string;
   fetch?: typeof globalThis.fetch;
-  assetStorage?: CatalogAssetStorage;
-  imageProcessor?: CatalogImageProcessor;
+  onProgress?: (progress: TcgdexSetImportProgress) => void;
 }): Promise<readonly TcgdexObservationInput[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
   const setId = input.setId.trim();
@@ -195,8 +200,14 @@ export async function fetchTcgdexSetObservations(input: {
   const set = await fetchJson<TcgdexSet>(fetcher, setUrl);
   const observedAt = new Date().toISOString();
   const observations: TcgdexObservationInput[] = [];
+  input.onProgress?.({
+    phase: "fetching",
+    completed: 0,
+    total: set.cards.length,
+    currentName: null,
+  });
 
-  for (const cardBrief of set.cards) {
+  for (const [index, cardBrief] of set.cards.entries()) {
     const cardUrl = `${TCGDEX_BASE_URL}/${languageCode}/cards/${encodeURIComponent(cardBrief.id)}`;
     const card = await fetchJson<TcgdexCard>(fetcher, cardUrl);
     observations.push(
@@ -206,11 +217,14 @@ export async function fetchTcgdexSetObservations(input: {
         languageCode,
         sourceUrl: cardUrl,
         observedAt,
-        fetcher,
-        assetStorage: input.assetStorage,
-        imageProcessor: input.imageProcessor,
       }),
     );
+    input.onProgress?.({
+      phase: "fetching",
+      completed: index + 1,
+      total: set.cards.length,
+      currentName: card.name,
+    });
   }
 
   return observations;
@@ -238,24 +252,12 @@ async function toObservation(input: {
   languageCode: string;
   sourceUrl: string;
   observedAt: string;
-  fetcher: typeof globalThis.fetch;
-  assetStorage?: CatalogAssetStorage;
-  imageProcessor?: CatalogImageProcessor;
 }): Promise<TcgdexObservationInput> {
   const releaseYear = releaseYearFromDate(input.set.releaseDate);
   const sourcePayload = toJsonValue(sanitizeTcgdexCardPayload(input.card));
   const sourceImageUrls = input.card.image
     ? [`${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`]
     : [];
-  const productAssetSet = await mirrorTcgdexImageAsset({
-    card: input.card,
-    languageCode: input.languageCode,
-    observedAt: input.observedAt,
-    fetcher: input.fetcher,
-    assetStorage: input.assetStorage,
-    imageProcessor: input.imageProcessor,
-  });
-  const imageUrls = productAssetSetCompatibilityImageUrls(productAssetSet);
   const normalized: SourceObservationNormalized = {
     kind: "pokemon-card",
     tcg: "pokemon",
@@ -277,8 +279,8 @@ async function toObservation(input: {
     releaseYear,
     category: input.card.category,
     imageBaseUrl: input.card.image ?? null,
-    imageUrls,
-    productAssetSet,
+    imageUrls: sourceImageUrls,
+    productAssetSet: null,
     parallelSet: input.card.variants?.reverse === true,
     variants: normalizeVariants(input.card.variants),
   };
@@ -305,23 +307,15 @@ async function toObservation(input: {
   };
 }
 
-async function mirrorTcgdexImageAsset(input: {
-  card: TcgdexCard;
-  languageCode: string;
+export async function normalizeTcgdexImageAsset(input: {
+  imageBaseUrl: string;
+  storageBaseKey: string;
   observedAt: string;
   fetcher: typeof globalThis.fetch;
-  assetStorage?: CatalogAssetStorage;
+  assetStorage: CatalogAssetStorage;
   imageProcessor?: CatalogImageProcessor;
-}): Promise<SourceObservationNormalized["productAssetSet"]> {
-  if (!input.card.image) {
-    return null;
-  }
-
-  if (!input.assetStorage) {
-    throw new Error("Catalog asset storage is required to import TCGdex image assets.");
-  }
-
-  const assetUrl = `${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`;
+}): Promise<NonNullable<SourceObservationNormalized["productAssetSet"]>> {
+  const assetUrl = `${input.imageBaseUrl}/${HIGH_QUALITY_ASSET_VARIANT}`;
   const response = await input.fetcher(assetUrl);
   if (!response.ok) {
     throw new Error(`TCGdex asset request failed with ${response.status} for ${assetUrl}.`);
@@ -338,7 +332,7 @@ async function mirrorTcgdexImageAsset(input: {
   return normalizeProductAssetSet({
     sourceBody: body,
     sourceContentType: contentType,
-    storageBaseKey: tcgdexAssetObjectBaseKey(input.languageCode, input.card.id),
+    storageBaseKey: input.storageBaseKey,
     generatedAt: input.observedAt,
     assetStorage: input.assetStorage,
     imageProcessor: input.imageProcessor,
@@ -366,11 +360,6 @@ function normalizeVariants(variants: Readonly<Record<string, boolean>> | undefin
 
 function buildObservationId(languageCode: string, cardId: string): string {
   return `tcgdex_${normalizeKey(languageCode)}_${cardId.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
-}
-
-function tcgdexAssetObjectBaseKey(languageCode: string, cardId: string): string {
-  const externalKey = cardId.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
-  return `catalog/source-observations/tcgdex/${normalizeKey(languageCode)}/${externalKey}`;
 }
 
 function releaseYearFromDate(value: string | undefined): number | null {

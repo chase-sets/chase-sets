@@ -90,6 +90,7 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectSt
           Bucket: options.bucket,
           Key: safeKey,
           Body: input.body,
+          ACL: "public-read",
           ContentType: input.contentType,
           CacheControl: input.cacheControl,
         }),

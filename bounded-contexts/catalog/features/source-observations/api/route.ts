@@ -57,6 +57,45 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result, 201);
   });
 
+  app.post("/imports/tcgdex-set/progress", async (c) => {
+    const body = await c.req.json();
+    const context = c.get("context");
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const write = (event: unknown) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        };
+
+        try {
+          const result = await services.importTcgdexSet({
+            languageCode: String(body.languageCode ?? "en"),
+            setId: String(body.expansionId ?? body.setId ?? ""),
+            context,
+            onProgress: (progress) => write({ type: "progress", progress }),
+          });
+          write({ type: "result", result });
+        } catch (error) {
+          write({
+            type: "error",
+            message: error instanceof Error ? error.message : "TCGdex import failed.",
+          });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    });
+  });
+
   app.get("/tcgdex/languages", async (c) => {
     const items = await services.listTcgdexLanguages();
     return c.json({ items, total: items.length, count: items.length });

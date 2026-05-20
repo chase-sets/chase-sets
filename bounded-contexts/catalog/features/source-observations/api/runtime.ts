@@ -19,6 +19,7 @@ import type {
   ReferenceTypeId,
 } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
+import { productAssetSetCompatibilityImageUrls } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRelationship } from "../../reference-data/domain/domain";
@@ -48,9 +49,11 @@ import {
   fetchTcgdexSeriesOptions,
   fetchTcgdexSetObservations,
   listTcgdexLanguageOptions,
+  normalizeTcgdexImageAsset,
   type TcgdexExpansionOption,
   type TcgdexLanguageOption,
   type TcgdexSeriesOption,
+  type TcgdexSetImportProgress,
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
 
@@ -91,6 +94,7 @@ export type SourceObservationServices = Readonly<{
     languageCode: string;
     setId: string;
     context: EventStoreContext;
+    onProgress?: (progress: TcgdexSetImportProgress) => void;
   }) => Promise<TcgdexSetImportResult>;
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: {
@@ -340,11 +344,11 @@ export function createSourceObservationRuntime(
 
   return {
     commandHandler,
-    importTcgdexSet: async ({ languageCode, setId, context }) => {
+    importTcgdexSet: async ({ languageCode, setId, context, onProgress }) => {
       const observations = await fetchTcgdexSetObservations({
         languageCode,
         setId,
-        assetStorage: deps.assetStorage,
+        onProgress,
       });
 
       if (observations[0]) {
@@ -356,10 +360,22 @@ export function createSourceObservationRuntime(
         });
       }
 
-      for (const observation of observations) {
+      for (const [index, observation] of observations.entries()) {
         await recordObservation(observation, context);
+        onProgress?.({
+          phase: "recording",
+          completed: index + 1,
+          total: observations.length,
+          currentName: observation.normalized.name,
+        });
       }
       await drainRuntimeProjectors(projectors);
+      onProgress?.({
+        phase: "completed",
+        completed: observations.length,
+        total: observations.length,
+        currentName: null,
+      });
 
       return {
         setId,
@@ -613,20 +629,31 @@ async function createCatalogDraftFromObservation(input: {
     },
     context: input.context,
   });
+  const productAssetSet = input.normalized.imageBaseUrl
+    ? await normalizeTcgdexImageAsset({
+        imageBaseUrl: input.normalized.imageBaseUrl,
+        storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
+        observedAt: new Date().toISOString(),
+        fetcher: globalThis.fetch,
+        assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+      })
+    : null;
   await input.items.commandHandler({
     streamId,
     command: {
       type: "SetCatalogItemImageUrls",
-      imageUrls: [...input.normalized.imageUrls],
+      imageUrls: productAssetSet
+        ? productAssetSetCompatibilityImageUrls(productAssetSet)
+        : [...input.normalized.imageUrls],
     },
     context: input.context,
   });
-  if (input.normalized.productAssetSet) {
+  if (productAssetSet) {
     await input.items.commandHandler({
       streamId,
       command: {
         type: "SetCatalogItemProductAssetSets",
-        productAssetSets: [input.normalized.productAssetSet],
+        productAssetSets: [productAssetSet],
       },
       context: input.context,
     });
@@ -640,6 +667,18 @@ async function createCatalogDraftFromObservation(input: {
     },
     context: input.context,
   });
+}
+
+function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStorage"]) {
+  if (!assetStorage) {
+    throw new Error("Catalog asset storage is required to promote TCGDex image assets.");
+  }
+
+  return assetStorage;
+}
+
+function catalogItemAssetObjectBaseKey(catalogItemId: CatalogItemId): string {
+  return `catalog/items/${catalogItemId}/product-image`;
 }
 
 async function setFieldValue(

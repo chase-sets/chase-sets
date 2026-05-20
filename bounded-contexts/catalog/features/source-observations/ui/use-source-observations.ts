@@ -1,4 +1,5 @@
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
+import type { CatalogImportProgress } from "../../../support/shell-support/api/client";
 import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
@@ -80,8 +81,11 @@ export function useSourceObservation(
   );
 }
 
-export function importTcgdexSet(body: { languageCode: string; setId: string }) {
-  return api.importTcgdexSet<TcgdexSetImportResult>(body);
+export function importTcgdexSet(
+  body: { languageCode: string; setId: string },
+  options: { onProgress?: (progress: CatalogImportProgress) => void } = {},
+) {
+  return api.importTcgdexSet<TcgdexSetImportResult>(body, options);
 }
 
 export function useTcgdexLanguages() {

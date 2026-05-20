@@ -249,10 +249,13 @@ describe("SourceObservationListPage", () => {
     fireEvent.click(importButton);
 
     await waitFor(() =>
-      expect(mockImportTcgdexSet).toHaveBeenCalledWith({
-        languageCode: "en",
-        setId: "me02.5",
-      }),
+      expect(mockImportTcgdexSet).toHaveBeenCalledWith(
+        {
+          languageCode: "en",
+          setId: "me02.5",
+        },
+        { onProgress: expect.any(Function) },
+      ),
     );
     expect(mockRevalidate).toHaveBeenCalled();
   });

@@ -165,6 +165,68 @@ describe("source observation routes", () => {
     });
   });
 
+  it("streams TCGdex import progress events", async () => {
+    const importTcgdexSet = vi.fn(async (input: {
+      onProgress?: (progress: unknown) => void;
+    }) => {
+      input.onProgress?.({
+        phase: "fetching",
+        completed: 1,
+        total: 2,
+        currentName: "Bulbasaur",
+      });
+
+      return {
+        setId: "base1",
+        expansionId: "base1",
+        languageCode: "en",
+        observed: 2,
+        observationIds: ["obs_1", "obs_2"],
+      };
+    });
+    const services = {
+      importTcgdexSet,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request(
+      "/source-observations/imports/tcgdex-set/progress",
+      {
+        method: "POST",
+        body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(events).toEqual([
+      {
+        type: "progress",
+        progress: {
+          phase: "fetching",
+          completed: 1,
+          total: 2,
+          currentName: "Bulbasaur",
+        },
+      },
+      {
+        type: "result",
+        result: {
+          setId: "base1",
+          expansionId: "base1",
+          languageCode: "en",
+          observed: 2,
+          observationIds: ["obs_1", "obs_2"],
+        },
+      },
+    ]);
+  });
+
   it("lists TCGdex metadata for language, series, and expansion selectors", async () => {
     const listTcgdexLanguages = vi.fn(async () => [
       { languageCode: "en" },
