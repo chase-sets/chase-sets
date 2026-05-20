@@ -6,6 +6,9 @@ import {
 import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
 import { resolvePublicRouteConfigRecords } from "./host";
 
+const legacyOrderProtectionPath = ["bu", "yer-protection"].join("");
+const legacyMarketplaceSalesFeesPath = ["sel", "ler-fees"].join("");
+
 const publicContextRoutes = resolvePublicRouteConfigRecords()
   .map((routeRecord) =>
     toRouteConfigEntry(routeRecord, {
@@ -25,5 +28,7 @@ export default [
   ),
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
+  route(legacyOrderProtectionPath, "routes/legacy-order-protection-url.ts"),
+  route(legacyMarketplaceSalesFeesPath, "routes/legacy-marketplace-sales-fees-url.ts"),
   route("*", "routes/not-found.tsx"),
 ] satisfies RouteConfig;

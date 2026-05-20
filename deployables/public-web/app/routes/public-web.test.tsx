@@ -2,7 +2,10 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { resolvePublicRouteConfigRecords } from "../host";
 import { buildCanonicalUrl } from "../seo";
+import { loader as legacyMarketplaceSalesFeesUrlLoader } from "./legacy-marketplace-sales-fees-url";
+import { loader as legacyOrderProtectionUrlLoader } from "./legacy-order-protection-url";
 import PublicNotFoundRoute from "./not-found";
+import { loader as notFoundLoader } from "./not-found";
 import { loader as robotsLoader } from "./robots";
 import { loader as sitemapLoader } from "./sitemap";
 
@@ -86,4 +89,28 @@ describe("public web deployable", () => {
     expect(html).not.toContain("Browse marketplace");
     expect(html).not.toContain('href="/search"');
   });
+
+  it("serves unknown public routes as real 404 responses", () => {
+    const response = notFoundLoader();
+
+    expect(response.status).toBe(404);
+  });
+
+  it("redirects renamed policy URLs to their canonical public pages", () => {
+    expectRedirect(legacyOrderProtectionUrlLoader, "/order-protection");
+    expectRedirect(legacyMarketplaceSalesFeesUrlLoader, "/sales-fees");
+  });
 });
+
+function expectRedirect(loader: () => unknown, location: string) {
+  try {
+    loader();
+  } catch (error) {
+    expect(error).toBeInstanceOf(Response);
+    expect((error as Response).status).toBe(301);
+    expect((error as Response).headers.get("Location")).toBe(location);
+    return;
+  }
+
+  throw new Error(`Expected redirect to ${location}`);
+}

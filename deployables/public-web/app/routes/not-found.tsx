@@ -10,6 +10,10 @@ export function meta() {
   return [{ title: [t("marketplace.app.root.page.not.found"), "Chase Sets"].join(" | ") }];
 }
 
+export function loader() {
+  return new Response(null, { status: 404 });
+}
+
 export default function PublicNotFoundRoute() {
   return (
     <Page width="narrow">
