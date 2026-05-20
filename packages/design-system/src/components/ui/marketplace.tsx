@@ -578,6 +578,7 @@ export interface ListingCardProps {
   imageAlt?: string;
   imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
   imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
+  imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
   imageFallbackSrc?: string;
   imageFallbackAlt?: string;
   imageFallbackSrcSet?: string;
@@ -628,6 +629,7 @@ export function ListingCard({
   imageAlt,
   imageFetchPriority = "auto",
   imageLoading = "lazy",
+  imageDecoding = "async",
   imageFallbackSrc,
   imageFallbackAlt,
   imageFallbackSrcSet,
@@ -754,6 +756,7 @@ export function ListingCard({
               sizes={imageFallbackSizes}
               fetchPriority={imageFetchPriority}
               loading={imageLoading}
+              decoding={imageDecoding}
               className="absolute inset-0 h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
               aria-hidden="true"
             />
@@ -764,8 +767,9 @@ export function ListingCard({
               alt={resolvedImageAlt}
               srcSet={resolvedImageSrcSet}
               sizes={resolvedImageSizes}
-              fetchPriority={imageFetchPriority}
               loading={imageLoading}
+              decoding={imageDecoding}
+              fetchPriority={imageFetchPriority}
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageFailed(true)}
               className="relative h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"

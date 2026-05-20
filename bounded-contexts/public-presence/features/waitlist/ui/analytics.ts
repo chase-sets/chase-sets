@@ -5,6 +5,9 @@ export type WaitlistAnalyticsEventName =
   | "waitlist_form_submitted"
   | "waitlist_signup_succeeded"
   | "waitlist_signup_failed"
+  | "waitlist_role_selected"
+  | "waitlist_interest_selected"
+  | "waitlist_consent_checked"
   | "section_viewed"
   | "policy_link_clicked";
 
