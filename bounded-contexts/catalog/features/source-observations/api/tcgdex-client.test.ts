@@ -165,7 +165,7 @@ describe("TCGdex client", () => {
         productAssetSet: null,
         parallelSet: false,
         cardVariantKey: "standard",
-        cardVariantLabel: "Standard",
+        cardVariantLabel: "Standard Set",
         cardVariantSourceKey: "normal",
         cardVariantIsPrimaryImage: true,
         imageDisclaimer: null,
@@ -177,11 +177,11 @@ describe("TCGdex client", () => {
       normalized: {
         parallelSet: true,
         cardVariantKey: "reverse-holo",
-        cardVariantLabel: "Reverse Holo",
+        cardVariantLabel: "Parallel Set - Reverse Foil",
         cardVariantSourceKey: "reverse",
         cardVariantIsPrimaryImage: false,
         imageDisclaimer:
-          "TCGDex provides one image for this card number. This Catalog Item represents the Reverse Holo variant, so the image may not show the exact finish or parallel pattern.",
+          "TCGDex provides one image for this card number. This Catalog Item represents the Parallel Set - Reverse Foil variant, so the image may not show the exact foil or pattern.",
       },
     });
     expect(requestedUrls).not.toContain(
@@ -212,6 +212,7 @@ describe("TCGdex client", () => {
           set: { id: "sv4pt5", name: "Scarlet & Violet - 151" },
           variants: {
             normal: true,
+            holo: true,
             pokeball: true,
             masterBall: true,
             confettiFoil: true,
@@ -234,13 +235,22 @@ describe("TCGdex client", () => {
 
     expect(observations.map((observation) => observation.normalized.cardVariantLabel))
       .toEqual([
-        "Standard",
-        "Premium parallel set - Poke Ball",
-        "Premium parallel set - Master Ball",
-        "Parallel set - Confetti Foil",
+        "Standard Set",
+        "Standard Set Foil",
+        "Premium Parallel Set - Poke Ball",
+        "Premium Parallel Set - Master Ball",
+        "Unclassified Variant - Confetti Foil",
       ]);
+    expect(observations.map((observation) => observation.normalized.parallelSet)).toEqual([
+      false,
+      false,
+      true,
+      true,
+      false,
+    ]);
     expect(observations.map((observation) => observation.externalKey)).toEqual([
       "sv4pt5-025",
+      "sv4pt5-025:holofoil",
       "sv4pt5-025:poke-ball",
       "sv4pt5-025:master-ball",
       "sv4pt5-025:confetti-foil",
@@ -348,7 +358,7 @@ describe("TCGdex client", () => {
           imageUrls: [],
           productAssetSet: null,
           cardVariantKey: "standard",
-          cardVariantLabel: "Standard",
+          cardVariantLabel: "Standard Set",
           cardVariantSourceKey: null,
           cardVariantIsPrimaryImage: true,
           imageDisclaimer: null,

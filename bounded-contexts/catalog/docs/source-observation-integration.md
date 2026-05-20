@@ -63,18 +63,18 @@ Promotion sets the Catalog Item's `Expansion` field as a Reference Record value.
 
 Each true TCGdex card variant is imported as its own Source Observation because Source Observation review status, retry behavior, and promotion are one-to-one with Catalog Item creation. The primary variant keeps the provider card's original external key so existing main-card observations refresh into the primary variant. Secondary variant observation external keys append the normalized variant key, such as `swsh3-136:reverse-holo`, so a single provider card can create multiple Catalog Items without colliding with `UNIQUE (provider_key, language_code, external_key)`.
 
-Known TCGdex variant keys are translated into Pokemon marketplace language before they become Catalog facts:
+Known TCGdex variant keys are translated into official Pokemon set-bucket language before they become Catalog facts. Provider keys remain in `cardVariantSourceKey`; Catalog-facing labels avoid provider shorthand:
 
-- `normal` -> `Standard`
-- `holo` -> `Holofoil`
-- `reverse` -> `Reverse Holo`
+- `normal` -> `Standard Set`
+- `holo` -> `Standard Set Foil`
+- `reverse` -> `Parallel Set - Reverse Foil`
 - `firstEdition` / `1stEdition` -> `1st Edition`
-- `pokeBall` / `pokeball` -> `Premium parallel set - Poke Ball`
-- `masterBall` / `masterball` -> `Premium parallel set - Master Ball`
+- `pokeBall` / `pokeball` -> `Premium Parallel Set - Poke Ball`
+- `masterBall` / `masterball` -> `Premium Parallel Set - Master Ball`
 
-Unknown true variant keys are preserved as separate observations and humanized as `Parallel set - <Label>` so imports remain forward-compatible while avoiding raw provider key casing in Catalog titles, subtitles, and fields.
+Unknown true variant keys are preserved as separate observations and humanized as `Unclassified Variant - <Label>` so imports remain forward-compatible while avoiding raw provider key casing and avoiding unsupported `parallel set` claims in Catalog titles, subtitles, and fields.
 
-Promoted variant Catalog Items use the printed card name as the title and include the variant label in the subtitle and optional `Card Variant` field. If TCGdex provides only the shared card-number image, non-primary variants receive a description note that the image may not show the exact finish or parallel pattern. The note is a Catalog Item presentation fact only; it does not change `catalog_item_id`, `product_id`, or Product option resolution.
+Promoted variant Catalog Items use the printed card name as the title and include the variant label in the subtitle and optional `Card Variant` field. If TCGdex provides only the shared card-number image, non-primary variants receive a description note that the image may not show the exact foil or pattern. The note is a Catalog Item presentation fact only; it does not change `catalog_item_id`, `product_id`, or Product option resolution.
 
 Operators may bulk promote explicitly selected Source Observations from the admin list screen. Bulk promotion is still a review action: it only accepts selected observation IDs, promotes records that are still `observed`, and reports terminal or missing records as skipped or failed instead of changing them.
 

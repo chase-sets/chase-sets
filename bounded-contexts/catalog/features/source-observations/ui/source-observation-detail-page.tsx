@@ -74,7 +74,7 @@ export function SourceObservationDetailPage({
               { key: t("catalog.features.sourceObservations.ui.detail.language"), value: data.language_code },
               { key: t("catalog.features.sourceObservations.ui.detail.expansion"), value: data.normalized.expansionName ?? data.normalized.setName },
               { key: t("catalog.features.sourceObservations.ui.detail.card.number"), value: data.normalized.cardNumber },
-              { key: t("catalog.features.sourceObservations.ui.detail.card.variant"), value: data.normalized.cardVariantLabel ?? "Standard" },
+              { key: t("catalog.features.sourceObservations.ui.detail.card.variant"), value: data.normalized.cardVariantLabel ?? "Standard Set" },
               { key: t("catalog.features.sourceObservations.ui.detail.rarity"), value: data.normalized.rarity ?? "—" },
               { key: t("catalog.features.sourceObservations.ui.detail.image.note"), value: data.normalized.imageDisclaimer ?? "—" },
               { key: t("catalog.features.sourceObservations.ui.detail.card.illustrator"), value: data.normalized.illustrator ?? "—" },

@@ -300,7 +300,7 @@ function sourceObservation(input: {
       productAssetSet: null,
       parallelSet: false,
       cardVariantKey: "standard",
-      cardVariantLabel: "Standard",
+      cardVariantLabel: "Standard Set",
       cardVariantSourceKey: null,
       cardVariantIsPrimaryImage: true,
       imageDisclaimer: null,

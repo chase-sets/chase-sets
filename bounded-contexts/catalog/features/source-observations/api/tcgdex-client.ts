@@ -292,7 +292,7 @@ async function toObservations(input: {
       imageBaseUrl: input.card.image ?? null,
       imageUrls: sourceImageUrls,
       productAssetSet: null,
-      parallelSet: variant.key !== "standard",
+      parallelSet: isParallelSetVariant(variant.key),
       cardVariantKey: variant.key,
       cardVariantLabel: variant.displayName,
       cardVariantSourceKey: variant.sourceKey,
@@ -403,7 +403,7 @@ function normalizeCardVariants(
     return [
       {
         key: "standard",
-        displayName: "Standard",
+        displayName: "Standard Set",
         sourceKey: null,
         isPrimaryImage: true,
       },
@@ -454,6 +454,17 @@ function variantSortOrder(sourceKey: string): number {
   }
 }
 
+function isParallelSetVariant(variantKey: string): boolean {
+  switch (variantKey) {
+    case "reverse-holo":
+    case "poke-ball":
+    case "master-ball":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function normalizeVariantKey(sourceKey: string): string {
   const key = sourceKey.trim();
   const compact = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -488,19 +499,19 @@ function normalizeVariantKey(sourceKey: string): string {
 function variantLabel(sourceKey: string): string {
   switch (normalizeVariantKey(sourceKey)) {
     case "standard":
-      return "Standard";
+      return "Standard Set";
     case "holofoil":
-      return "Holofoil";
+      return "Standard Set Foil";
     case "reverse-holo":
-      return "Reverse Holo";
+      return "Parallel Set - Reverse Foil";
     case "1st-edition":
       return "1st Edition";
     case "poke-ball":
-      return "Premium parallel set - Poke Ball";
+      return "Premium Parallel Set - Poke Ball";
     case "master-ball":
-      return "Premium parallel set - Master Ball";
+      return "Premium Parallel Set - Master Ball";
     default:
-      return `Parallel set - ${humanizeVariantKey(sourceKey)}`;
+      return `Unclassified Variant - ${humanizeVariantKey(sourceKey)}`;
   }
 }
 
@@ -517,7 +528,7 @@ function humanizeVariantKey(sourceKey: string): string {
 }
 
 function buildImageDisclaimer(variantLabel: string): string {
-  return `TCGDex provides one image for this card number. This Catalog Item represents the ${variantLabel} variant, so the image may not show the exact finish or parallel pattern.`;
+  return `TCGDex provides one image for this card number. This Catalog Item represents the ${variantLabel} variant, so the image may not show the exact foil or pattern.`;
 }
 
 function buildObservationId(
