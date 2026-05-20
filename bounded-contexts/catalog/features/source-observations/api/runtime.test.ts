@@ -101,6 +101,12 @@ function pokemonObservation(input: {
     imageUrls: [],
     productAssetSet: null,
     parallelSet: true,
+    cardVariantKey: "reverse-holo",
+    cardVariantLabel: "Reverse Holo",
+    cardVariantSourceKey: "reverse",
+    cardVariantIsPrimaryImage: false,
+    imageDisclaimer:
+      "TCGDex provides one image for this card number. This Catalog Item represents the Reverse Holo variant, so the image may not show the exact finish or parallel pattern.",
     variants: {},
   };
 }

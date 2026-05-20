@@ -563,7 +563,7 @@ async function createCatalogDraftFromObservation(input: {
   context: EventStoreContext;
 }) {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const subtitle = `${input.normalized.expansionName} ${input.normalized.cardNumber}`;
+  const subtitle = formatPokemonCardSubtitle(input.normalized);
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
@@ -580,7 +580,7 @@ async function createCatalogDraftFromObservation(input: {
       languageCode: input.normalized.languageCode,
       title: localizedText(input.normalized.name),
       subtitle: localizedText(subtitle),
-      description: localizedText(""),
+      description: localizedText(input.normalized.imageDisclaimer ?? ""),
     },
     context: input.context,
   });
@@ -595,6 +595,7 @@ async function createCatalogDraftFromObservation(input: {
   await setFieldValue(input, profile.fieldIds.cardNumber, input.normalized.cardNumber);
   await setFieldValue(input, profile.fieldIds.cardName, localizedJsonText(input.normalized.name));
   await setFieldValue(input, profile.fieldIds.expansion, { referenceId: expansionReferenceId });
+  await setFieldValue(input, profile.fieldIds.cardVariant, input.normalized.cardVariantLabel);
 
   if (input.normalized.rarity) {
     await setFieldValue(input, profile.fieldIds.rarity, input.normalized.rarity);
@@ -625,6 +626,8 @@ async function createCatalogDraftFromObservation(input: {
         "tcgdex",
         `expansion:${input.normalized.expansionId}`,
         `category:${input.normalized.category.toLowerCase()}`,
+        `variant:${input.normalized.cardVariantKey}`,
+        ...(input.normalized.imageDisclaimer ? ["image-note:variant-reference"] : []),
       ],
     },
     context: input.context,
@@ -667,6 +670,17 @@ async function createCatalogDraftFromObservation(input: {
     },
     context: input.context,
   });
+}
+
+function formatPokemonCardSubtitle(normalized: SourceObservationNormalized): string {
+  return [
+    normalized.expansionName,
+    normalized.cardNumber,
+    normalized.cardVariantLabel,
+    normalized.rarity,
+  ]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .join(" ");
 }
 
 function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStorage"]) {
@@ -958,6 +972,7 @@ async function loadPokemonTcgPromotionProfile(
     cardName: FieldId;
     expansion: FieldId;
     rarity: FieldId;
+    cardVariant: FieldId;
     cardIllustrator: FieldId;
     releaseYear: FieldId;
   };
@@ -969,6 +984,7 @@ async function loadPokemonTcgPromotionProfile(
     cardName,
     expansion,
     rarity,
+    cardVariant,
     cardIllustrator,
     releaseYear,
   ] = await Promise.all([
@@ -1012,6 +1028,12 @@ async function loadPokemonTcgPromotionProfile(
       deps,
       "catalog_fields",
       "field_id",
+      "card-variant",
+    ),
+    requireCatalogIdByKey<FieldId>(
+      deps,
+      "catalog_fields",
+      "field_id",
       "card-illustrator",
     ),
     requireCatalogIdByKey<FieldId>(
@@ -1030,6 +1052,7 @@ async function loadPokemonTcgPromotionProfile(
       cardName,
       expansion,
       rarity,
+      cardVariant,
       cardIllustrator,
       releaseYear,
     },
