@@ -24,9 +24,11 @@ Catalog exposes provider-specific import lookup data through a provider-neutral 
 
 Import also ensures the Pokemon Reference Type and Reference Record hierarchy for the selected Expansion before recording Source Observations. Promotion still verifies the same hierarchy as a replay-safe safeguard. Existing Reference Records are reused by Catalog keys or by TCGdex provider attributes so replaying imports or importing another language for the same provider Series/Expansion does not create duplicate provider reference facts.
 
-TCGdex card image asset bases are source provenance only. During import, Catalog downloads the high quality `high.webp` card image as the Source Asset, generates a Product Asset Set of Chase Sets-owned WebP variants, and records both the structured Product Asset Set and compatibility normalized image URLs. The low quality TCGdex variant is intentionally not imported in this pass.
+TCGdex card image asset bases are source provenance only. During import, Source Observations may display the provider's high quality `high.webp` image URL, but Catalog does not mirror those bytes into Chase Sets asset storage and does not generate public Source Observation bucket keys. This keeps pre-promotion review tied to provider provenance and prevents public Chase Sets URLs from revealing provider, language, or external card identifiers.
 
-If TCGdex declares an image but the high quality asset cannot be downloaded, processed, or stored, that card observation fails and can be retried. Missing provider image data is still a valid observation and records no Product Asset Set or image URLs.
+During promotion, Catalog downloads the high quality provider image, stores a Catalog Item-owned Source Asset, generates a Product Asset Set of Chase Sets-owned WebP variants under `catalog/items/{catalog_item_id}`, and records both the structured Product Asset Set and compatibility normalized image URLs on the promoted Catalog Item. The low quality TCGdex variant is intentionally not imported in this pass.
+
+If TCGdex declares an image but the high quality asset cannot be downloaded, processed, or stored during promotion, that promotion fails and can be retried. Missing provider image data is still a valid observation and promotes without a Product Asset Set or image URLs.
 
 Generated variants are fixed by role rather than by embedded DPI/PPI metadata:
 
@@ -53,7 +55,7 @@ Stored TCGdex source payloads are sanitized before persistence; provider pricing
 
 ## Promotion
 
-Promotion creates a draft Catalog Item for the observed Pokemon card print, assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category, records TCGdex source mapping, attaches the Product Asset Set, and keeps Chase Sets-owned image URLs as a migration compatibility projection.
+Promotion creates a draft Catalog Item for the observed Pokemon card print, assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category, records TCGdex source mapping, generates and attaches the Catalog Item-owned Product Asset Set when provider imagery exists, and keeps Chase Sets-owned image URLs as a migration compatibility projection.
 
 Promoted Catalog Items remain drafts so operators can verify blueprint fields, product resolution, and downstream display before publishing.
 
@@ -73,7 +75,7 @@ The Catalog Integrations admin surface summarizes Source Observations by provide
 - Re-importing the same observed source hash is idempotent and does not append a duplicate source-observation event.
 - Promoted or rejected observations cannot be refreshed in place; a future implementation should create a changed-observation review if provider data changes after terminal review.
 - Provider IDs are scoped by provider, language, and external key.
-- Missing images are valid observations and should not block review.
-- Declared image assets must normalize successfully before an observation is recorded; do not fall back to TCGdex display URLs.
-- Re-importing an unchanged image writes to the same deterministic source-hash object keys.
+- Missing images are valid observations and should not block review or promotion.
+- Declared image assets must normalize successfully before a Catalog Item is promoted; Source Observation review may show TCGdex display URLs, but promoted Catalog Items must publish only Catalog Item-owned Chase Sets asset URLs.
+- Re-importing an unchanged observed card does not write Chase Sets asset objects; promotion writes deterministic source-hash object keys under the promoted Catalog Item path.
 - TCGdex pricing data must stay out of Catalog payload storage and promotion.

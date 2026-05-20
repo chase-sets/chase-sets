@@ -10,6 +10,7 @@ import {
   LinkButton,
   Page,
   PageHeader,
+  ProgressBar,
   Select,
   Stack,
   Stat,
@@ -51,6 +52,7 @@ export function IntegrationManagementPage({
   const [seriesId, setSeriesId] = useState("");
   const [expansionId, setExpansionId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const columns = useMemo(() => buildColumns(), []);
   const importLanguages = useSourceObservationIntegrationOptions({
@@ -139,9 +141,13 @@ export function IntegrationManagementPage({
     }
 
     setImporting(true);
+    setImportProgress(0);
 
     try {
-      const result = await importTcgdexSet({ languageCode, setId: expansionId });
+      const result = await importTcgdexSet(
+        { languageCode, setId: expansionId },
+        { onProgress: (progress) => setImportProgress(importProgressPercent(progress)) },
+      );
       addToast(
         t("catalog.features.sourceObservations.ui.list.import.completed", {
           count: String(result.observed),
@@ -165,6 +171,7 @@ export function IntegrationManagementPage({
       );
     } finally {
       setImporting(false);
+      setImportProgress(0);
     }
   }
 
@@ -328,6 +335,7 @@ export function IntegrationManagementPage({
             disabled={!seriesId || importExpansions.loading || expansionOptions.length === 0}
             error={importExpansions.error ?? undefined}
           />
+          {importing ? <ProgressBar value={importProgress} /> : null}
         </Stack>
       </Dialog>
     </Page>
@@ -450,6 +458,24 @@ function sourceObservationScopeHref(scope: SourceObservationIntegrationScope) {
 
 function formatCount(value: number) {
   return new Intl.NumberFormat().format(value);
+}
+
+function importProgressPercent(progress: {
+  phase: string;
+  completed: number;
+  total: number;
+}): number {
+  if (progress.phase === "completed") {
+    return 100;
+  }
+
+  if (progress.total <= 0) {
+    return 5;
+  }
+
+  const base = progress.phase === "recording" ? 80 : 5;
+  const span = progress.phase === "recording" ? 15 : 75;
+  return base + (progress.completed / progress.total) * span;
 }
 
 function formatDateTime(value: string | null | undefined) {

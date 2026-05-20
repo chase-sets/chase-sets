@@ -26,6 +26,17 @@ export interface CatalogApiClientOptions {
   credentials?: RequestCredentials;
 }
 
+export type CatalogImportProgress = Readonly<{
+  phase: string;
+  completed: number;
+  total: number;
+  currentName: string | null;
+}>;
+
+export type CatalogImportProgressOptions = Readonly<{
+  onProgress?: (progress: CatalogImportProgress) => void;
+}>;
+
 function queryFromString(query: string) {
   return Object.fromEntries(new URLSearchParams(query).entries());
 }
@@ -837,7 +848,20 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async importTcgdexSet<T>(body: unknown): Promise<T> {
+    async importTcgdexSet<T>(
+      body: unknown,
+      options: CatalogImportProgressOptions = {},
+    ): Promise<T> {
+      if (options.onProgress) {
+        return streamImportTcgdexSet<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          body,
+          onProgress: options.onProgress,
+        });
+      }
+
       const response = await client["source-observations"].imports["tcgdex-set"].$post({
         json: body,
         header: headers,
@@ -918,3 +942,95 @@ export function createCatalogApiClient({
 }
 
 export const api = createCatalogApiClient();
+
+async function streamImportTcgdexSet<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  body: unknown;
+  onProgress: (progress: CatalogImportProgress) => void;
+}): Promise<T> {
+  const response = await input.fetch(
+    `${input.baseUrl.replace(/\/$/, "")}/source-observations/imports/tcgdex-set/progress`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...headersToRecord(input.headers),
+      },
+      body: JSON.stringify(input.body),
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new ApiError(response.status, errorBody);
+  }
+
+  if (!response.body) {
+    throw new Error("TCGdex import progress stream was not available.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: T | null = null;
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+
+      const event = JSON.parse(line) as {
+        type?: string;
+        progress?: CatalogImportProgress;
+        result?: T;
+        message?: string;
+      };
+
+      if (event.type === "progress" && event.progress) {
+        input.onProgress(event.progress);
+      }
+
+      if (event.type === "result" && event.result) {
+        result = event.result;
+      }
+
+      if (event.type === "error") {
+        throw new Error(event.message ?? "TCGdex import failed.");
+      }
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (!result) {
+    throw new Error("TCGdex import finished without a result.");
+  }
+
+  return result;
+}
+
+function headersToRecord(headers?: HeadersInit): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers);
+  }
+
+  return headers;
+}

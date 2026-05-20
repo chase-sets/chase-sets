@@ -4,6 +4,7 @@ import {
   fetchTcgdexSeriesOptions,
   fetchTcgdexSetObservations,
   listTcgdexLanguageOptions,
+  normalizeTcgdexImageAsset,
 } from "./tcgdex-client";
 
 const testImageProcessor = {
@@ -83,13 +84,8 @@ describe("TCGdex client", () => {
       ]);
   });
 
-  it("normalizes the high quality set card asset into owned WebP variants", async () => {
-    const storedAssets: Array<{
-      key: string;
-      body: Uint8Array;
-      contentType: string;
-      cacheControl?: string;
-    }> = [];
+  it("records provider image URLs for Source Observations without writing bucket assets", async () => {
+    const requestedUrls: string[] = [];
     const responses = new Map<string, unknown>([
       [
         "https://api.tcgdex.net/v2/en/sets/swsh3",
@@ -123,12 +119,7 @@ describe("TCGdex client", () => {
 
     const fetcher: typeof globalThis.fetch = async (input) => {
       const url = String(input);
-      if (url === "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp") {
-        return new Response(new Uint8Array([1, 2, 3]), {
-          status: 200,
-          headers: { "content-type": "image/webp" },
-        });
-      }
+      requestedUrls.push(url);
       const response = responses.get(url);
       if (!response) {
         return new Response(null, { status: 404 });
@@ -144,16 +135,6 @@ describe("TCGdex client", () => {
       languageCode: "en",
       setId: "swsh3",
       fetch: fetcher,
-      assetStorage: {
-        async putObject(input) {
-          storedAssets.push(input);
-          return {
-            key: input.key,
-            publicUrl: `https://assets.chasesets.test/${input.key}`,
-          };
-        },
-      },
-      imageProcessor: testImageProcessor,
     });
 
     expect(observations).toHaveLength(1);
@@ -179,45 +160,30 @@ describe("TCGdex client", () => {
         illustrator: "tetsuya koizumi",
         releaseYear: 2020,
         imageUrls: [
-          "https://assets.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-039058c6f2c0.webp",
+          "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp",
         ],
-        productAssetSet: {
-          kind: "product-image",
-          sourceHash: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
-        },
+        productAssetSet: null,
         parallelSet: true,
       },
     });
-    expect(storedAssets.map((asset) => asset.key)).toEqual([
-      "catalog/source-observations/tcgdex/en/swsh3-136/source-039058c6f2c0.webp",
-      "catalog/source-observations/tcgdex/en/swsh3-136/thumbnail-96w-1x-039058c6f2c0.webp",
-      "catalog/source-observations/tcgdex/en/swsh3-136/thumbnail-192w-2x-039058c6f2c0.webp",
-      "catalog/source-observations/tcgdex/en/swsh3-136/search-card-160w-1x-039058c6f2c0.webp",
-      "catalog/source-observations/tcgdex/en/swsh3-136/search-card-320w-2x-039058c6f2c0.webp",
-      "catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-039058c6f2c0.webp",
-      "catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-960w-2x-039058c6f2c0.webp",
-    ]);
-    expect(storedAssets).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          contentType: "image/webp",
-          cacheControl: "public, max-age=31536000, immutable",
-        }),
-      ]),
+    expect(requestedUrls).not.toContain(
+      "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp",
     );
-    expect(observations[0]?.normalized.productAssetSet?.variants).toHaveLength(6);
     expect(observations[0]?.sourceRecordHash).toHaveLength(64);
     expect(observations[0]?.sourcePayload).not.toHaveProperty("pricing");
   });
 
-  it("keeps source hashes stable when the owned asset host changes", async () => {
+  it("reports set import progress while fetching cards", async () => {
     const responses = new Map<string, unknown>([
       [
         "https://api.tcgdex.net/v2/en/sets/swsh3",
         {
           id: "swsh3",
           name: "Darkness Ablaze",
-          cards: [{ id: "swsh3-136", localId: "136", name: "Furret" }],
+          cards: [
+            { id: "swsh3-136", localId: "136", name: "Furret" },
+            { id: "swsh3-137", localId: "137", name: "Sentret" },
+          ],
         },
       ],
       [
@@ -231,56 +197,38 @@ describe("TCGdex client", () => {
           set: { id: "swsh3", name: "Darkness Ablaze" },
         },
       ],
+      [
+        "https://api.tcgdex.net/v2/en/cards/swsh3-137",
+        {
+          id: "swsh3-137",
+          localId: "137",
+          name: "Sentret",
+          category: "Pokemon",
+          set: { id: "swsh3", name: "Darkness Ablaze" },
+        },
+      ],
     ]);
     const fetcher: typeof globalThis.fetch = async (input) => {
       const url = String(input);
-      if (url === "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp") {
-        return new Response(new Uint8Array([1]), {
-          status: 200,
-          headers: { "content-type": "image/webp" },
-        });
-      }
       const response = responses.get(url);
       return response
         ? new Response(JSON.stringify(response), { status: 200 })
         : new Response(null, { status: 404 });
     };
+    const progress: unknown[] = [];
 
-    const firstImport = await fetchTcgdexSetObservations({
+    const observations = await fetchTcgdexSetObservations({
       languageCode: "en",
       setId: "swsh3",
       fetch: fetcher,
-      assetStorage: {
-        async putObject(input) {
-          return {
-            key: input.key,
-            publicUrl: `https://assets-a.chasesets.test/${input.key}`,
-          };
-        },
-      },
-      imageProcessor: testImageProcessor,
-    });
-    const secondImport = await fetchTcgdexSetObservations({
-      languageCode: "en",
-      setId: "swsh3",
-      fetch: fetcher,
-      assetStorage: {
-        async putObject(input) {
-          return {
-            key: input.key,
-            publicUrl: `https://assets-b.chasesets.test/${input.key}`,
-          };
-        },
-      },
-      imageProcessor: testImageProcessor,
+      onProgress: (event) => progress.push(event),
     });
 
-    expect(firstImport[0]?.sourceRecordHash).toBe(secondImport[0]?.sourceRecordHash);
-    expect(firstImport[0]?.normalized.imageUrls).toEqual([
-      "https://assets-a.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-4bf5122f3445.webp",
-    ]);
-    expect(secondImport[0]?.normalized.imageUrls).toEqual([
-      "https://assets-b.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/catalog-detail-480w-1x-4bf5122f3445.webp",
+    expect(observations).toHaveLength(2);
+    expect(progress).toEqual([
+      { phase: "fetching", completed: 0, total: 2, currentName: null },
+      { phase: "fetching", completed: 1, total: 2, currentName: "Furret" },
+      { phase: "fetching", completed: 2, total: 2, currentName: "Sentret" },
     ]);
   });
 
@@ -330,45 +278,77 @@ describe("TCGdex client", () => {
     ]);
   });
 
-  it("fails observations when a declared high quality asset cannot be mirrored", async () => {
-    const responses = new Map<string, unknown>([
-      [
-        "https://api.tcgdex.net/v2/en/sets/swsh3",
-        {
-          id: "swsh3",
-          name: "Darkness Ablaze",
-          cards: [{ id: "swsh3-136", localId: "136", name: "Furret" }],
-        },
-      ],
-      [
-        "https://api.tcgdex.net/v2/en/cards/swsh3-136",
-        {
-          id: "swsh3-136",
-          localId: "136",
-          name: "Furret",
-          image: "https://assets.tcgdex.net/en/swsh/swsh3/136",
-          category: "Pokemon",
-          set: { id: "swsh3", name: "Darkness Ablaze" },
-        },
-      ],
-    ]);
-
+  it("normalizes a TCGdex image into Catalog Item-owned WebP variants during promotion", async () => {
+    const storedAssets: Array<{
+      key: string;
+      body: Uint8Array;
+      contentType: string;
+      cacheControl?: string;
+    }> = [];
     const fetcher: typeof globalThis.fetch = async (input) => {
       const url = String(input);
       if (url === "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp") {
-        return new Response(null, { status: 502 });
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/webp" },
+        });
       }
-      const response = responses.get(url);
-      return response
-        ? new Response(JSON.stringify(response), { status: 200 })
-        : new Response(null, { status: 404 });
+
+      return new Response(null, { status: 404 });
     };
 
+    const assetSet = await normalizeTcgdexImageAsset({
+      imageBaseUrl: "https://assets.tcgdex.net/en/swsh/swsh3/136",
+      storageBaseKey: "catalog/items/cat_test/product-image",
+      observedAt: "2026-05-19T00:00:00.000Z",
+      fetcher,
+      assetStorage: {
+        async putObject(input) {
+          storedAssets.push(input);
+          return {
+            key: input.key,
+            publicUrl: `https://assets.chasesets.test/${input.key}`,
+          };
+        },
+      },
+      imageProcessor: testImageProcessor,
+    });
+
+    expect(assetSet.sourceHash).toBe(
+      "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+    );
+    expect(storedAssets.map((asset) => asset.key)).toEqual([
+      "catalog/items/cat_test/product-image/source-039058c6f2c0.webp",
+      "catalog/items/cat_test/product-image/thumbnail-96w-1x-039058c6f2c0.webp",
+      "catalog/items/cat_test/product-image/thumbnail-192w-2x-039058c6f2c0.webp",
+      "catalog/items/cat_test/product-image/search-card-160w-1x-039058c6f2c0.webp",
+      "catalog/items/cat_test/product-image/search-card-320w-2x-039058c6f2c0.webp",
+      "catalog/items/cat_test/product-image/catalog-detail-480w-1x-039058c6f2c0.webp",
+      "catalog/items/cat_test/product-image/catalog-detail-960w-2x-039058c6f2c0.webp",
+    ]);
+    expect(storedAssets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          contentType: "image/webp",
+          cacheControl: "public, max-age=31536000, immutable",
+        }),
+      ]),
+    );
+    expect(assetSet.variants).toHaveLength(6);
+  });
+
+  it("fails promotion asset normalization when a declared high quality asset cannot be mirrored", async () => {
+    const fetcher: typeof globalThis.fetch = async (input) =>
+      String(input) === "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp"
+        ? new Response(null, { status: 502 })
+        : new Response(null, { status: 404 });
+
     await expect(
-      fetchTcgdexSetObservations({
-        languageCode: "en",
-        setId: "swsh3",
-        fetch: fetcher,
+      normalizeTcgdexImageAsset({
+        imageBaseUrl: "https://assets.tcgdex.net/en/swsh/swsh3/136",
+        storageBaseKey: "catalog/items/cat_test/product-image",
+        observedAt: "2026-05-19T00:00:00.000Z",
+        fetcher,
         assetStorage: {
           async putObject() {
             throw new Error("unexpected storage call");

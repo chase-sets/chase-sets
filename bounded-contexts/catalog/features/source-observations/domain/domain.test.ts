@@ -28,7 +28,7 @@ const normalized: SourceObservationNormalized = {
   category: "Pokemon",
   imageBaseUrl: "https://assets.tcgdex.net/en/swsh/swsh3/136",
   imageUrls: [
-    "https://assets.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+    "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp",
   ],
   productAssetSet: null,
   parallelSet: true,

@@ -25,20 +25,20 @@ describe("object storage adapters", () => {
     });
 
     const result = await storage.putObject({
-      key: "catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+      key: "catalog/items/cat_test/product-image/high.webp",
       body: new Uint8Array([1, 2, 3]),
       contentType: "image/webp",
     });
 
     expect(result).toEqual({
-      key: "catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+      key: "catalog/items/cat_test/product-image/high.webp",
       publicUrl:
-        "http://assets.test/catalog-assets/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+        "http://assets.test/catalog-assets/catalog/items/cat_test/product-image/high.webp",
     });
     await expect(
       readFilesystemObject(
         rootDir,
-        "catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+        "catalog/items/cat_test/product-image/high.webp",
       ),
     ).resolves.toEqual({
       body: Buffer.from([1, 2, 3]),
@@ -80,16 +80,21 @@ describe("object storage adapters", () => {
 
     await expect(
       storage.putObject({
-        key: "catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+        key: "catalog/items/cat_test/product-image/high.webp",
         body: new Uint8Array([1]),
         contentType: "image/webp",
         cacheControl: "public, max-age=31536000, immutable",
       }),
     ).resolves.toEqual({
-      key: "catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+      key: "catalog/items/cat_test/product-image/high.webp",
       publicUrl:
-        "https://cdn.chasesets.test/catalog/source-observations/tcgdex/en/swsh3-136/high.webp",
+        "https://cdn.chasesets.test/catalog/items/cat_test/product-image/high.webp",
     });
     expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      input: {
+        ACL: "public-read",
+      },
+    });
   });
 });
