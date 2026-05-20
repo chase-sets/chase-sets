@@ -59,6 +59,63 @@ describe("CatalogItemListPage", () => {
     vi.clearAllMocks();
   });
 
+  it("previews bulk publish for matching draft Catalog Items", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockPreviewBulkPublishCatalogItems.mockResolvedValue({
+      mode: "filter",
+      item_ids: ["cat_1", "cat_2"],
+      total: 2,
+      ready_count: 1,
+      blocked_count: 1,
+      candidates: [],
+    });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 2, count: 1 }}
+        query={{
+          search: "charizard",
+          status: "draft",
+          language: "en",
+          source: "tcgplayer",
+          blueprintId: "bpr_card",
+          tag: "imported",
+          blueprintState: "assigned",
+          hasImages: "true",
+          hasSourceReferences: "true",
+          missingRequiredFields: "false",
+          setId: "",
+          typeKey: "",
+          page: 0,
+          pageSize: 50,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview matching drafts" }));
+
+    await waitFor(() => {
+      expect(mockPreviewBulkPublishCatalogItems).toHaveBeenCalledWith({
+        mode: "filter",
+        query: {
+          search: "charizard",
+          status: "draft",
+          language: "en",
+          source: "tcgplayer",
+          blueprintId: "bpr_card",
+          tag: "imported",
+          blueprintState: "assigned",
+          hasImages: "true",
+          hasSourceReferences: "true",
+          missingRequiredFields: "false",
+        },
+      });
+    });
+    expect(await screen.findByText("Bulk Publish Preview")).toBeTruthy();
+  });
+
   it("selects rows and previews bulk publish from the list", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
@@ -93,7 +150,7 @@ describe("CatalogItemListPage", () => {
     );
 
     expect(screen.getAllByText("tcgplayer").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Preview Filtered Drafts" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview matching drafts" })).toBeTruthy();
     expect(screen.getAllByText("1 matching Catalog Items").length).toBeGreaterThan(0);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");

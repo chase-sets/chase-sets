@@ -329,7 +329,7 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     revalidator.revalidate();
   }
 
-  async function handlePreviewFilteredDrafts() {
+  async function handlePreviewMatchingDrafts() {
     await handlePreviewBulkPublish(
       {
         mode: "filter",
@@ -340,9 +340,13 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
           source: listControls.source,
           blueprintId: listControls.blueprintId,
           tag: listControls.tag,
+          blueprintState: listControls.blueprintState,
+          hasImages: listControls.hasImages,
+          hasSourceReferences: listControls.hasSourceReferences,
+          missingRequiredFields: listControls.missingRequiredFields,
         },
       },
-      t("catalog.features.catalogItems.ui.catalogItemListPage.filtered.drafts"),
+      t("catalog.features.catalogItems.ui.catalogItemListPage.matching.drafts"),
     );
   }
 
@@ -736,6 +740,19 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
                 filterSelection={{ mode: "filter", query }}
                 filterCount={data.total}
                 actions={lifecycleActions}
+                extraActions={
+                  listControls.status === "draft" ? (
+                    <Button
+                      size="sm"
+                      tone="secondary"
+                      onClick={handlePreviewMatchingDrafts}
+                      loading={bulkBusy}
+                      disabled={data.total === 0}
+                    >
+                      {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.matching.drafts")}
+                    </Button>
+                  ) : null
+                }
                 clearSelection={() => setSelectedKeys(new Set())}
                 preview={previewBulkCatalogItemLifecycle}
                 confirm={confirmBulkCatalogItemLifecycle}
@@ -774,13 +791,7 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
         createButton={
-          <Inline gap={2}>
-            {listControls.status === "draft" && (
-              <Button tone="secondary" onClick={handlePreviewFilteredDrafts} disabled={bulkBusy}>
-                {t("catalog.features.catalogItems.ui.catalogItemListPage.preview.filtered.drafts")}</Button>
-            )}
-            <Button onClick={() => setShowCreate(true)}>{t("catalog.features.catalogItems.ui.catalogItemListPage.new.catalog.item")}</Button>
-          </Inline>
+          <Button onClick={() => setShowCreate(true)}>{t("catalog.features.catalogItems.ui.catalogItemListPage.new.catalog.item")}</Button>
         }
       />
       <Dialog
