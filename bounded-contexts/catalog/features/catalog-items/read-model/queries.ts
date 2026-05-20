@@ -124,7 +124,6 @@ export async function listCatalogItemIdsForBulkPublishFilter(
 ): Promise<string[]> {
   const { where, values } = buildCatalogItemConditions({
     ...params,
-    status: "draft",
     limit: undefined,
     offset: undefined,
   });

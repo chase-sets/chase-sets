@@ -61,7 +61,8 @@ describe("CatalogItemListPage", () => {
     vi.clearAllMocks();
   });
 
-  it("previews bulk publish for matching draft Catalog Items", async () => {
+  it("previews bulk publish for matching Catalog Items from the shared action panel", async () => {
+    const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
@@ -96,7 +97,8 @@ describe("CatalogItemListPage", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview matching drafts" }));
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(await screen.findByRole("button", { name: "Preview publish" }));
 
     await waitFor(() => {
       expect(mockPreviewBulkPublishCatalogItems).toHaveBeenCalledWith({
@@ -112,6 +114,10 @@ describe("CatalogItemListPage", () => {
           hasImages: "true",
           hasSourceReferences: "true",
           missingRequiredFields: "false",
+          setId: "",
+          typeKey: "",
+          page: 0,
+          pageSize: 50,
         },
       });
     });
@@ -119,6 +125,7 @@ describe("CatalogItemListPage", () => {
   });
 
   it("selects rows and previews bulk publish from the list", async () => {
+    const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
@@ -152,14 +159,15 @@ describe("CatalogItemListPage", () => {
     );
 
     expect(screen.getAllByText("tcgplayer").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Preview matching drafts" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Actions" })).toBeTruthy();
     expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     expect(selectRow).toBeTruthy();
     fireEvent.click(selectRow!);
     expect(screen.getAllByText("1 Catalog Items selected")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Preview publish" }));
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preview publish" }));
 
     await waitFor(() => {
       expect(mockPreviewBulkPublishCatalogItems).toHaveBeenCalledWith({
@@ -205,7 +213,8 @@ describe("CatalogItemListPage", () => {
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
-    await user.click(screen.getByRole("combobox", { name: "Operation" }));
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(await screen.findByRole("combobox", { name: "Action" }));
     await user.click(await screen.findByRole("option", { name: "Assign Blueprint" }));
     const blueprintInputs = screen.getAllByLabelText("Blueprint ID or slug");
     fireEvent.change(blueprintInputs[blueprintInputs.length - 1]!, { target: { value: "bpr_card" } });
@@ -222,6 +231,54 @@ describe("CatalogItemListPage", () => {
       );
     });
     expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();
+  });
+
+  it("uses the same bulk action options for matching and selected scopes", async () => {
+    const user = userEvent.setup();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(await screen.findByRole("combobox", { name: "Action" }));
+    const matchingOptions = (await screen.findAllByRole("option")).map((option) => option.textContent);
+
+    cleanup();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+      />,
+    );
+
+    const [selectRow] = screen.getAllByLabelText("Select row cat_1");
+    fireEvent.click(selectRow!);
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(await screen.findByRole("combobox", { name: "Action" }));
+    const selectedOptions = (await screen.findAllByRole("option")).map((option) => option.textContent);
+
+    expect(selectedOptions).toEqual(matchingOptions);
+    expect(selectedOptions).toEqual([
+      "Publish",
+      "Archive",
+      "Assign Blueprint",
+      "Assign Category",
+      "Remove Category",
+      "Set Tags",
+      "Merge Tags",
+      "Clear Tags",
+    ]);
   });
 
   it("hides matching bulk actions once rows are selected", () => {
@@ -285,7 +342,7 @@ describe("CatalogItemListPage", () => {
     await user.click(await screen.findByRole("combobox", { name: "Action" }));
     await user.click(await screen.findByRole("option", { name: "Assign Blueprint" }));
     fireEvent.change(screen.getByLabelText("Blueprint ID or slug"), { target: { value: "bpr_card" } });
-    fireEvent.click(screen.getByRole("button", { name: "Preview matching items" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview blueprint assignment" }));
 
     await waitFor(() => {
       expect(mockPreviewBulkCatalogItemEdit).toHaveBeenCalledWith(
@@ -313,8 +370,6 @@ describe("CatalogItemListPage", () => {
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
-    await user.click(screen.getByRole("combobox", { name: "Operation" }));
-    await user.click(await screen.findByRole("option", { name: "Remove drafts" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove drafts from selected" }));
 
     const confirmButtons = await screen.findAllByRole("button", { name: "Remove drafts from selected" });

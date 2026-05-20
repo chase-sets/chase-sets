@@ -125,7 +125,7 @@ describe("catalog item routes", () => {
     }));
   });
 
-  it("previews filter-wide bulk publish as draft-only", async () => {
+  it("previews filter-wide bulk publish against the requested filtered scope", async () => {
     const previewBulkPublish = vi.fn(async () => ({
       mode: "filter" as const,
       item_ids: ["cat_1"],
@@ -160,7 +160,7 @@ describe("catalog item routes", () => {
       mode: "filter",
       query: {
         search: undefined,
-        status: "draft",
+        status: "active",
         blueprintId: undefined,
         tag: undefined,
         language: undefined,
