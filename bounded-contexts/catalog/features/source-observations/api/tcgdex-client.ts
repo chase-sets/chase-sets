@@ -108,6 +108,13 @@ export type TcgdexObservationInput = Readonly<{
   sourcePayload: JsonValue;
 }>;
 
+type PokemonCardVariant = Readonly<{
+  key: string;
+  displayName: string;
+  sourceKey: string | null;
+  isPrimaryImage: boolean;
+}>;
+
 export type TcgdexSetImportResult = Readonly<{
   setId: string;
   expansionId: string;
@@ -211,13 +218,13 @@ export async function fetchTcgdexSetObservations(input: {
     const cardUrl = `${TCGDEX_BASE_URL}/${languageCode}/cards/${encodeURIComponent(cardBrief.id)}`;
     const card = await fetchJson<TcgdexCard>(fetcher, cardUrl);
     observations.push(
-      await toObservation({
+      ...(await toObservations({
         card,
         set,
         languageCode,
         sourceUrl: cardUrl,
         observedAt,
-      }),
+      })),
     );
     input.onProgress?.({
       phase: "fetching",
@@ -246,65 +253,82 @@ function toExpansionOption(
   };
 }
 
-async function toObservation(input: {
+async function toObservations(input: {
   card: TcgdexCard;
   set: TcgdexSet;
   languageCode: string;
   sourceUrl: string;
   observedAt: string;
-}): Promise<TcgdexObservationInput> {
+}): Promise<readonly TcgdexObservationInput[]> {
   const releaseYear = releaseYearFromDate(input.set.releaseDate);
   const sourcePayload = toJsonValue(sanitizeTcgdexCardPayload(input.card));
   const sourceImageUrls = input.card.image
     ? [`${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`]
     : [];
-  const normalized: SourceObservationNormalized = {
-    kind: "pokemon-card",
-    tcg: "pokemon",
-    languageCode: input.languageCode,
-    name: input.card.name,
-    cardNumber: String(input.card.localId),
-    setId: input.set.id,
-    setName: input.set.name,
-    expansionId: input.set.id,
-    expansionName: input.set.name,
-    expansionAbbreviation: expansionAbbreviation(input.set),
-    expansionCardCount: input.set.cardCount?.official ?? input.set.cardCount?.total ?? null,
-    expansionParallelSetCardCount: input.set.cardCount?.reverse ?? null,
-    seriesId: input.set.serie?.id ?? null,
-    seriesName: input.set.serie?.name ?? null,
-    rarity: input.card.rarity ?? null,
-    illustrator: input.card.illustrator ?? null,
-    releaseDate: input.set.releaseDate ?? null,
-    releaseYear,
-    category: input.card.category,
-    imageBaseUrl: input.card.image ?? null,
-    imageUrls: sourceImageUrls,
-    productAssetSet: null,
-    parallelSet: input.card.variants?.reverse === true,
-    variants: normalizeVariants(input.card.variants),
-  };
-  const providerNormalizedForHash: SourceObservationNormalized = {
-    ...normalized,
-    imageUrls: sourceImageUrls,
-    productAssetSet: null,
-  };
+  const variants = normalizeVariants(input.card.variants);
+  const cardVariants = normalizeCardVariants(input.card.variants);
 
-  return {
-    observationId: buildObservationId(input.languageCode, input.card.id),
-    providerKey: PROVIDER_KEY,
-    externalKey: input.card.id,
-    sourceUrl: input.sourceUrl,
-    languageCode: input.languageCode,
-    sourceRecordHash: hashJson({
-      normalized: providerNormalizedForHash,
+  return cardVariants.map((variant) => {
+    const normalized: SourceObservationNormalized = {
+      kind: "pokemon-card",
+      tcg: "pokemon",
+      languageCode: input.languageCode,
+      name: input.card.name,
+      cardNumber: String(input.card.localId),
+      setId: input.set.id,
+      setName: input.set.name,
+      expansionId: input.set.id,
+      expansionName: input.set.name,
+      expansionAbbreviation: expansionAbbreviation(input.set),
+      expansionCardCount: input.set.cardCount?.official ?? input.set.cardCount?.total ?? null,
+      expansionParallelSetCardCount: input.set.cardCount?.reverse ?? null,
+      seriesId: input.set.serie?.id ?? null,
+      seriesName: input.set.serie?.name ?? null,
+      rarity: input.card.rarity ?? null,
+      illustrator: input.card.illustrator ?? null,
+      releaseDate: input.set.releaseDate ?? null,
+      releaseYear,
+      category: input.card.category,
+      imageBaseUrl: input.card.image ?? null,
+      imageUrls: sourceImageUrls,
+      productAssetSet: null,
+      parallelSet: variant.key !== "standard",
+      cardVariantKey: variant.key,
+      cardVariantLabel: variant.displayName,
+      cardVariantSourceKey: variant.sourceKey,
+      cardVariantIsPrimaryImage: variant.isPrimaryImage,
+      imageDisclaimer:
+        input.card.image && !variant.isPrimaryImage
+          ? buildImageDisclaimer(variant.displayName)
+          : null,
+      variants,
+    };
+    const providerNormalizedForHash: SourceObservationNormalized = {
+      ...normalized,
+      imageUrls: sourceImageUrls,
+      productAssetSet: null,
+    };
+
+    return {
+      observationId: buildObservationId(
+        input.languageCode,
+        input.card.id,
+        variant.isPrimaryImage ? null : variant.key,
+      ),
+      providerKey: PROVIDER_KEY,
+      externalKey: variant.isPrimaryImage ? input.card.id : `${input.card.id}:${variant.key}`,
+      sourceUrl: input.sourceUrl,
+      languageCode: input.languageCode,
+      sourceRecordHash: hashJson({
+        normalized: providerNormalizedForHash,
+        sourcePayload,
+      }),
+      sourceUpdatedAt: input.card.updated ?? null,
+      observedAt: input.observedAt,
+      normalized,
       sourcePayload,
-    }),
-    sourceUpdatedAt: input.card.updated ?? null,
-    observedAt: input.observedAt,
-    normalized,
-    sourcePayload,
-  };
+    };
+  });
 }
 
 export async function normalizeTcgdexImageAsset(input: {
@@ -358,8 +382,159 @@ function normalizeVariants(variants: Readonly<Record<string, boolean>> | undefin
   );
 }
 
-function buildObservationId(languageCode: string, cardId: string): string {
-  return `tcgdex_${normalizeKey(languageCode)}_${cardId.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
+function normalizeCardVariants(
+  variants: Readonly<Record<string, boolean>> | undefined,
+): readonly PokemonCardVariant[] {
+  const sourceKeysByVariantKey = new Map<string, string>();
+  Object.entries(variants ?? {})
+    .filter(([, value]) => value === true)
+    .map(([key]) => key.trim())
+    .filter((key) => key.length > 0)
+    .sort(compareVariantSourceKeys)
+    .forEach((sourceKey) => {
+      const variantKey = normalizeVariantKey(sourceKey);
+      if (!sourceKeysByVariantKey.has(variantKey)) {
+        sourceKeysByVariantKey.set(variantKey, sourceKey);
+      }
+    });
+  const sourceKeys = Array.from(sourceKeysByVariantKey.values());
+
+  if (sourceKeys.length === 0) {
+    return [
+      {
+        key: "standard",
+        displayName: "Standard",
+        sourceKey: null,
+        isPrimaryImage: true,
+      },
+    ];
+  }
+
+  const primaryKey = sourceKeys.find((key) => normalizeVariantKey(key) === "standard") ??
+    sourceKeys[0] ??
+    null;
+
+  return sourceKeys.map((sourceKey) => {
+    const key = normalizeVariantKey(sourceKey);
+
+    return {
+      key,
+      displayName: variantLabel(sourceKey),
+      sourceKey,
+      isPrimaryImage: sourceKey === primaryKey,
+    };
+  });
+}
+
+function compareVariantSourceKeys(left: string, right: string): number {
+  const leftOrder = variantSortOrder(left);
+  const rightOrder = variantSortOrder(right);
+
+  return leftOrder === rightOrder
+    ? left.localeCompare(right)
+    : leftOrder - rightOrder;
+}
+
+function variantSortOrder(sourceKey: string): number {
+  switch (normalizeVariantKey(sourceKey)) {
+    case "standard":
+      return 0;
+    case "holofoil":
+      return 10;
+    case "1st-edition":
+      return 20;
+    case "reverse-holo":
+      return 30;
+    case "poke-ball":
+      return 40;
+    case "master-ball":
+      return 50;
+    default:
+      return 100;
+  }
+}
+
+function normalizeVariantKey(sourceKey: string): string {
+  const key = sourceKey.trim();
+  const compact = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+  switch (compact) {
+    case "normal":
+    case "standard":
+      return "standard";
+    case "holo":
+    case "holofoil":
+      return "holofoil";
+    case "reverse":
+    case "reverseholo":
+    case "reverseholofoil":
+      return "reverse-holo";
+    case "firstedition":
+    case "1stedition":
+      return "1st-edition";
+    case "pokeball":
+      return "poke-ball";
+    case "masterball":
+      return "master-ball";
+    default:
+      return key
+        .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "");
+  }
+}
+
+function variantLabel(sourceKey: string): string {
+  switch (normalizeVariantKey(sourceKey)) {
+    case "standard":
+      return "Standard";
+    case "holofoil":
+      return "Holofoil";
+    case "reverse-holo":
+      return "Reverse Holo";
+    case "1st-edition":
+      return "1st Edition";
+    case "poke-ball":
+      return "Premium parallel set - Poke Ball";
+    case "master-ball":
+      return "Premium parallel set - Master Ball";
+    default:
+      return `Parallel set - ${humanizeVariantKey(sourceKey)}`;
+  }
+}
+
+function humanizeVariantKey(sourceKey: string): string {
+  return sourceKey
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+function buildImageDisclaimer(variantLabel: string): string {
+  return `TCGDex provides one image for this card number. This Catalog Item represents the ${variantLabel} variant, so the image may not show the exact finish or parallel pattern.`;
+}
+
+function buildObservationId(
+  languageCode: string,
+  cardId: string,
+  variantKey: string | null,
+): string {
+  return [
+    "tcgdex",
+    normalizeKey(languageCode),
+    cardId.trim().toLowerCase(),
+    variantKey,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("_")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/(^_|_$)/g, "");
 }
 
 function releaseYearFromDate(value: string | undefined): number | null {

@@ -47,6 +47,14 @@ const fieldDefs: FieldDef[] = [
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
+    key: "card-variant",
+    fieldId: catalogSeedIds.fields.cardVariant as FieldId,
+    name: l10n("Card Variant"),
+    description: l10n("The Pokemon TCG print or parallel variant for a single card"),
+    valueType: "string",
+    behavior: { filterable: true, searchable: true, sortable: true },
+  },
+  {
     key: "card-illustrator",
     fieldId: catalogSeedIds.fields.cardIllustrator as FieldId,
     name: l10n("Card Illustrator"),

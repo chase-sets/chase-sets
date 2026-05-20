@@ -47,6 +47,7 @@ export async function seedBlueprints(
         { fieldId: fields["card-name"], required: true },
         { fieldId: fields.expansion, required: true },
         { fieldId: fields.rarity, required: true },
+        { fieldId: fields["card-variant"], required: false },
         { fieldId: fields["card-illustrator"], required: false },
         { fieldId: fields["release-year"], required: false },
       ],

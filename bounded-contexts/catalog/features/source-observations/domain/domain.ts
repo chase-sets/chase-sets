@@ -33,6 +33,11 @@ export type SourceObservationNormalized = JsonObject & Readonly<{
   imageUrls: readonly string[];
   productAssetSet: ProductAssetSet | null;
   parallelSet: boolean;
+  cardVariantKey: string;
+  cardVariantLabel: string;
+  cardVariantSourceKey: string | null;
+  cardVariantIsPrimaryImage: boolean;
+  imageDisclaimer: string | null;
   variants: JsonObject;
 }>;
 

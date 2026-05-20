@@ -137,7 +137,7 @@ describe("TCGdex client", () => {
       fetch: fetcher,
     });
 
-    expect(observations).toHaveLength(1);
+    expect(observations).toHaveLength(2);
     expect(observations[0]).toMatchObject({
       observationId: "tcgdex_en_swsh3_136",
       providerKey: "tcgdex",
@@ -163,7 +163,25 @@ describe("TCGdex client", () => {
           "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp",
         ],
         productAssetSet: null,
+        parallelSet: false,
+        cardVariantKey: "standard",
+        cardVariantLabel: "Standard",
+        cardVariantSourceKey: "normal",
+        cardVariantIsPrimaryImage: true,
+        imageDisclaimer: null,
+      },
+    });
+    expect(observations[1]).toMatchObject({
+      observationId: "tcgdex_en_swsh3_136_reverse_holo",
+      externalKey: "swsh3-136:reverse-holo",
+      normalized: {
         parallelSet: true,
+        cardVariantKey: "reverse-holo",
+        cardVariantLabel: "Reverse Holo",
+        cardVariantSourceKey: "reverse",
+        cardVariantIsPrimaryImage: false,
+        imageDisclaimer:
+          "TCGDex provides one image for this card number. This Catalog Item represents the Reverse Holo variant, so the image may not show the exact finish or parallel pattern.",
       },
     });
     expect(requestedUrls).not.toContain(
@@ -171,6 +189,62 @@ describe("TCGdex client", () => {
     );
     expect(observations[0]?.sourceRecordHash).toHaveLength(64);
     expect(observations[0]?.sourcePayload).not.toHaveProperty("pricing");
+  });
+
+  it("uses Pokemon marketplace language for premium parallel variants", async () => {
+    const responses = new Map<string, unknown>([
+      [
+        "https://api.tcgdex.net/v2/en/sets/sv4pt5",
+        {
+          id: "sv4pt5",
+          name: "Scarlet & Violet - 151",
+          cards: [{ id: "sv4pt5-025", localId: "025", name: "Pikachu" }],
+        },
+      ],
+      [
+        "https://api.tcgdex.net/v2/en/cards/sv4pt5-025",
+        {
+          id: "sv4pt5-025",
+          localId: "025",
+          name: "Pikachu",
+          image: "https://assets.tcgdex.net/en/sv/sv4pt5/025",
+          category: "Pokemon",
+          set: { id: "sv4pt5", name: "Scarlet & Violet - 151" },
+          variants: {
+            normal: true,
+            pokeball: true,
+            masterBall: true,
+            confettiFoil: true,
+          },
+        },
+      ],
+    ]);
+    const fetcher: typeof globalThis.fetch = async (input) => {
+      const response = responses.get(String(input));
+      return response
+        ? new Response(JSON.stringify(response), { status: 200 })
+        : new Response(null, { status: 404 });
+    };
+
+    const observations = await fetchTcgdexSetObservations({
+      languageCode: "en",
+      setId: "sv4pt5",
+      fetch: fetcher,
+    });
+
+    expect(observations.map((observation) => observation.normalized.cardVariantLabel))
+      .toEqual([
+        "Standard",
+        "Premium parallel set - Poke Ball",
+        "Premium parallel set - Master Ball",
+        "Parallel set - Confetti Foil",
+      ]);
+    expect(observations.map((observation) => observation.externalKey)).toEqual([
+      "sv4pt5-025",
+      "sv4pt5-025:poke-ball",
+      "sv4pt5-025:master-ball",
+      "sv4pt5-025:confetti-foil",
+    ]);
   });
 
   it("reports set import progress while fetching cards", async () => {
@@ -273,6 +347,11 @@ describe("TCGdex client", () => {
           imageBaseUrl: null,
           imageUrls: [],
           productAssetSet: null,
+          cardVariantKey: "standard",
+          cardVariantLabel: "Standard",
+          cardVariantSourceKey: null,
+          cardVariantIsPrimaryImage: true,
+          imageDisclaimer: null,
         },
       },
     ]);

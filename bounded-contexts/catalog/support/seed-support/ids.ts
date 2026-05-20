@@ -66,6 +66,7 @@ export const catalogSeedIds = {
     cardName: "fld_seed_card_name" as SeedFieldId,
     expansion: "fld_seed_expansion" as SeedFieldId,
     rarity: "fld_seed_rarity" as SeedFieldId,
+    cardVariant: "fld_seed_card_variant" as SeedFieldId,
     cardIllustrator: "fld_seed_card_illustrator" as SeedFieldId,
     releaseYear: "fld_seed_release_year" as SeedFieldId,
     packCount: "fld_seed_pack_count" as SeedFieldId,
