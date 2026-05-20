@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type {
   ReferenceRecordCommand,
   ReferenceTypeCommand,
 } from "../../reference-data/domain/domain";
 import type { SourceObservationNormalized } from "../domain/domain";
-import { ensurePokemonReferenceHierarchy } from "./runtime";
+import { createSourceObservationRuntime, ensurePokemonReferenceHierarchy } from "./runtime";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -70,6 +71,61 @@ describe("source observation runtime", () => {
         (command) => command.typeKey === "expansion" && command.attributes?.["tcgdex-set-id"] === "me02.5",
       ),
     ).toHaveLength(1);
+  });
+
+  it("promotes changed observations by refreshing the linked Catalog Item", async () => {
+    const harness = createChangedObservationRefreshHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      harness.items,
+      harness.referenceData,
+    );
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "LinkExternalProductReference",
+          providerKey: "tcgdex",
+          externalKey: "en:me02.5-136:reverse-holo",
+        }),
+      }),
+    );
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promoted",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing",
+        }),
+      }),
+    );
   });
 });
 
@@ -205,5 +261,163 @@ function createReferencePreloadHarness() {
           record.attributes[attributeKey] === attributeValue,
       );
     },
+  };
+}
+
+function createChangedObservationRefreshHarness() {
+  const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
+  const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
+  const normalized = pokemonObservation({
+    expansionName: "Ascended Heroes Updated",
+    seriesName: "Mega Evolution",
+  });
+  const observationRow = {
+    observation_id: "obs_changed",
+    provider_key: "tcgdex",
+    external_key: "me02.5-136:reverse-holo",
+    source_url: "https://api.tcgdex.net/v2/en/cards/me02.5-136",
+    language_code: "en",
+    source_record_hash: "new-hash",
+    source_updated_at: "2026-05-20T00:00:00.000Z",
+    observed_at: "2026-05-20T00:00:00.000Z",
+    normalized,
+    source_payload: { id: "me02.5-136" },
+    status: "changed",
+    status_reason: null,
+    promoted_catalog_item_id: "cat_existing",
+    promoted_at: "2026-05-19T00:00:00.000Z",
+    updated_at: "2026-05-20T00:00:00.000Z",
+  };
+  const streamId = "catalog.source-observation-obs_changed";
+
+  const deps = {
+    db: {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("FROM catalog_source_observations")) {
+          return {
+            rowCount: 1,
+            rows: [observationRow] as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_reference_types")) {
+          return {
+            rowCount: 1,
+            rows: [{ reference_type_id: String(values[0]) }] as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_reference_records")) {
+          return {
+            rowCount: 1,
+            rows: [{ reference_record_id: `ref_${String(values[1] ?? "existing")}` }] as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_blueprints")) {
+          return { rowCount: 1, rows: [{ id: "bpr_pokemon" }] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_categories")) {
+          return { rowCount: 1, rows: [{ id: "cat_singles" }] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_fields")) {
+          return { rowCount: 1, rows: [{ id: `fld_${String(values[0])}` }] as T[] };
+        }
+
+        return { rowCount: 0, rows: [] as T[] };
+      },
+    },
+    eventStore: {
+      readStream: async () => [
+        storedEvent(1, streamId, "catalog.source-observation.recorded", {
+          ...observationRow,
+          observationId: observationRow.observation_id,
+          providerKey: observationRow.provider_key,
+          externalKey: observationRow.external_key,
+          sourceUrl: observationRow.source_url,
+          languageCode: observationRow.language_code,
+          sourceRecordHash: "old-hash",
+          sourceUpdatedAt: null,
+          observedAt: "2026-05-19T00:00:00.000Z",
+          normalized,
+          sourcePayload: observationRow.source_payload,
+        }),
+        storedEvent(2, streamId, "catalog.source-observation.promoted", {
+          catalogItemId: "cat_existing",
+          promotedAt: "2026-05-19T00:00:00.000Z",
+        }),
+        storedEvent(3, streamId, "catalog.source-observation.changed", {
+          observationId: observationRow.observation_id,
+          providerKey: observationRow.provider_key,
+          externalKey: observationRow.external_key,
+          sourceUrl: observationRow.source_url,
+          languageCode: observationRow.language_code,
+          sourceRecordHash: observationRow.source_record_hash,
+          sourceUpdatedAt: observationRow.source_updated_at,
+          observedAt: observationRow.observed_at,
+          normalized,
+          sourcePayload: observationRow.source_payload,
+        }),
+      ],
+      appendToStream: async (input: {
+        events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
+      }) => {
+        appendedSourceEvents.push(...input.events);
+        return input.events.map((event, index) =>
+          storedEvent(4 + index, streamId, event.eventType, event.payload),
+        );
+      },
+      readAll: async () => [],
+    },
+    checkpointStore: {
+      loadCheckpoint: async () => "0",
+      saveCheckpoint: async () => undefined,
+    },
+  } as unknown as CatalogRuntimeDeps;
+
+  const items = {
+    commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
+      itemCommands.push(input);
+      return { version: itemCommands.length, state: { status: "draft" } };
+    },
+    projectors: [{ runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" }) }],
+  } as unknown as CatalogItemServices;
+
+  const referenceData = {
+    referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
+    referenceRecordCommandHandler: async () => ({ version: 1, state: {} }),
+    projectors: [{ runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" }) }],
+  } as unknown as ReferenceDataServices;
+
+  return {
+    deps,
+    items,
+    referenceData,
+    itemCommands,
+    appendedSourceEvents,
+  };
+}
+
+function storedEvent(
+  streamVersion: number,
+  streamId: string,
+  eventType: string,
+  payload: Record<string, unknown>,
+) {
+  return {
+    eventId: `evt_${streamVersion}`,
+    streamId,
+    streamVersion,
+    globalPosition: String(streamVersion),
+    tenantId: context.tenantId,
+    eventType,
+    payload,
+    metadata: {},
+    occurredAt: "2026-05-20T00:00:00.000Z",
+    recordedAt: "2026-05-20T00:00:00.000Z",
+    performedByUserId: context.audit.performedByUserId,
+    forAccountId: context.audit.forAccountId,
   };
 }

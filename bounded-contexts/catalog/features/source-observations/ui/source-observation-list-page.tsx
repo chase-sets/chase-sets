@@ -68,6 +68,7 @@ function buildColumns(): DataColumn<SourceObservationListItem>[] {
 
 const statusOptions = [
   { label: t("catalog.features.sourceObservations.ui.list.observed"), value: "observed" },
+  { label: t("catalog.features.sourceObservations.ui.list.changed"), value: "changed" },
   { label: t("catalog.features.sourceObservations.ui.list.promoted"), value: "promoted" },
   { label: t("catalog.features.sourceObservations.ui.list.rejected"), value: "rejected" },
 ];
@@ -133,7 +134,7 @@ export function SourceObservationListPage({
     () =>
       new Set(
         (data.items ?? [])
-          .filter((item) => item.status === "observed")
+          .filter((item) => item.status === "observed" || item.status === "changed")
           .map((item) => item.observation_id),
       ),
     [data.items],
@@ -217,7 +218,7 @@ export function SourceObservationListPage({
       listControls.setFilters({
         language: result.languageCode,
         setId: result.expansionId ?? result.setId,
-        status: "observed",
+        status: "",
       });
       revalidator.revalidate();
     } catch (error) {
@@ -397,7 +398,7 @@ export function SourceObservationListPage({
         activeFilterCount={activeFilterCount}
         selectedKeys={selectedKeys}
         onSelectionChange={handleSelectionChange}
-        isRowSelectable={(row) => row.status === "observed"}
+        isRowSelectable={(row) => row.status === "observed" || row.status === "changed"}
         bulkActionBar={
           selectedKeys.size > 0 ? (
             <BulkActionBar

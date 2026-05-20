@@ -76,7 +76,9 @@ Unknown true variant keys are preserved as separate observations and humanized a
 
 Promoted variant Catalog Items use the printed card name as the title and include the variant label in the subtitle and optional `Card Variant` field. If TCGdex provides only the shared card-number image, non-primary variants receive a description note that the image may not show the exact foil or pattern. The note is a Catalog Item presentation fact only; it does not change `catalog_item_id`, `product_id`, or Product option resolution.
 
-Operators may bulk promote explicitly selected Source Observations from the admin list screen. Bulk promotion is still a review action: it only accepts selected observation IDs, promotes records that are still `observed`, and reports terminal or missing records as skipped or failed instead of changing them.
+Re-importing the same provider Expansion is the refresh path. Observations that are still `observed` refresh in place when the normalized provider facts or source payload hash changes. If a promoted Source Observation changes, the Source Observation moves to `changed` and keeps its promoted Catalog Item link so operators can review the updated provider facts before Catalog truth changes.
+
+Operators may bulk promote explicitly selected Source Observations from the admin list screen. Bulk promotion is still a review action: it only accepts selected observation IDs, promotes records that are still `observed` or `changed`, and reports terminal or missing records as skipped or failed instead of changing them. Promoting an `observed` Source Observation creates a new draft Catalog Item. Promoting a `changed` Source Observation refreshes the already-linked Catalog Item through normal Catalog Item commands, preserving `catalog_item_id` and Product identity while updating descriptive metadata, mapped fields, tags, source references, and Catalog-owned image assets.
 
 Operators may also promote all eligible Source Observations matching the current reviewed list filters after spot checking a large import. Filter-scoped promote-all must show a confirmation summary before execution, including the target filter scope and expected count, and must still promote through the same per-observation Catalog behavior. It must not silently promote every observed Source Observation globally or rely on hidden "last import" session state.
 
@@ -88,7 +90,10 @@ The Catalog Integrations admin surface summarizes Source Observations by provide
 
 - Re-importing an observed source record updates the Source Observation while it remains `observed`.
 - Re-importing the same observed source hash is idempotent and does not append a duplicate source-observation event.
-- Promoted or rejected observations cannot be refreshed in place; a future implementation should create a changed-observation review if provider data changes after terminal review.
+- Re-importing a changed source hash for a promoted observation creates a `changed` review without mutating the Catalog Item.
+- Re-importing the same changed source hash remains idempotent while waiting for review.
+- Promoting a changed observation refreshes the existing promoted Catalog Item instead of creating a duplicate.
+- Rejected observations remain terminal in this pass; retrying a rejected source requires an intentional future new-observation workflow.
 - Provider IDs are scoped by provider, language, and external key.
 - Missing images are valid observations and should not block review or promotion.
 - Declared image assets must normalize successfully before a Catalog Item is promoted; Source Observation review may show TCGdex display URLs, but promoted Catalog Items must publish only Catalog Item-owned Chase Sets asset URLs.

@@ -54,6 +54,7 @@ export type SourceObservationIntegrationScopeRow = Readonly<{
   series_name: string;
   total_observations: number;
   observed_observations: number;
+  changed_observations: number;
   promoted_observations: number;
   rejected_observations: number;
   first_observed_at: string;
@@ -108,6 +109,7 @@ export async function listSourceObservationIntegrationScopes(
        coalesce(normalized->>'seriesName', '') AS series_name,
        COUNT(*)::integer AS total_observations,
        (COUNT(*) FILTER (WHERE status = 'observed'))::integer AS observed_observations,
+       (COUNT(*) FILTER (WHERE status = 'changed'))::integer AS changed_observations,
        (COUNT(*) FILTER (WHERE status = 'promoted'))::integer AS promoted_observations,
        (COUNT(*) FILTER (WHERE status = 'rejected'))::integer AS rejected_observations,
        MIN(observed_at)::text AS first_observed_at,
@@ -134,9 +136,10 @@ export async function previewSourceObservationPromotionScope(
   params: SourceObservationFilterScope = {},
 ): Promise<SourceObservationPromotionPreview> {
   const scope = normalizeSourceObservationFilterScope(params);
-  const eligibleCount = scope.status && scope.status !== "observed"
+  const eligibleStatuses = reviewableStatusesForScope(scope);
+  const eligibleCount = eligibleStatuses.length === 0
     ? Promise.resolve(0)
-    : countSourceObservations(db, toEligiblePromotionScope(scope));
+    : countSourceObservations(db, scope, eligibleStatuses);
   const [matched, eligible] = await Promise.all([
     countSourceObservations(db, scope),
     eligibleCount,
@@ -155,12 +158,14 @@ export async function listSourceObservationIdsForPromotion(
   params: SourceObservationFilterScope = {},
 ): Promise<string[]> {
   const scope = normalizeSourceObservationFilterScope(params);
-  if (scope.status && scope.status !== "observed") {
+  const eligibleStatuses = reviewableStatusesForScope(scope);
+  if (eligibleStatuses.length === 0) {
     return [];
   }
 
-  const filter = buildSourceObservationFilter(toEligiblePromotionScope(scope), {
+  const filter = buildSourceObservationFilter(scope, {
     includeListFilters: true,
+    statuses: eligibleStatuses,
   });
   const where = filter.conditions.length > 0
     ? `WHERE ${filter.conditions.join(" AND ")}`
@@ -188,8 +193,12 @@ export async function getSourceObservationDetail(
 async function countSourceObservations(
   db: PgQueryable,
   params: SourceObservationFilterScope,
+  statuses?: readonly string[],
 ): Promise<number> {
-  const filter = buildSourceObservationFilter(params, { includeListFilters: true });
+  const filter = buildSourceObservationFilter(params, {
+    includeListFilters: true,
+    statuses,
+  });
   const where = filter.conditions.length > 0
     ? `WHERE ${filter.conditions.join(" AND ")}`
     : "";
@@ -203,7 +212,7 @@ async function countSourceObservations(
 
 function buildSourceObservationFilter(
   params: SourceObservationFilterScope,
-  options: { includeListFilters: boolean },
+  options: { includeListFilters: boolean; statuses?: readonly string[] },
 ): {
   conditions: string[];
   values: unknown[];
@@ -227,7 +236,10 @@ function buildSourceObservationFilter(
     conditions.push(`((normalized->>'setId') = $${values.length} OR (normalized->>'expansionId') = $${values.length})`);
   }
 
-  if (options.includeListFilters && scope.status) {
+  if (options.statuses && options.statuses.length > 0) {
+    values.push(options.statuses);
+    conditions.push(`status = ANY($${values.length}::text[])`);
+  } else if (options.includeListFilters && scope.status) {
     values.push(scope.status);
     conditions.push(`status = $${values.length}`);
   }
@@ -253,11 +265,10 @@ function normalizeSourceObservationFilterScope(
   };
 }
 
-function toEligiblePromotionScope(
-  scope: SourceObservationFilterScope,
-): SourceObservationFilterScope {
-  return {
-    ...scope,
-    status: "observed",
-  };
+function reviewableStatusesForScope(scope: SourceObservationFilterScope): readonly string[] {
+  if (!scope.status) {
+    return ["observed", "changed"];
+  }
+
+  return scope.status === "observed" || scope.status === "changed" ? [scope.status] : [];
 }

@@ -129,10 +129,10 @@ describe("source observation domain", () => {
         catalogItemId: "cat_1",
         promotedAt: "2026-05-15T00:01:00.000Z",
       }),
-    ).toThrow("Only observed source observations can transition.");
+    ).toThrow("Only observed or changed source observations can be promoted.");
   });
 
-  it("does not allow terminal observations to be refreshed in place", () => {
+  it("marks changed promoted records for review without losing the Catalog Item link", () => {
     const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
     const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);
     const promotedEvent = decideSourceObservation(observed, {
@@ -142,12 +142,31 @@ describe("source observation domain", () => {
     })[0];
     const promoted = evolveSourceObservation(observed, promotedEvent);
 
-    expect(() =>
-      decideSourceObservation(promoted, {
-        ...recordCommand,
-        sourceRecordHash: "new-hash",
-        observedAt: "2026-05-15T00:05:00.000Z",
-      }),
-    ).toThrow("Only observed source observations can be refreshed.");
+    const changedEvent = decideSourceObservation(promoted, {
+      ...recordCommand,
+      sourceRecordHash: "new-hash",
+      observedAt: "2026-05-15T00:05:00.000Z",
+      normalized: { ...normalized, rarity: "Rare" },
+    })[0];
+    const changed = evolveSourceObservation(promoted, changedEvent);
+
+    expect(changed).toMatchObject({
+      status: "changed",
+      sourceRecordHash: "new-hash",
+      promotedCatalogItemId: "cat_1",
+      normalized: expect.objectContaining({ rarity: "Rare" }),
+    });
+
+    const refreshedPromotion = decideSourceObservation(changed, {
+      type: "PromoteSourceObservation",
+      catalogItemId: "cat_1",
+      promotedAt: "2026-05-15T00:10:00.000Z",
+    })[0];
+
+    expect(evolveSourceObservation(changed, refreshedPromotion)).toMatchObject({
+      status: "promoted",
+      promotedCatalogItemId: "cat_1",
+      promotedAt: "2026-05-15T00:10:00.000Z",
+    });
   });
 });

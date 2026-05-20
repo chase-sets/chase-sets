@@ -60,6 +60,50 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         ],
       );
     },
+    "catalog.source-observation.changed": async (event) => {
+      const data = event.data as {
+        observationId: string;
+        providerKey: string;
+        externalKey: string;
+        sourceUrl: string;
+        languageCode: string;
+        sourceRecordHash: string;
+        sourceUpdatedAt: string | null;
+        observedAt: string;
+        normalized: SourceObservationNormalized;
+        sourcePayload: JsonValue;
+      };
+
+      await db.query(
+        `UPDATE catalog_source_observations
+         SET provider_key = $2,
+             external_key = $3,
+             source_url = $4,
+             language_code = $5,
+             source_record_hash = $6,
+             source_updated_at = $7,
+             observed_at = $8,
+             normalized = $9,
+             source_payload = $10,
+             status = 'changed',
+             status_reason = NULL,
+             updated_at = $11
+         WHERE observation_id = $1`,
+        [
+          data.observationId,
+          data.providerKey,
+          data.externalKey,
+          data.sourceUrl,
+          data.languageCode,
+          data.sourceRecordHash,
+          data.sourceUpdatedAt,
+          data.observedAt,
+          JSON.stringify(data.normalized),
+          JSON.stringify(data.sourcePayload),
+          event.timing.recordedAt,
+        ],
+      );
+    },
     "catalog.source-observation.promoted": async (event) => {
       const observationId = extractObservationId(event.streamId);
       const data = event.data as { catalogItemId: string; promotedAt: string };
@@ -69,6 +113,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
          SET status = 'promoted',
              promoted_catalog_item_id = $2,
              promoted_at = $3,
+             status_reason = NULL,
              updated_at = $4
          WHERE observation_id = $1`,
         [observationId, data.catalogItemId, data.promotedAt, event.timing.recordedAt],

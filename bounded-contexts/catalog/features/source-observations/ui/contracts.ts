@@ -31,6 +31,7 @@ export interface SourceObservationIntegrationScope {
   series_name: string;
   total_observations: number;
   observed_observations: number;
+  changed_observations: number;
   promoted_observations: number;
   rejected_observations: number;
   first_observed_at: string;

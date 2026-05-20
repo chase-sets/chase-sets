@@ -197,7 +197,7 @@ export function IntegrationManagementPage({
           />
           <Stat
             label={t("catalog.features.sourceObservations.ui.integrations.needs.review")}
-            value={formatCount(summary.observed)}
+            value={formatCount(summary.observed + summary.changed)}
           />
           <Stat
             label={t("catalog.features.sourceObservations.ui.integrations.promoted")}
@@ -367,7 +367,7 @@ function buildColumns(): DataColumn<SourceObservationIntegrationScope>[] {
     {
       key: "observed",
       header: t("catalog.features.sourceObservations.ui.integrations.needs.review"),
-      cell: (row) => formatCount(row.observed_observations),
+      cell: (row) => formatCount(reviewableObservationCount(row)),
     },
     {
       key: "promoted",
@@ -402,15 +402,21 @@ function summarizeScopes(scopes: readonly SourceObservationIntegrationScope[]) {
       scopes: summary.scopes + 1,
       total: summary.total + scope.total_observations,
       observed: summary.observed + scope.observed_observations,
+      changed: summary.changed + scope.changed_observations,
       promoted: summary.promoted + scope.promoted_observations,
     }),
     {
       scopes: 0,
       total: 0,
       observed: 0,
+      changed: 0,
       promoted: 0,
     },
   );
+}
+
+function reviewableObservationCount(scope: SourceObservationIntegrationScope): number {
+  return scope.observed_observations + scope.changed_observations;
 }
 
 function toSelectItems(
