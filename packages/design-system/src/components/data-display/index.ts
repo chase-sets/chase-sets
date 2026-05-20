@@ -18,6 +18,8 @@ export {
   type ActorIdentityCueVariant,
 } from "./actor-identity-cue";
 export {
+  ActionBar,
+  type ActionBarProps,
   FilterBar,
   type FilterBarProps,
   FilterArea,

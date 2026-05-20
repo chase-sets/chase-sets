@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
+  ActionBar,
   DataTable,
   DetailPanel,
   Grid,
@@ -12,6 +13,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  FilterBar,
   Rating,
   Stack,
   StatGrid,
@@ -136,31 +138,33 @@ export function PlatformFeedbackAdminListPage({
 
       <PageSection title={t("experience.platformFeedbackAdmin.filters")}>
         <form method="get">
-          <Grid columns={{ base: 1, md: 4 }} gap={3}>
-            <NativeSelect
-              label={t("experience.platformFeedbackAdmin.status")}
-              name="status"
-              defaultValue={filters.status}
-              items={statusItems}
-            />
-            <NativeSelect
-              label={t("experience.platformFeedbackAdmin.topic")}
-              name="topic"
-              defaultValue={filters.topic}
-              items={topicItems}
-            />
-            <NativeSelect
-              label={t("experience.platformFeedbackAdmin.workflow")}
-              name="workflow"
-              defaultValue={filters.workflow}
-              items={workflowItems}
-            />
-            <Stack gap={1}>
+          <Stack gap={3}>
+            <FilterBar sticky={false}>
+              <NativeSelect
+                label={t("experience.platformFeedbackAdmin.status")}
+                name="status"
+                defaultValue={filters.status}
+                items={statusItems}
+              />
+              <NativeSelect
+                label={t("experience.platformFeedbackAdmin.topic")}
+                name="topic"
+                defaultValue={filters.topic}
+                items={topicItems}
+              />
+              <NativeSelect
+                label={t("experience.platformFeedbackAdmin.workflow")}
+                name="workflow"
+                defaultValue={filters.workflow}
+                items={workflowItems}
+              />
+            </FilterBar>
+            <ActionBar>
               <Button type="submit" leadingIcon="filter">
                 {t("experience.platformFeedbackAdmin.applyFilters")}
               </Button>
-            </Stack>
-          </Grid>
+            </ActionBar>
+          </Stack>
         </form>
       </PageSection>
 
@@ -231,12 +235,28 @@ export function PlatformFeedbackAdminDetailPage({
           feedbackId: feedback.feedback_id,
         })}
         description={t("experience.platformFeedbackAdmin.detailDescription")}
-        actions={
-          <LinkButton href="/experience/platform-feedback" tone="secondary">
-            {t("experience.platformFeedbackAdmin.back")}
-          </LinkButton>
-        }
       />
+      <ActionBar>
+        <LinkButton href="/experience/platform-feedback" tone="secondary">
+          {t("experience.platformFeedbackAdmin.back")}
+        </LinkButton>
+        {feedback.status === "new" ? (
+          <form method="post">
+            <input type="hidden" name="intent" value="review" readOnly />
+            <Button type="submit" leadingIcon="check">
+              {t("experience.platformFeedbackAdmin.markReviewed")}
+            </Button>
+          </form>
+        ) : null}
+        {feedback.status !== "archived" ? (
+          <form method="post">
+            <input type="hidden" name="intent" value="archive" readOnly />
+            <Button type="submit" tone="secondary" leadingIcon="package">
+              {t("experience.platformFeedbackAdmin.archive")}
+            </Button>
+          </form>
+        ) : null}
+      </ActionBar>
       <Grid columns={{ base: 1, xl: 2 }} gap={4}>
         <Surface elevated>
           <Stack gap={4}>
@@ -297,24 +317,6 @@ export function PlatformFeedbackAdminDetailPage({
                 )}
               </Stack>
             </DetailPanel>
-            <Inline gap={2}>
-              {feedback.status === "new" ? (
-                <form method="post">
-                  <input type="hidden" name="intent" value="review" readOnly />
-                  <Button type="submit" leadingIcon="check">
-                    {t("experience.platformFeedbackAdmin.markReviewed")}
-                  </Button>
-                </form>
-              ) : null}
-              {feedback.status !== "archived" ? (
-                <form method="post">
-                  <input type="hidden" name="intent" value="archive" readOnly />
-                  <Button type="submit" tone="secondary" leadingIcon="package">
-                    {t("experience.platformFeedbackAdmin.archive")}
-                  </Button>
-                </form>
-              ) : null}
-            </Inline>
           </Stack>
         </Surface>
       </Grid>

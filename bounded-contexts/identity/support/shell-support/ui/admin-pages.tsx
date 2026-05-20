@@ -1,8 +1,13 @@
 import { t } from "@chase-sets/localization";
+import type { ReactNode } from "react";
 import {
+  ActionBar,
   Card,
   DataTable,
   LinkButton,
+  Page,
+  PageHeader,
+  PageSection,
   Stack,
   StatusPill,
   Text,
@@ -15,12 +20,14 @@ export function AdminListPage<T>({
   columns,
   emptyMessage,
   getHref,
+  actions,
 }: {
   title: string;
   items: readonly T[];
   columns: readonly DataColumn<T>[];
   emptyMessage: string;
   getHref?: (row: T) => string;
+  actions?: ReactNode;
 }) {
   const columnsWithView: readonly DataColumn<T>[] = getHref
     ? [
@@ -37,20 +44,23 @@ export function AdminListPage<T>({
     : columns;
 
   return (
-    <Stack gap={4}>
-      <Text size="lg" weight="semibold">
-        {title}
-      </Text>
-      <Card title={t("identity.support.shellSupport.ui.adminPages.item.count", {
-        count: items.length,
-      })}>
-        {items.length === 0 ? (
-          <Text tone="secondary">{emptyMessage}</Text>
-        ) : (
-          <DataTable columns={[...columnsWithView]} rows={[...items]} />
-        )}
-      </Card>
-    </Stack>
+    <Page>
+      <PageHeader title={title} />
+      <Stack gap={4}>
+        {actions ? <ActionBar>{actions}</ActionBar> : null}
+        <PageSection
+          title={t("identity.support.shellSupport.ui.adminPages.item.count", {
+            count: items.length,
+          })}
+        >
+          {items.length === 0 ? (
+            <Text tone="secondary">{emptyMessage}</Text>
+          ) : (
+            <DataTable columns={[...columnsWithView]} rows={[...items]} />
+          )}
+        </PageSection>
+      </Stack>
+    </Page>
   );
 }
 

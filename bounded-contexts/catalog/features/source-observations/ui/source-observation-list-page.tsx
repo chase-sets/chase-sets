@@ -492,6 +492,46 @@ export function SourceObservationListPage({
                 </>
               }
             />
+          ) : data.total > 0 ? (
+            <BulkActionBar
+              count={data.total}
+              formatSelectedLabel={(count) =>
+                t("catalog.support.shellSupport.ui.bulkLifecycleActions.matching", {
+                  count,
+                  entityName: t("catalog.features.sourceObservations.ui.list.source.observations"),
+                })
+              }
+              primaryActions={
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  leadingIcon="badgeCheck"
+                  loading={previewingPromoteAll}
+                  disabled={previewingPromoteAll || promoteAllRunning}
+                  onClick={handlePreviewPromoteAll}
+                >
+                  {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.matching")}
+                </Button>
+              }
+              secondaryActions={
+                <>
+                  <TextInput
+                    label={t("catalog.features.sourceObservations.ui.list.reject.reason")}
+                    value={rejectReason}
+                    onChange={(event) => setRejectReason(event.target.value)}
+                  />
+                  <Button
+                    tone="danger"
+                    size="sm"
+                    disabled={bulkRejecting}
+                    onClick={handleRejectAllMatching}
+                  >
+                    {t("catalog.features.sourceObservations.ui.list.bulk.reject.all.matching")}
+                  </Button>
+                  {renderBulkActionProgress("matching-reject")}
+                </>
+              }
+            />
           ) : null
         }
         extraFilters={
@@ -521,32 +561,6 @@ export function SourceObservationListPage({
               onChange={(event) => listControls.setSetId(event.target.value)}
             />
           </>
-        }
-        filterActions={
-          <Inline gap={2}>
-            <Button
-              tone="secondary"
-              leadingIcon="badgeCheck"
-              loading={previewingPromoteAll}
-              disabled={previewingPromoteAll || promoteAllRunning}
-              onClick={handlePreviewPromoteAll}
-            >
-              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.matching")}
-            </Button>
-            <TextInput
-              label={t("catalog.features.sourceObservations.ui.list.reject.reason")}
-              value={rejectReason}
-              onChange={(event) => setRejectReason(event.target.value)}
-            />
-            <Button
-              tone="danger"
-              disabled={bulkRejecting}
-              onClick={handleRejectAllMatching}
-            >
-              {t("catalog.features.sourceObservations.ui.list.bulk.reject.all.matching")}
-            </Button>
-            {renderBulkActionProgress("matching-reject")}
-          </Inline>
         }
         page={listControls.page}
         pageSize={listControls.pageSize}

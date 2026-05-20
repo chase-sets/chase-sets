@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  ActionBar,
   Banner,
   Breadcrumbs,
   EmptyState,
@@ -57,8 +58,9 @@ export function EntityDetailPage({
   return (
     <Page>
       <Breadcrumbs items={toCatalogAdminBreadcrumbs(breadcrumbs)} />
-      <PageHeader title={title} actions={actions} />
+      <PageHeader title={title} />
       <Stack gap={4}>
+        {actions ? <ActionBar>{actions}</ActionBar> : null}
         {error && <Banner tone="danger" title={t("catalog.support.shellSupport.ui.entityDetailPage.error")} description={error} />}
         {loading ? (
           <LoadingSpinner label={t("catalog.support.shellSupport.ui.entityDetailPage.loading")} />
