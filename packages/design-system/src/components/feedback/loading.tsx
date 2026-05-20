@@ -48,7 +48,14 @@ export function ProgressBar({
   const percentage = Math.max(0, Math.min(100, (value / max) * 100));
 
   return (
-    <div {...rest} className="space-y-2">
+    <div
+      {...rest}
+      className="space-y-2"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percentage}
+    >
       <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
         <div
           className={cx(

@@ -1,5 +1,8 @@
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
-import type { CatalogImportProgress } from "../../../support/shell-support/api/client";
+import type {
+  CatalogBulkActionProgress,
+  CatalogImportProgress,
+} from "../../../support/shell-support/api/client";
 import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
@@ -116,9 +119,13 @@ export function useTcgdexExpansions(languageCode: string, seriesId: string) {
   );
 }
 
-export function bulkPromoteSourceObservations(observationIds: string[]) {
+export function bulkPromoteSourceObservations(
+  observationIds: string[],
+  options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
+) {
   return api.bulkPromoteSourceObservations<BulkSourceObservationPromotionResult>(
     observationIds,
+    options,
   );
 }
 
@@ -132,26 +139,35 @@ export function previewBulkPromoteSourceObservations(
 
 export function bulkPromoteSourceObservationsByScope(
   scope: SourceObservationPromotionScope,
+  options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
 ) {
   return api.bulkPromoteSourceObservationsByScope<BulkSourceObservationPromotionResult>(
     scope,
+    options,
   );
 }
 
-export function bulkRejectSourceObservations(observationIds: string[], reason: string) {
+export function bulkRejectSourceObservations(
+  observationIds: string[],
+  reason: string,
+  options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
+) {
   return api.bulkRejectSourceObservations<BulkSourceObservationPromotionResult>(
     observationIds,
     reason,
+    options,
   );
 }
 
 export function bulkRejectSourceObservationsByScope(
   scope: SourceObservationPromotionScope,
   reason: string,
+  options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
 ) {
   return api.bulkRejectSourceObservationsByScope<BulkSourceObservationPromotionResult>(
     scope,
     reason,
+    options,
   );
 }
 

@@ -73,6 +73,14 @@ export type BulkSourceObservationPromotionResult = Readonly<{
   outcomes: readonly BulkSourceObservationPromotionOutcome[];
 }>;
 
+export type BulkSourceObservationProgress = Readonly<{
+  phase: "processing" | "completed";
+  completed: number;
+  total: number;
+  currentName: string | null;
+  status: BulkSourceObservationPromotionOutcome["status"] | null;
+}>;
+
 export type SourceObservationIntegrationOption = Readonly<{
   providerKey: string;
   queryKind: string;
@@ -117,6 +125,7 @@ export type SourceObservationServices = Readonly<{
   promoteObservations: (input: {
     observationIds: readonly string[];
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   previewPromoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
@@ -124,16 +133,19 @@ export type SourceObservationServices = Readonly<{
   promoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservations: (input: {
     observationIds: readonly string[];
     reason: string;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservationScope: (input: {
     scope: SourceObservationFilterScope;
     reason: string;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservation: (input: {
     observationId: string;
@@ -250,13 +262,17 @@ export function createSourceObservationRuntime(
   async function promoteObservationIds(input: {
     observationIds: readonly string[];
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+    input.onProgress?.(bulkProgress(0, requestedIds.length));
 
     for (const observationId of requestedIds) {
+      let currentName: string | null = null;
       try {
         const observation = await getSourceObservationDetail(deps.db, observationId);
+        currentName = observation?.normalized.name ?? null;
 
         if (!observation) {
           outcomes.push({
@@ -295,10 +311,16 @@ export function createSourceObservationRuntime(
           catalogItemId: null,
           reason: error instanceof Error ? error.message : "Promotion failed.",
         });
+      } finally {
+        const outcome = outcomes[outcomes.length - 1];
+        input.onProgress?.(
+          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+        );
       }
     }
 
     await drainRuntimeProjectors([...items.projectors, ...projectors]);
+    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
@@ -307,13 +329,17 @@ export function createSourceObservationRuntime(
     observationIds: readonly string[];
     reason: string;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+    input.onProgress?.(bulkProgress(0, requestedIds.length));
 
     for (const observationId of requestedIds) {
+      let currentName: string | null = null;
       try {
         const observation = await getSourceObservationDetail(deps.db, observationId);
+        currentName = observation?.normalized.name ?? null;
 
         if (!observation) {
           outcomes.push({
@@ -356,10 +382,16 @@ export function createSourceObservationRuntime(
           catalogItemId: null,
           reason: error instanceof Error ? error.message : "Rejection failed.",
         });
+      } finally {
+        const outcome = outcomes[outcomes.length - 1];
+        input.onProgress?.(
+          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+        );
       }
     }
 
     await drainRuntimeProjectors(projectors);
+    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
@@ -431,20 +463,22 @@ export function createSourceObservationRuntime(
     promoteObservations: promoteObservationIds,
     previewPromoteObservationScope: async ({ scope }) =>
       previewSourceObservationPromotionScope(deps.db, scope),
-    promoteObservationScope: async ({ scope, context }) => {
+    promoteObservationScope: async ({ scope, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
       return promoteObservationIds({
         observationIds,
         context,
+        onProgress,
       });
     },
     rejectObservations: rejectObservationIds,
-    rejectObservationScope: async ({ scope, reason, context }) => {
+    rejectObservationScope: async ({ scope, reason, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
       return rejectObservationIds({
         observationIds,
         reason,
         context,
+        onProgress,
       });
     },
     rejectObservation: async ({ observationId, reason, context }) => {
@@ -1250,5 +1284,21 @@ function summarizePromotionOutcomes(
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
+  };
+}
+
+function bulkProgress(
+  completed: number,
+  total: number,
+  currentName: string | null = null,
+  status: BulkSourceObservationPromotionOutcome["status"] | null = null,
+  phase: BulkSourceObservationProgress["phase"] = "processing",
+): BulkSourceObservationProgress {
+  return {
+    phase,
+    completed,
+    total,
+    currentName,
+    status,
   };
 }
