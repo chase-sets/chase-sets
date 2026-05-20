@@ -6,7 +6,9 @@ import {
 } from "../../client";
 import { CategoryListPage } from "../../features/categories/ui/category-list-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
+import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
+import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
@@ -20,6 +22,6 @@ export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.catego
 
 export default function CategoriesRoute() {
   const routeData = useLoaderData<typeof loader>();
+  useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.categories());
   return <CategoryListPage data={routeData.data} query={routeData.query} />;
 }
-

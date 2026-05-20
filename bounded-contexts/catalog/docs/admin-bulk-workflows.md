@@ -48,3 +48,9 @@ Bulk results are intentionally mixed:
 - `failed`: the aggregate command or runtime operation failed and includes a reason.
 
 Operators should expect mixed results when selections include multiple statuses or stale rows.
+
+## Realtime Projection Refresh
+
+Catalog admin bulk actions still return operation results immediately, but list pages do not rely on that response as read-model truth. Catalog projectors publish small `projection.patch` invalidations to Catalog-owned admin topics after the affected projection has updated. Admin routes subscribe to their surface topic and revalidate the current loader when a patch or `sync.required` message arrives.
+
+This keeps filter semantics, pagination, and bulk scope resolution on the server while removing manual refresh from the normal operator workflow. The SSE transport is platform-owned; Catalog owns the topic names, authorization policy, patch payload shape, and projection emission points.

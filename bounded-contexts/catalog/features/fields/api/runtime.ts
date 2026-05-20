@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -55,7 +56,11 @@ export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldServices {
       projectorName: "catalog-field-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: buildFieldProjectionHandlers(deps.db),
+      handlers: withCatalogAdminRealtimeInvalidation(
+        buildFieldProjectionHandlers(deps.db),
+        deps.db,
+        { projectionName: "catalog-field-projection", surface: "fields" },
+      ),
     }),
   ];
   const bulkLifecycle = createBulkLifecycleOperations<FieldListParams, FieldCommand, FieldState, FieldEvent>({

@@ -27,6 +27,7 @@
     "authoring-support",
     "client-support",
     "projection-support",
+    "realtime-support",
     "request-support",
     "runtime-support",
     "seed-support",
@@ -424,6 +425,19 @@
       "justification": "projection-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "catalog workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "realtime-support": {
+      "classification": "support",
+      "purpose": "Provide Catalog-owned realtime topic contracts and projection patch factories for admin projection refresh.",
+      "allowedWhen": "Allowed only for Catalog-owned SSE projection patch routing and topic construction that spans multiple admin slices.",
+      "expectedConsumers": [
+        "projection-support",
+        "routes",
+        "Deployable realtime composition for Catalog"
+      ],
+      "justification": "realtime-support keeps Catalog admin topic ownership in the Catalog bounded context instead of deployables.",
+      "createdFor": "SSE projection refresh on Catalog admin list surfaces.",
+      "sunsetWhen": "Remove when Catalog no longer publishes or consumes realtime projection patches."
     },
     "request-support": {
       "classification": "support",

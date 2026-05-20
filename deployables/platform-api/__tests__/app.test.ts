@@ -123,32 +123,47 @@ describe("platform api app", () => {
   });
 
   it("mounts the internal realtime status route", async () => {
-    const module = {
+    const discoveryModule = {
       contextName: "discovery",
       apiMounts: [],
       buildApis: () => [],
       projectors: () => [],
     };
+    const catalogModule = {
+      ...discoveryModule,
+      contextName: "catalog",
+    };
+    const realtimePool = {
+      query: async (sql: string) => {
+        if (sql.includes("MAX(outbox_id)")) {
+          return { rows: [{ head: "5" }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
     const app = buildPlatformApiApp(
       {
         mountedContexts: [
           {
-            contextName: "discovery",
-            module,
+            contextName: "catalog",
+            module: catalogModule,
             services: {},
-            pool: {
-              query: async (sql: string) => {
-                if (sql.includes("MAX(outbox_id)")) {
-                  return { rows: [{ head: "5" }] };
-                }
-
-                throw new Error(`Unexpected query: ${sql}`);
-              },
-            },
+            pool: realtimePool,
+            projectors: [],
+          },
+          {
+            contextName: "discovery",
+            module: discoveryModule,
+            services: {},
+            pool: realtimePool,
             projectors: [],
           },
         ],
-        mountedModules: [{ module, services: {} }],
+        mountedModules: [
+          { module: catalogModule, services: {} },
+          { module: discoveryModule, services: {} },
+        ],
         services: {
           auth: {},
           identity: {},
@@ -168,11 +183,17 @@ describe("platform api app", () => {
     const response = await app.request("/internal/realtime/status");
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       activeConnectionCount: 3,
       routeTuning: { batchSize: 25 },
-      stores: [{ contextName: "discovery", head: "5" }],
     });
+    expect(body.stores).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ contextName: "catalog", head: "5" }),
+        expect.objectContaining({ contextName: "discovery", head: "5" }),
+      ]),
+    );
   });
 
   it("mounts the MCP JSON-RPC bridge with platform actor resolution", async () => {

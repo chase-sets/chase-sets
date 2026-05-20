@@ -63,6 +63,12 @@ export default defineConfig({
         target: platformApiTarget,
         changeOrigin: true,
       },
+      "/api/realtime": {
+        target: platformApiTarget,
+        changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
+      },
     },
   },
 });

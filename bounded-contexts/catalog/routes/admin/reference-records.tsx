@@ -5,7 +5,9 @@ import { useLoaderData } from "react-router";
 import type { ReferenceRecord, ReferenceType } from "../../support/request-support/api-client";
 import { ReferenceRecordListPage } from "../../features/reference-data/ui/reference-record-list-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
+import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
+import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
@@ -29,6 +31,7 @@ export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.refere
 
 export default function ReferenceRecordsRoute() {
   const routeData = useLoaderData<typeof loader>();
+  useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.referenceRecords());
   return (
     <ReferenceRecordListPage
       data={routeData.data}

@@ -4,7 +4,9 @@ import { useLoaderData } from "react-router";
 import type { SourceObservationListItem } from "../../client";
 import { SourceObservationListPage } from "../../features/source-observations/ui/source-observation-list-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
+import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
+import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
@@ -20,6 +22,7 @@ export const meta: MetaFunction = () => [
 
 export default function SourceObservationsRoute() {
   const routeData = useLoaderData<typeof loader>();
+  useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.sourceObservations());
   return (
     <SourceObservationListPage
       data={routeData.data}

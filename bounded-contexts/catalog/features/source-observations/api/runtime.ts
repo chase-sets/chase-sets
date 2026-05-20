@@ -9,6 +9,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type {
   CatalogItemId,
@@ -186,7 +187,11 @@ export function createSourceObservationRuntime(
       projectorName: "catalog-source-observation-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: buildSourceObservationProjectionHandlers(deps.db),
+      handlers: withCatalogAdminRealtimeInvalidation(
+        buildSourceObservationProjectionHandlers(deps.db),
+        deps.db,
+        { projectionName: "catalog-source-observation-projection", surface: "source-observations" },
+      ),
     }),
   ];
 
