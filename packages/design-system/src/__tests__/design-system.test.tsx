@@ -7,6 +7,7 @@ import * as designSystem from "../index";
 import {
   ActorIdentityCue,
   AccountMenu,
+  ActionBar,
   AppliedFilterChips,
   BottomSheet,
   BottomNav,
@@ -581,7 +582,7 @@ describe("design-system", () => {
     expect(markup).toContain("Save this search");
   });
 
-  it("bottom-aligns filter fields and action groups in data-heavy admin filter bars", () => {
+  it("bottom-aligns filter fields in data-heavy admin filter bars", () => {
     const markup = renderToString(
       <FilterArea
         filters={[
@@ -591,13 +592,6 @@ describe("design-system", () => {
         ]}
         activeFilterCount={3}
         overflowTriggerLabel="More filters"
-        actions={
-          <Inline>
-            <Button variant="secondary">Promote all matching</Button>
-            <TextInput label="Reject reason" defaultValue="" />
-            <Button variant="destructive">Reject matching</Button>
-          </Inline>
-        }
         sticky={false}
       />,
     );
@@ -605,9 +599,22 @@ describe("design-system", () => {
     expect(markup).toContain("lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end");
     expect(markup).toContain("flex min-w-0 flex-1 flex-wrap items-end gap-3");
     expect(markup).toContain("min-w-[12rem] max-w-full");
-    expect(markup).toContain("lg:ml-auto lg:justify-end lg:self-end");
-    expect(markup).toContain("lg:[&amp;&gt;div]:items-end");
     expect(markup).toContain("More filters (3 active)");
+    expect(markup).not.toContain("Promote all matching");
+  });
+
+  it("renders admin commands in action bars", () => {
+    const markup = renderToString(
+      <ActionBar>
+        <Inline>
+          <Button variant="secondary">Promote all matching</Button>
+          <TextInput label="Reject reason" defaultValue="" />
+          <Button variant="destructive">Reject matching</Button>
+        </Inline>
+      </ActionBar>,
+    );
+
+    expect(markup).toContain("modern-surface flex min-w-0 flex-wrap items-end");
     expect(markup).toContain("Promote all matching");
     expect(markup).toContain("Reject reason");
     expect(markup).toContain("Reject matching");

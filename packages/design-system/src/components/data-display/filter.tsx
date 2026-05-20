@@ -67,6 +67,48 @@ export function FilterBar({
   );
 }
 
+export interface ActionBarProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children?: ReactNode;
+  sticky?: boolean;
+  stickyOffset?: string;
+}
+
+export function ActionBar({
+  children,
+  sticky = false,
+  stickyOffset,
+  ...rest
+}: ActionBarProps) {
+  const motionSettings = useChaseMotion();
+  const nativeProps = toMotionDomProps(rest);
+
+  if (!children) {
+    return null;
+  }
+
+  return (
+    <motion.div
+      {...nativeProps}
+      initial={motionSettings.reducedMotion ? false : { opacity: 0, y: 10 }}
+      animate={motionSettings.reducedMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={
+        motionSettings.reducedMotion
+          ? undefined
+          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+      }
+      style={sticky && stickyOffset ? { top: stickyOffset } : undefined}
+      className={cx(
+        "modern-surface flex min-w-0 flex-wrap items-end justify-start gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm md:justify-end",
+        sticky && "sticky z-sticky",
+        sticky && !stickyOffset && "top-16"
+      )}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 export interface FilterAreaProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;

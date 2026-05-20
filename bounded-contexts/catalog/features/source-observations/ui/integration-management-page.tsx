@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
   Button,
+  ActionBar,
   DataTable,
   Dialog,
   FilterBar,
@@ -177,15 +178,13 @@ export function IntegrationManagementPage({
 
   return (
     <Page>
-      <PageHeader
-        title={t("catalog.features.sourceObservations.ui.integrations.title")}
-        actions={
+      <PageHeader title={t("catalog.features.sourceObservations.ui.integrations.title")} />
+      <Stack gap={4}>
+        <ActionBar>
           <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
             {t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
           </Button>
-        }
-      />
-      <Stack gap={4}>
+        </ActionBar>
         <StatGrid columns={{ base: 1, md: 4 }}>
           <Stat
             label={t("catalog.features.sourceObservations.ui.integrations.scopes")}

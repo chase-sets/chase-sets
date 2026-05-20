@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Children, Fragment, isValidElement, useMemo, type ReactNode } from "react";
 import {
   Button,
+  ActionBar,
   BulkActionSurface,
   DataTable,
   EmptyState,
@@ -53,7 +54,6 @@ interface EntityListPageProps<T> {
   onStatusFilterChange?: (value: string) => void;
   statusOptions?: { label: string; value: string }[];
   extraFilters?: ReactNode;
-  filterActions?: ReactNode;
   activeFilterCount?: number;
   selectedKeys?: Set<string>;
   onSelectionChange?: (keys: Set<string>) => void;
@@ -81,7 +81,6 @@ export function EntityListPage<T>({
   onStatusFilterChange,
   statusOptions,
   extraFilters,
-  filterActions,
   activeFilterCount,
   selectedKeys,
   onSelectionChange,
@@ -136,15 +135,12 @@ export function EntityListPage<T>({
 
   return (
     <Page>
-      <PageHeader
-        title={title}
-        actions={createButton}
-      />
+      <PageHeader title={title} />
       <Stack gap={4}>
-        {(filterControls.length > 0 || filterActions) && (
+        {createButton ? <ActionBar>{createButton}</ActionBar> : null}
+        {filterControls.length > 0 && (
           <FilterArea
             filters={filterControls}
-            actions={filterActions}
             activeFilterCount={resolvedActiveFilterCount}
             panelTitle={t("catalog.support.shellSupport.ui.entityListPage.filters")}
             panelApplyLabel={t("catalog.support.shellSupport.ui.entityListPage.apply.filters")}
