@@ -197,6 +197,8 @@ export function PublicPresenceHomePage({
           <HeroSignalStrip />
         </Stack>
 
+        <SellerEconomicsSection />
+
         <WhyJoinNow />
 
         <ProductSignalPreview />
@@ -285,6 +287,55 @@ function HeroSignalStrip() {
         ))}
       </Grid>
     </Surface>
+  );
+}
+
+function SellerEconomicsSection() {
+  return (
+    <PageSection
+      title={t("publicPresence.home.sellerEconomics.title")}
+      description={t("publicPresence.home.sellerEconomics.description")}
+    >
+      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
+        <Surface tone="subtle" elevated>
+          <Stack gap={3}>
+            <BadgeRow>
+              <Badge tone="success">{t("publicPresence.home.sellerEconomics.badge")}</Badge>
+            </BadgeRow>
+            <Heading level={3}>{t("publicPresence.home.sellerEconomics.lock.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.sellerEconomics.lock.description")}</Text>
+            <List
+              items={[
+                t("publicPresence.home.sellerEconomics.lock.point.beta"),
+                t("publicPresence.home.sellerEconomics.lock.point.processing"),
+                t("publicPresence.home.sellerEconomics.lock.point.change"),
+              ]}
+            />
+          </Stack>
+        </Surface>
+        <PriceBreakdown
+          title={t("publicPresence.home.sellerEconomics.math.title")}
+          description={t("publicPresence.home.sellerEconomics.math.description")}
+          lines={[
+            {
+              label: t("publicPresence.home.sellerEconomics.math.item"),
+              value: t("publicPresence.home.sellerEconomics.math.item.value"),
+            },
+            {
+              label: t("publicPresence.home.sellerEconomics.math.sellerFee"),
+              value: t("publicPresence.home.sellerEconomics.math.sellerFee.value"),
+            },
+            {
+              label: t("publicPresence.home.sellerEconomics.math.processingFee"),
+              value: t("publicPresence.home.sellerEconomics.math.processingFee.value"),
+            },
+          ]}
+          totalLabel={t("publicPresence.home.sellerEconomics.math.total")}
+          total={t("publicPresence.home.sellerEconomics.math.total.value")}
+          reassurance={t("publicPresence.home.sellerEconomics.math.reassurance")}
+        />
+      </Grid>
+    </PageSection>
   );
 }
 
@@ -511,6 +562,7 @@ function ProductSignalPreview() {
               { label: t("publicPresence.preview.total.item"), value: t("publicPresence.preview.total.item.value") },
               { label: t("publicPresence.preview.total.shipping"), value: <DiscountedShippingValue /> },
               { label: t("publicPresence.preview.total.shippingCredit"), value: t("publicPresence.preview.total.shippingCredit.value") },
+              { label: t("publicPresence.preview.total.orderProcessing"), value: t("publicPresence.preview.total.orderProcessing.value") },
               { label: t("publicPresence.preview.total.protection"), value: t("publicPresence.preview.total.protection.value") },
             ]}
             totalLabel={t("publicPresence.preview.total.due")}
