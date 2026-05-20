@@ -396,9 +396,8 @@ describe("item detail commerce panel", () => {
               content: <div>Mobile buy action</div>,
               footer: <button type="button">Mobile footer buy</button>,
             },
-            offer: { content: <div>Mobile offer action</div> },
             sell: { content: <div>Mobile sell action</div> },
-            list: { content: <div>Mobile list action</div> },
+            watch: { content: <div>Mobile watch action</div> },
           },
         })}
       />,
@@ -629,7 +628,7 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Listing alert form")).toBeNull();
   });
 
-  it("changes mobile commerce actions with the selected market intent", () => {
+  it("opens Buy, Sell, and Watch directly from the mobile commerce action group", () => {
     render(
       <ItemDetailPage
         data={createItem()}
@@ -639,31 +638,26 @@ describe("item detail commerce panel", () => {
           sell: <div>Desktop sell rail</div>,
           mobile: {
             sell: { content: <div>Mobile sell action</div> },
-            list: { content: <div>Mobile list action</div> },
+            watch: { content: <div>Mobile watch action</div> },
           },
         })}
       />,
     );
 
     expect(
-      screen.getAllByRole("tablist", { name: "Choose mobile market intent" }).length,
-    ).toBeGreaterThan(0);
+      screen.queryByRole("tablist", { name: "Choose mobile market intent" }),
+    ).toBeNull();
     expect(screen.getAllByRole("button", { name: "Buy" }).length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByRole("button", { name: "Make offer" }).length,
-    ).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Sell" })).toBeNull();
-
-    const mobileMarketIntent = screen.getAllByRole("tablist", {
-      name: "Choose mobile market intent",
-    })[0];
-
-    fireEvent.click(within(mobileMarketIntent).getByRole("tab", { name: "Sell" }));
-
-    expect(screen.queryByRole("button", { name: "Buy" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Make offer" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Sell" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "List" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Watch" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Make offer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "List" })).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+
+    expect(screen.getByRole("dialog", { name: "Buy selected product" })).toBeTruthy();
+    expect(screen.getAllByText("Mobile buy action").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: "Sell" })[0]);
 
@@ -671,10 +665,10 @@ describe("item detail commerce panel", () => {
     expect(screen.getAllByText("Mobile sell action").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "List" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Watch" })[0]);
 
-    expect(screen.getByRole("dialog", { name: "List" })).toBeTruthy();
-    expect(screen.getAllByText("Mobile list action").length).toBeGreaterThan(0);
+    expect(screen.getByRole("dialog", { name: "Watch" })).toBeTruthy();
+    expect(screen.getAllByText("Mobile watch action").length).toBeGreaterThan(0);
   });
 
   it("sends incomplete mobile selections back to the option chooser", () => {
@@ -691,7 +685,7 @@ describe("item detail commerce panel", () => {
           sell: <div>Mobile sell action</div>,
           mobile: {
             sell: { content: <div>Mobile sell action</div> },
-            list: { content: <div>Mobile list action</div> },
+            watch: { content: <div>Mobile watch action</div> },
           },
         })}
       />,
@@ -704,17 +698,8 @@ describe("item detail commerce panel", () => {
         .every((link) => link.getAttribute("href") === "#select-options"),
     ).toBe(true);
     expect(
-      screen
-        .getAllByRole("link", { name: "Choose to offer" })
-        .every((link) => link.getAttribute("href") === "#select-options"),
-    ).toBe(true);
-
-    fireEvent.click(
-      within(
-        screen.getAllByRole("tablist", { name: "Choose mobile market intent" })[0],
-      ).getByRole("tab", { name: "Sell" }),
-    );
-
+      screen.queryByRole("tablist", { name: "Choose mobile market intent" }),
+    ).toBeNull();
     expect(
       screen
         .getAllByRole("link", { name: "Choose to sell" })
@@ -722,7 +707,7 @@ describe("item detail commerce panel", () => {
     ).toBe(true);
     expect(
       screen
-        .getAllByRole("link", { name: "Choose to list" })
+        .getAllByRole("link", { name: "Choose to watch" })
         .every((link) => link.getAttribute("href") === "#select-options"),
     ).toBe(true);
   });
