@@ -5,7 +5,7 @@ Catalog owns bulk publishing for draft Catalog Items because publishing is the C
 ## Policy
 
 - Bulk publish must use the existing `PublishCatalogItem` command for every Catalog Item.
-- Filter-wide bulk publish is draft-only.
+- Filter-wide bulk publish uses the selected result-set filters; preview blocks non-draft Catalog Items with an operator-visible reason.
 - Preview resolves the matching filter to an explicit Catalog Item ID set.
 - Confirmation publishes the previewed IDs, not a freshly evaluated filter.
 - Bulk publish uses partial success: valid drafts publish, while stale or invalid rows are skipped or failed with an operator-visible reason.

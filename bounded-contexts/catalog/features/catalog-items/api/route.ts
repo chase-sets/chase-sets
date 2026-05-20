@@ -414,7 +414,7 @@ function toBulkPublishSelection(value: unknown): BulkPublishSelection {
       mode: "filter",
       query: {
         search: toOptionalString(query.search),
-        status: "draft",
+        status: toOptionalString(query.status),
         blueprintId: toOptionalString(query.blueprintId),
         tag: toOptionalString(query.tag),
         language: toOptionalString(query.language),

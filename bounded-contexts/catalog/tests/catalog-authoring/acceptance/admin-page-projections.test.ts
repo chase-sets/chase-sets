@@ -778,7 +778,7 @@ describeWithDatabase("Admin page projections", () => {
       body: JSON.stringify({
         selection: {
           mode: "filter",
-          query: { status: "active", source: "tcgplayer" },
+          query: { status: "draft", source: "tcgplayer" },
         },
       }),
     }));
