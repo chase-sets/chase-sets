@@ -33,6 +33,7 @@ import {
   XCircle
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { ProductMediaImage } from "../data-display/product-media";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
@@ -744,12 +745,13 @@ export function ListingCard({
       {hasMediaFrame ? (
         <div
           className={cn(
-            "relative grid min-h-44 place-items-center bg-[var(--surface-2)] sm:min-h-36 sm:items-start sm:justify-items-center",
+            "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center",
+            resolvedImageSrc || showLoadingFallback ? "bg-transparent" : "bg-[var(--surface-2)]",
             isLinked && "z-20 pointer-events-none"
           )}
         >
           {showLoadingFallback ? (
-            <img
+            <ProductMediaImage
               src={imageFallbackSrc}
               alt={imageFallbackAlt ?? imageAlt ?? title}
               srcSet={imageFallbackSrcSet}
@@ -757,12 +759,12 @@ export function ListingCard({
               fetchPriority={imageFetchPriority}
               loading={imageLoading}
               decoding={imageDecoding}
-              className="absolute inset-0 h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
+              className="absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0"
               aria-hidden="true"
             />
           ) : null}
           {resolvedImageSrc ? (
-            <img
+            <ProductMediaImage
               src={resolvedImageSrc}
               alt={resolvedImageAlt}
               srcSet={resolvedImageSrcSet}
@@ -772,7 +774,7 @@ export function ListingCard({
               fetchPriority={imageFetchPriority}
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageFailed(true)}
-              className="relative h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
+              className="relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0"
             />
           ) : (
             <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">

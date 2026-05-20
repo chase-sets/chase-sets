@@ -276,6 +276,27 @@ describe("design-system", () => {
     expect(markup).toContain("Arrives May 9-11");
   });
 
+  it("renders listing product media without image padding or surface chrome", () => {
+    const markup = renderToString(
+      <ListingCard
+        title="2020 Pikachu VMAX"
+        imageSrc="/assets/pikachu-vmax.webp"
+        imageAlt="2020 Pikachu VMAX card"
+        price="$1,250.00"
+        sellerName="Vaulted Collectibles"
+        sellerTrustLabel="Verified account"
+        fulfillment="Arrives May 9-11"
+        availability="1 available"
+        primaryAction={<Button>Buy now</Button>}
+      />
+    );
+
+    expect(markup).toContain('src="/assets/pikachu-vmax.webp"');
+    expect(markup).toContain("object-contain");
+    expect(markup).toContain("bg-transparent");
+    expect(markup).not.toContain("object-contain p-3");
+  });
+
   it("renders linked account reputation summaries", () => {
     render(
       <div>

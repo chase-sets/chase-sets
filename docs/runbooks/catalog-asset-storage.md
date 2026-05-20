@@ -13,7 +13,9 @@ Catalog stores browser delivery variants by pixel dimensions and device-pixel-ra
 | `catalog-detail` | 480w, 960w | item detail and admin review previews |
 | `source` | natural | provenance and future regeneration |
 
-All generated files are stored as `image/webp`, preserve aspect ratio, and should be served with long-lived immutable cache headers.
+All generated files are stored as `image/webp`, preserve aspect ratio, preserve alpha, and should be served with long-lived immutable cache headers. Display variants are generated from a normalized display source that trims transparent or near-empty edge padding before resizing. The original provider asset remains stored as the `source` variant for provenance and future regeneration.
+
+Display variant object keys include both the source hash and the display-normalization fingerprint. When the normalization policy changes, new variant URLs are generated instead of overwriting immutable CDN objects with different bytes.
 
 ## Local Development
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../utils/cx";
+import { ProductMediaImage } from "./product-media";
 
 export interface GalleryImage {
   src: string;
@@ -123,7 +124,11 @@ export function ImageGallery({
         "lg:max-w-full",
       )
     : "";
-  const frameClassName = cx(
+  const productFrameClassName = cx(
+    "relative overflow-visible",
+    constrainedFrameClasses,
+  );
+  const surfaceFrameClassName = cx(
     "modern-surface relative overflow-hidden rounded-tokenLg border border-muted",
     constrainedFrameClasses,
   );
@@ -183,7 +188,7 @@ export function ImageGallery({
       >
         <div
           className={cx(
-            frameClassName,
+            surfaceFrameClassName,
             "flex items-center justify-center p-6 shadow-tokenSm",
           )}
           style={galleryStyle}
@@ -203,29 +208,29 @@ export function ImageGallery({
     >
       {thumbnailPlacement === "left" ? thumbnailRail : null}
       <div
-        className={frameClassName}
+        className={active ? productFrameClassName : surfaceFrameClassName}
         style={galleryStyle}
       >
         {active ? (
           <>
             {loadingFallback ? (
-              <img
+              <ProductMediaImage
                 src={loadingFallback.src}
                 alt={loadingFallback.alt}
                 srcSet={loadingFallback.srcSet}
                 sizes={loadingFallback.sizes}
-                className="absolute inset-0 h-full w-full object-contain"
+                className="absolute inset-0"
                 aria-hidden="true"
               />
             ) : null}
-            <img
+            <ProductMediaImage
               src={active.src}
               alt={active.alt}
               srcSet={active.srcSet}
               sizes={active.sizes}
               onLoad={() => markImageLoaded(active.src)}
               onError={() => markImageFailed(active.src)}
-              className="relative h-full w-full object-contain"
+              className="relative"
             />
           </>
         ) : emptyState ?? null}
