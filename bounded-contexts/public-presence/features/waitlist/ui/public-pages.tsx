@@ -75,7 +75,7 @@ const interestItems = [
 
 const interestSelectItems = interestItems.map(({ value, label }) => ({ value, label }));
 
-type WaitlistRole = "both" | "buy" | "sell";
+type WaitlistMarketplaceIntent = "both" | "buy" | "sell";
 type WaitlistInterest =
   | "low-sales-fees"
   | "bulk-listing"
@@ -84,7 +84,7 @@ type WaitlistInterest =
   | "efficient-shipping";
 
 type WaitlistIntent = Readonly<{
-  role: WaitlistRole;
+  role: WaitlistMarketplaceIntent;
   interest: WaitlistInterest;
 }>;
 
@@ -850,7 +850,7 @@ function WaitlistSignupPanel({
                   value={intent.role}
                   onChange={(event) => onIntentChange({
                     ...intent,
-                    role: event.currentTarget.value as WaitlistRole,
+                    role: event.currentTarget.value as WaitlistMarketplaceIntent,
                   })}
                   items={roleItems}
                   required
