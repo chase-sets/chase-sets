@@ -1,0 +1,61 @@
+{
+  "title": "Public Presence Waitlist Funnel",
+  "uid": "chase-sets-public-presence-waitlist",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["chase-sets", "public-presence", "waitlist"],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Waitlist event rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event, section) (rate(chase_sets_public_presence_waitlist_events_total[5m]))",
+          "legendFormat": "{{event}} {{section}}"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Role and interest mix",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (role, interest) (increase(chase_sets_public_presence_waitlist_events_total{event=~\"waitlist_form_submitted|waitlist_signup_succeeded\"}[24h]))",
+          "legendFormat": "{{role}} {{interest}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Signup success and failure",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event) (rate(chase_sets_public_presence_waitlist_events_total{event=~\"waitlist_signup_succeeded|waitlist_signup_failed\"}[5m]))",
+          "legendFormat": "{{event}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Captured waitlist analytics logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "{service_name=\"public-web\"} | json | type=\"public_presence.waitlist.analytics_event\""
+        }
+      ]
+    }
+  ]
+}

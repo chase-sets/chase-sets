@@ -184,17 +184,6 @@ export function PublicPresencePageShell({
             <Cluster gap={2}>
               <Inline gap={3} align="center">
                 <BrandLink label={t("publicPresence.brand")} />
-                <Inline gap={2}>
-                  <LinkText href="#product-preview" tone="subtle">
-                    {t("publicPresence.nav.product")}
-                  </LinkText>
-                  <LinkText href="/faq" tone="subtle">
-                    {t("publicPresence.nav.faq")}
-                  </LinkText>
-                  <LinkText href="/terms" tone="subtle">
-                    {t("publicPresence.nav.policies")}
-                  </LinkText>
-                </Inline>
               </Inline>
               <LinkButton
                 href="#waitlist-form"
@@ -1098,7 +1087,7 @@ function WaitlistSignupPanel({
             )}
             <Checkbox
               label={t("publicPresence.waitlist.consent")}
-              description={!isHero ? t("publicPresence.waitlist.consent.description") : undefined}
+              description={t("publicPresence.waitlist.consent.description")}
               checked={emailConsent}
               onCheckedChange={(checked) => {
                 const consentChecked = checked === true;

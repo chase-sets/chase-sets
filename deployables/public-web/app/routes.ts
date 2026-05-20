@@ -28,6 +28,7 @@ export default [
   ),
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
+  route("analytics/waitlist", "routes/waitlist-analytics.ts"),
   route(legacyOrderProtectionPath, "routes/legacy-order-protection-url.ts"),
   route(legacyMarketplaceSalesFeesPath, "routes/legacy-marketplace-sales-fees-url.ts"),
   route("*", "routes/not-found.tsx"),

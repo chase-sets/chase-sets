@@ -1,1 +1,6 @@
 export { PublicPresencePageShell } from "./support/shell-support/layout";
+export {
+  waitlistAnalyticsEventNames,
+  type WaitlistAnalyticsEventName,
+  type WaitlistAnalyticsProperties,
+} from "./support/ui-support/waitlist-analytics";
