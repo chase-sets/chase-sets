@@ -4,6 +4,7 @@ import { resolvePublicRouteConfigRecords } from "../host";
 import { buildCanonicalUrl } from "../seo";
 import { loader as legacyMarketplaceSalesFeesUrlLoader } from "./legacy-marketplace-sales-fees-url";
 import { loader as legacyOrderProtectionUrlLoader } from "./legacy-order-protection-url";
+import { loader as manifestLoader } from "./manifest";
 import PublicNotFoundRoute from "./not-found";
 import { loader as notFoundLoader } from "./not-found";
 import { loader as robotsLoader } from "./robots";
@@ -79,6 +80,19 @@ describe("public web deployable", () => {
 
     await expect(robots.text()).resolves.toContain("Disallow: /");
     vi.unstubAllEnvs();
+  });
+
+  it("serves a manifest without missing icon references", async () => {
+    const manifest = manifestLoader({
+      request: new Request("https://example.test/manifest.webmanifest"),
+      params: {},
+      context: undefined,
+    } as never);
+    const body = await manifest.json() as { name: string; icons: unknown[] };
+
+    expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
+    expect(body.name).toBe("Chase Sets");
+    expect(body.icons).toEqual([]);
   });
 
   it("does not offer marketplace browse recovery on not found pages", () => {
