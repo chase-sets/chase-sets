@@ -5,6 +5,42 @@ export type FieldFacetSortMetadata = Readonly<{
   sortValue: string | null;
 }>;
 
+export function facetGroupDecisionPriority(input: {
+  kind: "field" | "reference" | "dimension";
+  id: string;
+  label: string;
+}): number {
+  const normalized = normalizeFacetText(`${input.id} ${input.label}`);
+
+  if (
+    includesFacetTerm(normalized, "expansion") ||
+    includesFacetTerm(normalized, "series") ||
+    includesFacetTerm(normalized, "manufacturer") ||
+    includesFacetTerm(normalized, "brand") ||
+    includesFacetTerm(normalized, "product line")
+  ) {
+    return 100;
+  }
+
+  if (
+    includesFacetTerm(normalized, "condition") ||
+    includesFacetTerm(normalized, "grade")
+  ) {
+    return 90;
+  }
+
+  if (
+    includesFacetTerm(normalized, "rarity") ||
+    includesFacetTerm(normalized, "variant") ||
+    includesFacetTerm(normalized, "card number") ||
+    includesFacetTerm(normalized, "release year")
+  ) {
+    return 80;
+  }
+
+  return input.kind === "reference" ? 60 : input.kind === "dimension" ? 40 : 0;
+}
+
 export function fieldFacetSortMetadata(input: {
   fieldId: string;
   label: string;
@@ -97,4 +133,16 @@ function numericFacetValue(value: unknown): number | null {
 
 function isYearFacet(fieldId: string, label: string): boolean {
   return [fieldId, label].some((value) => /\byear\b/i.test(value.replace(/[-_]+/g, " ")));
+}
+
+function includesFacetTerm(value: string, term: string): boolean {
+  return value.includes(` ${term} `);
+}
+
+function normalizeFacetText(value: string): string {
+  return ` ${value
+    .toLocaleLowerCase("en-US")
+    .replace(/[-_:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()} `;
 }
