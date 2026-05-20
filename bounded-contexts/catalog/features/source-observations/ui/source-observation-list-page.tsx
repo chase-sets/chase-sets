@@ -17,6 +17,7 @@ import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
+import type { CatalogBulkActionProgress } from "../../../support/shell-support/api/client";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type { SourceObservationListItem } from "./contracts";
@@ -75,6 +76,12 @@ const statusOptions = [
 
 const ALL_LANGUAGES = "__all__";
 
+type RunningBulkAction =
+  | "selected-promote"
+  | "selected-reject"
+  | "matching-promote"
+  | "matching-reject";
+
 export function SourceObservationListPage({
   data,
   query,
@@ -91,6 +98,10 @@ export function SourceObservationListPage({
   const [importProgress, setImportProgress] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkPromoting, setBulkPromoting] = useState(false);
+  const [bulkActionProgress, setBulkActionProgress] =
+    useState<CatalogBulkActionProgress | null>(null);
+  const [runningBulkAction, setRunningBulkAction] =
+    useState<RunningBulkAction | null>(null);
   const [promoteAllScope, setPromoteAllScope] =
     useState<SourceObservationPromotionScope>({});
   const [promoteAllPreview, setPromoteAllPreview] =
@@ -237,9 +248,13 @@ export function SourceObservationListPage({
   async function handleBulkPromote() {
     const observationIds = Array.from(selectedKeys);
     setBulkPromoting(true);
+    setRunningBulkAction("selected-promote");
+    setBulkActionProgress(null);
 
     try {
-      const result = await bulkPromoteSourceObservations(observationIds);
+      const result = await bulkPromoteSourceObservations(observationIds, {
+        onProgress: setBulkActionProgress,
+      });
       addToast(
         t("catalog.features.sourceObservations.ui.list.bulk.promote.completed", {
           promoted: String(result.promoted),
@@ -259,6 +274,7 @@ export function SourceObservationListPage({
       );
     } finally {
       setBulkPromoting(false);
+      setRunningBulkAction(null);
     }
   }
 
@@ -270,8 +286,12 @@ export function SourceObservationListPage({
     }
 
     setBulkRejecting(true);
+    setRunningBulkAction("selected-reject");
+    setBulkActionProgress(null);
     try {
-      const result = await bulkRejectSourceObservations(Array.from(selectedKeys), reason);
+      const result = await bulkRejectSourceObservations(Array.from(selectedKeys), reason, {
+        onProgress: setBulkActionProgress,
+      });
       addToast(
         t("catalog.features.sourceObservations.ui.list.bulk.reject.completed", {
           rejected: String(result.rejected ?? 0),
@@ -287,6 +307,7 @@ export function SourceObservationListPage({
       addToast(error instanceof Error ? error.message : String(error), "danger");
     } finally {
       setBulkRejecting(false);
+      setRunningBulkAction(null);
     }
   }
 
@@ -298,8 +319,12 @@ export function SourceObservationListPage({
     }
 
     setBulkRejecting(true);
+    setRunningBulkAction("matching-reject");
+    setBulkActionProgress(null);
     try {
-      const result = await bulkRejectSourceObservationsByScope(currentPromotionScope(), reason);
+      const result = await bulkRejectSourceObservationsByScope(currentPromotionScope(), reason, {
+        onProgress: setBulkActionProgress,
+      });
       addToast(
         t("catalog.features.sourceObservations.ui.list.bulk.reject.completed", {
           rejected: String(result.rejected ?? 0),
@@ -315,6 +340,7 @@ export function SourceObservationListPage({
       addToast(error instanceof Error ? error.message : String(error), "danger");
     } finally {
       setBulkRejecting(false);
+      setRunningBulkAction(null);
     }
   }
 
@@ -351,9 +377,13 @@ export function SourceObservationListPage({
 
   async function handlePromoteAllMatching() {
     setPromoteAllRunning(true);
+    setRunningBulkAction("matching-promote");
+    setBulkActionProgress(null);
 
     try {
-      const result = await bulkPromoteSourceObservationsByScope(promoteAllScope);
+      const result = await bulkPromoteSourceObservationsByScope(promoteAllScope, {
+        onProgress: setBulkActionProgress,
+      });
       addToast(
         t("catalog.features.sourceObservations.ui.list.bulk.promote.completed", {
           promoted: String(result.promoted),
@@ -375,7 +405,23 @@ export function SourceObservationListPage({
       );
     } finally {
       setPromoteAllRunning(false);
+      setRunningBulkAction(null);
     }
+  }
+
+  function renderBulkActionProgress(action: RunningBulkAction) {
+    if (runningBulkAction !== action || !bulkActionProgress) {
+      return null;
+    }
+
+    return (
+      <div className="min-w-[14rem] max-w-full flex-1">
+        <ProgressBar
+          value={bulkActionProgressPercent(bulkActionProgress)}
+          formatLabel={() => formatBulkActionProgress(bulkActionProgress)}
+        />
+      </div>
+    );
   }
 
   return (
@@ -412,8 +458,7 @@ export function SourceObservationListPage({
                 <Button
                   size="sm"
                   leadingIcon="badgeCheck"
-                  loading={bulkPromoting}
-                  disabled={bulkRejecting}
+                  disabled={bulkPromoting || bulkRejecting}
                   onClick={handleBulkPromote}
                 >
                   {t("catalog.features.sourceObservations.ui.list.bulk.promote")}
@@ -437,12 +482,13 @@ export function SourceObservationListPage({
                   <Button
                     tone="danger"
                     size="sm"
-                    loading={bulkRejecting}
                     disabled={bulkPromoting || bulkRejecting}
                     onClick={handleBulkReject}
                   >
                     {t("catalog.features.sourceObservations.ui.list.bulk.reject")}
                   </Button>
+                  {renderBulkActionProgress("selected-promote")}
+                  {renderBulkActionProgress("selected-reject")}
                 </>
               }
             />
@@ -494,12 +540,12 @@ export function SourceObservationListPage({
             />
             <Button
               tone="danger"
-              loading={bulkRejecting}
               disabled={bulkRejecting}
               onClick={handleRejectAllMatching}
             >
               {t("catalog.features.sourceObservations.ui.list.bulk.reject.all.matching")}
             </Button>
+            {renderBulkActionProgress("matching-reject")}
           </Inline>
         }
         page={listControls.page}
@@ -579,8 +625,11 @@ export function SourceObservationListPage({
             </Button>
             <Button
               leadingIcon="badgeCheck"
-              loading={promoteAllRunning}
-              disabled={!promoteAllPreview || promoteAllPreview.eligible === 0}
+              disabled={
+                promoteAllRunning ||
+                !promoteAllPreview ||
+                promoteAllPreview.eligible === 0
+              }
               onClick={handlePromoteAllMatching}
             >
               {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm")}
@@ -602,6 +651,7 @@ export function SourceObservationListPage({
                 scope: formatPromotionScope(promoteAllPreview.scope),
               })}
             </p>
+            {renderBulkActionProgress("matching-promote")}
           </Stack>
         ) : null}
       </Dialog>
@@ -625,6 +675,36 @@ function importProgressPercent(progress: {
   const base = progress.phase === "recording" ? 80 : 5;
   const span = progress.phase === "recording" ? 15 : 75;
   return base + (progress.completed / progress.total) * span;
+}
+
+function bulkActionProgressPercent(progress: CatalogBulkActionProgress): number {
+  if (progress.phase === "completed") {
+    return 100;
+  }
+
+  if (progress.total <= 0) {
+    return 0;
+  }
+
+  return (progress.completed / progress.total) * 100;
+}
+
+function formatBulkActionProgress(progress: CatalogBulkActionProgress): string {
+  if (progress.total <= 0) {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.preparing");
+  }
+
+  if (progress.phase === "completed") {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.completed", {
+      completed: String(progress.completed),
+      total: String(progress.total),
+    });
+  }
+
+  return t("catalog.features.sourceObservations.ui.list.bulk.progress.processing", {
+    completed: String(progress.completed),
+    total: String(progress.total),
+  });
 }
 
 function formatPromotionScope(scope: Required<SourceObservationPromotionScope>): string {
