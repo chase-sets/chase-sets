@@ -60,6 +60,7 @@ import {
   MarketplaceTemplateGallery,
   MessageThreadPreview,
   ListingPurchasePanel,
+  MarketingImageHero,
   MarketingVisualCard,
   OrderIntentSummary,
   OfferCard,
@@ -203,6 +204,10 @@ describe("design-system", () => {
       <MarketingVisualCard
         imageSrc="/assets/waitlist-panels.png"
         imageAlt="Sorted collectible inventory"
+        imageLoading="lazy"
+        imageDecoding="async"
+        imageWidth={1200}
+        imageHeight={900}
         badge="Beta signal"
         title="Move more inventory"
         description="Bulk, raw, graded, and chase cards stay practical to list."
@@ -210,14 +215,42 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain("Sorted collectible inventory");
+    expect(markup).toContain('loading="lazy"');
+    expect(markup).toContain('decoding="async"');
+    expect(markup).toContain('width="1200"');
     expect(markup).toContain("Beta signal");
     expect(markup).toContain("Move more inventory");
+  });
+
+  it("passes first-paint image hints through marketing heroes", () => {
+    const markup = renderToString(
+      <MarketingImageHero
+        imageSrc="/assets/hero.webp"
+        imageAlt="Cards ready to list"
+        imageLoading="eager"
+        imageDecoding="async"
+        imageFetchPriority="high"
+        imageWidth={1600}
+        imageHeight={1000}
+        title="List cards without giving up margin"
+      />,
+    );
+
+    expect(markup).toContain("Cards ready to list");
+    expect(markup).toContain('loading="eager"');
+    expect(markup).toContain('decoding="async"');
+    expect(markup).toContain('fetchPriority="high"');
+    expect(markup).toContain('width="1600"');
   });
 
   it("renders conversion-first marketplace listing signals", () => {
     const markup = renderToString(
       <ListingCard
         title="2020 Pikachu VMAX"
+        imageSrc="/assets/pikachu.webp"
+        imageAlt="Pikachu VMAX card"
+        imageLoading="lazy"
+        imageDecoding="async"
         price="$1,250.00"
         priceDetail="Free insured shipping"
         condition="PSA 10"
@@ -235,10 +268,33 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain("2020 Pikachu VMAX");
+    expect(markup).toContain("Pikachu VMAX card");
+    expect(markup).toContain('loading="lazy"');
     expect(markup).toContain("$1,250.00");
     expect(markup).toContain("Verified account");
     expect(markup).toContain("Order protected");
     expect(markup).toContain("Arrives May 9-11");
+  });
+
+  it("renders listing product media without image padding or surface chrome", () => {
+    const markup = renderToString(
+      <ListingCard
+        title="2020 Pikachu VMAX"
+        imageSrc="/assets/pikachu-vmax.webp"
+        imageAlt="2020 Pikachu VMAX card"
+        price="$1,250.00"
+        sellerName="Vaulted Collectibles"
+        sellerTrustLabel="Verified account"
+        fulfillment="Arrives May 9-11"
+        availability="1 available"
+        primaryAction={<Button>Buy now</Button>}
+      />
+    );
+
+    expect(markup).toContain('src="/assets/pikachu-vmax.webp"');
+    expect(markup).toContain("object-contain");
+    expect(markup).toContain("bg-transparent");
+    expect(markup).not.toContain("object-contain p-3");
   });
 
   it("renders linked account reputation summaries", () => {
@@ -290,6 +346,7 @@ describe("design-system", () => {
     const markup = renderToString(
       <ListingCard
         title="1999 Base Set Charizard"
+        subtitle="Base Set 4 Standard Set Rare Holo"
         price="$428.00"
         sellerName="Mint Table Cards"
         sellerTrustLabel="Verified account"
@@ -301,6 +358,7 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain('data-primary-action-count="1"');
+    expect(markup).toContain("Base Set 4 Standard Set Rare Holo");
     expect(markup).toContain("Buy now");
     expect(markup).not.toContain("View details");
   });

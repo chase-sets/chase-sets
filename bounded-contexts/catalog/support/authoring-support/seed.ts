@@ -61,8 +61,13 @@ export async function seedTcgdexCatalogIntegrationProfile(
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_dimensions")) {
-    console.log("Pokemon TCG catalog integration profile already exists. Skipping structure seed.");
-    return staticTcgdexCatalogIntegrationIds();
+    console.log("Pokemon TCG catalog integration profile already exists. Reconciling fields.");
+    const fields = await seedFields(services);
+    await drainProjectors("catalog", services.projectors);
+    return {
+      ...staticTcgdexCatalogIntegrationIds(),
+      fields,
+    };
   }
 
   console.log("Seeding Pokemon TCG catalog integration structure...");
@@ -210,6 +215,7 @@ function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
     "card-name": catalogSeedIds.fields.cardName as FieldId,
     expansion: catalogSeedIds.fields.expansion as FieldId,
     rarity: catalogSeedIds.fields.rarity as FieldId,
+    "card-variant": catalogSeedIds.fields.cardVariant as FieldId,
     "card-illustrator": catalogSeedIds.fields.cardIllustrator as FieldId,
     "release-year": catalogSeedIds.fields.releaseYear as FieldId,
     "pack-count": catalogSeedIds.fields.packCount as FieldId,

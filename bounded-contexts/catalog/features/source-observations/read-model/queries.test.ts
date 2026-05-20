@@ -29,7 +29,7 @@ describe("source observation read-model queries", () => {
     expect(db.query).toHaveBeenCalledTimes(1);
   });
 
-  it("lists eligible observed IDs across the whole matching filter scope", async () => {
+  it("lists eligible observed and changed IDs across the whole matching filter scope", async () => {
     const db = queryable([
       { observation_id: "obs_2" },
       { observation_id: "obs_1" },
@@ -44,7 +44,22 @@ describe("source observation read-model queries", () => {
     expect(ids).toEqual(["obs_2", "obs_1"]);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("ORDER BY observed_at DESC"),
-      ["en", "base1", "observed", "%charizard%"],
+      ["en", "base1", ["observed", "changed"], "%charizard%"],
+    );
+  });
+
+  it("lists only changed IDs when the current status filter is changed", async () => {
+    const db = queryable([{ observation_id: "obs_changed" }]);
+
+    const ids = await listSourceObservationIdsForPromotion(db, {
+      status: "changed",
+      language: "en",
+    });
+
+    expect(ids).toEqual(["obs_changed"]);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("ORDER BY observed_at DESC"),
+      ["en", ["changed"]],
     );
   });
 
@@ -68,6 +83,7 @@ describe("source observation read-model queries", () => {
         series_name: "Base",
         total_observations: 102,
         observed_observations: 100,
+        changed_observations: 1,
         promoted_observations: 1,
         rejected_observations: 1,
         first_observed_at: "2026-05-16T00:00:00.000Z",

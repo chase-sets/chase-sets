@@ -104,6 +104,7 @@ describe("source observation routes", () => {
         series_name: "Base",
         total_observations: 102,
         observed_observations: 100,
+        changed_observations: 0,
         promoted_observations: 2,
         rejected_observations: 0,
         first_observed_at: "2026-05-16T00:00:00.000Z",
@@ -413,6 +414,80 @@ describe("source observation routes", () => {
     });
   });
 
+  it("streams bulk promotion progress events", async () => {
+    const promoteObservationScope = vi.fn(async (input: {
+      onProgress?: (progress: unknown) => void;
+    }) => {
+      input.onProgress?.({
+        phase: "processing",
+        completed: 1,
+        total: 2,
+        currentName: "Bulbasaur",
+        status: "promoted",
+      });
+
+      return {
+        requested: 2,
+        promoted: 1,
+        skipped: 1,
+        failed: 0,
+        outcomes: [],
+      };
+    });
+    const services = {
+      promoteObservationScope,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-promote/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { status: "observed", source: "tcgdex", language: "en", setId: "base1" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(events).toEqual([
+      {
+        type: "progress",
+        progress: {
+          phase: "processing",
+          completed: 1,
+          total: 2,
+          currentName: "Bulbasaur",
+          status: "promoted",
+        },
+      },
+      {
+        type: "result",
+        result: {
+          requested: 2,
+          promoted: 1,
+          skipped: 1,
+          failed: 0,
+          outcomes: [],
+        },
+      },
+    ]);
+    expect(promoteObservationScope).toHaveBeenCalledWith({
+      scope: {
+        search: undefined,
+        status: "observed",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+      context,
+      onProgress: expect.any(Function),
+    });
+  });
+
   it("requires a reason for bulk rejection", async () => {
     const services = {
       rejectObservations: vi.fn(),
@@ -502,6 +577,78 @@ describe("source observation routes", () => {
       },
       reason: "Out of scope.",
       context,
+    });
+  });
+
+  it("streams bulk rejection progress events", async () => {
+    const rejectObservations = vi.fn(async (input: {
+      onProgress?: (progress: unknown) => void;
+    }) => {
+      input.onProgress?.({
+        phase: "processing",
+        completed: 1,
+        total: 1,
+        currentName: "Ivysaur",
+        status: "rejected",
+      });
+
+      return {
+        requested: 1,
+        promoted: 0,
+        rejected: 1,
+        skipped: 0,
+        failed: 0,
+        outcomes: [],
+      };
+    });
+    const services = {
+      rejectObservations,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-reject/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        observationIds: ["obs_1"],
+        reason: "Duplicate provider row.",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(events).toEqual([
+      {
+        type: "progress",
+        progress: {
+          phase: "processing",
+          completed: 1,
+          total: 1,
+          currentName: "Ivysaur",
+          status: "rejected",
+        },
+      },
+      {
+        type: "result",
+        result: {
+          requested: 1,
+          promoted: 0,
+          rejected: 1,
+          skipped: 0,
+          failed: 0,
+          outcomes: [],
+        },
+      },
+    ]);
+    expect(rejectObservations).toHaveBeenCalledWith({
+      observationIds: ["obs_1"],
+      reason: "Duplicate provider row.",
+      context,
+      onProgress: expect.any(Function),
     });
   });
 });

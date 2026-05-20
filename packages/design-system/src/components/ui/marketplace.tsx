@@ -1,4 +1,4 @@
-import { useState, type MouseEventHandler, type ReactNode } from "react";
+import { useState, type ImgHTMLAttributes, type MouseEventHandler, type ReactNode } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -33,6 +33,7 @@ import {
   XCircle
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { ProductMediaImage } from "../data-display/product-media";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
@@ -570,11 +571,15 @@ export function AccountReputationSummary({
 export interface ListingCardProps {
   href?: string;
   title: string;
+  subtitle?: ReactNode;
   model?: ListingModel;
   imageSrc?: string;
   imageSrcSet?: string;
   imageSizes?: string;
   imageAlt?: string;
+  imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
+  imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
+  imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
   imageFallbackSrc?: string;
   imageFallbackAlt?: string;
   imageFallbackSrcSet?: string;
@@ -617,11 +622,15 @@ export interface ListingCardProps {
 export function ListingCard({
   href,
   title,
+  subtitle,
   model = "product",
   imageSrc,
   imageSrcSet,
   imageSizes,
   imageAlt,
+  imageFetchPriority = "auto",
+  imageLoading = "lazy",
+  imageDecoding = "async",
   imageFallbackSrc,
   imageFallbackAlt,
   imageFallbackSrcSet,
@@ -736,29 +745,36 @@ export function ListingCard({
       {hasMediaFrame ? (
         <div
           className={cn(
-            "relative grid min-h-44 place-items-center bg-[var(--surface-2)] sm:min-h-36 sm:items-start sm:justify-items-center",
+            "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center",
+            resolvedImageSrc || showLoadingFallback ? "bg-transparent" : "bg-[var(--surface-2)]",
             isLinked && "z-20 pointer-events-none"
           )}
         >
           {showLoadingFallback ? (
-            <img
+            <ProductMediaImage
               src={imageFallbackSrc}
               alt={imageFallbackAlt ?? imageAlt ?? title}
               srcSet={imageFallbackSrcSet}
               sizes={imageFallbackSizes}
-              className="absolute inset-0 h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
+              fetchPriority={imageFetchPriority}
+              loading={imageLoading}
+              decoding={imageDecoding}
+              className="absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0"
               aria-hidden="true"
             />
           ) : null}
           {resolvedImageSrc ? (
-            <img
+            <ProductMediaImage
               src={resolvedImageSrc}
               alt={resolvedImageAlt}
               srcSet={resolvedImageSrcSet}
               sizes={resolvedImageSizes}
+              loading={imageLoading}
+              decoding={imageDecoding}
+              fetchPriority={imageFetchPriority}
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageFailed(true)}
-              className="relative h-full max-h-72 min-h-44 w-full object-contain p-3 sm:h-auto sm:max-h-80 sm:min-h-0"
+              className="relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0"
             />
           ) : (
             <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">
@@ -788,6 +804,11 @@ export function ListingCard({
           <h3 className="m-0 line-clamp-2 text-base font-semibold leading-6 text-[var(--foreground)]">
             {title}
           </h3>
+          {subtitle ? (
+            <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">
+              {subtitle}
+            </p>
+          ) : null}
           {valueCue ? (
             <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
               {valueCue}

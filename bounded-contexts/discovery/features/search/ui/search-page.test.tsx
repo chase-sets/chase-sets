@@ -28,7 +28,7 @@ const searchResult: DiscoverySearchItem = {
   subtitle_i18n: {},
   subtitle: "Pokemon sealed product",
   description_i18n: {},
-  description: "Make an offer or list yours to help this market form.",
+  description: "A sealed Pokemon product.",
   blueprint_id: null,
   blueprint_name: "Pokemon Sealed Product",
   status: "active",
@@ -67,6 +67,26 @@ const japaneseSearchResult: DiscoverySearchItem = {
     total_visible_quantity: 2,
   },
   updated_at: "2026-05-13T00:00:00.000Z",
+};
+
+const standardAbraSearchResult: DiscoverySearchItem = {
+  ...japaneseSearchResult,
+  catalog_item_id: "cat_abra_standard",
+  slug: "abra-standard-cat_abra_standard",
+  language_code: "en",
+  title: "Abra",
+  subtitle: "Base Set 43 Standard Set Common",
+  description: "Standard set Abra",
+  image_urls: ["/abra.webp"],
+  market_summary: null,
+};
+
+const reverseAbraSearchResult: DiscoverySearchItem = {
+  ...standardAbraSearchResult,
+  catalog_item_id: "cat_abra_reverse",
+  slug: "abra-reverse-cat_abra_reverse",
+  subtitle: "Base Set 43 Parallel Set - Reverse Foil Common",
+  description: "Parallel set Abra",
 };
 
 const searchResponse: DiscoverySearchResponse = {
@@ -119,6 +139,63 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
 }
 
 describe("SearchPage", () => {
+  it("uses Product Asset Set search variants before compatibility image URLs", () => {
+    renderSearchPage({
+      data: {
+        ...searchResponse,
+        items: [{
+          ...searchResult,
+          image_urls: ["https://assets.example/legacy-detail.webp"],
+          product_asset_sets: [{
+            kind: "product-image",
+            sourceHash: "source_hash",
+            source: {
+              role: "source",
+              width: 480,
+              height: 672,
+              density: null,
+              mediaType: "image/webp",
+              storageKey: "catalog/items/cat_test/product-image/source.webp",
+              publicUrl: "https://assets.example/source.webp",
+              byteSize: 100,
+              generatedAt: "2026-05-20T00:00:00.000Z",
+            },
+            variants: [
+              {
+                role: "search-card",
+                width: 160,
+                height: 224,
+                density: 1,
+                mediaType: "image/webp",
+                storageKey: "catalog/items/cat_test/product-image/search-card-160w-1x.webp",
+                publicUrl: "https://assets.example/search-card-160w.webp",
+                byteSize: 80,
+                generatedAt: "2026-05-20T00:00:00.000Z",
+              },
+              {
+                role: "search-card",
+                width: 320,
+                height: 448,
+                density: 2,
+                mediaType: "image/webp",
+                storageKey: "catalog/items/cat_test/product-image/search-card-320w-2x.webp",
+                publicUrl: "https://assets.example/search-card-320w.webp",
+                byteSize: 120,
+                generatedAt: "2026-05-20T00:00:00.000Z",
+              },
+            ],
+          }],
+        }],
+      },
+    });
+
+    const image = screen.getByRole("img", { name: "Prismatic Evolutions Booster Pack" });
+    expect(image.getAttribute("src")).toBe("https://assets.example/search-card-160w.webp");
+    expect(image.getAttribute("srcset")).toBe(
+      "https://assets.example/search-card-160w.webp 160w, https://assets.example/search-card-320w.webp 320w",
+    );
+  });
+
   it("renders search result language codes as localized labels", () => {
     renderSearchPage({
       search: "bulbasaur",
@@ -129,6 +206,26 @@ describe("SearchPage", () => {
 
     expect(screen.getAllByText("Japanese").length).toBeGreaterThan(0);
     expect(screen.queryByText("Language: ja")).toBeNull();
+  });
+
+  it("surfaces catalog subtitles on search cards so visually identical variants can be distinguished", () => {
+    renderSearchPage({
+      committedSearch: "abra",
+      data: {
+        items: [standardAbraSearchResult, reverseAbraSearchResult],
+        facets: [],
+        total: 2,
+        count: 2,
+        nextCursor: null,
+      },
+      categories: [],
+    });
+
+    expect(screen.getAllByText("Abra")).toHaveLength(2);
+    expect(screen.getByText("Base Set 43 Standard Set Common")).toBeTruthy();
+    expect(screen.getByText("Base Set 43 Parallel Set - Reverse Foil Common")).toBeTruthy();
+    expect(screen.getAllByText("Pokemon Card Single")).toHaveLength(2);
+    expect(screen.queryByText("Make an offer or list yours to help this market form.")).toBeNull();
   });
 
   it("renders language as a top-level desktop filter", () => {

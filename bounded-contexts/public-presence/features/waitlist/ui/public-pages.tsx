@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Banner,
   Badge,
@@ -30,8 +30,9 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
-import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare.png?url";
+import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare-preview.webp?url";
 import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp?url";
+import { trackWaitlistEvent } from "./analytics";
 
 export type WaitlistActionData =
   | Readonly<{ status: "joined" }>
@@ -74,6 +75,33 @@ const interestItems = [
 
 const interestSelectItems = interestItems.map(({ value, label }) => ({ value, label }));
 
+type WaitlistMarketplaceIntent = "both" | "buy" | "sell";
+type WaitlistInterest =
+  | "low-sales-fees"
+  | "bulk-listing"
+  | "set-completion"
+  | "pricing-tools"
+  | "efficient-shipping";
+
+type WaitlistIntent = Readonly<{
+  role: WaitlistMarketplaceIntent;
+  interest: WaitlistInterest;
+}>;
+
+const defaultIntent: WaitlistIntent = {
+  role: "both",
+  interest: "low-sales-fees",
+};
+
+const sellerIntent: WaitlistIntent = {
+  role: "sell",
+  interest: "low-sales-fees",
+};
+
+const buyerIntent: WaitlistIntent = {
+  role: "buy",
+  interest: "set-completion",
+};
 
 const policyLinks = [
   { href: "/terms", label: t("publicPresence.nav.terms") },
@@ -82,6 +110,45 @@ const policyLinks = [
   { href: "/order-protection", label: t("publicPresence.nav.buyerProtection") },
   { href: "/sales-fees", label: t("publicPresence.nav.sellerFees") },
 ];
+
+function trackCtaClick(placement: string, target: string) {
+  trackWaitlistEvent("cta_clicked", {
+    section: placement,
+    target,
+    variant: "landing-audit-remediation",
+  });
+}
+
+function useLandingSectionViewTracking() {
+  useEffect(() => {
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      return undefined;
+    }
+
+    const viewedSections = new Set<string>();
+    const sections = document.querySelectorAll<HTMLElement>("[data-public-presence-section]");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const section = entry.target.getAttribute("data-public-presence-section");
+          if (!section || viewedSections.has(section) || !entry.isIntersecting) {
+            return;
+          }
+          viewedSections.add(section);
+          trackWaitlistEvent("section_viewed", {
+            section,
+            variant: "landing-audit-remediation",
+          });
+          observer.unobserve(entry.target);
+        });
+      },
+      { threshold: 0.45 },
+    );
+
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, []);
+}
 
 function DiscordInviteLink({ href }: { href: string }) {
   return (
@@ -92,6 +159,7 @@ function DiscordInviteLink({ href }: { href: string }) {
       leadingIcon="message"
       target="_blank"
       rel="noopener noreferrer"
+      onClick={() => trackCtaClick("final_cta", "discord")}
     >
       {t("publicPresence.home.discordCta")}
     </LinkButton>
@@ -116,19 +184,14 @@ export function PublicPresencePageShell({
             <Cluster gap={2}>
               <Inline gap={3} align="center">
                 <BrandLink label={t("publicPresence.brand")} />
-                <Inline gap={2}>
-                  <LinkText href="#product-preview" tone="subtle">
-                    {t("publicPresence.nav.product")}
-                  </LinkText>
-                  <LinkText href="/faq" tone="subtle">
-                    {t("publicPresence.nav.faq")}
-                  </LinkText>
-                  <LinkText href="/terms" tone="subtle">
-                    {t("publicPresence.nav.policies")}
-                  </LinkText>
-                </Inline>
               </Inline>
-              <LinkButton href="#waitlist-form" tone="primary" size="sm" leadingIcon="rocket">
+              <LinkButton
+                href="#waitlist-form"
+                tone="primary"
+                size="sm"
+                leadingIcon="rocket"
+                onClick={() => trackCtaClick("nav", "waitlist_form")}
+              >
                 {t("publicPresence.nav.waitlist")}
               </LinkButton>
             </Cluster>
@@ -173,23 +236,82 @@ export function PublicPresenceHomePage({
     utmTerm: string | null;
   }>;
 }) {
+  const [intent, setIntent] = useState<WaitlistIntent>(defaultIntent);
+
+  useEffect(() => {
+    trackWaitlistEvent("landing_page_view", {
+      page_path: source.pagePath,
+      utm_source: source.utmSource,
+      utm_medium: source.utmMedium,
+      utm_campaign: source.utmCampaign,
+      variant: "landing-audit-remediation",
+    });
+  }, [source]);
+
+  useEffect(() => {
+    if (actionData?.status === "joined") {
+      trackWaitlistEvent("waitlist_signup_succeeded", {
+        page_path: source.pagePath,
+        role: intent.role,
+        interest: intent.interest,
+        variant: "landing-audit-remediation",
+      });
+    }
+
+    if (actionData?.status === "error") {
+      trackWaitlistEvent("waitlist_signup_failed", {
+        page_path: source.pagePath,
+        role: intent.role,
+        interest: intent.interest,
+        variant: "landing-audit-remediation",
+      });
+    }
+  }, [actionData, intent, source.pagePath]);
+
+  function selectIntent(nextIntent: WaitlistIntent, section: string) {
+    setIntent(nextIntent);
+    trackWaitlistEvent("cta_clicked", {
+      section,
+      cta_label: nextIntent.role === "sell"
+        ? t("publicPresence.home.paths.sell.action")
+        : t("publicPresence.home.paths.buy.action"),
+      role: nextIntent.role,
+      interest: nextIntent.interest,
+      variant: "landing-audit-remediation",
+    });
+
+    document.getElementById("waitlist-form-final")?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  useLandingSectionViewTracking();
+
   return (
     <PublicPresencePageShell>
       <Page>
-        <Stack gap={2}>
+        <Stack gap={2} data-public-presence-section="hero">
           <MarketingImageHero
             imageSrc={prelaunchHeroUrl}
             imageAlt={t("publicPresence.home.heroImageAlt")}
             imagePosition="center"
+            imageLoading="eager"
+            imageDecoding="async"
+            imageFetchPriority="high"
+            imageWidth={1600}
+            imageHeight={1000}
             eyebrow={t("publicPresence.home.eyebrow")}
             title={t("publicPresence.home.title")}
             description={t("publicPresence.home.description")}
             conversionPanel={
               <WaitlistSignupPanel
                 actionData={actionData}
+                intent={intent}
+                onIntentChange={setIntent}
                 source={source}
                 panelId="waitlist-form"
-                compact
+                variant="hero"
               />
             }
           />
@@ -197,9 +319,9 @@ export function PublicPresenceHomePage({
           <HeroSignalStrip />
         </Stack>
 
-        <AudiencePathSection />
-
         <SellerEconomicsSection />
+
+        <TrustBeforeTransactionsSection />
 
         <WhyJoinNow />
 
@@ -209,7 +331,7 @@ export function PublicPresenceHomePage({
 
         <MarketplaceModelSection />
 
-        <BuyerSellerLandingSection />
+        <AudiencePathSection onIntentSelect={selectIntent} />
 
         <LaunchPriorityPanel />
 
@@ -218,6 +340,8 @@ export function PublicPresenceHomePage({
         <FinalCtaSection
           actionData={actionData}
           discordInviteUrl={discordInviteUrl}
+          intent={intent}
+          onIntentChange={setIntent}
           source={source}
         />
 
@@ -227,9 +351,14 @@ export function PublicPresenceHomePage({
   );
 }
 
-function AudiencePathSection() {
+function AudiencePathSection({
+  onIntentSelect,
+}: {
+  onIntentSelect: (intent: WaitlistIntent, section: string) => void;
+}) {
   return (
     <PageSection
+      data-public-presence-section="audience_paths"
       title={t("publicPresence.home.paths.title")}
       description={t("publicPresence.home.paths.description")}
     >
@@ -249,9 +378,13 @@ function AudiencePathSection() {
               ]}
             />
             <Inline>
-              <LinkButton href="#seller-economics" tone="secondary" size="sm">
+              <Button
+                tone="secondary"
+                size="sm"
+                onClick={() => onIntentSelect(sellerIntent, "audience_path_seller")}
+              >
                 {t("publicPresence.home.paths.sell.action")}
-              </LinkButton>
+              </Button>
             </Inline>
           </Stack>
         </Surface>
@@ -270,9 +403,13 @@ function AudiencePathSection() {
               ]}
             />
             <Inline>
-              <LinkButton href="#buyer-proof" tone="secondary" size="sm">
+              <Button
+                tone="secondary"
+                size="sm"
+                onClick={() => onIntentSelect(buyerIntent, "audience_path_buyer")}
+              >
                 {t("publicPresence.home.paths.buy.action")}
-              </LinkButton>
+              </Button>
             </Inline>
           </Stack>
         </Surface>
@@ -284,10 +421,22 @@ function AudiencePathSection() {
 function SignupExpectationSection() {
   return (
     <PageSection
+      data-public-presence-section="signup_expectations"
       title={t("publicPresence.waitlist.expectations.title")}
       description={t("publicPresence.waitlist.description")}
     >
-      <Grid columns={{ base: 1, md: 2 }} gap={4}>
+      <Grid columns={{ base: 1, md: 3 }} gap={4}>
+        <Surface tone="subtle">
+          <Stack gap={3}>
+            <Heading level={3}>{t("publicPresence.waitlist.trust.title")}</Heading>
+            <List
+              items={[
+                t("publicPresence.waitlist.trust.noTransactions"),
+                t("publicPresence.waitlist.trust.review"),
+              ]}
+            />
+          </Stack>
+        </Surface>
         <Surface tone="subtle">
           <Stack gap={3}>
             <Heading level={3}>{t("publicPresence.waitlist.afterSignup.title")}</Heading>
@@ -302,15 +451,19 @@ function SignupExpectationSection() {
         </Surface>
         <Surface tone="subtle">
           <Stack gap={3}>
-            <Heading level={3}>{t("publicPresence.waitlist.trust.title")}</Heading>
+            <Heading level={3}>{t("publicPresence.home.trust.support.title")}</Heading>
             <List
               items={[
-                t("publicPresence.waitlist.trust.noTransactions"),
                 t("publicPresence.waitlist.trust.policies"),
                 t("publicPresence.waitlist.trust.support"),
-                t("publicPresence.waitlist.trust.review"),
+                t("publicPresence.home.trust.support.description"),
               ]}
             />
+            <Inline>
+              <LinkButton href="/terms" tone="secondary" size="sm">
+                {t("publicPresence.home.trust.policies.title")}
+              </LinkButton>
+            </Inline>
           </Stack>
         </Surface>
       </Grid>
@@ -352,6 +505,7 @@ function SellerEconomicsSection() {
   return (
     <PageSection
       id="seller-economics"
+      data-public-presence-section="seller_economics"
       title={t("publicPresence.home.sellerEconomics.title")}
       description={t("publicPresence.home.sellerEconomics.description")}
     >
@@ -398,10 +552,38 @@ function SellerEconomicsSection() {
   );
 }
 
+function TrustBeforeTransactionsSection() {
+  const trustItems = [
+    ["publicPresence.home.trust.policies.title", "publicPresence.home.trust.policies.description"],
+    ["publicPresence.home.trust.payment.title", "publicPresence.home.trust.payment.description"],
+    ["publicPresence.home.trust.support.title", "publicPresence.home.trust.support.description"],
+  ];
+
+  return (
+    <PageSection
+      data-public-presence-section="trust"
+      title={t("publicPresence.home.trust.title")}
+      description={t("publicPresence.home.trust.description")}
+    >
+      <Grid columns={{ base: 1, md: 3 }} gap={4}>
+        {trustItems.map(([title, description]) => (
+          <Surface key={title} tone="subtle" elevated>
+            <Stack gap={2}>
+              <Heading level={3}>{t(title)}</Heading>
+              <Text tone="secondary">{t(description)}</Text>
+            </Stack>
+          </Surface>
+        ))}
+      </Grid>
+    </PageSection>
+  );
+}
+
 function BuyerBundleProofSection() {
   return (
     <PageSection
       id="buyer-proof"
+      data-public-presence-section="buyer_proof"
       title={t("publicPresence.home.buyerProof.title")}
       description={t("publicPresence.home.buyerProof.description")}
     >
@@ -493,6 +675,7 @@ function WhyJoinNow() {
 
   return (
     <PageSection
+      data-public-presence-section="why_join"
       title={t("publicPresence.home.whyJoin.title")}
       description={t("publicPresence.home.whyJoin.description")}
     >
@@ -520,6 +703,7 @@ function WhyJoinNow() {
 function LaunchPriorityPanel() {
   return (
     <PageSection
+      data-public-presence-section="launch_priority"
       title={t("publicPresence.home.launchPriority.title")}
       description={t("publicPresence.home.launchPriority.description")}
     >
@@ -572,6 +756,7 @@ function MarketplaceModelSection() {
 
   return (
     <PageSection
+      data-public-presence-section="marketplace_model"
       title={t("publicPresence.home.howItWorks.title")}
       description={t("publicPresence.home.howItWorks.description")}
     >
@@ -580,6 +765,11 @@ function MarketplaceModelSection() {
           imageSrc={waitlistCardPanelsUrl}
           imageAlt={t("publicPresence.home.workflowImageAlt")}
           imagePosition="center"
+          imageLoading="lazy"
+          imageFetchPriority="low"
+          imageDecoding="async"
+          imageWidth={1200}
+          imageHeight={900}
           badge={t("publicPresence.home.howItWorks.badge")}
           badgeTone="info"
           title={t("publicPresence.home.workflowImage.title")}
@@ -600,54 +790,11 @@ function MarketplaceModelSection() {
   );
 }
 
-function BuyerSellerLandingSection() {
-  return (
-    <PageSection
-      title={t("publicPresence.home.audience.title")}
-      description={t("publicPresence.home.audience.description")}
-    >
-      <Grid columns={{ base: 1, md: 2 }} gap={4}>
-        <Surface tone="subtle">
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="success">{t("publicPresence.home.audience.buyer.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.buying.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.audience.buyer.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.buying.point.pricing"),
-                t("publicPresence.home.buying.point.cart"),
-                t("publicPresence.home.buying.point.shipping"),
-              ]}
-            />
-          </Stack>
-        </Surface>
-        <Surface tone="subtle">
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="warning">{t("publicPresence.home.audience.seller.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.selling.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.audience.seller.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.selling.point.fees"),
-                t("publicPresence.home.selling.point.bulk"),
-                t("publicPresence.home.selling.point.repricing"),
-              ]}
-            />
-          </Stack>
-        </Surface>
-      </Grid>
-    </PageSection>
-  );
-}
-
 function ProductSignalPreview() {
   return (
     <PageSection
       id="product-preview"
+      data-public-presence-section="product_preview"
       title={t("publicPresence.preview.section.title")}
       description={t("publicPresence.preview.section.description")}
     >
@@ -657,6 +804,9 @@ function ProductSignalPreview() {
           model="product"
           imageSrc={pikachuIllustrationRareUrl}
           imageAlt={t("publicPresence.preview.listing.imageAlt")}
+          imageLoading="lazy"
+          imageFetchPriority="low"
+          imageDecoding="async"
           promotion={t("publicPresence.preview.listing.badge")}
           price={t("publicPresence.preview.listing.price.value")}
           priceDetail={t("publicPresence.preview.listing.price.detail")}
@@ -674,12 +824,21 @@ function ProductSignalPreview() {
           protection={t("publicPresence.preview.listing.protection.value")}
           returnPolicy={t("publicPresence.preview.listing.returnPolicy.value")}
           primaryAction={(
-            <LinkButton href="#waitlist-form" size="sm">
+            <LinkButton
+              href="#waitlist-form"
+              size="sm"
+              onClick={() => trackCtaClick("product_preview", "waitlist_form")}
+            >
               {t("publicPresence.preview.listing.action")}
             </LinkButton>
           )}
           secondaryAction={(
-            <LinkButton href="/order-protection" tone="secondary" size="sm">
+            <LinkButton
+              href="/order-protection"
+              tone="secondary"
+              size="sm"
+              onClick={() => trackCtaClick("product_preview", "order_protection")}
+            >
               {t("publicPresence.preview.listing.secondaryAction")}
             </LinkButton>
           )}
@@ -736,14 +895,18 @@ function DiscountedShippingValue() {
 function FinalCtaSection({
   actionData,
   discordInviteUrl,
+  intent,
+  onIntentChange,
   source,
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
+  intent: WaitlistIntent;
+  onIntentChange: (intent: WaitlistIntent) => void;
   source: Parameters<typeof PublicPresenceHomePage>[0]["source"];
 }) {
   return (
-    <PageSection>
+    <PageSection data-public-presence-section="final_cta">
       <Grid columns={{ base: 1, lg: 2 }} gap={5}>
         <Stack gap={3}>
           <Stack gap={2}>
@@ -755,8 +918,8 @@ function FinalCtaSection({
           </Stack>
           <List
             items={[
-              t("publicPresence.home.finalCta.point.buyers"),
               t("publicPresence.home.finalCta.point.sellers"),
+              t("publicPresence.home.finalCta.point.buyers"),
               t("publicPresence.home.finalCta.point.terms"),
             ]}
           />
@@ -766,8 +929,11 @@ function FinalCtaSection({
         </Stack>
         <WaitlistSignupPanel
           actionData={actionData}
+          intent={intent}
+          onIntentChange={onIntentChange}
           source={source}
           panelId="waitlist-form-final"
+          variant="full"
         />
       </Grid>
     </PageSection>
@@ -776,21 +942,83 @@ function FinalCtaSection({
 
 function WaitlistSignupPanel({
   actionData,
+  intent,
+  onIntentChange,
   panelId = "waitlist",
   source,
-  compact = false,
+  variant = "full",
 }: {
   actionData: WaitlistActionData;
+  intent: WaitlistIntent;
+  onIntentChange: (intent: WaitlistIntent) => void;
   panelId?: string;
   source: Parameters<typeof PublicPresenceHomePage>[0]["source"];
-  compact?: boolean;
+  variant?: "hero" | "full";
 }) {
   const [emailConsent, setEmailConsent] = useState(false);
+  const formStarted = useRef(false);
+  const isHero = variant === "hero";
+  const section = isHero ? "hero" : "final_cta";
+
+  function trackFormStart(field: string) {
+    if (formStarted.current) {
+      return;
+    }
+
+    formStarted.current = true;
+    trackWaitlistEvent("waitlist_form_started", {
+      section,
+      field,
+      role: intent.role,
+      interest: intent.interest,
+      variant: "landing-audit-remediation",
+    });
+  }
+
+  function trackRoleSelected(role: WaitlistMarketplaceIntent) {
+    trackFormStart("role");
+    onIntentChange({ ...intent, role });
+    trackWaitlistEvent("waitlist_role_selected", {
+      section,
+      role,
+      interest: intent.interest,
+      variant: "landing-audit-remediation",
+    });
+  }
+
+  function trackInterestSelected(interest: WaitlistInterest) {
+    trackFormStart("interests");
+    onIntentChange({ ...intent, interest });
+    trackWaitlistEvent("waitlist_interest_selected", {
+      section,
+      role: intent.role,
+      interest,
+      variant: "landing-audit-remediation",
+    });
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    const formData = new FormData(event.currentTarget);
+    trackWaitlistEvent("waitlist_form_submitted", {
+      section,
+      role: String(formData.get("role") ?? intent.role),
+      interest: String(formData.get("interests") ?? intent.interest),
+      utm_source: source.utmSource,
+      utm_medium: source.utmMedium,
+      utm_campaign: source.utmCampaign,
+      variant: "landing-audit-remediation",
+    });
+  }
 
   const panel = (
-    <Surface id={panelId} elevated glow padding={compact ? 2 : 4}>
-      <Stack gap={compact ? 2 : 4}>
-        {compact ? null : (
+    <Surface id={panelId} elevated glow padding={isHero ? 2 : 4}>
+      <Stack gap={isHero ? 2 : 4}>
+        {isHero ? (
+          <Stack gap={1}>
+            <Text weight="semibold">{t("publicPresence.waitlist.compactTitle")}</Text>
+            <Text size="sm" tone="secondary">{t("publicPresence.waitlist.compactDescription")}</Text>
+          </Stack>
+        ) : (
           <Stack gap={2}>
             <BadgeRow>
               <Badge tone="success">{t("publicPresence.waitlist.badge")}</Badge>
@@ -814,8 +1042,8 @@ function WaitlistSignupPanel({
             description={actionData.message}
           />
         ) : null}
-        <form method="post" action="?index">
-          <Stack gap={compact ? 2 : 4}>
+        <form method="post" action="?index" onSubmit={handleSubmit}>
+          <Stack gap={isHero ? 2 : 4}>
             <TextInput
               label={t("publicPresence.waitlist.email")}
               name="email"
@@ -823,48 +1051,56 @@ function WaitlistSignupPanel({
               required
               autoComplete="email"
               placeholder={t("publicPresence.waitlist.email.placeholder")}
+              onFocus={() => trackFormStart("email")}
             />
-            {compact ? (
-              <Grid columns={{ base: 1, md: 2 }} gap={2}>
-                <NativeSelect
-                  label={t("publicPresence.waitlist.role")}
-                  name="role"
-                  defaultValue="both"
-                  items={roleItems}
-                  required
-                />
-                <NativeSelect
-                  label={t("publicPresence.waitlist.interests")}
-                  name="interests"
-                  defaultValue="low-sales-fees"
-                  items={interestSelectItems}
-                  required
-                />
-              </Grid>
+            {isHero ? (
+              <>
+                <input type="hidden" name="role" value={intent.role} readOnly />
+                <input type="hidden" name="interests" value={intent.interest} readOnly />
+              </>
             ) : (
               <Grid columns={{ base: 1, md: 2 }} gap={3}>
                 <NativeSelect
                   label={t("publicPresence.waitlist.role")}
                   name="role"
-                  defaultValue="both"
+                  value={intent.role}
                   items={roleItems}
                   required
+                  onFocus={() => trackFormStart("role")}
+                  onChange={(event) => trackRoleSelected(
+                    event.currentTarget.value as WaitlistMarketplaceIntent,
+                  )}
                 />
                 <NativeSelect
                   label={t("publicPresence.waitlist.interests")}
                   name="interests"
-                  defaultValue="low-sales-fees"
+                  value={intent.interest}
                   description={t("publicPresence.waitlist.interests.description")}
                   items={interestSelectItems}
                   required
+                  onFocus={() => trackFormStart("interests")}
+                  onChange={(event) => trackInterestSelected(
+                    event.currentTarget.value as WaitlistInterest,
+                  )}
                 />
               </Grid>
             )}
             <Checkbox
               label={t("publicPresence.waitlist.consent")}
-              description={!compact ? t("publicPresence.waitlist.consent.description") : undefined}
+              description={t("publicPresence.waitlist.consent.description")}
               checked={emailConsent}
-              onCheckedChange={(checked) => setEmailConsent(checked === true)}
+              onCheckedChange={(checked) => {
+                const consentChecked = checked === true;
+                trackFormStart("consent");
+                setEmailConsent(consentChecked);
+                trackWaitlistEvent("waitlist_consent_checked", {
+                  section,
+                  checked: consentChecked,
+                  role: intent.role,
+                  interest: intent.interest,
+                  variant: "landing-audit-remediation",
+                });
+              }}
               required
             />
             {emailConsent ? (
@@ -888,6 +1124,7 @@ function WaitlistSignupPanel({
             <Button type="submit" size="lg" block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>
+            <Text size="sm" tone="secondary">{t("publicPresence.waitlist.noCommitment")}</Text>
           </Stack>
         </form>
       </Stack>
@@ -900,11 +1137,18 @@ function WaitlistSignupPanel({
 function FaqPreview() {
   return (
     <PageSection
+      data-public-presence-section="faq"
       title={t("publicPresence.faq.title")}
       description={t("publicPresence.faq.description")}
     >
       <Inline>
-        <LinkButton href="/faq" tone="secondary">{t("publicPresence.faq.all")}</LinkButton>
+        <LinkButton
+          href="/faq"
+          tone="secondary"
+          onClick={() => trackCtaClick("faq", "faq")}
+        >
+          {t("publicPresence.faq.all")}
+        </LinkButton>
       </Inline>
       <Grid columns={{ base: 1, md: 2 }} gap={4}>
         {[

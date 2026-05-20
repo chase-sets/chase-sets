@@ -156,9 +156,10 @@ describe("SourceObservationListPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Promote selected/i }));
 
     await waitFor(() =>
-      expect(mockBulkPromoteSourceObservations).toHaveBeenCalledWith([
-        "obs_observed",
-      ]),
+      expect(mockBulkPromoteSourceObservations).toHaveBeenCalledWith(
+        ["obs_observed"],
+        { onProgress: expect.any(Function) },
+      ),
     );
     expect(mockRevalidate).toHaveBeenCalled();
   });
@@ -212,15 +213,88 @@ describe("SourceObservationListPage", () => {
     fireEvent.click(promoteAllButtons[promoteAllButtons.length - 1]);
 
     await waitFor(() =>
-      expect(mockBulkPromoteSourceObservationsByScope).toHaveBeenCalledWith({
+      expect(mockBulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(
+        {
+          search: "",
+          status: "observed",
+          provider: "tcgdex",
+          language: "en",
+          setId: "base1",
+        },
+        { onProgress: expect.any(Function) },
+      ),
+    );
+    expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("shows determinate progress while promoting all matching observations", async () => {
+    mockPreviewBulkPromoteSourceObservations.mockResolvedValue({
+      matched: 125,
+      eligible: 123,
+      terminal: 2,
+      scope: {
         search: "",
         status: "observed",
         provider: "tcgdex",
         language: "en",
         setId: "base1",
-      }),
+      },
+    });
+    let resolveBulkPromotion:
+      | ((value: {
+          requested: number;
+          promoted: number;
+          skipped: number;
+          failed: number;
+          outcomes: never[];
+        }) => void)
+      | null = null;
+    mockBulkPromoteSourceObservationsByScope.mockImplementation(
+      async (_scope, options?: { onProgress?: (progress: unknown) => void }) => {
+        options?.onProgress?.({
+          phase: "processing",
+          completed: 57,
+          total: 123,
+          currentName: "Pikachu",
+          status: "promoted",
+        });
+
+        return new Promise((resolve) => {
+          resolveBulkPromotion = resolve;
+        });
+      },
     );
-    expect(mockRevalidate).toHaveBeenCalled();
+
+    const { container } = render(
+      <SourceObservationListPage
+        data={{ items: [observed], total: 125, count: 1 }}
+        query={{ ...query, status: "observed", source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
+
+    fireEvent.click(
+      within(container).getByRole("button", { name: /Promote all matching/i }),
+    );
+
+    await screen.findByText(/123 eligible observations will be promoted/i);
+    const promoteAllButtons = screen.getAllByRole("button", {
+      name: /^Promote all matching$/i,
+    });
+    fireEvent.click(promoteAllButtons[promoteAllButtons.length - 1]);
+
+    expect(await screen.findByText("57 of 123 processed.")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+      "46.34146341463415",
+    );
+
+    resolveBulkPromotion?.({
+      requested: 123,
+      promoted: 123,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    });
+    await waitFor(() => expect(mockRevalidate).toHaveBeenCalled());
   });
 
   it("imports a TCGdex expansion selected from preloaded metadata", async () => {

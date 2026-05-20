@@ -46,10 +46,12 @@ export function SourceObservationDetailPage({
         { label: data?.normalized.name ?? id },
       ]}
       actions={
-        data?.status === "observed" ? (
+        data && (data.status === "observed" || data.status === "changed") ? (
           <Inline gap={2}>
             <Button size="sm" onClick={handlePromote}>{t("catalog.features.sourceObservations.ui.detail.promote")}</Button>
-            <Button tone="danger" size="sm" onClick={handleReject}>{t("catalog.features.sourceObservations.ui.detail.reject")}</Button>
+            {data.status === "observed" ? (
+              <Button tone="danger" size="sm" onClick={handleReject}>{t("catalog.features.sourceObservations.ui.detail.reject")}</Button>
+            ) : null}
           </Inline>
         ) : undefined
       }

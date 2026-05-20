@@ -151,6 +151,35 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result);
   });
 
+  app.post("/bulk-promote/progress", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+    };
+    const context = c.get("context");
+
+    return streamBulkAction(async (write) => {
+      const onProgress = (progress: unknown) => write({ type: "progress", progress });
+
+      if (body.scope) {
+        return services.promoteObservationScope({
+          scope: parsePromotionScope(body.scope),
+          context,
+          onProgress,
+        });
+      }
+
+      const observationIds = Array.isArray(body.observationIds)
+        ? body.observationIds.map((observationId: unknown) => String(observationId))
+        : [];
+      return services.promoteObservations({
+        observationIds,
+        context,
+        onProgress,
+      });
+    }, "Bulk Source Observation promotion failed.");
+  });
+
   app.post("/bulk-reject", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
@@ -185,6 +214,46 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     });
 
     return c.json(result);
+  });
+
+  app.post("/bulk-reject/progress", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+      reason?: unknown;
+    };
+    const reason = String(body.reason ?? "").trim();
+
+    if (!reason) {
+      return c.json({
+        error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+      }, 400);
+    }
+
+    const context = c.get("context");
+
+    return streamBulkAction(async (write) => {
+      const onProgress = (progress: unknown) => write({ type: "progress", progress });
+
+      if (body.scope) {
+        return services.rejectObservationScope({
+          scope: parsePromotionScope(body.scope),
+          reason,
+          context,
+          onProgress,
+        });
+      }
+
+      const observationIds = Array.isArray(body.observationIds)
+        ? body.observationIds.map((observationId: unknown) => String(observationId))
+        : [];
+      return services.rejectObservations({
+        observationIds,
+        reason,
+        context,
+        onProgress,
+      });
+    }, "Bulk Source Observation rejection failed.");
   });
 
   app.get("/:id", async (c) => {
@@ -245,4 +314,39 @@ function parsePromotionScope(input: unknown): SourceObservationFilterScope {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function streamBulkAction<T>(
+  run: (write: (event: unknown) => void) => Promise<T>,
+  fallbackMessage: string,
+) {
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (event: unknown) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
+
+      try {
+        const result = await run(write);
+        write({ type: "result", result });
+      } catch (error) {
+        write({
+          type: "error",
+          message: error instanceof Error ? error.message : fallbackMessage,
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
 }

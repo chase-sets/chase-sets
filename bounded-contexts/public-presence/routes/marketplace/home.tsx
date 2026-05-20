@@ -8,6 +8,14 @@ import {
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
 import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
 
+const fallbackPublicOrigin = "https://chasesets.com";
+const faqStructuredDataEntries = [
+  ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
+  ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
+  ["publicPresence.faq.shipping.question", "publicPresence.faq.shipping.answer"],
+  ["publicPresence.faq.safety.question", "publicPresence.faq.safety.answer"],
+] as const;
+
 function optional(value: FormDataEntryValue | null) {
   const text = typeof value === "string" ? value.trim() : "";
   return text || null;
@@ -24,8 +32,10 @@ function actionErrorMessage(error: unknown) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
+  const publicOrigin = process.env.CHASE_SETS_PUBLIC_ORIGIN?.trim() || url.origin;
   return {
     discordInviteUrl: process.env.CHASE_SETS_DISCORD_INVITE_URL?.trim() || null,
+    publicOrigin,
     source: {
       pagePath: `${url.pathname}${url.search}`,
       referrer: request.headers.get("referer"),
@@ -65,25 +75,101 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-export const meta: MetaFunction = () => [
-  { title: t("publicPresence.routes.home.meta.title") },
-  { name: "description", content: t("publicPresence.routes.home.meta.description") },
-  { property: "og:site_name", content: t("publicPresence.brand") },
-  { property: "og:title", content: t("publicPresence.routes.home.meta.title") },
-  { property: "og:description", content: t("publicPresence.routes.home.meta.description") },
-  { property: "og:type", content: "website" },
-  { property: "og:image", content: `https://chasesets.com${heroImageUrl}` },
-  { name: "twitter:card", content: "summary_large_image" },
-];
+function normalizeOrigin(origin: string) {
+  return origin.replace(/\/+$/, "");
+}
+
+function publicUrl(origin: string, path: string) {
+  return new URL(path, `${normalizeOrigin(origin)}/`).toString();
+}
+
+export const meta: MetaFunction<typeof loader> = ({ data }) => {
+  const publicOrigin = normalizeOrigin(data?.publicOrigin ?? fallbackPublicOrigin);
+  const homeUrl = publicUrl(publicOrigin, "/");
+  const imageUrl = publicUrl(publicOrigin, heroImageUrl);
+
+  return [
+    { title: t("publicPresence.routes.home.meta.title") },
+    { name: "description", content: t("publicPresence.routes.home.meta.description") },
+    { property: "og:site_name", content: t("publicPresence.brand") },
+    { property: "og:title", content: t("publicPresence.routes.home.meta.title") },
+    { property: "og:description", content: t("publicPresence.routes.home.meta.description") },
+    { property: "og:type", content: "website" },
+    { property: "og:url", content: homeUrl },
+    { property: "og:image", content: imageUrl },
+    { name: "twitter:card", content: "summary_large_image" },
+    { name: "twitter:title", content: t("publicPresence.routes.home.meta.title") },
+    { name: "twitter:description", content: t("publicPresence.routes.home.meta.description") },
+    { name: "twitter:image", content: imageUrl },
+  ];
+};
+
+export function buildHomeStructuredData(publicOrigin = fallbackPublicOrigin) {
+  const normalizedOrigin = normalizeOrigin(publicOrigin);
+  const homeUrl = publicUrl(normalizedOrigin, "/");
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${homeUrl}#organization`,
+        name: t("publicPresence.brand"),
+        url: homeUrl,
+        contactPoint: {
+          "@type": "ContactPoint",
+          email: "support@chasesets.com",
+          contactType: "customer support",
+        },
+      },
+      {
+        "@type": "WebSite",
+        "@id": `${homeUrl}#website`,
+        name: t("publicPresence.brand"),
+        url: homeUrl,
+        publisher: {
+          "@id": `${homeUrl}#organization`,
+        },
+        potentialAction: {
+          "@type": "RegisterAction",
+          name: t("publicPresence.waitlist.submit"),
+          target: `${homeUrl}#waitlist-form`,
+        },
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${homeUrl}#landing-faq`,
+        mainEntity: faqStructuredDataEntries.map(([question, answer]) => ({
+          "@type": "Question",
+          name: t(question),
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: t(answer),
+          },
+        })),
+      },
+    ],
+  } as const;
+}
+
+export const publicPresenceHomeJsonLd = buildHomeStructuredData;
 
 export default function PublicPresenceHomeRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() ?? null;
   return (
-    <PublicPresenceHomePage
-      actionData={actionData}
-      discordInviteUrl={data.discordInviteUrl}
-      source={data.source}
-    />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(buildHomeStructuredData(data.publicOrigin)).replace(/</g, "\\u003c"),
+        }}
+      />
+      <PublicPresenceHomePage
+        actionData={actionData}
+        discordInviteUrl={data.discordInviteUrl}
+        source={data.source}
+      />
+    </>
   );
 }

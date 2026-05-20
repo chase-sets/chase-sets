@@ -109,16 +109,12 @@ function formatItemLanguage(item: DiscoverySearchItem): string {
   return formatLanguageCodeLabel(item.language_code);
 }
 
-function findLanguageLabel(language: string): string {
-  return languageOptions.find((item) => item.value === language)?.label ?? language;
+function formatSearchIdentityLine(item: DiscoverySearchItem): string | undefined {
+  return item.subtitle?.trim() || undefined;
 }
 
-function formatValueCue(item: DiscoverySearchItem): string | undefined {
-  const listingCount = item.market_summary?.active_listing_count ?? 0;
-
-  return listingCount > 0
-    ? undefined
-    : t("discovery.features.search.ui.searchPage.make.an.offer.or.list.yours");
+function findLanguageLabel(language: string): string {
+  return languageOptions.find((item) => item.value === language)?.label ?? language;
 }
 
 function formatFacetDescription(facet: DiscoveryFacetGroup): string {
@@ -740,6 +736,7 @@ export function SearchPage({
                     imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
                     price={formatPrice(item)}
                     priceDetail={formatListingMeta(item)}
+                    subtitle={formatSearchIdentityLine(item)}
                     sellerName={formatSellerSignal(item)}
                     sellerTrustLabel={
                       hasActiveListings
@@ -748,9 +745,8 @@ export function SearchPage({
                     }
                     sellerVerified={hasActiveListings}
                     fulfillment={formatAvailability(item)}
-                    availability={item.blueprint_name ?? item.subtitle ?? uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
+                    availability={item.blueprint_name ?? uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
                     condition={formatItemLanguage(item)}
-                    valueCue={formatValueCue(item)}
                     promotion={
                       hasActiveListings
                         ? t("discovery.features.search.ui.searchPage.available.now")

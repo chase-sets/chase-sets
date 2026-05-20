@@ -1,6 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { PublicPresenceHomePage } from "./public-pages";
 
@@ -14,7 +14,16 @@ const source = {
   utmTerm: null,
 };
 
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
 describe("public presence homepage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("renders the product promise and hides Discord when no invite is configured", () => {
     render(
       <MemoryRouter>
@@ -27,7 +36,7 @@ describe("public presence homepage", () => {
     );
 
     expect(screen.getByRole("heading", {
-      name: "Finish sets. Keep more card margin.",
+      name: "Sell cards without giving up margin.",
     })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });
@@ -58,13 +67,16 @@ describe("public presence homepage", () => {
     );
 
     expect(container.querySelectorAll("form")).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Join the waitlist" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Join the beta waitlist" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Answer three quick questions so early invites reach the accounts most likely to use the beta.").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Lock 0% seller fees on beta listings" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Start with the job you care about" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Pick the workflow you want prioritized" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Make set completion feel predictable" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Built for cards other marketplaces make hard to sell profitably: seller fee locks, no separate seller processing line, and buyer-visible order costs.").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Trust and status before early access" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Prelaunch only. Joining does not require buying, listing, or payment.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("No live marketplace transactions are available during prelaunch.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Built for cards other marketplaces make hard to sell profitably: seller fee locks, no separate seller processing line, repeat listing work, and buyer-visible order costs.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Beta listings keep 0% seller fees until sold while unchanged").length).toBeGreaterThan(0);
     expect(screen.getAllByText("No separate 2.9% plus $0.30 payment-processing line for sellers").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$13.20 plus quoted processing").length).toBeGreaterThan(0);
@@ -72,13 +84,64 @@ describe("public presence homepage", () => {
     expect(screen.getAllByText("$0.48 tracked shipping").length).toBeGreaterThan(0);
     expect(screen.getAllByText("-$4.17 applied").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$83.88").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Locked while unchanged").length).toBeGreaterThan(0);
     const priorities = [...container.querySelectorAll('form select[name="interests"]')] as HTMLSelectElement[];
     expect(priorities.map((priority) => priority.value)).toEqual([
       "low-sales-fees",
-      "low-sales-fees",
     ]);
     expect(container.querySelector('[id="waitlist-form"]')).toBeTruthy();
+  });
+
+  it("prefills the final form from audience-path CTAs and emits analytics", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const events: unknown[] = [];
+    window.addEventListener("chase-sets:waitlist-analytics", (event) => {
+      events.push((event as CustomEvent).detail);
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <PublicPresenceHomePage
+          actionData={null}
+          discordInviteUrl={null}
+          source={source}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getAllByRole("link", { name: "Join early access" })[0]);
+    await user.click(screen.getByRole("button", { name: "I plan to buy cards" }));
+
+    const finalForm = container.querySelector("#waitlist-form-final form");
+    expect(finalForm).toBeTruthy();
+    expect((finalForm as HTMLElement).querySelector<HTMLSelectElement>('select[name="role"]')?.value).toBe("buy");
+    expect((finalForm as HTMLElement).querySelector<HTMLSelectElement>('select[name="interests"]')?.value).toBe("set-completion");
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "cta_clicked",
+      role: "buy",
+      interest: "set-completion",
+      section: "audience_path_buyer",
+    }));
+
+    const consent = within(finalForm as HTMLElement).getByRole("checkbox", {
+      name: "Email me early access updates.",
+    });
+    await user.click(consent);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "cta_clicked",
+      section: "nav",
+      target: "waitlist_form",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      checked: true,
+      event: "waitlist_consent_checked",
+      interest: "set-completion",
+      role: "buy",
+      section: "final_cta",
+    }));
   });
 
   it("checks email consent and includes consent in the waitlist submission", async () => {

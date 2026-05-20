@@ -4,10 +4,13 @@ import { resolvePublicRouteConfigRecords } from "../host";
 import { buildCanonicalUrl } from "../seo";
 import { loader as legacyMarketplaceSalesFeesUrlLoader } from "./legacy-marketplace-sales-fees-url";
 import { loader as legacyOrderProtectionUrlLoader } from "./legacy-order-protection-url";
+import { loader as manifestLoader } from "./manifest";
 import PublicNotFoundRoute from "./not-found";
 import { loader as notFoundLoader } from "./not-found";
 import { loader as robotsLoader } from "./robots";
 import { loader as sitemapLoader } from "./sitemap";
+import { action as waitlistAnalyticsAction, loader as waitlistAnalyticsLoader } from "./waitlist-analytics";
+import { waitlistAnalyticsBridgeScript } from "../root";
 
 describe("public web deployable", () => {
   it("mounts public-presence routes without marketplace browse routes", () => {
@@ -29,6 +32,12 @@ describe("public web deployable", () => {
     ]);
     expect(routePaths).not.toContain("search");
     expect(routePaths).not.toContain("items/:id");
+  });
+
+  it("installs a bounded waitlist analytics bridge script", () => {
+    expect(waitlistAnalyticsBridgeScript).toContain("chase-sets:waitlist-analytics");
+    expect(waitlistAnalyticsBridgeScript).toContain("/analytics/waitlist");
+    expect(waitlistAnalyticsBridgeScript).not.toContain("email");
   });
 
   it("canonicalizes public pages to chasesets.com", () => {
@@ -81,6 +90,19 @@ describe("public web deployable", () => {
     vi.unstubAllEnvs();
   });
 
+  it("serves a manifest without missing icon references", async () => {
+    const manifest = manifestLoader({
+      request: new Request("https://example.test/manifest.webmanifest"),
+      params: {},
+      context: undefined,
+    } as never);
+    const body = await manifest.json() as { name: string; icons: unknown[] };
+
+    expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
+    expect(body.name).toBe("Chase Sets");
+    expect(body.icons).toEqual([]);
+  });
+
   it("does not offer marketplace browse recovery on not found pages", () => {
     const html = renderToString(<PublicNotFoundRoute />);
 
@@ -94,6 +116,69 @@ describe("public web deployable", () => {
     const response = notFoundLoader();
 
     expect(response.status).toBe(404);
+  });
+
+  it("captures bounded waitlist analytics events", async () => {
+    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
+    const response = await waitlistAnalyticsAction({
+      request: new Request("https://chasesets.com/analytics/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "cta_clicked",
+          section: "hero",
+          target: "waitlist_form",
+          role: "sell",
+          interest: "low-sales-fees",
+          variant: "landing-audit-remediation",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.status).toBe(204);
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects unsupported waitlist analytics events", async () => {
+    const response = await waitlistAnalyticsAction({
+      request: new Request("https://chasesets.com/analytics/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "email_submitted", email: "seller@example.com" }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.status).toBe(400);
+    expect(waitlistAnalyticsLoader({
+      request: new Request("https://chasesets.com/analytics/waitlist"),
+      params: {},
+      context: undefined,
+    } as never).status).toBe(405);
+  });
+
+  it("rejects arbitrary analytics label text before logging", async () => {
+    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
+    const response = await waitlistAnalyticsAction({
+      request: new Request("https://chasesets.com/analytics/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "cta_clicked",
+          section: "seller@example.com",
+          target: "waitlist form",
+          role: "sell",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.status).toBe(400);
+    vi.unstubAllEnvs();
   });
 
   it("redirects renamed policy URLs to their canonical public pages", () => {

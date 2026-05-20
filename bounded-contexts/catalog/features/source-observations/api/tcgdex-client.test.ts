@@ -11,6 +11,9 @@ const testImageProcessor = {
   async metadata() {
     return { width: 734, height: 1024 };
   },
+  async normalizeDisplaySource(body: Uint8Array) {
+    return body.slice(1);
+  },
   async resizeToWebp(input: { body: Uint8Array; width: number; quality: number }) {
     return {
       body: new Uint8Array([input.width % 251, input.quality, input.body.byteLength]),
@@ -408,12 +411,12 @@ describe("TCGdex client", () => {
     );
     expect(storedAssets.map((asset) => asset.key)).toEqual([
       "catalog/items/cat_test/product-image/source-039058c6f2c0.webp",
-      "catalog/items/cat_test/product-image/thumbnail-96w-1x-039058c6f2c0.webp",
-      "catalog/items/cat_test/product-image/thumbnail-192w-2x-039058c6f2c0.webp",
-      "catalog/items/cat_test/product-image/search-card-160w-1x-039058c6f2c0.webp",
-      "catalog/items/cat_test/product-image/search-card-320w-2x-039058c6f2c0.webp",
-      "catalog/items/cat_test/product-image/catalog-detail-480w-1x-039058c6f2c0.webp",
-      "catalog/items/cat_test/product-image/catalog-detail-960w-2x-039058c6f2c0.webp",
+      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/thumbnail-96w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
+      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/thumbnail-192w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
+      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/search-card-160w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
+      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/search-card-320w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
+      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/catalog-detail-480w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
+      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/catalog-detail-960w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
     ]);
     expect(storedAssets).toEqual(
       expect.arrayContaining([

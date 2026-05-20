@@ -73,6 +73,14 @@ export type BulkSourceObservationPromotionResult = Readonly<{
   outcomes: readonly BulkSourceObservationPromotionOutcome[];
 }>;
 
+export type BulkSourceObservationProgress = Readonly<{
+  phase: "processing" | "completed";
+  completed: number;
+  total: number;
+  currentName: string | null;
+  status: BulkSourceObservationPromotionOutcome["status"] | null;
+}>;
+
 export type SourceObservationIntegrationOption = Readonly<{
   providerKey: string;
   queryKind: string;
@@ -117,6 +125,7 @@ export type SourceObservationServices = Readonly<{
   promoteObservations: (input: {
     observationIds: readonly string[];
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   previewPromoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
@@ -124,16 +133,19 @@ export type SourceObservationServices = Readonly<{
   promoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservations: (input: {
     observationIds: readonly string[];
     reason: string;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservationScope: (input: {
     scope: SourceObservationFilterScope;
     reason: string;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservation: (input: {
     observationId: string;
@@ -196,17 +208,39 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
-    const catalogItemId = createId("cat") as CatalogItemId;
-    await createCatalogDraftFromObservation({
-      items,
-      referenceData,
-      deps,
-      catalogItemId,
-      normalized: input.observation.normalized,
-      providerKey: input.observation.provider_key,
-      externalKey: input.observation.external_key,
-      context: input.context,
-    });
+    const existingCatalogItemId =
+      input.observation.status === "changed"
+        ? input.observation.promoted_catalog_item_id as CatalogItemId | null
+        : null;
+    if (input.observation.status === "changed" && !existingCatalogItemId) {
+      throw new Error("Changed source observation is missing its promoted Catalog Item.");
+    }
+
+    const catalogItemId = existingCatalogItemId ?? (createId("cat") as CatalogItemId);
+
+    if (existingCatalogItemId) {
+      await refreshCatalogItemFromObservation({
+        items,
+        referenceData,
+        deps,
+        catalogItemId: existingCatalogItemId,
+        normalized: input.observation.normalized,
+        providerKey: input.observation.provider_key,
+        externalKey: input.observation.external_key,
+        context: input.context,
+      });
+    } else {
+      await createCatalogDraftFromObservation({
+        items,
+        referenceData,
+        deps,
+        catalogItemId,
+        normalized: input.observation.normalized,
+        providerKey: input.observation.provider_key,
+        externalKey: input.observation.external_key,
+        context: input.context,
+      });
+    }
 
     const promotedAt = new Date().toISOString();
     await commandHandler({
@@ -228,13 +262,17 @@ export function createSourceObservationRuntime(
   async function promoteObservationIds(input: {
     observationIds: readonly string[];
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+    input.onProgress?.(bulkProgress(0, requestedIds.length));
 
     for (const observationId of requestedIds) {
+      let currentName: string | null = null;
       try {
         const observation = await getSourceObservationDetail(deps.db, observationId);
+        currentName = observation?.normalized.name ?? null;
 
         if (!observation) {
           outcomes.push({
@@ -246,12 +284,12 @@ export function createSourceObservationRuntime(
           continue;
         }
 
-        if (observation.status !== "observed") {
+        if (!isPromotableObservationStatus(observation.status)) {
           outcomes.push({
             observationId,
             status: "skipped",
             catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
-            reason: `Source observation is already ${observation.status}.`,
+            reason: `Source observation is ${observation.status}.`,
           });
           continue;
         }
@@ -273,10 +311,16 @@ export function createSourceObservationRuntime(
           catalogItemId: null,
           reason: error instanceof Error ? error.message : "Promotion failed.",
         });
+      } finally {
+        const outcome = outcomes[outcomes.length - 1];
+        input.onProgress?.(
+          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+        );
       }
     }
 
     await drainRuntimeProjectors([...items.projectors, ...projectors]);
+    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
@@ -285,13 +329,17 @@ export function createSourceObservationRuntime(
     observationIds: readonly string[];
     reason: string;
     context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+    input.onProgress?.(bulkProgress(0, requestedIds.length));
 
     for (const observationId of requestedIds) {
+      let currentName: string | null = null;
       try {
         const observation = await getSourceObservationDetail(deps.db, observationId);
+        currentName = observation?.normalized.name ?? null;
 
         if (!observation) {
           outcomes.push({
@@ -334,10 +382,16 @@ export function createSourceObservationRuntime(
           catalogItemId: null,
           reason: error instanceof Error ? error.message : "Rejection failed.",
         });
+      } finally {
+        const outcome = outcomes[outcomes.length - 1];
+        input.onProgress?.(
+          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+        );
       }
     }
 
     await drainRuntimeProjectors(projectors);
+    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
@@ -397,8 +451,8 @@ export function createSourceObservationRuntime(
         throw new Error("Source observation was not found.");
       }
 
-      if (observation.status !== "observed") {
-        throw new Error("Only observed source observations can be promoted.");
+      if (!isPromotableObservationStatus(observation.status)) {
+        throw new Error("Only observed or changed source observations can be promoted.");
       }
 
       const result = await promoteObservationFromRow({ observation, context });
@@ -409,20 +463,22 @@ export function createSourceObservationRuntime(
     promoteObservations: promoteObservationIds,
     previewPromoteObservationScope: async ({ scope }) =>
       previewSourceObservationPromotionScope(deps.db, scope),
-    promoteObservationScope: async ({ scope, context }) => {
+    promoteObservationScope: async ({ scope, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
       return promoteObservationIds({
         observationIds,
         context,
+        onProgress,
       });
     },
     rejectObservations: rejectObservationIds,
-    rejectObservationScope: async ({ scope, reason, context }) => {
+    rejectObservationScope: async ({ scope, reason, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
       return rejectObservationIds({
         observationIds,
         reason,
         context,
+        onProgress,
       });
     },
     rejectObservation: async ({ observationId, reason, context }) => {
@@ -621,14 +677,7 @@ async function createCatalogDraftFromObservation(input: {
     streamId,
     command: {
       type: "SetCatalogItemTags",
-      tags: [
-        "pokemon",
-        "tcgdex",
-        `expansion:${input.normalized.expansionId}`,
-        `category:${input.normalized.category.toLowerCase()}`,
-        `variant:${input.normalized.cardVariantKey}`,
-        ...(input.normalized.imageDisclaimer ? ["image-note:variant-reference"] : []),
-      ],
+      tags: pokemonCatalogItemTags(input.normalized),
     },
     context: input.context,
   });
@@ -672,6 +721,100 @@ async function createCatalogDraftFromObservation(input: {
   });
 }
 
+async function refreshCatalogItemFromObservation(input: {
+  items: CatalogItemServices;
+  referenceData: ReferenceDataServices;
+  deps: CatalogRuntimeDeps;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationNormalized;
+  providerKey: string;
+  externalKey: string;
+  context: EventStoreContext;
+}) {
+  const streamId = `catalog.item-${input.catalogItemId}`;
+  const subtitle = formatPokemonCardSubtitle(input.normalized);
+  const profile = await loadPokemonTcgPromotionProfile(input.deps);
+  const expansionReferenceId = await ensurePokemonReferenceHierarchy({
+    deps: input.deps,
+    referenceData: input.referenceData,
+    normalized: input.normalized,
+    context: input.context,
+  });
+
+  await input.items.commandHandler({
+    streamId,
+    command: {
+      type: "ReviseCatalogItemMetadata",
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.normalized.name),
+      subtitle: localizedText(subtitle),
+      description: localizedText(input.normalized.imageDisclaimer ?? ""),
+    },
+    context: input.context,
+  });
+  await setFieldValue(input, profile.fieldIds.cardNumber, input.normalized.cardNumber);
+  await setFieldValue(input, profile.fieldIds.cardName, localizedJsonText(input.normalized.name));
+  await setFieldValue(input, profile.fieldIds.expansion, { referenceId: expansionReferenceId });
+  await setFieldValue(input, profile.fieldIds.cardVariant, input.normalized.cardVariantLabel);
+
+  if (input.normalized.rarity) {
+    await setFieldValue(input, profile.fieldIds.rarity, input.normalized.rarity);
+  }
+
+  if (input.normalized.illustrator) {
+    await setFieldValue(input, profile.fieldIds.cardIllustrator, input.normalized.illustrator);
+  }
+
+  if (input.normalized.releaseYear !== null) {
+    await setFieldValue(input, profile.fieldIds.releaseYear, input.normalized.releaseYear);
+  }
+
+  await input.items.commandHandler({
+    streamId,
+    command: {
+      type: "SetCatalogItemTags",
+      tags: pokemonCatalogItemTags(input.normalized),
+    },
+    context: input.context,
+  });
+  const productAssetSet = input.normalized.imageBaseUrl
+    ? await normalizeTcgdexImageAsset({
+        imageBaseUrl: input.normalized.imageBaseUrl,
+        storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
+        observedAt: new Date().toISOString(),
+        fetcher: globalThis.fetch,
+        assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+      })
+    : null;
+  await input.items.commandHandler({
+    streamId,
+    command: {
+      type: "SetCatalogItemImageUrls",
+      imageUrls: productAssetSet
+        ? productAssetSetCompatibilityImageUrls(productAssetSet)
+        : [...input.normalized.imageUrls],
+    },
+    context: input.context,
+  });
+  await input.items.commandHandler({
+    streamId,
+    command: {
+      type: "SetCatalogItemProductAssetSets",
+      productAssetSets: productAssetSet ? [productAssetSet] : [],
+    },
+    context: input.context,
+  });
+  await input.items.commandHandler({
+    streamId,
+    command: {
+      type: "LinkExternalProductReference",
+      providerKey: input.providerKey,
+      externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+    },
+    context: input.context,
+  });
+}
+
 function formatPokemonCardSubtitle(normalized: SourceObservationNormalized): string {
   return [
     normalized.expansionName,
@@ -681,6 +824,21 @@ function formatPokemonCardSubtitle(normalized: SourceObservationNormalized): str
   ]
     .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
     .join(" ");
+}
+
+function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string[] {
+  return [
+    "pokemon",
+    "tcgdex",
+    `expansion:${normalized.expansionId}`,
+    `category:${normalized.category.toLowerCase()}`,
+    `variant:${normalized.cardVariantKey}`,
+    ...(normalized.imageDisclaimer ? ["image-note:variant-reference"] : []),
+  ];
+}
+
+function isPromotableObservationStatus(status: string): boolean {
+  return status === "observed" || status === "changed";
 }
 
 function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStorage"]) {
@@ -1126,5 +1284,21 @@ function summarizePromotionOutcomes(
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
+  };
+}
+
+function bulkProgress(
+  completed: number,
+  total: number,
+  currentName: string | null = null,
+  status: BulkSourceObservationPromotionOutcome["status"] | null = null,
+  phase: BulkSourceObservationProgress["phase"] = "processing",
+): BulkSourceObservationProgress {
+  return {
+    phase,
+    completed,
+    total,
+    currentName,
+    status,
   };
 }
