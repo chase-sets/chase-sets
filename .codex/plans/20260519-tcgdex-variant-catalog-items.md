@@ -2,9 +2,9 @@
 
 ## Intent
 
-TCGDex Pokemon card imports must treat each declared print/parallel variant as its own reviewable Source Observation and, when promoted, as its own Catalog Item. Catalog Item identity needs to clearly identify the version using Pokemon marketplace language where possible, such as `Reverse Holo`, `1st Edition`, `Premium parallel set - Poke Ball`, and `Premium parallel set - Master Ball`, rather than exposing raw TCGDex variant keys.
+TCGDex Pokemon card imports must treat each declared print/parallel variant as its own reviewable Source Observation and, when promoted, as its own Catalog Item. Catalog Item identity needs to clearly identify the version using Pokemon marketplace language where possible, such as `Standard Set`, `Standard Set Foil`, `Parallel Set - Reverse Foil`, `1st Edition`, `Premium Parallel Set - Poke Ball`, and `Premium Parallel Set - Master Ball`, rather than exposing raw TCGDex variant keys.
 
-Variant Catalog Items may temporarily point at TCGDex provider image URLs while they are still Source Observations. During promotion, image assets remain Catalog-owned under `catalog/items/{catalog_item_id}`. When TCGDex only supplies the main card image for a variant, the promoted Catalog Item needs a visible description disclaimer that the image may not show the exact finish or parallel pattern.
+Variant Catalog Items may temporarily point at TCGDex provider image URLs while they are still Source Observations. During promotion, image assets remain Catalog-owned under `catalog/items/{catalog_item_id}`. When TCGDex only supplies the main card image for a variant, the promoted Catalog Item needs a visible description disclaimer that the image may not show the exact foil or pattern.
 
 ## Worktree
 
@@ -28,14 +28,14 @@ Variant Catalog Items may temporarily point at TCGDex provider image URLs while 
 - Catalog Item titles remain the printed card name. Subtitles carry the expansion, card number, Pokemon-language variant label, and rarity so list/detail pages can distinguish versions.
 - Add an optional `Card Variant` Catalog field for Pokemon card singles so variant identity is a first-class descriptive fact, filterable/searchable/sortable, and not buried only in tags or subtitle text.
 - Known TCGDex variant keys map to Pokemon/marketplace language:
-  - `normal` -> `Standard`
-  - `holo` -> `Holofoil`
-  - `reverse` -> `Reverse Holo`
+  - `normal` -> `Standard Set`
+  - `holo` -> `Standard Set Foil`
+  - `reverse` -> `Parallel Set - Reverse Foil`
   - `firstEdition` / `1stEdition` -> `1st Edition`
-  - `pokeBall` / `pokeball` -> `Premium parallel set - Poke Ball`
-  - `masterBall` / `masterball` -> `Premium parallel set - Master Ball`
-- Unknown provider variant keys will be humanized and labeled as `Parallel set - <Label>` so imports remain forward-compatible without publishing raw TCGDex key casing.
-- Promoted non-standard variants with TCGDex images will receive a description note that the image came from the provider card image and may not show the exact finish or parallel pattern.
+  - `pokeBall` / `pokeball` -> `Premium Parallel Set - Poke Ball`
+  - `masterBall` / `masterball` -> `Premium Parallel Set - Master Ball`
+- Unknown provider variant keys will be humanized and labeled as `Unclassified Variant - <Label>` so imports remain forward-compatible without publishing raw TCGDex key casing or asserting unsupported parallel-set membership.
+- Promoted non-standard variants with TCGDex images will receive a description note that the image came from the provider card image and may not show the exact foil or pattern.
 - External product references for secondary variants should include the variant key, e.g. `en:swsh3-136:reverse-holo`, so multiple Catalog Items can trace back to the same provider card without collapsing distinct variants. The primary variant keeps the unsuffixed provider card key for compatibility with existing observations.
 
 ## Repo Evidence
@@ -53,7 +53,7 @@ Variant Catalog Items may temporarily point at TCGDex provider image URLs while 
 - Extend `SourceObservationNormalized` with variant key/label/image notice metadata.
 - Expand TCGDex set import so each true provider variant emits a distinct observation.
 - Keep card imports with no declared true variants as one `standard` observation for backward compatibility.
-- Add variant label normalization with tests covering reverse holo, Poke Ball, Master Ball, first edition, and unknown keys.
+- Add variant label normalization with tests covering parallel set reverse foil, Poke Ball, Master Ball, first edition, and unknown keys.
 - Add optional `card-variant` field seed and blueprint rule.
 - Set `card-variant`, subtitle, tags, description disclaimer, image URLs, Product Asset Set, and external reference during promotion.
 - Update Source Observation detail UI to show variant and image note.
