@@ -9,7 +9,7 @@ Plan changes from inside an isolated git worktree, using the repo's bounded cont
 
 ## Workflow
 
-1. Create or reuse a dedicated worktree under `.codex/worktrees/<yyyymmdd>-<feature-slug>` and branch `codex/<feature-slug>`.
+1. Fetch the latest `origin/main`, then create or reuse a dedicated worktree under `.codex/worktrees/<yyyymmdd>-<feature-slug>` and branch `codex/<feature-slug>` from that fetched `origin/main`.
 2. Run all later reads, edits, plan updates, dependency setup, and verification commands from that worktree.
 3. Identify likely owning context(s), then read:
    - `bounded-contexts/README.md`
@@ -30,10 +30,12 @@ Plan changes from inside an isolated git worktree, using the repo's bounded cont
 Use an embedded worktree so the chat can run commands inside the accessible repo workspace:
 
 ```powershell
-git worktree add .codex/worktrees/<yyyymmdd>-<feature-slug> -b codex/<feature-slug>
+git fetch origin main
+git worktree add .codex/worktrees/<yyyymmdd>-<feature-slug> -b codex/<feature-slug> origin/main
 ```
 
-- Branch from current `HEAD` unless the user names another base.
+- Always branch from freshly fetched `origin/main`; do not branch from the current worktree `HEAD`.
+- If `origin/main` cannot be fetched or verified as current, pause and report the worktree setup blocker instead of creating a branch from stale local state.
 - Reuse an existing branch or path only when it clearly belongs to this request.
 - Keep `.codex/worktrees/` gitignored; do not add `.gitignore` exceptions for generated worktrees.
 - Install dependencies in the worktree before build, test, or dev commands: `pnpm run deps:install` or `node ./scripts/worktree-deps.mjs install`.
