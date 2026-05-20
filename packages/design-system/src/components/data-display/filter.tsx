@@ -1,4 +1,11 @@
-import { Children, useState, type HTMLAttributes, type ReactNode } from "react";
+import {
+  Children,
+  createContext,
+  useContext,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import { motion } from "motion/react";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
@@ -10,6 +17,7 @@ import {
   SideSheet,
   type BottomSheetProps,
   type MenuItem,
+  type SideSheetProps,
 } from "../feedback";
 
 export interface FilterBarProps
@@ -220,6 +228,26 @@ export interface BulkActionBarProps
   formatSelectedLabel?: (count: number) => string;
 }
 
+type BulkActionSurfaceRegistration = {
+  count: number;
+};
+
+const BulkActionSurfaceContext = createContext<BulkActionSurfaceRegistration | null>(null);
+
+export interface BulkActionSurfaceProps {
+  children?: ReactNode;
+}
+
+export function BulkActionSurface({ children }: BulkActionSurfaceProps) {
+  const registration: BulkActionSurfaceRegistration = { count: 0 };
+
+  return (
+    <BulkActionSurfaceContext.Provider value={registration}>
+      {children}
+    </BulkActionSurfaceContext.Provider>
+  );
+}
+
 export function BulkActionBar({
   count,
   actions,
@@ -237,6 +265,7 @@ export function BulkActionBar({
   const hasSecondaryActions = hasActionContent(secondaryActions);
   const hasOverflowActions = (overflowActions?.length ?? 0) > 0;
   const hasActions = hasPrimaryActions || hasSecondaryActions || hasOverflowActions;
+  useBulkActionSurfaceRegistration();
 
   return (
     <motion.div
@@ -302,6 +331,60 @@ export function BulkActionBar({
       </div>
     </motion.div>
   );
+}
+
+export interface BulkActionPanelProps
+  extends Omit<SideSheetProps, "title" | "trigger" | "children" | "footer"> {
+  title: ReactNode;
+  description?: ReactNode;
+  triggerLabel?: ReactNode;
+  trigger?: ReactNode;
+  children?: ReactNode;
+  footer?: ReactNode;
+}
+
+export function BulkActionPanel({
+  title,
+  description,
+  triggerLabel = "Configure actions",
+  trigger,
+  children,
+  footer,
+  width = "md",
+  ...rest
+}: BulkActionPanelProps) {
+  return (
+    <SideSheet
+      {...rest}
+      width={width}
+      title={title}
+      description={description}
+      trigger={
+        trigger ?? (
+          <Button tone="primary" size="sm" trailingIcon="chevronRight">
+            {triggerLabel}
+          </Button>
+        )
+      }
+      footer={footer}
+    >
+      <div className="grid gap-4">{children}</div>
+    </SideSheet>
+  );
+}
+
+function useBulkActionSurfaceRegistration() {
+  const registration = useContext(BulkActionSurfaceContext);
+
+  if (!registration) {
+    return;
+  }
+
+  registration.count += 1;
+
+  if (registration.count > 1) {
+    throw new Error("BulkActionSurface can render only one BulkActionBar. Combine actions into one bar and move advanced choices into BulkActionPanel or overflowActions.");
+  }
 }
 
 function hasActionContent(node: ReactNode): boolean {

@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Children, Fragment, isValidElement, useMemo, type ReactNode } from "react";
 import {
   Button,
+  BulkActionSurface,
   DataTable,
   EmptyState,
   FilterArea,
@@ -171,7 +172,7 @@ export function EntityListPage<T>({
               isRowSelectable={isRowSelectable}
               emptyTitle={t("catalog.support.shellSupport.ui.entityListPage.no.title", { title: title.toLowerCase() })}
             />
-            {bulkActionBar}
+            {bulkActionBar ? <BulkActionSurface>{bulkActionBar}</BulkActionSurface> : null}
             {showPagination && (
               <Inline gap={2} align="center">
                 <Button

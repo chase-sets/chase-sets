@@ -31,8 +31,9 @@ Application code should not introduce:
 - Panel interactions must use the canonical pattern taxonomy from [Panel Interaction Patterns](./PANEL_INTERACTIONS.md): `NavigationDrawer`, `Sidebar`, `SideSheet`, `BottomSheet`, `ModalDialog`, `Popover`/`Menu`, and `FullPage`. The package does not expose generic drawer or legacy dropdown aliases.
 - Overlays should use design-system Dialog, Sheet, Popover, Tooltip, Menu, and AlertDialog primitives instead of route-local overlay CSS.
 - Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
-- Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionBar`, and `MetricStrip`.
-- `BulkActionBar` should keep the selected-count fact visible, place the most likely safe action in `primaryActions`, place supporting actions such as clearing selection in `secondaryActions`, and move advanced, rare, or risky choices into `overflowActions`.
+- Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionSurface`, `BulkActionBar`, `BulkActionPanel`, and `MetricStrip`.
+- Each list action slot should wrap bulk actions in one `BulkActionSurface` and render at most one `BulkActionBar`. Combine selected-scope and matching-scope work into that one bar instead of stacking bottom action bars.
+- `BulkActionBar` should keep the selected-count fact visible, place the most likely safe action or configuration trigger in `primaryActions`, place supporting actions such as clearing selection in `secondaryActions`, and move advanced, rare, risky, or large action sets into `BulkActionPanel` or `overflowActions`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
 
 ## Progressive Disclosure
