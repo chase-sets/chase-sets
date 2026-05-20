@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -88,13 +89,37 @@ export function createReferenceDataRuntime(
     evolve: evolveReferenceRecord,
     decide: decideReferenceRecord,
   });
+  const projectionHandlers = buildReferenceDataProjectionHandlers(deps.db);
 
   const projectors = [
     createProjector({
       projectorName: "catalog-reference-data-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: buildReferenceDataProjectionHandlers(deps.db),
+      handlers: {
+        ...withCatalogAdminRealtimeInvalidation(
+          {
+            "catalog.reference-type.created": projectionHandlers["catalog.reference-type.created"],
+            "catalog.reference-type.revised": projectionHandlers["catalog.reference-type.revised"],
+            "catalog.reference-type.published": projectionHandlers["catalog.reference-type.published"],
+            "catalog.reference-type.deprecated": projectionHandlers["catalog.reference-type.deprecated"],
+            "catalog.reference-type.archived": projectionHandlers["catalog.reference-type.archived"],
+          },
+          deps.db,
+          { projectionName: "catalog-reference-data-projection", surface: "reference-types" },
+        ),
+        ...withCatalogAdminRealtimeInvalidation(
+          {
+            "catalog.reference-record.created": projectionHandlers["catalog.reference-record.created"],
+            "catalog.reference-record.revised": projectionHandlers["catalog.reference-record.revised"],
+            "catalog.reference-record.published": projectionHandlers["catalog.reference-record.published"],
+            "catalog.reference-record.deprecated": projectionHandlers["catalog.reference-record.deprecated"],
+            "catalog.reference-record.archived": projectionHandlers["catalog.reference-record.archived"],
+          },
+          deps.db,
+          { projectionName: "catalog-reference-data-projection", surface: "reference-records" },
+        ),
+      },
     }),
   ];
   const referenceTypeBulkLifecycle = createBulkLifecycleOperations<ReferenceTypeListParams, ReferenceTypeCommand, ReferenceTypeState, ReferenceTypeEvent>({

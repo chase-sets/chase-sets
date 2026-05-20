@@ -8,6 +8,7 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { CatalogDomainError } from "../../../support/runtime-support/common";
+import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId } from "../../../ids";
 import {
   createBulkLifecycleOperations,
@@ -186,7 +187,11 @@ export function createCatalogItemRuntime(
       projectorName: "catalog-admin-catalog-item-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: buildCatalogAdminCatalogItemProjectionHandlers(deps.db),
+      handlers: withCatalogAdminRealtimeInvalidation(
+        buildCatalogAdminCatalogItemProjectionHandlers(deps.db),
+        deps.db,
+        { projectionName: "catalog-admin-catalog-item-projection", surface: "catalog-items" },
+      ),
     }),
   ];
   const bulkLifecycle = createBulkLifecycleOperations<CatalogItemListParams, CatalogItemCommand, CatalogItemState, CatalogItemEvent>({

@@ -13,6 +13,10 @@ import {
   discoveryRealtimeManifest,
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
+import {
+  catalogRealtimeManifest,
+  catalogRealtimeTopicPolicyManifest,
+} from "@chase-sets/catalog/server";
 import { module as identityModule } from "@chase-sets/identity";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
@@ -150,17 +154,21 @@ export function buildPlatformApiApp(
   const realtimeStores = runtime.mountedContexts
     .filter(
       (entry) =>
+        entry.contextName === "catalog" ||
         entry.contextName === "discovery" ||
         entry.contextName === "marketplace",
     )
     .map((entry) => ({
-      ...(entry.contextName === "discovery"
-        ? discoveryRealtimeManifest
-        : marketplaceRealtimeManifest),
+      ...(entry.contextName === "catalog"
+        ? catalogRealtimeManifest
+        : entry.contextName === "discovery"
+          ? discoveryRealtimeManifest
+          : marketplaceRealtimeManifest),
       contextName: entry.contextName,
       db: entry.pool,
     }));
   const realtimeTopicPolicyManifest = composeRealtimeTopicPolicyManifest([
+    catalogRealtimeTopicPolicyManifest,
     discoveryRealtimeTopicPolicyManifest,
     marketplaceRealtimeTopicPolicyManifest,
   ]);

@@ -12,6 +12,7 @@ import {
 import {
   assertValidRealtimeTopics,
   normalizeRealtimeTopics,
+  type RealtimeTopicPolicyManifest,
 } from "./realtime-topic-policy";
 
 const REALTIME_OUTBOX_TABLE = "realtime_projection_outbox";
@@ -256,6 +257,7 @@ export type RecordRealtimeProjectionPatchInput = Readonly<{
   patchKey: string;
   topics: readonly string[];
   patch: RealtimeProjectionPatch;
+  topicPolicyManifest?: RealtimeTopicPolicyManifest;
   recordedAt?: string;
   retentionMs?: number;
   maxChangeCount?: number;
@@ -300,7 +302,7 @@ export async function recordRealtimeProjectionPatch(
   input: RecordRealtimeProjectionPatchInput,
 ): Promise<void> {
   const topics = normalizeRealtimeTopics(input.topics);
-  assertValidRealtimeTopics(topics);
+  assertValidRealtimeTopics(topics, input.topicPolicyManifest);
   assertValidRealtimeProjectionPatch(input, topics);
 
   const recordedAt = input.recordedAt ?? new Date().toISOString();

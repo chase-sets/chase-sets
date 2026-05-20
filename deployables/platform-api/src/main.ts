@@ -165,7 +165,9 @@ const runtime = createPlatformApiHost({
 });
 const realtimeStores = runtime.mountedContexts
   .filter((entry) =>
-    entry.contextName === "discovery" || entry.contextName === "marketplace"
+    entry.contextName === "catalog" ||
+    entry.contextName === "discovery" ||
+    entry.contextName === "marketplace"
   )
   .map((entry) => ({
     contextName: entry.contextName,

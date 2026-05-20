@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { catalogBlueprintSchemaSql } from "../../features/blueprints/read-model/schema";
 import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-model/schema";
 import { catalogCategorySchemaSql } from "../../features/categories/read-model/schema";
@@ -18,4 +19,5 @@ export const catalogAuthoringSchemaSql = [
   catalogReferenceDataSchemaSql,
   catalogCatalogItemSchemaSql,
   catalogSourceObservationSchemaSql,
+  realtimeOutboxSchemaSql,
 ].join("\n\n");

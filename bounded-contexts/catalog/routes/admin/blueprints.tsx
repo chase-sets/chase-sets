@@ -6,7 +6,9 @@ import {
 } from "../../client";
 import { BlueprintListPage } from "../../features/blueprints/ui/blueprint-list-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
+import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
+import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
@@ -20,6 +22,6 @@ export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.bluepr
 
 export default function BlueprintsRoute() {
   const routeData = useLoaderData<typeof loader>();
+  useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.blueprints());
   return <BlueprintListPage data={routeData.data} query={routeData.query} />;
 }
-

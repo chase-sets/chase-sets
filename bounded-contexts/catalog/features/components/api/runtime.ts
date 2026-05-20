@@ -6,6 +6,7 @@ import {
 } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -60,7 +61,11 @@ export function createComponentRuntime(
       projectorName: "catalog-component-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: buildComponentProjectionHandlers(deps.db),
+      handlers: withCatalogAdminRealtimeInvalidation(
+        buildComponentProjectionHandlers(deps.db),
+        deps.db,
+        { projectionName: "catalog-component-projection", surface: "components" },
+      ),
     }),
     createProjector({
       projectorName: "catalog-admin-component-detail-projection",
