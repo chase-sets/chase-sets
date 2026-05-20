@@ -36,6 +36,8 @@ git worktree add .codex/worktrees/<yyyymmdd>-<feature-slug> -b codex/<feature-sl
 
 - Always branch from freshly fetched `origin/main`; do not branch from the current worktree `HEAD`.
 - If `origin/main` cannot be fetched or verified as current, pause and report the worktree setup blocker instead of creating a branch from stale local state.
+- Do not run `git switch`, `git checkout`, `git pull`, or other branch-changing commands in the base checkout to prepare for planning; the `git worktree add ... -b ... origin/main` command creates and checks out the branch inside the new worktree.
+- After worktree creation, treat the new worktree path as the active repository root. Run every later command with the worktree as `cwd` or `workdir`, including reads, edits, dependency setup, tests, commits, pushes, and PR work.
 - Reuse an existing branch or path only when it clearly belongs to this request.
 - Keep `.codex/worktrees/` gitignored; do not add `.gitignore` exceptions for generated worktrees.
 - Install dependencies in the worktree before build, test, or dev commands: `pnpm run deps:install` or `node ./scripts/worktree-deps.mjs install`.
