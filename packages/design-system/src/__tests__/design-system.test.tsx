@@ -290,6 +290,7 @@ describe("design-system", () => {
     const markup = renderToString(
       <ListingCard
         title="1999 Base Set Charizard"
+        subtitle="Base Set 4 Standard Set Rare Holo"
         price="$428.00"
         sellerName="Mint Table Cards"
         sellerTrustLabel="Verified account"
@@ -301,6 +302,7 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain('data-primary-action-count="1"');
+    expect(markup).toContain("Base Set 4 Standard Set Rare Holo");
     expect(markup).toContain("Buy now");
     expect(markup).not.toContain("View details");
   });

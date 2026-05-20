@@ -28,7 +28,7 @@ const searchResult: DiscoverySearchItem = {
   subtitle_i18n: {},
   subtitle: "Pokemon sealed product",
   description_i18n: {},
-  description: "Make an offer or list yours to help this market form.",
+  description: "A sealed Pokemon product.",
   blueprint_id: null,
   blueprint_name: "Pokemon Sealed Product",
   status: "active",
@@ -67,6 +67,26 @@ const japaneseSearchResult: DiscoverySearchItem = {
     total_visible_quantity: 2,
   },
   updated_at: "2026-05-13T00:00:00.000Z",
+};
+
+const standardAbraSearchResult: DiscoverySearchItem = {
+  ...japaneseSearchResult,
+  catalog_item_id: "cat_abra_standard",
+  slug: "abra-standard-cat_abra_standard",
+  language_code: "en",
+  title: "Abra",
+  subtitle: "Base Set 43 Standard Set Common",
+  description: "Standard set Abra",
+  image_urls: ["/abra.webp"],
+  market_summary: null,
+};
+
+const reverseAbraSearchResult: DiscoverySearchItem = {
+  ...standardAbraSearchResult,
+  catalog_item_id: "cat_abra_reverse",
+  slug: "abra-reverse-cat_abra_reverse",
+  subtitle: "Base Set 43 Parallel Set - Reverse Foil Common",
+  description: "Parallel set Abra",
 };
 
 const searchResponse: DiscoverySearchResponse = {
@@ -129,6 +149,26 @@ describe("SearchPage", () => {
 
     expect(screen.getAllByText("Japanese").length).toBeGreaterThan(0);
     expect(screen.queryByText("Language: ja")).toBeNull();
+  });
+
+  it("surfaces catalog subtitles on search cards so visually identical variants can be distinguished", () => {
+    renderSearchPage({
+      committedSearch: "abra",
+      data: {
+        items: [standardAbraSearchResult, reverseAbraSearchResult],
+        facets: [],
+        total: 2,
+        count: 2,
+        nextCursor: null,
+      },
+      categories: [],
+    });
+
+    expect(screen.getAllByText("Abra")).toHaveLength(2);
+    expect(screen.getByText("Base Set 43 Standard Set Common")).toBeTruthy();
+    expect(screen.getByText("Base Set 43 Parallel Set - Reverse Foil Common")).toBeTruthy();
+    expect(screen.getAllByText("Pokemon Card Single")).toHaveLength(2);
+    expect(screen.queryByText("Make an offer or list yours to help this market form.")).toBeNull();
   });
 
   it("renders language as a top-level desktop filter", () => {
