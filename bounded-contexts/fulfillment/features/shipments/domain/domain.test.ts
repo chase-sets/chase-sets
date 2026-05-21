@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideFulfillmentShipment,
-  evolveFulfillmentShipment,
-  initialFulfillmentShipmentState,
-} from "./domain";
+import { decideFulfillmentShipment, evolveFulfillmentShipment, initialFulfillmentShipmentState } from "./domain";
 
 const shipmentAddressSnapshots = {
   shippingDestinationSnapshot: {
@@ -140,9 +136,7 @@ describe("fulfillment shipment domain", () => {
 
     expect(failedState.status).toBe("awaiting-label");
     expect(failedState.labelStatus).toBe("purchase-error");
-    expect(failedState.labelErrorMessage).toBe(
-      "No USPS rates were returned for this shipment.",
-    );
+    expect(failedState.labelErrorMessage).toBe("No USPS rates were returned for this shipment.");
   });
 
   it("rejects attaching a label before the package is prepared", () => {

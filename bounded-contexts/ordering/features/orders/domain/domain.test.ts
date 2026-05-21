@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideOrderingOrder,
-  evolveOrderingOrder,
-  initialOrderingOrderState,
-} from "./domain";
+import { decideOrderingOrder, evolveOrderingOrder, initialOrderingOrderState } from "./domain";
 
 const commercialTermsSnapshot = {
   marketplaceSalesFeeAmount: "1.00",

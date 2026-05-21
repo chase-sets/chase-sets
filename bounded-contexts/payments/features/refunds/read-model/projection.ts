@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildRefundProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "payments.refund-requested": async (event) => {
       const data = event.data as {
@@ -84,13 +82,7 @@ export function buildRefundProjectionHandlers(
              last_stream_version = $5
          WHERE refund_id = $1
            AND last_stream_version < $5`,
-        [
-          data.refundId,
-          data.processorRefundReference,
-          data.processorStatus,
-          data.issuedAt,
-          event.streamVersion,
-        ],
+        [data.refundId, data.processorRefundReference, data.processorStatus, data.issuedAt, event.streamVersion],
       );
     },
     "payments.refund-failed": async (event) => {

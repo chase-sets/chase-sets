@@ -1,19 +1,10 @@
-import {
-  index,
-  layout,
-  route,
-  type RouteConfig,
-} from "@react-router/dev/routes";
+import { index, layout, route, type RouteConfig } from "@react-router/dev/routes";
 import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
 import { resolveAdminWebRouteConfigRecords } from "./host";
 
 const contextRoutes = resolveAdminWebRouteConfigRecords();
 const catalogRootRoutes = contextRoutes
-  .filter(
-    (routeRecord) =>
-      routeRecord.section === "catalog" &&
-      (routeRecord.placement ?? "layout") === "root",
-  )
+  .filter((routeRecord) => routeRecord.section === "catalog" && (routeRecord.placement ?? "layout") === "root")
   .map((routeRecord) =>
     toRouteConfigEntry(routeRecord, {
       index,
@@ -21,11 +12,7 @@ const catalogRootRoutes = contextRoutes
     }),
   );
 const identityRootRoutes = contextRoutes
-  .filter(
-    (routeRecord) =>
-      routeRecord.section === "identity" &&
-      (routeRecord.placement ?? "layout") === "root",
-  )
+  .filter((routeRecord) => routeRecord.section === "identity" && (routeRecord.placement ?? "layout") === "root")
   .map((routeRecord) =>
     toRouteConfigEntry(routeRecord, {
       index,
@@ -33,11 +20,7 @@ const identityRootRoutes = contextRoutes
     }),
   );
 const experienceRootRoutes = contextRoutes
-  .filter(
-    (routeRecord) =>
-      routeRecord.section === "experience" &&
-      (routeRecord.placement ?? "layout") === "root",
-  )
+  .filter((routeRecord) => routeRecord.section === "experience" && (routeRecord.placement ?? "layout") === "root")
   .map((routeRecord) =>
     toRouteConfigEntry(routeRecord, {
       index,
@@ -45,11 +28,7 @@ const experienceRootRoutes = contextRoutes
     }),
   );
 const catalogLayoutRoutes = contextRoutes
-  .filter(
-    (routeRecord) =>
-      routeRecord.section === "catalog" &&
-      (routeRecord.placement ?? "layout") === "layout",
-  )
+  .filter((routeRecord) => routeRecord.section === "catalog" && (routeRecord.placement ?? "layout") === "layout")
   .map((routeRecord) =>
     toRouteConfigEntry(routeRecord, {
       index,
@@ -57,11 +36,7 @@ const catalogLayoutRoutes = contextRoutes
     }),
   );
 const identityLayoutRoutes = contextRoutes
-  .filter(
-    (routeRecord) =>
-      routeRecord.section === "identity" &&
-      (routeRecord.placement ?? "layout") === "layout",
-  )
+  .filter((routeRecord) => routeRecord.section === "identity" && (routeRecord.placement ?? "layout") === "layout")
   .map((routeRecord) =>
     toRouteConfigEntry(routeRecord, {
       index,
@@ -69,11 +44,7 @@ const identityLayoutRoutes = contextRoutes
     }),
   );
 const experienceLayoutRoutes = contextRoutes
-  .filter(
-    (routeRecord) =>
-      routeRecord.section === "experience" &&
-      (routeRecord.placement ?? "layout") === "layout",
-  )
+  .filter((routeRecord) => routeRecord.section === "experience" && (routeRecord.placement ?? "layout") === "layout")
   .map((routeRecord) =>
     toRouteConfigEntry(routeRecord, {
       index,
@@ -92,14 +63,8 @@ export default [
   ...catalogRootRoutes,
   ...identityRootRoutes,
   ...experienceRootRoutes,
-  layout("routes/catalog-layout.tsx", [
-    route("catalog", "routes/catalog-home.tsx"),
-    ...catalogLayoutRoutes,
-  ]),
-  layout("routes/identity-layout.tsx", [
-    route("identity", "routes/identity-home.tsx"),
-    ...identityLayoutRoutes,
-  ]),
+  layout("routes/catalog-layout.tsx", [route("catalog", "routes/catalog-home.tsx"), ...catalogLayoutRoutes]),
+  layout("routes/identity-layout.tsx", [route("identity", "routes/identity-home.tsx"), ...identityLayoutRoutes]),
   layout("routes/experience-layout.tsx", [
     route("experience", "routes/experience-home.tsx"),
     ...experienceLayoutRoutes,

@@ -34,9 +34,7 @@ function formatMoney(value: string | null) {
   }).format(amount);
 }
 
-function productOptionsFromSelectedOptions(
-  selections: readonly { dimensionId: string; optionId: string }[],
-) {
+function productOptionsFromSelectedOptions(selections: readonly { dimensionId: string; optionId: string }[]) {
   return selections.map((selection) => ({
     dimensionLabel: selection.dimensionId,
     optionLabel: selection.optionId,
@@ -50,9 +48,7 @@ export function CheckoutSellListPage({
   sellListLines: readonly CheckoutSellListLineRow[];
   errorMessage?: string | null;
 }) {
-  const selectedOfferLines = sellListLines.filter(
-    (line) => line.line_type === "selected-offer",
-  );
+  const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
   const productLines = sellListLines.filter((line) => line.line_type === "product");
   const totalQuantity = sellListLines.reduce((sum, line) => sum + line.quantity, 0);
   const estimatedSelectedOfferValue = selectedOfferLines.reduce(
@@ -83,11 +79,9 @@ export function CheckoutSellListPage({
           <MarketplaceEmptyState
             title={t("checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty")}
             description={t("checkout.features.sellList.ui.sellListPage.add.selected.offers.or.products")}
-            recoveryActions={(
-              <LinkButton href="/search">
-                {t("checkout.features.sellList.ui.sellListPage.browse.products")}
-              </LinkButton>
-            )}
+            recoveryActions={
+              <LinkButton href="/search">{t("checkout.features.sellList.ui.sellListPage.browse.products")}</LinkButton>
+            }
           />
         ) : (
           <Stack gap={5}>
@@ -106,11 +100,11 @@ export function CheckoutSellListPage({
               ]}
               total={formatMoney(String(estimatedSelectedOfferValue))}
               totalLabel={t("checkout.features.sellList.ui.sellListPage.selected.offer.value")}
-              reassurance={(
+              reassurance={
                 <SecurePaymentIndicator
                   label={t("checkout.features.sellList.ui.sellListPage.buyer.payment.already.authorized")}
                 />
-              )}
+              }
             />
 
             <PageSection title={t("checkout.features.sellList.ui.sellListPage.selected.offers")}>
@@ -131,11 +125,15 @@ export function CheckoutSellListPage({
                           <Stack gap={1}>
                             <Text weight="semibold">{line.item_title}</Text>
                             {line.item_subtitle ? (
-                              <Text size="sm" tone="secondary">{line.item_subtitle}</Text>
+                              <Text size="sm" tone="secondary">
+                                {line.item_subtitle}
+                              </Text>
                             ) : null}
                             <ProductOptions
                               options={productOptionsFromSelectedOptions(line.selected_options)}
-                              emptyLabel={line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")}
+                              emptyLabel={
+                                line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")
+                              }
                             />
                           </Stack>
                           <KeyValueList
@@ -144,12 +142,17 @@ export function CheckoutSellListPage({
                             items={[
                               {
                                 key: t("checkout.features.sellList.ui.sellListPage.buyer"),
-                                value: line.buyer_display_name ?? line.buyer_account_id ?? t("checkout.features.sellList.ui.sellListPage.buyer"),
+                                value:
+                                  line.buyer_display_name ??
+                                  line.buyer_account_id ??
+                                  t("checkout.features.sellList.ui.sellListPage.buyer"),
                               },
                               { key: t("checkout.features.sellList.ui.sellListPage.quantity"), value: line.quantity },
                               {
                                 key: t("checkout.features.sellList.ui.sellListPage.execution"),
-                                value: t("checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review"),
+                                value: t(
+                                  "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review",
+                                ),
                               },
                             ]}
                           />
@@ -185,9 +188,10 @@ export function CheckoutSellListPage({
                         <Text size="sm" tone="secondary">
                           {t("checkout.features.sellList.ui.sellListPage.smart.match.offers.for.quantity", {
                             quantity: line.quantity,
-                            fallback: line.fallback_mode === "create-listing"
-                              ? t("checkout.features.sellList.ui.sellListPage.create.listings")
-                              : t("checkout.features.sellList.ui.sellListPage.disabled"),
+                            fallback:
+                              line.fallback_mode === "create-listing"
+                                ? t("checkout.features.sellList.ui.sellListPage.create.listings")
+                                : t("checkout.features.sellList.ui.sellListPage.disabled"),
                           })}
                         </Text>
                       </Stack>
@@ -204,9 +208,7 @@ export function CheckoutSellListPage({
 
             <Card variant="feature">
               <Stack gap={2}>
-                <Text weight="semibold">
-                  {t("checkout.features.sellList.ui.sellListPage.smart.match.settings")}
-                </Text>
+                <Text weight="semibold">{t("checkout.features.sellList.ui.sellListPage.smart.match.settings")}</Text>
                 <Text size="sm" tone="secondary">
                   {t("checkout.features.sellList.ui.sellListPage.checkout.owns.the.review.step")}
                 </Text>

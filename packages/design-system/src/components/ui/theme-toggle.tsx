@@ -14,7 +14,7 @@ const options: Array<{
 }> = [
   { value: "system", label: "System", icon: Monitor },
   { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon }
+  { value: "dark", label: "Dark", icon: Moon },
 ];
 
 export interface ThemeToggleProps {
@@ -107,7 +107,10 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
 
   return (
     <fieldset
-      className={cn("inline-flex rounded-[var(--radius-lg)] border border-[var(--muted)] bg-[var(--card)] p-1 shadow-[var(--shadow-sm)]", className)}
+      className={cn(
+        "inline-flex rounded-[var(--radius-lg)] border border-[var(--muted)] bg-[var(--card)] p-1 shadow-[var(--shadow-sm)]",
+        className,
+      )}
       aria-label="Color theme"
     >
       <legend className="sr-only">Color theme</legend>
@@ -115,10 +118,7 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
         const Icon = option.icon;
 
         return (
-          <label
-            key={option.value}
-            className="relative cursor-pointer"
-          >
+          <label key={option.value} className="relative cursor-pointer">
             <input
               className="peer sr-only"
               type="radio"

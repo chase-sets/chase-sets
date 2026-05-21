@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -23,11 +20,7 @@ import { buildInventoryHoldProjectionHandlers } from "../read-model/projection";
 import { getInventoryHold } from "../read-model/queries";
 
 export type InventoryHoldServices = Readonly<{
-  commandHandler: CommandHandler<
-    InventoryHoldCommand,
-    InventoryHoldState,
-    InventoryHoldEvent
-  >;
+  commandHandler: CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>;
   createHold: (
     params: Readonly<{
       accountId: AccountId;
@@ -45,16 +38,11 @@ export type InventoryHoldServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ holdId: string; version: number }>;
-  getHold: (
-    holdId: string,
-    accountId: string,
-  ) => ReturnType<typeof getInventoryHold>;
+  getHold: (holdId: string, accountId: string) => ReturnType<typeof getInventoryHold>;
   projectors: readonly Projector[];
 }>;
 
-export function createInventoryHoldRuntime(
-  deps: InventoryRuntimeDeps,
-): InventoryHoldServices {
+export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): InventoryHoldServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -75,9 +63,7 @@ export function createInventoryHoldRuntime(
       }
 
       if (item.available_quantity < params.quantity) {
-        throw new InventoryDomainError(
-          "Holds cannot exceed the available quantity for an inventory item.",
-        );
+        throw new InventoryDomainError("Holds cannot exceed the available quantity for an inventory item.");
       }
 
       const holdId = createId("hld") as InventoryHoldId;

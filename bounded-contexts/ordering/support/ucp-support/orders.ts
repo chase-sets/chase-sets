@@ -10,9 +10,7 @@ export type OrderingUcpHandlers = Readonly<{
   mcpToolHandlers: Readonly<Record<string, UcpHandler>>;
 }>;
 
-export function createOrderingUcpHandlers(
-  ordering: Pick<OrderingServices, "orders">,
-): OrderingUcpHandlers {
+export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orders">): OrderingUcpHandlers {
   const handlers = {
     get_order: async (input: UcpOperationHandlerInput) => {
       const access = requireOrderReadAccess(input);
@@ -87,17 +85,12 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
   return { actor: input.actor };
 }
 
-function orderToUcpOrder(
-  row: OrderingOrderDetailRow,
-  perspective: "purchase" | "sale",
-) {
+function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | "sale") {
   return {
     id: row.order_id,
     label: `${perspective === "purchase" ? "Purchase" : "Sale"} ${row.order_id}`,
     checkout_id: row.source_reference_id ?? row.order_id,
-    permalink_url: perspective === "purchase"
-      ? `/account/purchases/${row.order_id}`
-      : `/account/sales/${row.order_id}`,
+    permalink_url: perspective === "purchase" ? `/account/purchases/${row.order_id}` : `/account/sales/${row.order_id}`,
     currency: "USD",
     status: row.status,
     line_items: row.lines.map((line) => ({
@@ -124,11 +117,7 @@ function orderToUcpOrder(
         { type: "subtotal", amount: moneyToMinorUnits(line.line_total_amount) },
         { type: "total", amount: moneyToMinorUnits(line.line_total_amount) },
       ],
-      status: row.status === "cancelled"
-        ? "cancelled"
-        : row.ready_for_fulfillment_at
-          ? "fulfilled"
-          : "pending",
+      status: row.status === "cancelled" ? "cancelled" : row.ready_for_fulfillment_at ? "fulfilled" : "pending",
     })),
     fulfillment: {
       expectations: [
@@ -169,10 +158,7 @@ function orderToUcpOrder(
   };
 }
 
-function listOrderExtension(
-  row: OrderingOrderListRow,
-  perspective: "purchase" | "sale",
-) {
+function listOrderExtension(row: OrderingOrderListRow, perspective: "purchase" | "sale") {
   return {
     perspective,
     source_type: row.source_type,

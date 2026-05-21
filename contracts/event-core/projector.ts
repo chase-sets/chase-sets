@@ -4,15 +4,10 @@ import { toTransportEvent, type TransportEvent } from "./transport";
 
 export type ProjectionCheckpointStore = Readonly<{
   loadCheckpoint: (projectorName: string) => Promise<GlobalPosition>;
-  saveCheckpoint: (
-    projectorName: string,
-    globalPosition: GlobalPosition,
-  ) => Promise<void>;
+  saveCheckpoint: (projectorName: string, globalPosition: GlobalPosition) => Promise<void>;
 }>;
 
-export type ProjectorHandler = (
-  event: Readonly<TransportEvent>,
-) => Promise<void>;
+export type ProjectorHandler = (event: Readonly<TransportEvent>) => Promise<void>;
 
 export type ProjectorHandlerMap = Readonly<Record<string, ProjectorHandler>>;
 
@@ -40,9 +35,7 @@ export function createProjector(config: ProjectorConfig): Projector {
   return {
     projectorName: config.projectorName,
     runOnce: async () => {
-      const checkpoint = await config.checkpointStore.loadCheckpoint(
-        config.projectorName,
-      );
+      const checkpoint = await config.checkpointStore.loadCheckpoint(config.projectorName);
       const storedEvents = await config.eventStore.readAll({
         afterGlobalPosition: checkpoint,
         limit: batchSize,
@@ -69,10 +62,7 @@ export function createProjector(config: ProjectorConfig): Projector {
         lastGlobalPosition = transportEvent.globalPosition;
         processed += 1;
 
-        await config.checkpointStore.saveCheckpoint(
-          config.projectorName,
-          lastGlobalPosition,
-        );
+        await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
       }
 
       return {

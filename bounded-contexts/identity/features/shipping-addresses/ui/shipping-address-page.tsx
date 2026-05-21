@@ -121,7 +121,11 @@ export function ShippingAddressPage({
         eyebrow={t("identity.features.shippingAddresses.ui.shippingAddressPage.account")}
         title={t("identity.features.shippingAddresses.ui.shippingAddressPage.shipping.addresses")}
         description={t("identity.features.shippingAddresses.ui.shippingAddressPage.manage.reusable.destinations")}
-        actions={<LinkButton href="/account" tone="secondary">{t("identity.features.shippingAddresses.ui.shippingAddressPage.back.to.account")}</LinkButton>}
+        actions={
+          <LinkButton href="/account" tone="secondary">
+            {t("identity.features.shippingAddresses.ui.shippingAddressPage.back.to.account")}
+          </LinkButton>
+        }
       />
 
       {errorMessage ? (
@@ -174,7 +178,9 @@ export function ShippingAddressPage({
                   </Inline>
                   <Stack gap={1}>
                     {addressLines(address).map((line) => (
-                      <Text key={line} size="sm" tone="secondary">{line}</Text>
+                      <Text key={line} size="sm" tone="secondary">
+                        {line}
+                      </Text>
                     ))}
                   </Stack>
                   <Inline gap={2}>
@@ -209,7 +215,9 @@ export function ShippingAddressPage({
                     ) : null}
                     <ModalDialog
                       title={t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
-                      description={t("identity.features.shippingAddresses.ui.shippingAddressPage.archive.confirm.description")}
+                      description={t(
+                        "identity.features.shippingAddresses.ui.shippingAddressPage.archive.confirm.description",
+                      )}
                       trigger={
                         <Button type="button" tone="danger">
                           {t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}

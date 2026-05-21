@@ -20,11 +20,7 @@ type ShippingAddressPayload = {
   isDefault: boolean;
 };
 
-async function clearDefault(
-  db: PgQueryable,
-  accountId: string,
-  exceptShippingAddressId: string,
-) {
+async function clearDefault(db: PgQueryable, accountId: string, exceptShippingAddressId: string) {
   await db.query(
     `UPDATE identity_shipping_addresses
      SET is_default = false
@@ -34,9 +30,7 @@ async function clearDefault(
   );
 }
 
-export function buildShippingAddressProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildShippingAddressProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.shipping-address.added": async (event) => {
       const data = event.data as ShippingAddressPayload & { addedAt: string };

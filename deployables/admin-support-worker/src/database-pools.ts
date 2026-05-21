@@ -1,18 +1,9 @@
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import {
-  getWorkerHostContextNames,
-  type WorkerHostContextName,
-} from "@chase-sets/platform-runtime/worker";
-import {
-  getContextDatabaseEnvName,
-  type AdminSupportWorkerConfig,
-} from "./config";
+import { getWorkerHostContextNames, type WorkerHostContextName } from "@chase-sets/platform-runtime/worker";
+import { getContextDatabaseEnvName, type AdminSupportWorkerConfig } from "./config";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
-const adminSupportContexts = getWorkerHostContextNames(
-  workerContextRegistry,
-  "admin-support-worker",
-);
+const adminSupportContexts = getWorkerHostContextNames(workerContextRegistry, "admin-support-worker");
 
 function resolveContextDatabaseUrl(
   config: AdminSupportWorkerConfig,
@@ -29,9 +20,7 @@ function resolveContextDatabaseUrl(
   }
 
   throw new Error(
-    `Missing database URL for context '${contextName}'. Set ${getContextDatabaseEnvName(
-      contextName,
-    )} or DATABASE_URL.`,
+    `Missing database URL for context '${contextName}'. Set ${getContextDatabaseEnvName(contextName)} or DATABASE_URL.`,
   );
 }
 
@@ -68,9 +57,5 @@ export async function closeAdminSupportWorkerPools(
   pools: Readonly<Record<string, PgTransactionalPool>>,
 ): Promise<void> {
   const uniquePools = [...new Set(Object.values(pools))];
-  await Promise.all(
-    uniquePools.map((pool) =>
-      (pool as unknown as { end: () => Promise<void> }).end(),
-    ),
-  );
+  await Promise.all(uniquePools.map((pool) => (pool as unknown as { end: () => Promise<void> }).end()));
 }

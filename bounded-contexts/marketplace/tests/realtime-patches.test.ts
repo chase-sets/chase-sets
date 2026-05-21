@@ -104,11 +104,7 @@ describe("marketplace realtime offer-match patch payloads", () => {
       },
     };
 
-    const rows = await listOfferMatchesForSellers(db, "offer_1", [
-      "seller_1",
-      "seller_2",
-      "seller_1",
-    ]);
+    const rows = await listOfferMatchesForSellers(db, "offer_1", ["seller_1", "seller_2", "seller_1"]);
 
     expect(calls).toHaveLength(1);
     expect(calls[0].sql).toContain("WITH seller_accounts");

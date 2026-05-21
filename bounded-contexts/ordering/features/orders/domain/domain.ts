@@ -1,12 +1,5 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import {
-  normalizeAddressSnapshot,
-  type AddressSnapshot,
-} from "@chase-sets/primitives/address-snapshot";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
@@ -314,32 +307,17 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
   return lines.map((line) => ({
     lineId: line.lineId,
     listingId: normalizeRequiredText(line.listingId, "Order lines must reference a listing."),
-    inventoryItemId: normalizeRequiredText(
-      line.inventoryItemId,
-      "Order lines must reference inventory.",
-    ),
-    catalogItemId: normalizeRequiredText(
-      line.catalogItemId,
-      "Order lines must reference a catalog item.",
-    ),
-    productId: normalizeRequiredText(
-      String(line.productId),
-      "Order lines must reference a product id.",
-    ),
-    itemTitle: normalizeRequiredText(
-      line.itemTitle,
-      "Order lines must include an item title snapshot.",
-    ),
+    inventoryItemId: normalizeRequiredText(line.inventoryItemId, "Order lines must reference inventory."),
+    catalogItemId: normalizeRequiredText(line.catalogItemId, "Order lines must reference a catalog item."),
+    productId: normalizeRequiredText(String(line.productId), "Order lines must reference a product id."),
+    itemTitle: normalizeRequiredText(line.itemTitle, "Order lines must include an item title snapshot."),
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     selectedOptions: normalizeVersionSelection(line.selectedOptions),
     productSummary: normalizeOptionalText(line.productSummary),
     unitPriceAmount: normalizeMoneyAmount(line.unitPriceAmount, {
       fieldName: "Unit price",
     }),
-    quantity: ensurePositiveInteger(
-      line.quantity,
-      "Order line quantity must be a positive whole number.",
-    ),
+    quantity: ensurePositiveInteger(line.quantity, "Order line quantity must be a positive whole number."),
     lineTotalAmount: normalizeMoneyAmount(line.lineTotalAmount, {
       fieldName: "Line total",
     }),
@@ -362,23 +340,14 @@ function normalizeOrderLines(lines: readonly OrderingOrderLine[]) {
   }));
 }
 
-function normalizeReservationRequests(
-  requests: CreateOrderCommand["reservationRequests"],
-  sellerAccountId: string,
-) {
-  assert(
-    requests.length > 0,
-    "Orders must include inventory reservation requests for committed quantity.",
-  );
+function normalizeReservationRequests(requests: CreateOrderCommand["reservationRequests"], sellerAccountId: string) {
+  assert(requests.length > 0, "Orders must include inventory reservation requests for committed quantity.");
   return requests.map((request) => {
     const normalizedSellerAccountId = normalizeRequiredText(
       request.sellerAccountId,
       "Reservation requests must include a seller account id.",
     );
-    assert(
-      normalizedSellerAccountId === sellerAccountId,
-      "Reservation requests must belong to the committed seller.",
-    );
+    assert(normalizedSellerAccountId === sellerAccountId, "Reservation requests must belong to the committed seller.");
 
     return {
       reservationRequestId: normalizeRequiredText(
@@ -408,20 +377,14 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
       fieldName: "Seller net amount",
       allowZero: true,
     }),
-    sellerItemNetAmount: normalizeMoneyAmount(
-      snapshot.sellerItemNetAmount ?? snapshot.sellerNetAmount,
-      {
-        fieldName: "Seller item net amount",
-        allowZero: true,
-      },
-    ),
-    shippingAllowanceAmount: normalizeMoneyAmount(
-      snapshot.shippingAllowanceAmount ?? "0.00",
-      {
-        fieldName: "Shipping allowance amount",
-        allowZero: true,
-      },
-    ),
+    sellerItemNetAmount: normalizeMoneyAmount(snapshot.sellerItemNetAmount ?? snapshot.sellerNetAmount, {
+      fieldName: "Seller item net amount",
+      allowZero: true,
+    }),
+    shippingAllowanceAmount: normalizeMoneyAmount(snapshot.shippingAllowanceAmount ?? "0.00", {
+      fieldName: "Shipping allowance amount",
+      allowZero: true,
+    }),
     sellerShippingPayoutAmount: normalizeMoneyAmount(
       snapshot.sellerShippingPayoutAmount ?? snapshot.shippingAllowanceAmount ?? "0.00",
       {
@@ -429,17 +392,11 @@ function normalizeCommercialTermsSnapshot(snapshot: OrderingCommercialTermsSnaps
         allowZero: true,
       },
     ),
-    sellerPayoutAmount: normalizeMoneyAmount(
-      snapshot.sellerPayoutAmount ?? snapshot.sellerNetAmount,
-      {
-        fieldName: "Seller payout amount",
-        allowZero: true,
-      },
-    ),
-    shippingAllowancePercentageBps: Math.max(
-      0,
-      Math.trunc(Number(snapshot.shippingAllowancePercentageBps ?? 500)),
-    ),
+    sellerPayoutAmount: normalizeMoneyAmount(snapshot.sellerPayoutAmount ?? snapshot.sellerNetAmount, {
+      fieldName: "Seller payout amount",
+      allowZero: true,
+    }),
+    shippingAllowancePercentageBps: Math.max(0, Math.trunc(Number(snapshot.shippingAllowancePercentageBps ?? 500))),
     termsScheduleId: normalizeOptionalText(snapshot.termsScheduleId),
     termsAgreementId: normalizeOptionalText(snapshot.termsAgreementId),
     termsResolvedAt: normalizeRequiredText(
@@ -465,15 +422,9 @@ function normalizeTaxSnapshot(snapshot: OrderingTaxSnapshot) {
     ),
     jurisdictionState: normalizeOptionalText(snapshot.jurisdictionState),
     rateBps: Math.max(0, Math.trunc(Number(snapshot.rateBps))),
-    providerName: normalizeRequiredText(
-      snapshot.providerName,
-      "Tax snapshot must include a provider name.",
-    ),
+    providerName: normalizeRequiredText(snapshot.providerName, "Tax snapshot must include a provider name."),
     providerQuoteReference: normalizeOptionalText(snapshot.providerQuoteReference),
-    quotedAt: normalizeRequiredText(
-      snapshot.quotedAt,
-      "Tax snapshot must include a quote timestamp.",
-    ),
+    quotedAt: normalizeRequiredText(snapshot.quotedAt, "Tax snapshot must include a quote timestamp."),
   };
 }
 
@@ -501,11 +452,10 @@ function hasPendingReservations(state: OrderingOrderState) {
   return state.reservationRequests.some((request) => request.status === "pending");
 }
 
-export const decideOrderingOrder: AggregateDecider<
-  OrderingOrderState,
-  OrderingOrderCommand,
-  OrderingOrderEvent
-> = (state, command) => {
+export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingOrderCommand, OrderingOrderEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "CreateOrder": {
       assert(state.orderId === null, "Order has already been created.");
@@ -536,10 +486,13 @@ export const decideOrderingOrder: AggregateDecider<
               fieldName: "Shipping discount amount",
               allowZero: true,
             }),
-            shippingAllowanceAmount: normalizeMoneyAmount(command.shippingAllowanceAmount ?? command.shippingChargeAmount, {
-              fieldName: "Shipping allowance amount",
-              allowZero: true,
-            }),
+            shippingAllowanceAmount: normalizeMoneyAmount(
+              command.shippingAllowanceAmount ?? command.shippingChargeAmount,
+              {
+                fieldName: "Shipping allowance amount",
+                allowZero: true,
+              },
+            ),
             shippingOverageAmount: normalizeMoneyAmount(command.shippingOverageAmount ?? "0.00", {
               fieldName: "Shipping overage amount",
               allowZero: true,
@@ -558,22 +511,14 @@ export const decideOrderingOrder: AggregateDecider<
               allowZero: true,
             }),
             taxSnapshot: normalizeTaxSnapshot(command.taxSnapshot),
-            commercialTermsSnapshot: normalizeCommercialTermsSnapshot(
-              command.commercialTermsSnapshot,
-            ),
+            commercialTermsSnapshot: normalizeCommercialTermsSnapshot(command.commercialTermsSnapshot),
             shippingDestinationSnapshot: normalizeAddressSnapshot(
               command.shippingDestinationSnapshot,
               "Shipping destination",
             ),
-            shippingOriginSnapshot: normalizeAddressSnapshot(
-              command.shippingOriginSnapshot,
-              "Shipping origin",
-            ),
+            shippingOriginSnapshot: normalizeAddressSnapshot(command.shippingOriginSnapshot, "Shipping origin"),
             lines: normalizedLines,
-            reservationRequests: normalizeReservationRequests(
-              command.reservationRequests,
-              normalizedSellerAccountId,
-            ),
+            reservationRequests: normalizeReservationRequests(command.reservationRequests, normalizedSellerAccountId),
           },
         },
       ];
@@ -584,31 +529,18 @@ export const decideOrderingOrder: AggregateDecider<
         return [];
       }
 
-      const holdId = normalizeRequiredText(
-        command.holdId,
-        "Reservation confirmation must include a hold id.",
-      );
-      const updated = updateReservationRequest(
-        state,
-        command.reservationRequestId,
-        (request) => {
-          if (
-            request.status === "confirmed" &&
-            request.holdId === holdId
-          ) {
-            return request;
-          }
-          assert(
-            request.status === "pending",
-            "Only pending reservation requests can be confirmed.",
-          );
-          return {
-            ...request,
-            holdId,
-            status: "confirmed",
-          };
-        },
-      );
+      const holdId = normalizeRequiredText(command.holdId, "Reservation confirmation must include a hold id.");
+      const updated = updateReservationRequest(state, command.reservationRequestId, (request) => {
+        if (request.status === "confirmed" && request.holdId === holdId) {
+          return request;
+        }
+        assert(request.status === "pending", "Only pending reservation requests can be confirmed.");
+        return {
+          ...request,
+          holdId,
+          status: "confirmed",
+        };
+      });
 
       if (!updated.matched) {
         return [];
@@ -630,18 +562,15 @@ export const decideOrderingOrder: AggregateDecider<
             ),
             inventoryItemId:
               nextState.reservationRequests.find(
-                (request) =>
-                  request.reservationRequestId === command.reservationRequestId,
+                (request) => request.reservationRequestId === command.reservationRequestId,
               )?.inventoryItemId ?? "",
             sellerAccountId:
               nextState.reservationRequests.find(
-                (request) =>
-                  request.reservationRequestId === command.reservationRequestId,
+                (request) => request.reservationRequestId === command.reservationRequestId,
               )?.sellerAccountId ?? "",
             quantity:
               nextState.reservationRequests.find(
-                (request) =>
-                  request.reservationRequestId === command.reservationRequestId,
+                (request) => request.reservationRequestId === command.reservationRequestId,
               )?.quantity ?? 0,
             holdId,
             confirmedAt: normalizeRequiredText(
@@ -670,33 +599,21 @@ export const decideOrderingOrder: AggregateDecider<
         return [];
       }
 
-      const updated = updateReservationRequest(
-        state,
-        command.reservationRequestId,
-        (request) => {
-          if (
-            request.status === "rejected" &&
-            request.rejectionReason === normalizeRequiredText(
-              command.reason,
-              "Reservation rejection must include a reason.",
-            )
-          ) {
-            return request;
-          }
-          assert(
-            request.status === "pending",
-            "Only pending reservation requests can be rejected.",
-          );
-          return {
-            ...request,
-            status: "rejected",
-            rejectionReason: normalizeRequiredText(
-              command.reason,
-              "Reservation rejection must include a reason.",
-            ),
-          };
-        },
-      );
+      const updated = updateReservationRequest(state, command.reservationRequestId, (request) => {
+        if (
+          request.status === "rejected" &&
+          request.rejectionReason ===
+            normalizeRequiredText(command.reason, "Reservation rejection must include a reason.")
+        ) {
+          return request;
+        }
+        assert(request.status === "pending", "Only pending reservation requests can be rejected.");
+        return {
+          ...request,
+          status: "rejected",
+          rejectionReason: normalizeRequiredText(command.reason, "Reservation rejection must include a reason."),
+        };
+      });
 
       if (!updated.matched) {
         return [];
@@ -711,14 +628,8 @@ export const decideOrderingOrder: AggregateDecider<
               command.reservationRequestId,
               "Reservation rejection must include a request id.",
             ),
-            rejectedAt: normalizeRequiredText(
-              command.rejectedAt,
-              "Reservation rejection must record a timestamp.",
-            ),
-            reason: normalizeRequiredText(
-              command.reason,
-              "Reservation rejection must include a reason.",
-            ),
+            rejectedAt: normalizeRequiredText(command.rejectedAt, "Reservation rejection must record a timestamp."),
+            reason: normalizeRequiredText(command.reason, "Reservation rejection must include a reason."),
           },
         },
         {
@@ -735,35 +646,19 @@ export const decideOrderingOrder: AggregateDecider<
     case "RecordReservationReleased": {
       assert(state.orderId !== null, "Order must be created first.");
 
-      const holdId = normalizeRequiredText(
-        command.holdId,
-        "Reservation release must include a hold id.",
-      );
-      const updated = updateReservationRequest(
-        state,
-        command.reservationRequestId,
-        (request) => {
-          if (request.status === "released") {
-            return request;
-          }
-          assert(
-            request.status === "confirmed",
-            "Only confirmed reservation requests can be released.",
-          );
-          assert(
-            request.holdId === holdId,
-            "Reservation release must reference the confirmed hold id.",
-          );
-          return {
-            ...request,
-            status: "released",
-            releasedAt: normalizeRequiredText(
-              command.releasedAt,
-              "Reservation release must record a timestamp.",
-            ),
-          };
-        },
-      );
+      const holdId = normalizeRequiredText(command.holdId, "Reservation release must include a hold id.");
+      const updated = updateReservationRequest(state, command.reservationRequestId, (request) => {
+        if (request.status === "released") {
+          return request;
+        }
+        assert(request.status === "confirmed", "Only confirmed reservation requests can be released.");
+        assert(request.holdId === holdId, "Reservation release must reference the confirmed hold id.");
+        return {
+          ...request,
+          status: "released",
+          releasedAt: normalizeRequiredText(command.releasedAt, "Reservation release must record a timestamp."),
+        };
+      });
 
       if (!updated.matched) {
         return [];
@@ -779,10 +674,7 @@ export const decideOrderingOrder: AggregateDecider<
               "Reservation release must include a request id.",
             ),
             holdId,
-            releasedAt: normalizeRequiredText(
-              command.releasedAt,
-              "Reservation release must record a timestamp.",
-            ),
+            releasedAt: normalizeRequiredText(command.releasedAt, "Reservation release must record a timestamp."),
           },
         },
       ];
@@ -803,14 +695,8 @@ export const decideOrderingOrder: AggregateDecider<
           type: "ordering.order.cancelled",
           data: {
             orderId: state.orderId,
-            cancelledAt: normalizeRequiredText(
-              command.cancelledAt,
-              "Order cancellation must record a timestamp.",
-            ),
-            reason: normalizeRequiredText(
-              command.reason,
-              "Order cancellation must include a reason.",
-            ),
+            cancelledAt: normalizeRequiredText(command.cancelledAt, "Order cancellation must record a timestamp."),
+            reason: normalizeRequiredText(command.reason, "Order cancellation must include a reason."),
             reservationRequests: state.reservationRequests,
           },
         },
@@ -820,10 +706,7 @@ export const decideOrderingOrder: AggregateDecider<
       if (state.status === "ready-for-fulfillment") {
         return [];
       }
-      assert(
-        state.status === "pending-payment",
-        "Only pending-payment orders can become ready for fulfillment.",
-      );
+      assert(state.status === "pending-payment", "Only pending-payment orders can become ready for fulfillment.");
       return [
         {
           type: "ordering.order.ready-for-fulfillment-recorded",
@@ -841,10 +724,7 @@ export const decideOrderingOrder: AggregateDecider<
   }
 };
 
-export const evolveOrderingOrder: AggregateEvolver<
-  OrderingOrderState,
-  OrderingOrderEvent
-> = (state, event) => {
+export const evolveOrderingOrder: AggregateEvolver<OrderingOrderState, OrderingOrderEvent> = (state, event) => {
   switch (event.type) {
     case "ordering.order.created":
       return {

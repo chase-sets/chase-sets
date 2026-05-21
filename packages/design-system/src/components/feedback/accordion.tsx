@@ -1,38 +1,41 @@
-import { forwardRef, useLayoutEffect, useRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from "react";
+import {
+  forwardRef,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { motion } from "motion/react";
 import { Icon, type IconName } from "../../icons";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 
-const AnimatedAccordionContent = forwardRef<
-  HTMLDivElement,
-  ComponentProps<"div"> & { open: boolean }
->(function AnimatedAccordionContent({ children, open, ...rest }, ref) {
-  const motionSettings = useChaseMotion();
+const AnimatedAccordionContent = forwardRef<HTMLDivElement, ComponentProps<"div"> & { open: boolean }>(
+  function AnimatedAccordionContent({ children, open, ...rest }, ref) {
+    const motionSettings = useChaseMotion();
 
-  return (
-    <motion.div
-      {...(rest as ComponentProps<typeof motion.div>)}
-      ref={ref}
-      initial={false}
-      animate={
-        motionSettings.reducedMotion
-          ? undefined
-          : open
-            ? { height: "auto", opacity: 1 }
-            : { height: 0, opacity: 0 }
-      }
-      transition={
-        motionSettings.reducedMotion
-          ? undefined
-          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
-      }
-    >
-      {children}
-    </motion.div>
-  );
-});
+    return (
+      <motion.div
+        {...(rest as ComponentProps<typeof motion.div>)}
+        ref={ref}
+        initial={false}
+        animate={
+          motionSettings.reducedMotion ? undefined : open ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }
+        }
+        transition={
+          motionSettings.reducedMotion
+            ? undefined
+            : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+        }
+      >
+        {children}
+      </motion.div>
+    );
+  },
+);
 
 export interface AccordionItem {
   value: string;
@@ -56,31 +59,25 @@ export function AccordionOptionTrigger({
   title,
   description,
   active = false,
-  disabled = false
+  disabled = false,
 }: AccordionOptionTriggerProps) {
   return (
     <span className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-3">
       <span className="mt-0.5 flex h-5 items-start justify-center">
-        <Icon
-          name={icon}
-          size="sm"
-          tone={disabled ? "secondary" : active ? "accent" : "secondary"}
-        />
+        <Icon name={icon} size="sm" tone={disabled ? "secondary" : active ? "accent" : "secondary"} />
       </span>
       <span className="grid min-w-0 gap-1">
-        <span className={cx("text-sm font-semibold", active ? "text-accent" : "text-foreground")}>
-          {title}
-        </span>
-        {description ? (
-          <span className="text-sm font-normal leading-6 text-secondary">{description}</span>
-        ) : null}
+        <span className={cx("text-sm font-semibold", active ? "text-accent" : "text-foreground")}>{title}</span>
+        {description ? <span className="text-sm font-normal leading-6 text-secondary">{description}</span> : null}
       </span>
     </span>
   );
 }
 
-export interface AccordionProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "defaultValue" | "dir"> {
+export interface AccordionProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "className" | "style" | "defaultValue" | "dir"
+> {
   items: AccordionItem[];
   type?: "single" | "multiple";
   variant?: "surface" | "sectionList";
@@ -122,32 +119,20 @@ export function Accordion({
 }: AccordionProps) {
   const activeItemRef = useRef<HTMLDivElement | null>(null);
   const motionSettings = useChaseMotion();
-  const defaultOpenValues = Array.isArray(defaultValue)
-    ? defaultValue
-    : defaultValue
-      ? [defaultValue]
-      : [];
-  const [uncontrolledOpenValues, setUncontrolledOpenValues] =
-    useState<string[]>(defaultOpenValues);
-  const controlledValue =
-    value === undefined
-      ? undefined
-      : Array.isArray(value)
-        ? value
-        : value
-          ? [value]
-          : [];
+  const defaultOpenValues = Array.isArray(defaultValue) ? defaultValue : defaultValue ? [defaultValue] : [];
+  const [uncontrolledOpenValues, setUncontrolledOpenValues] = useState<string[]>(defaultOpenValues);
+  const controlledValue = value === undefined ? undefined : Array.isArray(value) ? value : value ? [value] : [];
   const rootProps =
     type === "multiple"
       ? {
           multiple: true,
           value: controlledValue,
-          defaultValue: defaultOpenValues.length > 0 ? defaultOpenValues : undefined
+          defaultValue: defaultOpenValues.length > 0 ? defaultOpenValues : undefined,
         }
       : {
           multiple: false,
           value: controlledValue,
-          defaultValue: typeof defaultValue === "string" ? [defaultValue] : undefined
+          defaultValue: typeof defaultValue === "string" ? [defaultValue] : undefined,
         };
   const handleValueChange = (nextValue: string[]) => {
     if (!collapsible && nextValue.length === 0) {
@@ -158,14 +143,9 @@ export function Accordion({
       setUncontrolledOpenValues(nextValue);
     }
 
-    onValueChange?.(type === "multiple" ? nextValue : nextValue[0] ?? "");
+    onValueChange?.(type === "multiple" ? nextValue : (nextValue[0] ?? ""));
   };
-  const openValues =
-    value === undefined
-      ? uncontrolledOpenValues
-      : Array.isArray(value)
-        ? value
-        : [value];
+  const openValues = value === undefined ? uncontrolledOpenValues : Array.isArray(value) ? value : [value];
   const isSectionList = variant === "sectionList";
   const edgeMode = edge;
 
@@ -183,9 +163,7 @@ export function Accordion({
 
     let frameId = 0;
     const startedAt = performance.now();
-    const durationMs = motionSettings.reducedMotion
-      ? 0
-      : Math.ceil(motionSettings.durations.base * 1000) + 80;
+    const durationMs = motionSettings.reducedMotion ? 0 : Math.ceil(motionSettings.durations.base * 1000) + 80;
 
     const alignActiveItemBottom = () => {
       const activeRect = activeItem.getBoundingClientRect();
@@ -211,7 +189,7 @@ export function Accordion({
     isSectionList,
     motionSettings.durations.base,
     motionSettings.reducedMotion,
-    openValues
+    openValues,
   ]);
 
   return (
@@ -247,9 +225,7 @@ export function Accordion({
               "border-muted",
               index < items.length - 1 && "border-b",
               isSectionList && "relative",
-              isSectionList &&
-                edgeMode === "panel" &&
-                "overflow-hidden first:rounded-t-tokenXl last:rounded-b-tokenXl",
+              isSectionList && edgeMode === "panel" && "overflow-hidden first:rounded-t-tokenXl last:rounded-b-tokenXl",
               isSectionList &&
                 isOpen &&
                 edgeMode !== "panel" &&
@@ -267,22 +243,14 @@ export function Accordion({
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
                   isSectionList && edgeMode === "compact" && "px-3 py-2.5",
                   isSectionList && edgeMode === "panel" && "px-5 py-2.5",
-                  isSectionList &&
-                    edgeMode !== "compact" &&
-                    edgeMode !== "panel" &&
-                    "px-4 py-2.5",
+                  isSectionList && edgeMode !== "compact" && edgeMode !== "panel" && "px-4 py-2.5",
                   !isSectionList && "px-4 py-3",
                   isSectionList && isOpen && "text-accent hover:bg-transparent",
                   item.disabled && "cursor-not-allowed opacity-55 hover:bg-transparent",
                 )}
               >
                 <span className="flex-1">{item.trigger}</span>
-                <span
-                  className={cx(
-                    "inline-flex shrink-0 transition-transform duration-200",
-                    isOpen && "rotate-180",
-                  )}
-                >
+                <span className={cx("inline-flex shrink-0 transition-transform duration-200", isOpen && "rotate-180")}>
                   <Icon name="chevronDown" size="sm" tone="secondary" />
                 </span>
               </AccordionPrimitive.Trigger>
@@ -302,10 +270,7 @@ export function Accordion({
                   "text-sm text-secondary",
                   isSectionList && edgeMode === "compact" && "px-3 pb-5 pl-10 pt-1",
                   isSectionList && edgeMode === "panel" && "px-5 pb-5 pl-12 pt-1",
-                  isSectionList &&
-                    edgeMode !== "compact" &&
-                    edgeMode !== "panel" &&
-                    "px-4 pb-5 pl-11 pt-1",
+                  isSectionList && edgeMode !== "compact" && edgeMode !== "panel" && "px-4 pb-5 pl-11 pt-1",
                   !isSectionList && "px-4 pb-4",
                 )}
               >
@@ -319,8 +284,7 @@ export function Accordion({
   );
 }
 
-export interface PanelSectionAccordionProps
-  extends Omit<AccordionProps, "variant" | "edge"> {
+export interface PanelSectionAccordionProps extends Omit<AccordionProps, "variant" | "edge"> {
   edge?: AccordionSectionEdge;
 }
 

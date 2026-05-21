@@ -26,7 +26,7 @@ export async function collectFiles(directory, options = {}) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       if (!skippedDirectories.has(entry.name)) {
-        files.push(...await collectFiles(fullPath, options));
+        files.push(...(await collectFiles(fullPath, options)));
       }
       continue;
     }

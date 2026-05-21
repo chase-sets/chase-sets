@@ -18,21 +18,15 @@ export const adminServiceWorkerPolicy = {
 export function isAdminServiceWorkerExcludedPath(pathname: string) {
   return (
     adminServiceWorkerPolicy.excludedExactPaths.includes(pathname as never) ||
-    adminServiceWorkerPolicy.excludedPathPrefixes.some((prefix) =>
-      pathname.startsWith(prefix),
-    )
+    adminServiceWorkerPolicy.excludedPathPrefixes.some((prefix) => pathname.startsWith(prefix))
   );
 }
 
 export function isAdminServiceWorkerStaticAssetPath(pathname: string) {
   return (
-    adminServiceWorkerPolicy.staticAssetPathPrefixes.some((prefix) =>
-      pathname.startsWith(prefix),
-    ) ||
+    adminServiceWorkerPolicy.staticAssetPathPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
     adminServiceWorkerPolicy.staticAssetExactPaths.includes(pathname as never) ||
-    adminServiceWorkerPolicy.staticAssetExtensions.some((extension) =>
-      pathname.endsWith(extension),
-    )
+    adminServiceWorkerPolicy.staticAssetExtensions.some((extension) => pathname.endsWith(extension))
   );
 }
 

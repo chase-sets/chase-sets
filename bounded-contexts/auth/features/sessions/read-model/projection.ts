@@ -13,21 +13,15 @@ function extractIdFromStreamId(streamId: string, prefix: string) {
 export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "auth.session.started": async (event) => {
-      const {
-        sessionId,
-        userId,
-        accountId,
-        availableAccountIds,
-        authenticationMethod,
-        expiresAt,
-      } = event.data as unknown as {
-        sessionId: string;
-        userId: string;
-        accountId: string;
-        availableAccountIds: string[];
-        authenticationMethod: string;
-        expiresAt: string;
-      };
+      const { sessionId, userId, accountId, availableAccountIds, authenticationMethod, expiresAt } =
+        event.data as unknown as {
+          sessionId: string;
+          userId: string;
+          accountId: string;
+          availableAccountIds: string[];
+          authenticationMethod: string;
+          expiresAt: string;
+        };
       await db.query(
         `INSERT INTO identity_sessions (
            session_id,
@@ -60,38 +54,24 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
       );
     },
     "auth.session.account-switched": async (event) => {
-      const sessionId = extractIdFromStreamId(
-        event.streamId,
-        AUTH_SESSION_STREAM_PREFIX,
-      );
+      const sessionId = extractIdFromStreamId(event.streamId, AUTH_SESSION_STREAM_PREFIX);
       await db.query(
         `UPDATE identity_sessions
          SET account_id = $2,
              updated_at = $3
          WHERE session_id = $1`,
-        [
-          sessionId,
-          (event.data as { accountId: string }).accountId,
-          event.timing.recordedAt,
-        ],
+        [sessionId, (event.data as { accountId: string }).accountId, event.timing.recordedAt],
       );
       await db.query(
         `UPDATE identity_session_lookup
          SET account_id = $2,
              updated_at = $3
          WHERE session_id = $1`,
-        [
-          sessionId,
-          (event.data as { accountId: string }).accountId,
-          event.timing.recordedAt,
-        ],
+        [sessionId, (event.data as { accountId: string }).accountId, event.timing.recordedAt],
       );
     },
     "auth.session.revoked": async (event) => {
-      const sessionId = extractIdFromStreamId(
-        event.streamId,
-        AUTH_SESSION_STREAM_PREFIX,
-      );
+      const sessionId = extractIdFromStreamId(event.streamId, AUTH_SESSION_STREAM_PREFIX);
       await db.query(
         `UPDATE identity_sessions
          SET status = 'revoked',
@@ -108,10 +88,7 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
       );
     },
     "auth.session.expired": async (event) => {
-      const sessionId = extractIdFromStreamId(
-        event.streamId,
-        AUTH_SESSION_STREAM_PREFIX,
-      );
+      const sessionId = extractIdFromStreamId(event.streamId, AUTH_SESSION_STREAM_PREFIX);
       await db.query(
         `UPDATE identity_sessions
          SET status = 'expired',

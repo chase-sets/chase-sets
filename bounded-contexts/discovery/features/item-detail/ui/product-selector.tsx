@@ -1,16 +1,7 @@
 import { t } from "@chase-sets/localization";
-import {
-  SegmentedControl,
-  Select,
-  Stack,
-  Text,
-} from "@chase-sets/design-system";
+import { SegmentedControl, Select, Stack, Text } from "@chase-sets/design-system";
 import type { ProductSchema } from "../../../support/client-support/contracts";
-import {
-  getOrderedDimensionOptions,
-  getOptionLabel,
-  getOrderedActiveDimensions,
-} from "../domain/product-resolution";
+import { getOrderedDimensionOptions, getOptionLabel, getOrderedActiveDimensions } from "../domain/product-resolution";
 
 const ANY_OPTION_VALUE = "__any__";
 
@@ -25,12 +16,7 @@ interface ProductSelectorProps {
   onSelectionChange: (dimensionId: string, optionId: string) => void;
 }
 
-export function ProductSelector({
-  schema,
-  selections,
-  optionSummaries = {},
-  onSelectionChange,
-}: ProductSelectorProps) {
+export function ProductSelector({ schema, selections, optionSummaries = {}, onSelectionChange }: ProductSelectorProps) {
   if (schema.dimensions.length === 0) {
     return null;
   }
@@ -54,10 +40,7 @@ export function ProductSelector({
           })),
         ];
         const onValueChange = (value: string) =>
-          onSelectionChange(
-            dimension.dimensionId,
-            value === ANY_OPTION_VALUE ? "" : value,
-          );
+          onSelectionChange(dimension.dimensionId, value === ANY_OPTION_VALUE ? "" : value);
 
         if (orderedOptions.length <= 5) {
           return (
@@ -67,14 +50,11 @@ export function ProductSelector({
               </Text>
               <SegmentedControl
                 items={items.map((item) => {
-                  const description =
-                    "description" in item ? item.description : undefined;
+                  const description = "description" in item ? item.description : undefined;
 
                   return {
                     ...item,
-                    label: description
-                      ? `${item.label} · ${description}`
-                      : item.label,
+                    label: description ? `${item.label} · ${description}` : item.label,
                   };
                 })}
                 value={selected}

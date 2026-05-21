@@ -1,18 +1,6 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import type {
-  AccountId,
-  ShippingAddressId,
-} from "@chase-sets/primitives/typed-ids";
-import {
-  assert,
-  assertNever,
-  ensureIsoTimestamp,
-  normalizeLabel,
-} from "../../../support/runtime-support/common";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { AccountId, ShippingAddressId } from "@chase-sets/primitives/typed-ids";
+import { assert, assertNever, ensureIsoTimestamp, normalizeLabel } from "../../../support/runtime-support/common";
 
 export type ShippingAddressSnapshot = Readonly<{
   name: string;
@@ -144,9 +132,7 @@ function normalizeRequiredText(value: string, fieldName: string) {
   return normalized;
 }
 
-export function normalizeShippingAddressSnapshot(
-  address: ShippingAddressSnapshot,
-): ShippingAddressSnapshot {
+export function normalizeShippingAddressSnapshot(address: ShippingAddressSnapshot): ShippingAddressSnapshot {
   return {
     name: normalizeRequiredText(address.name, "Recipient name"),
     company: normalizeOptionalText(address.company),
@@ -161,10 +147,7 @@ export function normalizeShippingAddressSnapshot(
   };
 }
 
-function normalizeAddressLabel(
-  label: string | null | undefined,
-  address: ShippingAddressSnapshot,
-) {
+function normalizeAddressLabel(label: string | null | undefined, address: ShippingAddressSnapshot) {
   const normalized = normalizeOptionalText(label);
   return normalized ?? `${address.name} - ${address.city}, ${address.state}`;
 }
@@ -173,40 +156,23 @@ function activeAddresses(state: ShippingAddressBookState) {
   return state.addresses.filter((address) => !address.isArchived);
 }
 
-function findAddress(
-  state: ShippingAddressBookState,
-  shippingAddressId: ShippingAddressId,
-) {
-  return state.addresses.find(
-    (address) => address.shippingAddressId === shippingAddressId,
-  );
+function findAddress(state: ShippingAddressBookState, shippingAddressId: ShippingAddressId) {
+  return state.addresses.find((address) => address.shippingAddressId === shippingAddressId);
 }
 
-function requireAccount(
-  state: ShippingAddressBookState,
-  accountId?: AccountId,
-) {
-  assert(
-    state.accountId !== null || accountId !== undefined,
-    "Shipping address book requires an account.",
-  );
+function requireAccount(state: ShippingAddressBookState, accountId?: AccountId) {
+  assert(state.accountId !== null || accountId !== undefined, "Shipping address book requires an account.");
   if (state.accountId !== null && accountId) {
     assert(state.accountId === accountId, "Shipping address account mismatch.");
   }
   return (state.accountId ?? accountId) as AccountId;
 }
 
-function shouldBecomeDefault(
-  state: ShippingAddressBookState,
-  requested: boolean | undefined,
-) {
+function shouldBecomeDefault(state: ShippingAddressBookState, requested: boolean | undefined) {
   return requested === true || activeAddresses(state).length === 0;
 }
 
-function newestActiveFallback(
-  state: ShippingAddressBookState,
-  archivedShippingAddressId: ShippingAddressId,
-) {
+function newestActiveFallback(state: ShippingAddressBookState, archivedShippingAddressId: ShippingAddressId) {
   const candidates = activeAddresses(state)
     .filter((address) => address.shippingAddressId !== archivedShippingAddressId)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -220,10 +186,7 @@ export const decideShippingAddressBook: AggregateDecider<
 > = (state, command) => {
   switch (command.type) {
     case "AddShippingAddress": {
-      assert(
-        !findAddress(state, command.shippingAddressId),
-        "Shipping address has already been added.",
-      );
+      assert(!findAddress(state, command.shippingAddressId), "Shipping address has already been added.");
       const address = normalizeShippingAddressSnapshot(command.address);
       const accountId = requireAccount(state, command.accountId);
       const isDefault = shouldBecomeDefault(state, command.makeDefault);
@@ -314,10 +277,10 @@ function applyDefaultSelection(
   }));
 }
 
-export const evolveShippingAddressBook: AggregateEvolver<
-  ShippingAddressBookState,
-  ShippingAddressEvent
-> = (state, event) => {
+export const evolveShippingAddressBook: AggregateEvolver<ShippingAddressBookState, ShippingAddressEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "identity.shipping-address.added": {
       const entry: ShippingAddressEntry = {
@@ -351,9 +314,7 @@ export const evolveShippingAddressBook: AggregateEvolver<
       );
       return {
         ...state,
-        addresses: event.data.isDefault
-          ? applyDefaultSelection(updated, event.data.shippingAddressId)
-          : updated,
+        addresses: event.data.isDefault ? applyDefaultSelection(updated, event.data.shippingAddressId) : updated,
       };
     }
     case "identity.shipping-address.default-set":

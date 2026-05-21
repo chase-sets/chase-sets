@@ -71,10 +71,7 @@ export async function action({ request }: ActionFunctionArgs) {
     };
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : t("pricing.routes.marketplace.accountRepricing.action.failed"),
+      error: error instanceof Error ? error.message : t("pricing.routes.marketplace.accountRepricing.action.failed"),
     };
   }
 }

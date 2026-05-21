@@ -31,10 +31,12 @@ describe("communications-email contract", () => {
   it("supports a no-op transactional email outbox for unconfigured composition roots", async () => {
     const outbox = createNoopTransactionalEmailOutbox();
 
-    await expect(outbox.claimPendingTransactionalEmails({
-      limit: 10,
-      claimOwnerId: "test",
-      claimTtlMs: 1_000,
-    })).resolves.toEqual([]);
+    await expect(
+      outbox.claimPendingTransactionalEmails({
+        limit: 10,
+        claimOwnerId: "test",
+        claimTtlMs: 1_000,
+      }),
+    ).resolves.toEqual([]);
   });
 });

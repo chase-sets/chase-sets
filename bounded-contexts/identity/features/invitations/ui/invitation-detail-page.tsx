@@ -12,7 +12,10 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
         { label: t("identity.features.invitations.ui.invitationDetailPage.account.id"), value: data.account_id },
         { label: t("identity.features.invitations.ui.invitationDetailPage.role"), value: data.role_key },
         { label: t("identity.features.invitations.ui.invitationDetailPage.expires.at"), value: data.expires_at },
-        { label: t("identity.features.invitations.ui.invitationDetailPage.accepted.by"), value: data.accepted_by_user_id ?? t("identity.features.invitations.ui.invitationDetailPage.pending") },
+        {
+          label: t("identity.features.invitations.ui.invitationDetailPage.accepted.by"),
+          value: data.accepted_by_user_id ?? t("identity.features.invitations.ui.invitationDetailPage.pending"),
+        },
       ]}
     />
   );

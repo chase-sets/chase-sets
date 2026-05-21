@@ -1,8 +1,4 @@
-import type {
-  AccountId,
-  OrderId,
-  SupportRequestId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 
 export type SupportRequestStatus =
   | "open"
@@ -159,10 +155,7 @@ export function normalizeIsoTimestamp(value: string, message: string): string {
   return value;
 }
 
-export function normalizeMoneyAmount(
-  value: string | null | undefined,
-  fieldName = "Amount",
-): string | null {
+export function normalizeMoneyAmount(value: string | null | undefined, fieldName = "Amount"): string | null {
   if (value === null || value === undefined || value.trim().length === 0) {
     return null;
   }

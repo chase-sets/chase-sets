@@ -14,9 +14,7 @@ export type SupportServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createSupportServices(
-  pool: PgTransactionalPool,
-): SupportServices {
+export function createSupportServices(pool: PgTransactionalPool): SupportServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;

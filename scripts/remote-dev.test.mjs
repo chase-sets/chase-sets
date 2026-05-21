@@ -18,8 +18,9 @@ import {
 describe("remote-dev planning helpers", () => {
   it("creates stable, DNS-safe session slugs", () => {
     expect(sanitizeSlugPart("Feature/Add Stripe Webhooks!")).toBe("feature-add-stripe-webhooks");
-    expect(createSessionSlug({ branch: "feature/Remote DO", sha: "abcdef123456", random: "z9y8x7" }))
-      .toBe("feature-remote-do-abcdef12-z9y8x7");
+    expect(createSessionSlug({ branch: "feature/Remote DO", sha: "abcdef123456", random: "z9y8x7" })).toBe(
+      "feature-remote-do-abcdef12-z9y8x7",
+    );
   });
 
   it("normalizes domains and service URLs", () => {
@@ -120,11 +121,16 @@ describe("remote-dev planning helpers", () => {
 
   it("selects expired sessions from canonical DigitalOcean tags", () => {
     const now = new Date("2026-05-03T12:00:00.000Z");
-    expect(selectExpiredSessions([
-      { slug: "old", tags: ["rd-exp:1"] },
-      { slug: "future", tags: ["rd-exp:2777982400"] },
-      { slug: "untagged", tags: [] },
-    ], now).map((session) => session.slug)).toEqual(["old"]);
+    expect(
+      selectExpiredSessions(
+        [
+          { slug: "old", tags: ["rd-exp:1"] },
+          { slug: "future", tags: ["rd-exp:2777982400"] },
+          { slug: "untagged", tags: [] },
+        ],
+        now,
+      ).map((session) => session.slug),
+    ).toEqual(["old"]);
   });
 
   it("generates Caddy config with Basic Auth and unauthenticated webhook routes", () => {
@@ -147,7 +153,8 @@ describe("remote-dev planning helpers", () => {
       positionals: [],
       flags: { name: "demo", "dry-run": true },
     });
-    expect(toSshRepoUrl("https://github.com/todd-skelton/chase-sets.git"))
-      .toBe("git@github.com:todd-skelton/chase-sets.git");
+    expect(toSshRepoUrl("https://github.com/todd-skelton/chase-sets.git")).toBe(
+      "git@github.com:todd-skelton/chase-sets.git",
+    );
   });
 });

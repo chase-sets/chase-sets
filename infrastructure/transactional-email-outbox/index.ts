@@ -156,9 +156,7 @@ export function createPostgresTransactionalEmailOutbox(
 
     async claimPendingTransactionalEmails(input: ClaimTransactionalEmailsInput) {
       const claimStartedAt = input.now ?? now().toISOString();
-      const claimedUntil = new Date(
-        new Date(claimStartedAt).getTime() + input.claimTtlMs,
-      ).toISOString();
+      const claimedUntil = new Date(new Date(claimStartedAt).getTime() + input.claimTtlMs).toISOString();
       const limit = Math.max(1, Math.floor(input.limit));
 
       const result = await db.query<TransactionalEmailOutboxRow>(
@@ -253,20 +251,21 @@ export function createPostgresTransactionalEmailOutbox(
   };
 }
 
-export function createTransactionalEmailOutboxDispatcher(options: Readonly<{
-  outbox: TransactionalEmailOutboxStore;
-  gateway: TransactionalEmailGateway;
-  claimOwnerId: string;
-  batchSize?: number;
-  claimTtlMs?: number;
-  retryDelayMs?: (attemptCount: number) => number;
-  now?: () => Date;
-}>): TransactionalEmailOutboxDispatcher {
+export function createTransactionalEmailOutboxDispatcher(
+  options: Readonly<{
+    outbox: TransactionalEmailOutboxStore;
+    gateway: TransactionalEmailGateway;
+    claimOwnerId: string;
+    batchSize?: number;
+    claimTtlMs?: number;
+    retryDelayMs?: (attemptCount: number) => number;
+    now?: () => Date;
+  }>,
+): TransactionalEmailOutboxDispatcher {
   const now = options.now ?? (() => new Date());
   const batchSize = Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE);
   const claimTtlMs = Math.max(1, options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS);
-  const retryDelayMs =
-    options.retryDelayMs ?? ((attemptCount) => Math.min(15 * 60_000, attemptCount * 30_000));
+  const retryDelayMs = options.retryDelayMs ?? ((attemptCount) => Math.min(15 * 60_000, attemptCount * 30_000));
 
   return {
     async runOnce() {
@@ -290,9 +289,7 @@ export function createTransactionalEmailOutboxDispatcher(options: Readonly<{
           await options.outbox.markTransactionalEmailFailed({
             idempotencyKey: item.message.idempotencyKey,
             error: error instanceof Error ? error.message : String(error),
-            retryAt: canRetry
-              ? new Date(now().getTime() + retryDelayMs(item.attemptCount)).toISOString()
-              : null,
+            retryAt: canRetry ? new Date(now().getTime() + retryDelayMs(item.attemptCount)).toISOString() : null,
             now: now().toISOString(),
           });
         }
@@ -306,9 +303,7 @@ export function createTransactionalEmailOutboxDispatcher(options: Readonly<{
   };
 }
 
-function rowToClaimedTransactionalEmail(
-  row: TransactionalEmailOutboxRow,
-): ClaimedTransactionalEmail {
+function rowToClaimedTransactionalEmail(row: TransactionalEmailOutboxRow): ClaimedTransactionalEmail {
   return {
     outboxId: String(row.outbox_id),
     message: parseTransactionalEmailMessage(row.message_json),

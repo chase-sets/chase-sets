@@ -57,10 +57,7 @@ export type AdminSupportPlatformAdminConfig = Readonly<{
   accountName: string;
 }>;
 
-const adminSupportContexts = getApiHostContextNames(
-  apiContextRegistry,
-  "admin-support-api",
-);
+const adminSupportContexts = getApiHostContextNames(apiContextRegistry, "admin-support-api");
 
 function getOptionalEnv(name: string) {
   const value = process.env[name];
@@ -130,9 +127,7 @@ function loadDataProfiles(environmentName: string): readonly EnvironmentDataProf
     ]);
     for (const profile of explicitProfiles) {
       if (!allowedProfiles.has(profile as EnvironmentDataProfile)) {
-        throw new Error(
-          `PLATFORM_DATA_PROFILES contains unsupported data profile '${profile}'.`,
-        );
+        throw new Error(`PLATFORM_DATA_PROFILES contains unsupported data profile '${profile}'.`);
       }
     }
 
@@ -159,9 +154,7 @@ function loadPlatformAdminConfig(): AdminSupportPlatformAdminConfig | null {
   }
 
   if (!email || !password) {
-    throw new Error(
-      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.",
-    );
+    throw new Error("PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.");
   }
 
   return {
@@ -172,26 +165,18 @@ function loadPlatformAdminConfig(): AdminSupportPlatformAdminConfig | null {
   };
 }
 
-function loadCatalogAssetStorageConfig(
-  port: number,
-  productionLike: boolean,
-): AdminSupportCatalogAssetStorageConfig {
-  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ??
-    (productionLike ? "s3" : "filesystem");
+function loadCatalogAssetStorageConfig(port: number, productionLike: boolean): AdminSupportCatalogAssetStorageConfig {
+  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ?? (productionLike ? "s3" : "filesystem");
 
   if (kind === "filesystem") {
     if (productionLike) {
-      throw new Error(
-        "CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.",
-      );
+      throw new Error("CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.");
     }
 
     return {
       kind: "filesystem",
-      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ??
-        "artifacts/catalog-assets",
-      publicBaseUrl: getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ??
-        `http://localhost:${port}/catalog-assets`,
+      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ?? "artifacts/catalog-assets",
+      publicBaseUrl: getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ?? `http://localhost:${port}/catalog-assets`,
     };
   }
 
@@ -231,8 +216,7 @@ function loadCatalogAssetStorageConfig(
 export function loadConfig(): AdminSupportApiConfig {
   const deploymentEnvironment = getDeploymentEnvironment();
   const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
-  const controlDatabaseUrl =
-    getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL") ?? sharedDatabaseUrl;
+  const controlDatabaseUrl = getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL") ?? sharedDatabaseUrl;
   if (!controlDatabaseUrl) {
     throw new Error("PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required.");
   }
@@ -270,10 +254,7 @@ export function loadConfig(): AdminSupportApiConfig {
       requireExplicitInProduction: true,
     }),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
-    catalogAssetStorage: loadCatalogAssetStorageConfig(
-      port,
-      isProductionDeployment(deploymentEnvironment),
-    ),
+    catalogAssetStorage: loadCatalogAssetStorageConfig(port, isProductionDeployment(deploymentEnvironment)),
     platformAdmin: loadPlatformAdminConfig(),
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),

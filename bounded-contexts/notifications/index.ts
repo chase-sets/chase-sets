@@ -7,10 +7,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import {
-  buildNotificationsApi,
-  buildNotificationsMobileMessageWebhookApi,
-} from "./api";
+import { buildNotificationsApi, buildNotificationsMobileMessageWebhookApi } from "./api";
 import { notificationsSchemaSql } from "./support/runtime-support/schema";
 import {
   createNotificationsServices,
@@ -24,19 +21,12 @@ import {
   NOTIFICATIONS_ORDERING_PROJECTION,
 } from "./features/notification-center/integrations/source-events/notification-projector";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -48,11 +38,7 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<
-  NotificationsServices,
-  PgTransactionalPool,
-  NotificationsHostPorts
-> = {
+export const module: BcApiModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts> = {
   contextName: "notifications",
   routePrefix: "/api/notifications",
   streamPrefix: "notifications.",
@@ -64,20 +50,11 @@ export const module: BcApiModule<
   >["apiMounts"],
   projectionGroups,
   createServices: (pool, ports) => createNotificationsServices(pool, ports),
-  buildApis: (services) => [
-    buildNotificationsApi(services),
-    buildNotificationsMobileMessageWebhookApi(services),
-  ],
+  buildApis: (services) => [buildNotificationsApi(services), buildNotificationsMobileMessageWebhookApi(services)],
   projectors: () => [],
   buildSubscriptions: (services) => {
-    const orderingSubscription = getEventSubscription(
-      "ordering",
-      NOTIFICATIONS_ORDERING_PROJECTION,
-    );
-    const fulfillmentSubscription = getEventSubscription(
-      "fulfillment",
-      NOTIFICATIONS_FULFILLMENT_PROJECTION,
-    );
+    const orderingSubscription = getEventSubscription("ordering", NOTIFICATIONS_ORDERING_PROJECTION);
+    const fulfillmentSubscription = getEventSubscription("fulfillment", NOTIFICATIONS_FULFILLMENT_PROJECTION);
 
     return [
       {

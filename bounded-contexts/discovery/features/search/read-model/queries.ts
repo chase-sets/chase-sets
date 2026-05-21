@@ -1,11 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
-import {
-  dimensionFacetValueOrderSql,
-  facetGroupDecisionPriority,
-  fieldFacetValueOrderSql,
-} from "./facet-ordering";
+import { dimensionFacetValueOrderSql, facetGroupDecisionPriority, fieldFacetValueOrderSql } from "./facet-ordering";
 
 const FACET_VALUE_LIMIT = 50;
 const FACET_GROUP_LIMIT = 10;
@@ -113,10 +109,7 @@ export type DiscoverySearchItemRow = Readonly<{
 
 type BaseDiscoverySearchItemRow = Omit<DiscoverySearchItemRow, "market_summary">;
 
-async function getMarketSummariesForItems(
-  db: PgQueryable,
-  itemIds: readonly string[],
-) {
+async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly string[]) {
   if (itemIds.length === 0) {
     return new Map<string, DiscoverySearchItemRow["market_summary"]>();
   }
@@ -168,10 +161,7 @@ type BuiltSearchFilter = Readonly<{
   simpleSearchParamIndex: number | null;
 }>;
 
-function buildSearchFilter(
-  params: DiscoverySearchParams,
-  options: SearchFilterBuildOptions = {},
-): BuiltSearchFilter {
+function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterBuildOptions = {}): BuiltSearchFilter {
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
@@ -410,17 +400,19 @@ export async function searchDiscoveryItems(
   const limit = clampLimit(params.limit);
   const offset = clampOffset(params.offset);
   const useLegacyOffset = offset > 0;
-  const listValues = useLegacyOffset
-    ? [...values, limit, offset]
-    : [...values, limit + 1];
+  const listValues = useLegacyOffset ? [...values, limit, offset] : [...values, limit + 1];
   const listLimitSql = useLegacyOffset
     ? `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`
     : `LIMIT $${values.length + 1}`;
   const selectRank = rankExpression ? `, ${rankExpression} AS search_rank` : "";
 
-  const countPromise = params.includeTotal || useLegacyOffset
-    ? db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM discovery_search_items ${where}`, values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch) : 0)))
-    : Promise.resolve({ rows: [] });
+  const countPromise =
+    params.includeTotal || useLegacyOffset
+      ? db.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM discovery_search_items ${where}`,
+          values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch) : 0)),
+        )
+      : Promise.resolve({ rows: [] });
   const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at${selectRank}
     FROM discovery_search_items ${whereWithCursor}
     ORDER BY ${orderBy}
@@ -446,9 +438,7 @@ export async function searchDiscoveryItems(
       market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
     })),
     facets,
-    total: countResult.rows[0]?.count
-      ? Number.parseInt(countResult.rows[0].count, 10)
-      : null,
+    total: countResult.rows[0]?.count ? Number.parseInt(countResult.rows[0].count, 10) : null,
     nextCursor: hasNextPage && lastRow ? encodeSearchCursor(lastRow) : null,
   };
 }
@@ -473,9 +463,7 @@ function jsonArray<T>(value: unknown): T[] {
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : [];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 async function loadProductSchemasForBlueprints(
@@ -526,25 +514,25 @@ async function loadProductSchemasForBlueprints(
     const byDimension = new Map<string, ProductSchema["dimensions"][number]>();
     for (const row of rows) {
       const existing = byDimension.get(row.dimension_id);
-      const allowedOptions = row.option_id && row.option_label
-        ? [{
-            optionId: row.option_id,
-            code: row.option_code ?? row.option_id,
-            label: row.option_label,
-            displayOrder: row.option_display_order ?? 0,
-            numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
-          }]
-        : [];
+      const allowedOptions =
+        row.option_id && row.option_label
+          ? [
+              {
+                optionId: row.option_id,
+                code: row.option_code ?? row.option_id,
+                label: row.option_label,
+                displayOrder: row.option_display_order ?? 0,
+                numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
+              },
+            ]
+          : [];
       byDimension.set(row.dimension_id, {
         dimensionId: row.dimension_id,
         dimensionName: row.dimension_name,
         valueKind: row.value_kind,
         required: row.required,
         appliesWhen: jsonArray<{ dimensionId: string; optionIds: string[] }>(row.applies_when),
-        allowedOptions: [
-          ...(existing?.allowedOptions ?? []),
-          ...allowedOptions,
-        ],
+        allowedOptions: [...(existing?.allowedOptions ?? []), ...allowedOptions],
       });
     }
 
@@ -641,9 +629,7 @@ function resolvePreviewLine(
     productSummaryParts.push(`${dimension.dimensionName}: ${option.label || option.code}`);
   }
 
-  const selectedRecord = Object.fromEntries(
-    selectedOptions.map((entry) => [entry.dimensionId, entry.optionId]),
-  );
+  const selectedRecord = Object.fromEntries(selectedOptions.map((entry) => [entry.dimensionId, entry.optionId]));
 
   return {
     catalog_item_id: item.catalog_item_id,
@@ -687,7 +673,7 @@ export async function previewBulkAddSearchResults(
   for (const item of items) {
     const resolved = resolvePreviewLine(
       item,
-      item.blueprint_id ? schemas.get(item.blueprint_id) ?? null : null,
+      item.blueprint_id ? (schemas.get(item.blueprint_id) ?? null) : null,
       selections,
     );
     if ("product_id" in resolved) {
@@ -716,10 +702,7 @@ type FacetSummaryRow = Readonly<{
   distinct_count: string | number;
 }>;
 
-async function loadSearchFacets(
-  db: PgQueryable,
-  params: DiscoverySearchParams,
-): Promise<DiscoveryFacetGroup[]> {
+async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams): Promise<DiscoveryFacetGroup[]> {
   const filter = buildSearchFilter(params);
   const selectedFields = groupFieldFilters(params.fieldFilters);
   const selectedReferences = groupReferenceFilters(params.referenceFilters);
@@ -791,11 +774,12 @@ async function loadSearchFacets(
 
   const groups: DiscoveryFacetGroup[] = [];
   for (const summary of chosen.values()) {
-    const values = summary.kind === "field"
-      ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [])
-      : summary.kind === "reference"
-      ? await loadReferenceFacetValues(db, params, summary.id, selectedReferences.get(summary.id) ?? [])
-      : await loadDimensionFacetValues(db, params, summary.id, selectedDimensions.get(summary.id) ?? []);
+    const values =
+      summary.kind === "field"
+        ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [])
+        : summary.kind === "reference"
+          ? await loadReferenceFacetValues(db, params, summary.id, selectedReferences.get(summary.id) ?? [])
+          : await loadDimensionFacetValues(db, params, summary.id, selectedDimensions.get(summary.id) ?? []);
 
     if (values.length > 0) {
       groups.push({
@@ -814,10 +798,7 @@ async function loadSearchFacets(
   });
 }
 
-function compareFacetSummaries(
-  left: FacetSummaryRow | undefined,
-  right: FacetSummaryRow | undefined,
-): number {
+function compareFacetSummaries(left: FacetSummaryRow | undefined, right: FacetSummaryRow | undefined): number {
   if (!left && !right) {
     return 0;
   }
@@ -828,11 +809,13 @@ function compareFacetSummaries(
     return -1;
   }
 
-  return facetGroupDecisionPriority(right) - facetGroupDecisionPriority(left) ||
+  return (
+    facetGroupDecisionPriority(right) - facetGroupDecisionPriority(left) ||
     Number(right.coverage) - Number(left.coverage) ||
     Number(right.distinct_count) - Number(left.distinct_count) ||
     left.label.localeCompare(right.label) ||
-    left.id.localeCompare(right.id);
+    left.id.localeCompare(right.id)
+  );
 }
 
 async function loadReferenceFacetValues(

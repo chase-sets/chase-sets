@@ -32,9 +32,7 @@ const actorDisplay = {
 
 describe("AccountProfilePage", () => {
   it("shows the signed-in user and selected account before account details", () => {
-    const html = renderToString(
-      <AccountProfilePage account={account} actorDisplay={actorDisplay} />,
-    );
+    const html = renderToString(<AccountProfilePage account={account} actorDisplay={actorDisplay} />);
 
     expect(html).toContain("Signed-In Identity");
     expect(html).toContain("Card Vault");
@@ -42,8 +40,6 @@ describe("AccountProfilePage", () => {
     expect(html).toContain("alex@example.com");
     expect(html).toContain("Fulfillment Manager");
     expect(html).toContain("Founding Account");
-    expect(html.indexOf("Signed-In Identity")).toBeLessThan(
-      html.indexOf("Marketplace Readiness"),
-    );
+    expect(html.indexOf("Signed-In Identity")).toBeLessThan(html.indexOf("Marketplace Readiness"));
   });
 });

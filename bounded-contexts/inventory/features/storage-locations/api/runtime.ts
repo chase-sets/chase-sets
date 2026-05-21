@@ -1,10 +1,7 @@
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -23,11 +20,7 @@ import { buildStorageLocationProjectionHandlers } from "../read-model/projection
 import { getStorageLocation, listStorageLocations } from "../read-model/queries";
 
 export type StorageLocationServices = Readonly<{
-  commandHandler: CommandHandler<
-    StorageLocationCommand,
-    StorageLocationState,
-    StorageLocationEvent
-  >;
+  commandHandler: CommandHandler<StorageLocationCommand, StorageLocationState, StorageLocationEvent>;
   createStorageLocation: (
     params: Readonly<{
       accountId: AccountId;
@@ -50,19 +43,12 @@ export type StorageLocationServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ storageLocationId: string; version: number }>;
-  listStorageLocations: (
-    params: Parameters<typeof listStorageLocations>[1],
-  ) => ReturnType<typeof listStorageLocations>;
-  getStorageLocation: (
-    storageLocationId: string,
-    accountId?: string,
-  ) => ReturnType<typeof getStorageLocation>;
+  listStorageLocations: (params: Parameters<typeof listStorageLocations>[1]) => ReturnType<typeof listStorageLocations>;
+  getStorageLocation: (storageLocationId: string, accountId?: string) => ReturnType<typeof getStorageLocation>;
   projectors: readonly Projector[];
 }>;
 
-export function createStorageLocationRuntime(
-  deps: InventoryRuntimeDeps,
-): StorageLocationServices {
+export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): StorageLocationServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -95,11 +81,7 @@ export function createStorageLocationRuntime(
       return { storageLocationId, version: result.version };
     },
     updateStorageLocation: async (params, context) => {
-      const existing = await getStorageLocation(
-        deps.db,
-        params.storageLocationId,
-        params.accountId,
-      );
+      const existing = await getStorageLocation(deps.db, params.storageLocationId, params.accountId);
 
       if (!existing) {
         throw new InventoryDomainError("Storage location not found.");
@@ -139,8 +121,7 @@ export function createStorageLocationRuntime(
       };
     },
     listStorageLocations: (params) => listStorageLocations(deps.db, params),
-    getStorageLocation: (storageLocationId, accountId) =>
-      getStorageLocation(deps.db, storageLocationId, accountId),
+    getStorageLocation: (storageLocationId, accountId) => getStorageLocation(deps.db, storageLocationId, accountId),
     projectors: [
       createProjector({
         projectorName: "inventory-storage-location-projection",

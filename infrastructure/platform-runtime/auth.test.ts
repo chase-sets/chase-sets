@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  AuthResolutionError,
-  isTransientAuthResolutionError,
-  resolveActorFromAuthApi,
-} from "./auth";
+import { AuthResolutionError, isTransientAuthResolutionError, resolveActorFromAuthApi } from "./auth";
 
 describe("platform auth actor resolution", () => {
   it("returns null when the auth api reports unauthenticated", async () => {
@@ -30,11 +26,7 @@ describe("platform auth actor resolution", () => {
       status: 502,
     });
 
-    expect(isTransientAuthResolutionError(new AuthResolutionError("/api/auth", 502))).toBe(
-      true,
-    );
-    expect(isTransientAuthResolutionError(new AuthResolutionError("/api/auth", 500))).toBe(
-      false,
-    );
+    expect(isTransientAuthResolutionError(new AuthResolutionError("/api/auth", 502))).toBe(true);
+    expect(isTransientAuthResolutionError(new AuthResolutionError("/api/auth", 500))).toBe(false);
   });
 });

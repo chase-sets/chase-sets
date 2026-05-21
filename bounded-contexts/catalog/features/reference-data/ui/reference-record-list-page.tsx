@@ -22,17 +22,29 @@ import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { confirmBulkReferenceRecordLifecycle, createReferenceRecord, previewBulkReferenceRecordLifecycle } from "./use-reference-data";
+import {
+  confirmBulkReferenceRecordLifecycle,
+  createReferenceRecord,
+  previewBulkReferenceRecordLifecycle,
+} from "./use-reference-data";
 import type { ReferenceRecord, ReferenceRelationship, ReferenceType } from "./contracts";
 import { parseAttributesInput } from "./reference-data-form";
 
 const ALL_TYPES = "__all__";
 
 const columns: DataColumn<ReferenceRecord>[] = [
-  { key: "type", header: t("catalog.features.referenceData.ui.referenceRecordListPage.type"), cell: (row) => row.type_key },
+  {
+    key: "type",
+    header: t("catalog.features.referenceData.ui.referenceRecordListPage.type"),
+    cell: (row) => row.type_key,
+  },
   { key: "key", header: t("catalog.features.referenceData.ui.referenceRecordListPage.key"), cell: (row) => row.key },
   { key: "name", header: t("catalog.features.referenceData.ui.referenceRecordListPage.name"), cell: (row) => row.name },
-  { key: "status", header: t("catalog.features.referenceData.ui.referenceRecordListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  {
+    key: "status",
+    header: t("catalog.features.referenceData.ui.referenceRecordListPage.status"),
+    cell: (row) => <StatusPill>{row.status}</StatusPill>,
+  },
 ];
 
 const statusOptions = [
@@ -92,20 +104,22 @@ export function ReferenceRecordListPage({
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   const typeOptions = useMemo(
-    () => referenceTypes.map((type) => ({
-      label: t("catalog.features.referenceData.ui.referenceRecordListPage.reference.type.option", {
-        name: type.name,
-        key: type.key,
-      }),
-      value: type.key,
-    })),
+    () =>
+      referenceTypes.map((type) => ({
+        label: t("catalog.features.referenceData.ui.referenceRecordListPage.reference.type.option", {
+          name: type.name,
+          key: type.key,
+        }),
+        value: type.key,
+      })),
     [referenceTypes],
   );
   const referenceRecordOptions = useMemo(
-    () => referenceRecords.map((record) => ({
-      label: formatReferenceRecordOption(record),
-      value: record.reference_record_id,
-    })),
+    () =>
+      referenceRecords.map((record) => ({
+        label: formatReferenceRecordOption(record),
+        value: record.reference_record_id,
+      })),
     [referenceRecords],
   );
 
@@ -144,9 +158,10 @@ export function ReferenceRecordListPage({
     }
 
     setRelationships((current) => [
-      ...current.filter((relationship) =>
-        relationship.relationshipType !== nextRelationship.relationshipType ||
-        relationship.referenceId !== nextRelationship.referenceId,
+      ...current.filter(
+        (relationship) =>
+          relationship.relationshipType !== nextRelationship.relationshipType ||
+          relationship.referenceId !== nextRelationship.referenceId,
       ),
       nextRelationship,
     ]);
@@ -178,7 +193,10 @@ export function ReferenceRecordListPage({
               value={listControls.typeKey || ALL_TYPES}
               onValueChange={(value) => listControls.setTypeKey(value === ALL_TYPES ? "" : value)}
               items={[
-                { label: t("catalog.features.referenceData.ui.referenceRecordListPage.all.reference.types"), value: ALL_TYPES },
+                {
+                  label: t("catalog.features.referenceData.ui.referenceRecordListPage.all.reference.types"),
+                  value: ALL_TYPES,
+                },
                 ...typeOptions,
               ]}
             />
@@ -227,7 +245,11 @@ export function ReferenceRecordListPage({
         open={showCreate}
         onOpenChange={setShowCreate}
         title={t("catalog.features.referenceData.ui.referenceRecordListPage.create.reference.record")}
-        footer={<Button onClick={handleCreate}>{t("catalog.features.referenceData.ui.referenceRecordListPage.create")}</Button>}
+        footer={
+          <Button onClick={handleCreate}>
+            {t("catalog.features.referenceData.ui.referenceRecordListPage.create")}
+          </Button>
+        }
       >
         <Stack gap={3}>
           {typeOptions.length > 0 ? (
@@ -238,11 +260,27 @@ export function ReferenceRecordListPage({
               onValueChange={setTypeKey}
             />
           ) : (
-            <TextInput label={t("catalog.features.referenceData.ui.referenceRecordListPage.type.key")} value={typeKey} onChange={(event) => setTypeKey(event.target.value)} />
+            <TextInput
+              label={t("catalog.features.referenceData.ui.referenceRecordListPage.type.key")}
+              value={typeKey}
+              onChange={(event) => setTypeKey(event.target.value)}
+            />
           )}
-          <TextInput label={t("catalog.features.referenceData.ui.referenceRecordListPage.key.2")} value={key} onChange={(event) => setKey(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceRecordListPage.name.2")} value={name} onChange={(event) => setName(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceRecordListPage.description")} value={description} onChange={(event) => setDescription(event.target.value)} />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceRecordListPage.key.2")}
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceRecordListPage.name.2")}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceRecordListPage.description")}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
           <Textarea
             label={t("catalog.features.referenceData.ui.referenceRecordListPage.attributes")}
             description={t("catalog.features.referenceData.ui.referenceRecordListPage.attributes.description")}
@@ -263,7 +301,9 @@ export function ReferenceRecordListPage({
                 value={relationshipReferenceId}
                 onValueChange={setRelationshipReferenceId}
                 placeholder={t("catalog.features.referenceData.ui.referenceRecordListPage.choose.reference.record")}
-                noMatchesLabel={t("catalog.features.referenceData.ui.referenceRecordListPage.no.reference.records.match")}
+                noMatchesLabel={t(
+                  "catalog.features.referenceData.ui.referenceRecordListPage.no.reference.records.match",
+                )}
               />
               <Button tone="secondary" onClick={handleAddRelationship}>
                 {t("catalog.features.referenceData.ui.referenceRecordListPage.add.relationship")}
@@ -280,12 +320,15 @@ export function ReferenceRecordListPage({
                     <Button
                       tone="danger"
                       size="sm"
-                      onClick={() => setRelationships((current) =>
-                        current.filter((relationship) =>
-                          relationship.relationshipType !== row.relationshipType ||
-                          relationship.referenceId !== row.referenceId,
-                        ),
-                      )}
+                      onClick={() =>
+                        setRelationships((current) =>
+                          current.filter(
+                            (relationship) =>
+                              relationship.relationshipType !== row.relationshipType ||
+                              relationship.referenceId !== row.referenceId,
+                          ),
+                        )
+                      }
                     >
                       {t("catalog.features.referenceData.ui.referenceRecordListPage.remove")}
                     </Button>

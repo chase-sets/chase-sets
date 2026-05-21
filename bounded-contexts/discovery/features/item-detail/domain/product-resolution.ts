@@ -1,7 +1,4 @@
-import type {
-  ProductDimension,
-  ProductSchema,
-} from "../../../support/client-support/contracts";
+import type { ProductDimension, ProductSchema } from "../../../support/client-support/contracts";
 
 type ProductOptionChoice = ProductDimension["allowedOptions"][number];
 
@@ -9,9 +6,7 @@ export function getOptionLabel(option: ProductOptionChoice): string {
   return option.label || option.code;
 }
 
-export function getOrderedDimensionOptions(
-  dimension: ProductDimension,
-): ProductOptionChoice[] {
+export function getOrderedDimensionOptions(dimension: ProductDimension): ProductOptionChoice[] {
   if (dimension.valueKind === "ordered") {
     return [...dimension.allowedOptions].sort(
       (left, right) =>
@@ -49,24 +44,16 @@ export function getOrderedDimensionOptions(
   return [...dimension.allowedOptions];
 }
 
-export function isDimensionActive(
-  dimension: ProductDimension,
-  selections: Record<string, string>,
-): boolean {
+export function isDimensionActive(dimension: ProductDimension, selections: Record<string, string>): boolean {
   return dimension.appliesWhen.every((clause) => {
     const selectedOptionId = selections[clause.dimensionId];
-    return (
-      selectedOptionId !== undefined &&
-      clause.optionIds.includes(selectedOptionId)
-    );
+    return selectedOptionId !== undefined && clause.optionIds.includes(selectedOptionId);
   });
 }
 
 export function getOrderedDimensions(schema: ProductSchema): ProductDimension[] {
   return schema.canonicalDimensionOrder
-    .map((order) =>
-      schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId),
-    )
+    .map((order) => schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId))
     .filter((dimension): dimension is ProductDimension => dimension !== undefined);
 }
 
@@ -74,9 +61,7 @@ export function getOrderedActiveDimensions(
   schema: ProductSchema,
   selections: Record<string, string>,
 ): ProductDimension[] {
-  return getOrderedDimensions(schema).filter((dimension) =>
-    isDimensionActive(dimension, selections),
-  );
+  return getOrderedDimensions(schema).filter((dimension) => isDimensionActive(dimension, selections));
 }
 
 export function normalizeProductSearchOptionsForSchema(
@@ -113,10 +98,7 @@ export function normalizeSelectedOptionssForSchema(
   return normalizeProductSearchOptionsForSchema(schema, selections);
 }
 
-export function isProductSelectionComplete(
-  schema: ProductSchema,
-  selections: Record<string, string>,
-): boolean {
+export function isProductSelectionComplete(schema: ProductSchema, selections: Record<string, string>): boolean {
   const normalizedSelections = normalizeProductSearchOptionsForSchema(schema, selections);
 
   return getOrderedActiveDimensions(schema, normalizedSelections).every((dimension) => {
@@ -149,11 +131,13 @@ export function summarizeSelections(
     .filter((selection): selection is { dimensionName: string; optionLabel: string } => selection !== null);
 }
 
-export function createDiscoveryProductDescriptor(input: Readonly<{
-  catalogItemId: string;
-  productSchema: ProductSchema | null;
-  selection: readonly { dimensionId: string; optionId: string }[];
-}>): Readonly<{
+export function createDiscoveryProductDescriptor(
+  input: Readonly<{
+    catalogItemId: string;
+    productSchema: ProductSchema | null;
+    selection: readonly { dimensionId: string; optionId: string }[];
+  }>,
+): Readonly<{
   productId: string;
   selection: { dimensionId: string; optionId: string }[];
 }> {
@@ -175,9 +159,7 @@ export function createDiscoveryProductDescriptor(input: Readonly<{
 
   const normalizedSelection = normalizeProductSearchOptionsForSchema(
     input.productSchema,
-    Object.fromEntries(
-      input.selection.map((entry) => [entry.dimensionId.trim(), entry.optionId.trim()]),
-    ),
+    Object.fromEntries(input.selection.map((entry) => [entry.dimensionId.trim(), entry.optionId.trim()])),
   );
 
   for (const dimension of getOrderedActiveDimensions(input.productSchema, normalizedSelection)) {
@@ -198,9 +180,7 @@ export function createDiscoveryProductDescriptor(input: Readonly<{
         optionId,
       };
     })
-    .filter(
-      (entry): entry is { dimensionId: string; optionId: string } => entry !== null,
-    );
+    .filter((entry): entry is { dimensionId: string; optionId: string } => entry !== null);
 
   return {
     productId: `${catalogItemId}::${input.productSchema.canonicalDimensionOrder

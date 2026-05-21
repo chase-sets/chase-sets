@@ -31,10 +31,7 @@ describe("settlement payment source projection", () => {
     const wallets = {
       postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
     };
-    const handlers = buildSettlementPaymentInputProjectionHandlers(
-      db as never,
-      wallets as never,
-    );
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
 
     await handlers["payments.payment-captured"]!(
       transportEvent("payments.payment-captured", {
@@ -47,11 +44,11 @@ describe("settlement payment source projection", () => {
         sellerPayouts: [
           {
             orderId: "ord_1",
-          sellerAccountId: "acc_seller",
-          sellerItemNetAmount: "19.00",
-          shippingAllowanceAmount: "1.00",
-          sellerShippingPayoutAmount: "1.00",
-          sellerPayoutAmount: "20.00",
+            sellerAccountId: "acc_seller",
+            sellerItemNetAmount: "19.00",
+            shippingAllowanceAmount: "1.00",
+            sellerShippingPayoutAmount: "1.00",
+            sellerPayoutAmount: "20.00",
           },
         ],
       }),

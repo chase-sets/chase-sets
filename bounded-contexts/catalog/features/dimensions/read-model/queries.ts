@@ -30,9 +30,10 @@ export type DimensionOptionRow = Readonly<{
   status: string;
 }>;
 
-export type DimensionListParams = ListParams & Readonly<{
-  valueKind?: string;
-}>;
+export type DimensionListParams = ListParams &
+  Readonly<{
+    valueKind?: string;
+  }>;
 
 export async function listDimensions(
   db: PgQueryable,
@@ -46,14 +47,18 @@ export async function listDimensions(
     extraValues.push(params.valueKind);
   }
 
-  const query = buildFilteredQuery("catalog_dimensions", params, ["key", "name"], "key ASC", extraConditions, extraValues);
+  const query = buildFilteredQuery(
+    "catalog_dimensions",
+    params,
+    ["key", "name"],
+    "key ASC",
+    extraConditions,
+    extraValues,
+  );
   return executeListQuery<DimensionRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function listDimensionIds(
-  db: PgQueryable,
-  params: DimensionListParams = {},
-): Promise<string[]> {
+export async function listDimensionIds(db: PgQueryable, params: DimensionListParams = {}): Promise<string[]> {
   const result = await listDimensions(db, { ...params, limit: undefined, offset: undefined });
   return result.items.map((row) => row.dimension_id);
 }
@@ -66,10 +71,9 @@ export async function listDimensionBulkRows(
     return [];
   }
 
-  const result = await db.query<DimensionRow>(
-    `SELECT * FROM catalog_dimensions WHERE dimension_id = ANY($1::text[])`,
-    [[...dimensionIds]],
-  );
+  const result = await db.query<DimensionRow>(`SELECT * FROM catalog_dimensions WHERE dimension_id = ANY($1::text[])`, [
+    [...dimensionIds],
+  ]);
 
   return result.rows.map((row) => ({
     id: row.dimension_id,
@@ -79,10 +83,9 @@ export async function listDimensionBulkRows(
 }
 
 export async function getDimension(db: PgQueryable, dimensionId: string) {
-  const dimensionResult = await db.query<DimensionRow>(
-    `SELECT * FROM catalog_dimensions WHERE dimension_id = $1`,
-    [dimensionId],
-  );
+  const dimensionResult = await db.query<DimensionRow>(`SELECT * FROM catalog_dimensions WHERE dimension_id = $1`, [
+    dimensionId,
+  ]);
 
   if (dimensionResult.rows.length === 0) {
     return null;

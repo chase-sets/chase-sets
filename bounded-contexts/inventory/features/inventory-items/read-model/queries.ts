@@ -67,10 +67,7 @@ type CatalogItemSummaryRow = Readonly<{
   product_schema: unknown;
 }>;
 
-async function loadCatalogItemSummaries(
-  db: PgQueryable,
-  catalogItemIds: readonly string[],
-) {
+async function loadCatalogItemSummaries(db: PgQueryable, catalogItemIds: readonly string[]) {
   if (catalogItemIds.length === 0) {
     return new Map<string, CatalogItemSummaryRow>();
   }
@@ -103,8 +100,7 @@ function enrichInventoryItemRows(
       ? (row.selected_options as InventorySelectedOptionEntry[])
       : [];
     const productSchema =
-      typeof catalogItem?.product_schema === "object" &&
-      catalogItem.product_schema !== null
+      typeof catalogItem?.product_schema === "object" && catalogItem.product_schema !== null
         ? (catalogItem.product_schema as InventoryProductSchema)
         : null;
 
@@ -114,12 +110,9 @@ function enrichInventoryItemRows(
       item_title: catalogItem?.title ?? null,
       item_subtitle: catalogItem?.subtitle ?? null,
       selected_options: selectedOptions,
-      product_summary:
-        summarizeSelectedOptions(productSchema, selectedOptions) || null,
+      product_summary: summarizeSelectedOptions(productSchema, selectedOptions) || null,
       graded_card:
-        typeof row.graded_card === "object" && row.graded_card !== null
-          ? (row.graded_card as GradedCardDetails)
-          : null,
+        typeof row.graded_card === "object" && row.graded_card !== null ? (row.graded_card as GradedCardDetails) : null,
     };
   });
 }
@@ -177,10 +170,9 @@ export async function listInventoryItems(
     ),
   ]);
 
-  const catalogItems = await loadCatalogItemSummaries(
-    db,
-    [...new Set(itemsResult.rows.map((row) => row.catalog_catalog_item_id))],
-  );
+  const catalogItems = await loadCatalogItemSummaries(db, [
+    ...new Set(itemsResult.rows.map((row) => row.catalog_catalog_item_id)),
+  ]);
   const items = enrichInventoryItemRows(itemsResult.rows, catalogItems);
 
   return {
@@ -189,11 +181,7 @@ export async function listInventoryItems(
   };
 }
 
-export async function getInventoryItem(
-  db: PgQueryable,
-  itemId: string,
-  accountId: string,
-) {
+export async function getInventoryItem(db: PgQueryable, itemId: string, accountId: string) {
   const result = await db.query<BaseInventoryItemRow>(
     `SELECT
        item.item_id,

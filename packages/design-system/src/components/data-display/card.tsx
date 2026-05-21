@@ -4,8 +4,7 @@ import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
 
-export interface CardProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   media?: ReactNode;
   interactive?: boolean;
@@ -13,21 +12,14 @@ export interface CardProps
   glow?: boolean;
 }
 
-export function Card({
-  children,
-  media,
-  interactive = false,
-  variant = "default",
-  glow = false,
-  ...rest
-}: CardProps) {
+export function Card({ children, media, interactive = false, variant = "default", glow = false, ...rest }: CardProps) {
   const motionSettings = useChaseMotion();
   const interactiveMotion =
     interactive && !motionSettings.reducedMotion
       ? {
           whileHover: { y: motionSettings.interactiveLift, scale: motionSettings.interactiveScale },
           whileTap: { y: 0, scale: 0.99 },
-          transition: { duration: motionSettings.durations.base, ease: motionSettings.easing }
+          transition: { duration: motionSettings.durations.base, ease: motionSettings.easing },
         }
       : undefined;
   const nativeProps = toMotionDomProps(rest);
@@ -43,7 +35,7 @@ export function Card({
         variant === "stat" && "bg-surface-2",
         interactive && "cursor-pointer transition hover:border-accent hover:shadow-tokenMd",
         glow && "glow-accent",
-        !media && "p-4"
+        !media && "p-4",
       )}
     >
       {media ? (
@@ -63,12 +55,7 @@ export interface DetailPanelProps extends Omit<CardProps, "title"> {
   actions?: ReactNode;
 }
 
-export function DetailPanel({
-  title,
-  actions,
-  children,
-  ...rest
-}: DetailPanelProps) {
+export function DetailPanel({ title, actions, children, ...rest }: DetailPanelProps) {
   return (
     <Card {...rest}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

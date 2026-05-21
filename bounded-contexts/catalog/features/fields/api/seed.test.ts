@@ -58,8 +58,7 @@ function createSeedFieldsHarness(input: { missingKeys?: Set<string> } = {}) {
         const fieldId = String(values[0]);
         const key = String(values[1]);
         const row =
-          existingFields.get(key) ??
-          Array.from(existingFields.values()).find((field) => field.field_id === fieldId);
+          existingFields.get(key) ?? Array.from(existingFields.values()).find((field) => field.field_id === fieldId);
 
         return {
           rowCount: row ? 1 : 0,
@@ -84,9 +83,7 @@ function createSeedFieldsHarness(input: { missingKeys?: Set<string> } = {}) {
           });
         }
         if (command.type === "ActivateField") {
-          const field = Array.from(existingFields.values()).find((entry) =>
-            streamId.endsWith(entry.field_id),
-          );
+          const field = Array.from(existingFields.values()).find((entry) => streamId.endsWith(entry.field_id));
           if (field) {
             field.status = "active";
           }

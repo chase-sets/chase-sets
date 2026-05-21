@@ -12,7 +12,10 @@ import type {
   CatalogItemListItem,
 } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
-import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import type {
+  BulkLifecyclePreview,
+  BulkLifecycleResult,
+} from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export type CatalogItemMetadataInput = {
   languageCode?: string;
@@ -124,22 +127,9 @@ export function linkExternalProductReference(
   externalKey: string,
   selectedOptions: Array<{ dimensionId: string; optionId: string }>,
 ) {
-  return api.linkExternalProductReference<CommandResponse>(
-    id,
-    providerKey,
-    externalKey,
-    selectedOptions,
-  );
+  return api.linkExternalProductReference<CommandResponse>(id, providerKey, externalKey, selectedOptions);
 }
 
-export function unlinkExternalProductReference(
-  id: string,
-  providerKey: string,
-  externalKey: string,
-) {
-  return api.unlinkExternalProductReference<CommandResponse>(
-    id,
-    providerKey,
-    externalKey,
-  );
+export function unlinkExternalProductReference(id: string, providerKey: string, externalKey: string) {
+  return api.unlinkExternalProductReference<CommandResponse>(id, providerKey, externalKey);
 }

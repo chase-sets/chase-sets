@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 
 type DimensionRule = Readonly<{
   dimensionId: string;
@@ -72,10 +68,7 @@ async function loadNameMap(
   return new Map(result.rows.map((row) => [row.id, row.name]));
 }
 
-async function buildVersionSchema(
-  db: PgQueryable,
-  blueprintId: string,
-): Promise<unknown | null> {
+async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise<unknown | null> {
   const blueprintResult = await db.query<MarketplaceBlueprintRow>(
     `SELECT * FROM marketplace_catalog_blueprints WHERE blueprint_id = $1`,
     [blueprintId],
@@ -91,9 +84,7 @@ async function buildVersionSchema(
   const dimensionIds = [
     ...new Set([
       ...dimensionRules.map((rule) => rule.dimensionId),
-      ...dimensionRules.flatMap((rule) =>
-        (rule.appliesWhen ?? []).map((clause) => clause.dimensionId),
-      ),
+      ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
       ...canonicalDimensionOrder,
     ]),
   ];
@@ -103,20 +94,16 @@ async function buildVersionSchema(
   ]);
 
   const [dimensionNames, choiceRows] = await Promise.all([
-    loadNameMap(
-      db,
-      "marketplace_catalog_dimensions",
-      "dimension_id",
-      "name",
-      dimensionIds,
-    ),
+    loadNameMap(db, "marketplace_catalog_dimensions", "dimension_id", "name", dimensionIds),
     optionIds.length > 0
-      ? db.query<MarketplaceChoiceRow>(
-          `SELECT option_id, code, label_i18n, label
+      ? db
+          .query<MarketplaceChoiceRow>(
+            `SELECT option_id, code, label_i18n, label
            FROM marketplace_catalog_dimension_options
            WHERE option_id = ANY($1)`,
-          [optionIds],
-        ).then((result) => result.rows)
+            [optionIds],
+          )
+          .then((result) => result.rows)
       : Promise.resolve([] as MarketplaceChoiceRow[]),
   ]);
 
@@ -149,10 +136,7 @@ async function buildVersionSchema(
   };
 }
 
-async function refreshMarketplaceCatalogItem(
-  db: PgQueryable,
-  itemId: string,
-): Promise<void> {
+async function refreshMarketplaceCatalogItem(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<MarketplaceCatalogItemRow>(
     `SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at
      FROM marketplace_catalog_items
@@ -165,35 +149,24 @@ async function refreshMarketplaceCatalogItem(
     return;
   }
 
-  const productSchema = item.blueprint_id
-    ? await buildVersionSchema(db, item.blueprint_id)
-    : null;
+  const productSchema = item.blueprint_id ? await buildVersionSchema(db, item.blueprint_id) : null;
 
   await db.query(
     `UPDATE marketplace_catalog_items
      SET product_schema = $2,
          updated_at = $3
      WHERE catalog_item_id = $1`,
-    [
-      itemId,
-      productSchema === null ? null : JSON.stringify(productSchema),
-      item.updated_at,
-    ],
+    [itemId, productSchema === null ? null : JSON.stringify(productSchema), item.updated_at],
   );
 }
 
-async function refreshItemsByBlueprint(
-  db: PgQueryable,
-  blueprintId: string,
-): Promise<void> {
+async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT catalog_item_id FROM marketplace_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
-  await Promise.all(
-    result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.catalog_item_id)),
-  );
+  await Promise.all(result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.catalog_item_id)));
 }
 
 async function refreshAllMarketplaceCatalogItems(db: PgQueryable): Promise<void> {
@@ -201,16 +174,10 @@ async function refreshAllMarketplaceCatalogItems(db: PgQueryable): Promise<void>
     `SELECT catalog_item_id FROM marketplace_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
-  await Promise.all(
-    result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.catalog_item_id)),
-  );
+  await Promise.all(result.rows.map((row) => refreshMarketplaceCatalogItem(db, row.catalog_item_id)));
 }
 
-async function refreshMarketplaceAccountReputation(
-  db: PgQueryable,
-  accountId: string,
-  updatedAt: string,
-) {
+async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO marketplace_account_pages (
        account_id,
@@ -256,9 +223,7 @@ async function refreshMarketplaceAccountReputation(
   );
 }
 
-export function buildMarketplaceAccountProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -394,9 +359,7 @@ export function buildMarketplaceAccountProjectionHandlers(
   };
 }
 
-export function buildMarketplaceCatalogProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
       const { itemId, languageCode, title, subtitle } = event.data as {
@@ -574,11 +537,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
          SET dimension_rules = $2,
              updated_at = $3
          WHERE blueprint_id = $1`,
-        [
-          blueprintId,
-          JSON.stringify(Array.isArray(dimensionRules) ? dimensionRules : []),
-          event.timing.recordedAt,
-        ],
+        [blueprintId, JSON.stringify(Array.isArray(dimensionRules) ? dimensionRules : []), event.timing.recordedAt],
       );
 
       await refreshItemsByBlueprint(db, blueprintId);
@@ -596,9 +555,7 @@ export function buildMarketplaceCatalogProjectionHandlers(
          WHERE blueprint_id = $1`,
         [
           blueprintId,
-          JSON.stringify(
-            Array.isArray(canonicalDimensionOrder) ? canonicalDimensionOrder : [],
-          ),
+          JSON.stringify(Array.isArray(canonicalDimensionOrder) ? canonicalDimensionOrder : []),
           event.timing.recordedAt,
         ],
       );
@@ -882,9 +839,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
           data.catalogItemId,
           data.productId,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
-          data.gradedCard === null || typeof data.gradedCard !== "object"
-            ? null
-            : JSON.stringify(data.gradedCard),
+          data.gradedCard === null || typeof data.gradedCard !== "object" ? null : JSON.stringify(data.gradedCard),
           data.storageLocationId,
           data.totalQuantity,
           data.acquisitionCostAmount,
@@ -941,14 +896,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
            last_stream_version = EXCLUDED.last_stream_version,
            updated_at = EXCLUDED.updated_at
          WHERE marketplace_supply_holds.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.holdId,
-          data.accountId,
-          data.itemId,
-          data.quantity,
-          event.streamVersion,
-          event.timing.recordedAt,
-        ],
+        [data.holdId, data.accountId, data.itemId, data.quantity, event.streamVersion, event.timing.recordedAt],
       );
 
       await options.onInventoryItemChanged?.(data.itemId);
@@ -968,12 +916,7 @@ export function buildMarketplaceInventoryProjectionHandlers(
          WHERE hold_id = $1
            AND last_stream_version < $4
          RETURNING item_id`,
-        [
-          data.holdId,
-          data.releasedAt,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
+        [data.holdId, data.releasedAt, event.timing.recordedAt, event.streamVersion],
       );
 
       const itemId = released.rows[0]?.item_id;

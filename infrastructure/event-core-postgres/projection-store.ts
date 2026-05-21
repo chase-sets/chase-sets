@@ -2,11 +2,7 @@ import { nowIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { GlobalPosition } from "@chase-sets/event-core/storage";
-import {
-  ZERO_GLOBAL_POSITION,
-  globalPositionFromBigInt,
-  parseGlobalPosition,
-} from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
@@ -22,12 +18,8 @@ export type PostgresProjectionStoreConfig = Readonly<{
 
 const DEFAULT_CHECKPOINTS_TABLE = "event_projection_checkpoints";
 
-export function createPostgresProjectionStore(
-  config: PostgresProjectionStoreConfig,
-): ProjectionCheckpointStore {
-  const tableName = assertSqlIdentifier(
-    config.tableName ?? DEFAULT_CHECKPOINTS_TABLE,
-  );
+export function createPostgresProjectionStore(config: PostgresProjectionStoreConfig): ProjectionCheckpointStore {
+  const tableName = assertSqlIdentifier(config.tableName ?? DEFAULT_CHECKPOINTS_TABLE);
   const now = config.now ?? nowIsoUtcTimestamp;
 
   const readCheckpointSql = `
@@ -50,41 +42,27 @@ export function createPostgresProjectionStore(
 
   return {
     loadCheckpoint: async (projectorName) => {
-      const result = await config.db.query<DbCheckpointRow>(readCheckpointSql, [
-        projectorName,
-      ]);
+      const result = await config.db.query<DbCheckpointRow>(readCheckpointSql, [projectorName]);
 
       if (result.rows.length === 0) {
         return ZERO_GLOBAL_POSITION;
       }
 
-      return coerceDbGlobalPosition(
-        result.rows[0].last_global_position,
-        "last_global_position",
-      );
+      return coerceDbGlobalPosition(result.rows[0].last_global_position, "last_global_position");
     },
 
     saveCheckpoint: async (projectorName, globalPosition) => {
-      await config.db.query(upsertCheckpointSql, [
-        projectorName,
-        globalPosition,
-        now(),
-      ]);
+      await config.db.query(upsertCheckpointSql, [projectorName, globalPosition, now()]);
     },
   };
 }
 
-function coerceDbGlobalPosition(
-  value: string | number | bigint,
-  fieldName: string,
-): GlobalPosition {
+function coerceDbGlobalPosition(value: string | number | bigint, fieldName: string): GlobalPosition {
   if (typeof value === "string") {
     try {
       return parseGlobalPosition(value);
     } catch {
-      throw new Error(
-        `Expected "${fieldName}" to be a canonical unsigned base-10 string.`,
-      );
+      throw new Error(`Expected "${fieldName}" to be a canonical unsigned base-10 string.`);
     }
   }
 
@@ -97,9 +75,7 @@ function coerceDbGlobalPosition(
   }
 
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(
-      `Expected "${fieldName}" to be a non-negative safe integer when returned as a number.`,
-    );
+    throw new Error(`Expected "${fieldName}" to be a non-negative safe integer when returned as a number.`);
   }
 
   return globalPositionFromBigInt(BigInt(value));

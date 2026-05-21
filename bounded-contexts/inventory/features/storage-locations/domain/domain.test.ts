@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideStorageLocation,
-  evolveStorageLocation,
-  initialStorageLocationState,
-} from "./domain";
+import { decideStorageLocation, evolveStorageLocation, initialStorageLocationState } from "./domain";
 
 describe("storage location domain", () => {
   it("creates and archives a storage location", async () => {

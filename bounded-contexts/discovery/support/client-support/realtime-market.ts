@@ -52,30 +52,18 @@ export function applyDiscoveryItemPatch(
     if (change.entity === "discovery.marketListing") {
       next = {
         ...next,
-        market_listings: applyEntityListPatch(
-          next.market_listings,
-          "listing_id",
-          change,
-        ),
+        market_listings: applyEntityListPatch(next.market_listings, "listing_id", change),
       };
     }
 
     if (change.entity === "discovery.buyerOffer") {
       next = {
         ...next,
-        offer_demand_matches: applyEntityListPatch(
-          next.offer_demand_matches,
-          "offer_id",
-          change,
-        ),
+        offer_demand_matches: applyEntityListPatch(next.offer_demand_matches, "offer_id", change),
       };
     }
 
-    if (
-      change.entity === "discovery.marketSummary" &&
-      change.op === "summary" &&
-      change.id === next.catalog_item_id
-    ) {
+    if (change.entity === "discovery.marketSummary" && change.op === "summary" && change.id === next.catalog_item_id) {
       next = {
         ...next,
         market_summary: change.value as DiscoveryItemDetail["market_summary"],
@@ -100,10 +88,7 @@ export function applyDiscoveryPublicListingPatch(
       next = null;
     }
 
-    if (
-      change.op === "upsert" &&
-      (!next || next.listing_id === change.id)
-    ) {
+    if (change.op === "upsert" && (!next || next.listing_id === change.id)) {
       next = change.value as DiscoveryPublicListing;
     }
   }
@@ -121,15 +106,8 @@ export function applyDiscoveryPublicAccountPatch(
 
   let next = account;
   for (const change of patch.changes) {
-    if (
-      change.entity === "discovery.marketListing" &&
-      (change.op === "upsert" || change.op === "remove")
-    ) {
-      const listings = applyEntityListPatch(
-        next.listings,
-        "listing_id",
-        change,
-      );
+    if (change.entity === "discovery.marketListing" && (change.op === "upsert" || change.op === "remove")) {
+      const listings = applyEntityListPatch(next.listings, "listing_id", change);
       next = {
         ...next,
         listings,
@@ -162,9 +140,7 @@ function applyEntityListPatch<T>(
   const index = items.findIndex((item) => String(item[idField]) === change.id);
 
   if (change.op === "remove") {
-    return index === -1
-      ? [...items]
-      : items.filter((item) => item[idField] !== change.id);
+    return index === -1 ? [...items] : items.filter((item) => item[idField] !== change.id);
   }
 
   if (change.op !== "upsert") {

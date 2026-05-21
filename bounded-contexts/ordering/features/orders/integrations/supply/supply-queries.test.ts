@@ -10,8 +10,6 @@ describe("ordering supply queries", () => {
     const candidate = await getOrderingSupplyCandidateByListingId(db, "lst_1");
 
     expect(candidate).toBeNull();
-    expect(query.mock.calls[0]?.[0]).toContain(
-      "listing.seller_listing_availability_status = 'available'",
-    );
+    expect(query.mock.calls[0]?.[0]).toContain("listing.seller_listing_availability_status = 'available'");
   });
 });

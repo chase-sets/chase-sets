@@ -1,12 +1,5 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import {
-  normalizeAddressSnapshot,
-  type AddressSnapshot,
-} from "@chase-sets/primitives/address-snapshot";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -115,10 +108,7 @@ export const decideStorageLocation: AggregateDecider<
             name: normalizeLabel(command.name),
             description: normalizeOptionalText(command.description),
             shipFromCode: normalizeLabel(command.shipFromCode),
-            shipFromAddress: normalizeAddressSnapshot(
-              command.shipFromAddress,
-              "Ship-from address",
-            ),
+            shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
           },
         },
       ];
@@ -133,10 +123,7 @@ export const decideStorageLocation: AggregateDecider<
             name: normalizeLabel(command.name),
             description: normalizeOptionalText(command.description),
             shipFromCode: normalizeLabel(command.shipFromCode),
-            shipFromAddress: normalizeAddressSnapshot(
-              command.shipFromAddress,
-              "Ship-from address",
-            ),
+            shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
           },
         },
       ];
@@ -154,10 +141,7 @@ export const decideStorageLocation: AggregateDecider<
   }
 };
 
-export const evolveStorageLocation: AggregateEvolver<
-  StorageLocationState,
-  StorageLocationEvent
-> = (state, event) => {
+export const evolveStorageLocation: AggregateEvolver<StorageLocationState, StorageLocationEvent> = (state, event) => {
   switch (event.type) {
     case "inventory.storage-location.created":
       return {

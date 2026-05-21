@@ -10,13 +10,12 @@ import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/r
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
-  return loadCatalogListRouteData<ReferenceType>(
-    request,
-    (query) => api.listReferenceTypes(query),
-  );
+  return loadCatalogListRouteData<ReferenceType>(request, (query) => api.listReferenceTypes(query));
 }
 
-export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.referenceTypes.reference.types.catalog.admin") }];
+export const meta: MetaFunction = () => [
+  { title: t("catalog.routes.admin.referenceTypes.reference.types.catalog.admin") },
+];
 
 export default function ReferenceTypesRoute() {
   const routeData = useLoaderData<typeof loader>();

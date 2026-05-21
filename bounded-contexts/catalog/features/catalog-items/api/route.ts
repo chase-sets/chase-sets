@@ -5,8 +5,10 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import { CatalogDomainError, type LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { CatalogItemImageFallback } from "../domain/domain";
-import { normalizeBulkSelection, toOptionalString as optionalStringFromBulk } from "../../../support/runtime-support/bulk-lifecycle";
-
+import {
+  normalizeBulkSelection,
+  toOptionalString as optionalStringFromBulk,
+} from "../../../support/runtime-support/bulk-lifecycle";
 
 export function catalogItemRoutes(services: CatalogItemServices) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -374,7 +376,10 @@ export function catalogItemRoutes(services: CatalogItemServices) {
     const item = await services.getCatalogItemDetail(c.req.param("id"));
 
     if (!item) {
-      return c.json({ error: { code: "not_found", message: t("catalog.features.catalogItems.api.route.catalog.item.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("catalog.features.catalogItems.api.route.catalog.item.not.found") } },
+        404,
+      );
     }
 
     return c.json(item);
@@ -406,9 +411,8 @@ function toBulkPublishSelection(value: unknown): BulkPublishSelection {
   const selection = value as { mode?: unknown; ids?: unknown; query?: unknown };
 
   if (selection.mode === "filter") {
-    const query = selection.query && typeof selection.query === "object"
-      ? selection.query as Record<string, unknown>
-      : {};
+    const query =
+      selection.query && typeof selection.query === "object" ? (selection.query as Record<string, unknown>) : {};
 
     return {
       mode: "filter",
@@ -431,9 +435,7 @@ function toBulkPublishSelection(value: unknown): BulkPublishSelection {
 }
 
 function toBulkEditOperation(value: unknown): BulkEditCatalogItemOperation {
-  const record = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
+  const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   const action = String(record.action ?? "");
 
   switch (action) {
@@ -462,9 +464,7 @@ function toBulkEditOperation(value: unknown): BulkEditCatalogItemOperation {
 }
 
 function toStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : [];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 function toOptionalString(value: unknown): string | undefined {
@@ -472,12 +472,7 @@ function toOptionalString(value: unknown): string | undefined {
 }
 
 function toLocalizedTextMap(value: unknown): LocalizedTextMap {
-  if (
-    value &&
-    typeof value === "object" &&
-    "defaultLocale" in value &&
-    "values" in value
-  ) {
+  if (value && typeof value === "object" && "defaultLocale" in value && "values" in value) {
     return value as LocalizedTextMap;
   }
 
@@ -490,9 +485,7 @@ function toLocalizedTextMap(value: unknown): LocalizedTextMap {
 }
 
 function toImageFallback(value: unknown): CatalogItemImageFallback {
-  const fallback = value && typeof value === "object"
-    ? value as Record<string, unknown>
-    : {};
+  const fallback = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
   return {
     url: String(fallback.url ?? ""),
@@ -509,9 +502,8 @@ function toImageFallbackVariants(value: unknown): CatalogItemImageFallback["vari
 
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([size, density]) => {
-      const entry = density && typeof density === "object" && !Array.isArray(density)
-        ? density as Record<string, unknown>
-        : {};
+      const entry =
+        density && typeof density === "object" && !Array.isArray(density) ? (density as Record<string, unknown>) : {};
 
       return [
         size,

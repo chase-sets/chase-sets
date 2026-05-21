@@ -4,12 +4,7 @@ export type AccountType = "personal" | "business" | "enterprise";
 export type AccountStatus = "active" | "suspended" | "closed";
 export type UserStatus = "active" | "suspended";
 export type MembershipStatus = "active" | "revoked";
-export type InvitationStatus =
-  | "pending"
-  | "accepted"
-  | "declined"
-  | "cancelled"
-  | "expired";
+export type InvitationStatus = "pending" | "accepted" | "declined" | "cancelled" | "expired";
 export type SessionStatus = "active" | "revoked" | "expired";
 export type ApiKeyStatus = "active" | "revoked";
 export type AuthMethodKey = "password" | "magic-link" | "passkey" | "sms-code" | "social-login";
@@ -22,12 +17,7 @@ export type ContactMethod = Readonly<{
   verifiedAt: string | null;
 }>;
 export type ConsentSubjectType = "user" | "account";
-export type RoleKey =
-  | "platform-admin"
-  | "owner"
-  | "manager"
-  | "fulfillment"
-  | "viewer";
+export type RoleKey = "platform-admin" | "owner" | "manager" | "fulfillment" | "viewer";
 export type PermissionKey =
   | "accounts.manage"
   | "accounts.view"
@@ -73,10 +63,7 @@ export class IdentityDomainError extends Error {
   }
 }
 
-export function assert(
-  condition: boolean,
-  message: string,
-): asserts condition {
+export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new IdentityDomainError(message);
   }

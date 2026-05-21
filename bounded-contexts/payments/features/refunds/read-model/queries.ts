@@ -19,9 +19,10 @@ export type RefundDetailRow = Readonly<{
   failed_at: string | null;
 }>;
 
-type RefundPageRow = Omit<RefundDetailRow, "order_ids"> & Readonly<{
-  order_ids: unknown;
-}>;
+type RefundPageRow = Omit<RefundDetailRow, "order_ids"> &
+  Readonly<{
+    order_ids: unknown;
+  }>;
 
 function mapRefundRow(row: RefundPageRow): RefundDetailRow {
   return {
@@ -33,10 +34,7 @@ function mapRefundRow(row: RefundPageRow): RefundDetailRow {
   };
 }
 
-export async function getRefund(
-  db: PgQueryable,
-  refundId: string,
-): Promise<RefundDetailRow | null> {
+export async function getRefund(db: PgQueryable, refundId: string): Promise<RefundDetailRow | null> {
   const result = await db.query<RefundPageRow>(
     `SELECT
        refund_id,

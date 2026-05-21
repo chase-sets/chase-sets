@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type {
   AccountId,
   CheckoutSessionId,
@@ -240,35 +236,19 @@ export type CheckoutSessionEvent =
   | CheckoutOfferSubmittedEvent;
 
 function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
-  const lockedListingId =
-    normalizeOptionalText(line.lockedListingId ?? line.listingId);
-  const fulfillmentMode =
-    line.fulfillmentMode === "locked-listing" || lockedListingId
-      ? "locked-listing"
-      : "optimize";
+  const lockedListingId = normalizeOptionalText(line.lockedListingId ?? line.listingId);
+  const fulfillmentMode = line.fulfillmentMode === "locked-listing" || lockedListingId ? "locked-listing" : "optimize";
   return {
     listingId: lockedListingId,
     cartLineId: normalizeOptionalText(line.cartLineId),
-    catalogItemId: normalizeRequiredText(
-      line.catalogItemId,
-      "Checkout lines must reference a catalog item.",
-    ),
-    productId: normalizeRequiredText(
-      line.productId,
-      "Checkout lines must reference a product.",
-    ),
-    itemTitle: normalizeRequiredText(
-      line.itemTitle,
-      "Checkout lines must include an item title snapshot.",
-    ),
+    catalogItemId: normalizeRequiredText(line.catalogItemId, "Checkout lines must reference a catalog item."),
+    productId: normalizeRequiredText(line.productId, "Checkout lines must reference a product."),
+    itemTitle: normalizeRequiredText(line.itemTitle, "Checkout lines must include an item title snapshot."),
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     selectedOptions: normalizeVersionSelection(line.selectedOptions),
     productSummary: normalizeOptionalText(line.productSummary),
     offerPriceAmount: normalizeOptionalText(line.offerPriceAmount),
-    quantity: ensurePositiveInteger(
-      line.quantity,
-      "Checkout quantity must be a positive whole number.",
-    ),
+    quantity: ensurePositiveInteger(line.quantity, "Checkout quantity must be a positive whole number."),
     fulfillmentMode,
     lockedListingId,
     sellerPreferenceId: normalizeOptionalText(line.sellerPreferenceId),
@@ -280,9 +260,7 @@ function normalizeOptimizationGoal(value: CheckoutOptimizationGoal | undefined) 
   return value === "fewest-shipments" ? "fewest-shipments" : "lowest-total";
 }
 
-function normalizeAvailabilityState(
-  value: "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined,
-) {
+function normalizeAvailabilityState(value: "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined) {
   switch (value) {
     case "unavailable":
     case "changed":
@@ -293,9 +271,7 @@ function normalizeAvailabilityState(
   }
 }
 
-function normalizeShippingAddress(
-  address: CheckoutShippingAddress,
-): CheckoutShippingAddress {
+function normalizeShippingAddress(address: CheckoutShippingAddress): CheckoutShippingAddress {
   return {
     shippingAddressId: normalizeOptionalText(address.shippingAddressId) as ShippingAddressId | null,
     name: normalizeRequiredText(address.name, "Shipping name is required."),
@@ -304,14 +280,8 @@ function normalizeShippingAddress(
     line2: normalizeOptionalText(address.line2),
     city: normalizeRequiredText(address.city, "Shipping city is required."),
     state: normalizeRequiredText(address.state, "Shipping state is required.").toUpperCase(),
-    postalCode: normalizeRequiredText(
-      address.postalCode,
-      "Shipping postal code is required.",
-    ),
-    country: normalizeRequiredText(
-      address.country,
-      "Shipping country is required.",
-    ).toUpperCase(),
+    postalCode: normalizeRequiredText(address.postalCode, "Shipping postal code is required."),
+    country: normalizeRequiredText(address.country, "Shipping country is required.").toUpperCase(),
     phone: normalizeOptionalText(address.phone),
     email: normalizeOptionalText(address.email),
   };
@@ -343,15 +313,10 @@ export const decideCheckoutSession: AggregateDecider<
             buyerAccountId: command.buyerAccountId,
             sourceType: command.sourceType,
             optimizationGoal: normalizeOptimizationGoal(command.optimizationGoal),
-            fulfillmentPreviewRevision: normalizeOptionalText(
-              command.fulfillmentPreviewRevision,
-            ),
+            fulfillmentPreviewRevision: normalizeOptionalText(command.fulfillmentPreviewRevision),
             shippingOption: normalizeShippingOption(command.shippingOption),
             lines,
-            createdAt: normalizeRequiredText(
-              command.createdAt,
-              "Checkout session must record a creation timestamp.",
-            ),
+            createdAt: normalizeRequiredText(command.createdAt, "Checkout session must record a creation timestamp."),
           },
         },
       ];
@@ -365,10 +330,7 @@ export const decideCheckoutSession: AggregateDecider<
           data: {
             sessionId: state.sessionId,
             optimizationGoal: normalizeOptimizationGoal(command.optimizationGoal),
-            selectedAt: normalizeRequiredText(
-              command.selectedAt,
-              "Optimization selection must record a timestamp.",
-            ),
+            selectedAt: normalizeRequiredText(command.selectedAt, "Optimization selection must record a timestamp."),
           },
         },
       ];
@@ -402,19 +364,13 @@ export const decideCheckoutSession: AggregateDecider<
           data: {
             sessionId: state.sessionId,
             shippingOption: normalizeShippingOption(command.shippingOption),
-            selectedAt: normalizeRequiredText(
-              command.selectedAt,
-              "Shipping selection must record a timestamp.",
-            ),
+            selectedAt: normalizeRequiredText(command.selectedAt, "Shipping selection must record a timestamp."),
           },
         },
       ];
     case "SetShippingAddress":
       assert(state.sessionId !== null, "Checkout session must be started first.");
-      assert(
-        state.orderIds.length === 0,
-        "Shipping address cannot change after orders are created.",
-      );
+      assert(state.orderIds.length === 0, "Shipping address cannot change after orders are created.");
       assert(!state.submittedOfferId, "Shipping address cannot change after purchase intent is placed.");
       return [
         {
@@ -442,10 +398,7 @@ export const decideCheckoutSession: AggregateDecider<
           data: {
             sessionId: state.sessionId,
             orderIds: normalizeOrderIds(command.orderIds),
-            recordedAt: normalizeRequiredText(
-              command.recordedAt,
-              "Order recording must include a timestamp.",
-            ),
+            recordedAt: normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp."),
           },
         },
       ];
@@ -462,10 +415,7 @@ export const decideCheckoutSession: AggregateDecider<
           data: {
             sessionId: state.sessionId,
             paymentId: command.paymentId,
-            recordedAt: normalizeRequiredText(
-              command.recordedAt,
-              "Payment recording must include a timestamp.",
-            ),
+            recordedAt: normalizeRequiredText(command.recordedAt, "Payment recording must include a timestamp."),
           },
         },
       ];
@@ -483,10 +433,7 @@ export const decideCheckoutSession: AggregateDecider<
           type: "checkout.session.offer-submitted",
           data: {
             sessionId: state.sessionId,
-            offerId: normalizeRequiredText(
-              command.offerId,
-              "Checkout must record the submitted offer.",
-            ),
+            offerId: normalizeRequiredText(command.offerId, "Checkout must record the submitted offer."),
             recordedAt: normalizeRequiredText(
               command.recordedAt,
               "Offer submission recording must include a timestamp.",
@@ -499,10 +446,7 @@ export const decideCheckoutSession: AggregateDecider<
   }
 };
 
-export const evolveCheckoutSession: AggregateEvolver<
-  CheckoutSessionState,
-  CheckoutSessionEvent
-> = (state, event) => {
+export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, CheckoutSessionEvent> = (state, event) => {
   switch (event.type) {
     case "checkout.session.started":
       return {

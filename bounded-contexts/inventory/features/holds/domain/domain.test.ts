@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideInventoryHold,
-  evolveInventoryHold,
-  initialInventoryHoldState,
-} from "./domain";
+import { decideInventoryHold, evolveInventoryHold, initialInventoryHoldState } from "./domain";
 
 describe("inventory holds", () => {
   it("places and releases active holds", () => {

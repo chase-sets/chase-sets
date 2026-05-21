@@ -1,10 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import {
-  PutObjectCommand,
-  S3Client,
-  type S3ClientConfig,
-} from "@aws-sdk/client-s3";
+import { PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
 
 export type ObjectStoragePutInput = Readonly<{
   key: string;
@@ -44,9 +40,7 @@ export type FilesystemObject = Readonly<{
   contentType: string;
 }>;
 
-export function createFilesystemObjectStorage(
-  options: FilesystemObjectStorageOptions,
-): ObjectStorage {
+export function createFilesystemObjectStorage(options: FilesystemObjectStorageOptions): ObjectStorage {
   const rootDir = path.resolve(options.rootDir);
 
   return {
@@ -104,10 +98,7 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectSt
   };
 }
 
-export async function readFilesystemObject(
-  rootDir: string,
-  key: string,
-): Promise<FilesystemObject | null> {
+export async function readFilesystemObject(rootDir: string, key: string): Promise<FilesystemObject | null> {
   const safeKey = normalizeObjectKey(key);
   const filePath = resolveObjectPath(path.resolve(rootDir), safeKey);
 

@@ -8,26 +8,17 @@ import { repoRoot } from "./lib/repo.mjs";
 const packageJsonPath = path.join(repoRoot, "package.json");
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 const packageManager = packageJson.packageManager ?? "pnpm@11.0.9";
-const pnpmVersion = packageManager.startsWith("pnpm@")
-  ? packageManager.slice("pnpm@".length)
-  : "11.0.9";
+const pnpmVersion = packageManager.startsWith("pnpm@") ? packageManager.slice("pnpm@".length) : "11.0.9";
 
 function resolveStoreDir() {
-  return path.resolve(
-    process.env.CHASE_SETS_PNPM_STORE_DIR ??
-      path.join(repoRoot, "..", ".chase-sets-pnpm-store"),
-  );
+  return path.resolve(process.env.CHASE_SETS_PNPM_STORE_DIR ?? path.join(repoRoot, "..", ".chase-sets-pnpm-store"));
 }
 
 function resolveWindowsNpmCliPath() {
   const candidates = [
-    process.env.npm_execpath && /npm-cli\.js$/i.test(process.env.npm_execpath)
-      ? process.env.npm_execpath
-      : null,
+    process.env.npm_execpath && /npm-cli\.js$/i.test(process.env.npm_execpath) ? process.env.npm_execpath : null,
     path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"),
-    process.env.APPDATA
-      ? path.join(process.env.APPDATA, "npm", "node_modules", "npm", "bin", "npm-cli.js")
-      : null,
+    process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "npm", "bin", "npm-cli.js") : null,
   ].filter(Boolean);
 
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
@@ -112,13 +103,7 @@ async function install() {
   const storeDir = resolveStoreDir();
   mkdirSync(storeDir, { recursive: true });
   console.log(`Using shared pnpm store: ${storeDir}`);
-  await runPnpm([
-    "install",
-    "--frozen-lockfile",
-    "--prefer-offline",
-    "--store-dir",
-    storeDir,
-  ]);
+  await runPnpm(["install", "--frozen-lockfile", "--prefer-offline", "--store-dir", storeDir]);
   printStatus();
 }
 

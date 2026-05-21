@@ -20,19 +20,12 @@ import { seedPricingDatabase } from "./support/runtime-support/seed";
 import type { PricingServices } from "./support/runtime-support/services";
 import { createPricingServices } from "./support/runtime-support/services";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -49,36 +42,17 @@ export const module: BcApiModule<PricingServices, PgTransactionalPool, void> = {
   routePrefix: "/api/marketplace",
   streamPrefix: "pricing.",
   schemaSql: pricingSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    PricingServices,
-    PgTransactionalPool,
-    void
-  >["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<PricingServices, PgTransactionalPool, void>["apiMounts"],
   projectionGroups,
   createServices: (pool) => createPricingServices(pool),
   buildApis: (services) => [buildPricingApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const catalogSubscription = getEventSubscription(
-      "catalog",
-      "pricing-catalog-input-projection",
-    );
-    const inventorySubscription = getEventSubscription(
-      "inventory",
-      "pricing-inventory-input-projection",
-    );
-    const marketplaceSubscription = getEventSubscription(
-      "marketplace",
-      "pricing-market-input-projection",
-    );
-    const orderingSubscription = getEventSubscription(
-      "ordering",
-      "pricing-order-input-projection",
-    );
-    const fulfillmentSubscription = getEventSubscription(
-      "fulfillment",
-      "pricing-fulfillment-input-projection",
-    );
+    const catalogSubscription = getEventSubscription("catalog", "pricing-catalog-input-projection");
+    const inventorySubscription = getEventSubscription("inventory", "pricing-inventory-input-projection");
+    const marketplaceSubscription = getEventSubscription("marketplace", "pricing-market-input-projection");
+    const orderingSubscription = getEventSubscription("ordering", "pricing-order-input-projection");
+    const fulfillmentSubscription = getEventSubscription("fulfillment", "pricing-fulfillment-input-projection");
 
     return [
       {

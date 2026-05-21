@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 
 export type PricingRecommendationState = Readonly<{
   recommendationId: string | null;
@@ -30,11 +26,7 @@ export type PricingRecommendationActionType =
   | "draft-listing-price-update"
   | "draft-listing-create";
 
-export type PricingRecommendationStatus =
-  | "proposed"
-  | "applied"
-  | "dismissed"
-  | "failed";
+export type PricingRecommendationStatus = "proposed" | "applied" | "dismissed" | "failed";
 
 export type PricingMarketSignalType = "competition" | "offer";
 
@@ -283,10 +275,7 @@ export const decidePricingRecommendation: AggregateDecider<
         command.recommendedListAmount,
         "Recommended list amount must be positive.",
       );
-      const marketPriceAmount = positiveAmount(
-        command.marketPriceAmount,
-        "Market price amount must be positive.",
-      );
+      const marketPriceAmount = positiveAmount(command.marketPriceAmount, "Market price amount must be positive.");
       const listingId = optionalText(command.listingId);
       const inventoryItemId = optionalText(command.inventoryItemId);
       if (
@@ -304,35 +293,19 @@ export const decidePricingRecommendation: AggregateDecider<
         {
           type: "pricing.recommendation.proposed",
           data: {
-            recommendationId: requiredText(
-              command.recommendationId,
-              "Recommendation id is required.",
-            ),
-            catalogItemId: requiredText(
-              command.catalogItemId,
-              "Catalog item is required.",
-            ),
-            sellerAccountId: requiredText(
-              command.sellerAccountId,
-              "Seller account is required.",
-            ),
+            recommendationId: requiredText(command.recommendationId, "Recommendation id is required."),
+            catalogItemId: requiredText(command.catalogItemId, "Catalog item is required."),
+            sellerAccountId: requiredText(command.sellerAccountId, "Seller account is required."),
             actionType: normalizeActionType(command.actionType),
             listingId,
             inventoryItemId,
             marketPriceAmount,
-            marketCurrency: requiredText(
-              command.marketCurrency,
-              "Market currency is required.",
-            ).toUpperCase(),
+            marketCurrency: requiredText(command.marketCurrency, "Market currency is required.").toUpperCase(),
             marketSignalType: normalizeSignalType(command.marketSignalType),
             currentPriceAmount:
-              command.currentPriceAmount === null ||
-              command.currentPriceAmount === undefined
+              command.currentPriceAmount === null || command.currentPriceAmount === undefined
                 ? null
-                : positiveAmount(
-                    command.currentPriceAmount,
-                    "Current price amount must be positive.",
-                  ),
+                : positiveAmount(command.currentPriceAmount, "Current price amount must be positive."),
             recommendedListAmount,
             reason: requiredText(command.reason, "Recommendation reason is required."),
             quantityCap: positiveQuantity(command.quantityCap),
@@ -353,10 +326,7 @@ export const decidePricingRecommendation: AggregateDecider<
           type: "pricing.recommendation.applied",
           data: {
             recommendationId: state.recommendationId,
-            appliedListingId: requiredText(
-              command.appliedListingId,
-              "Applied listing id is required.",
-            ),
+            appliedListingId: requiredText(command.appliedListingId, "Applied listing id is required."),
             appliedAt: requiredText(command.appliedAt, "Applied time is required."),
           },
         },
@@ -396,10 +366,10 @@ export const decidePricingRecommendation: AggregateDecider<
   }
 };
 
-export const evolvePricingRecommendation: AggregateEvolver<
-  PricingRecommendationState,
-  PricingRecommendationEvent
-> = (state, event) => {
+export const evolvePricingRecommendation: AggregateEvolver<PricingRecommendationState, PricingRecommendationEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "pricing.market-price-snapshot.recorded":
       return {

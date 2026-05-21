@@ -4,10 +4,12 @@ import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountListingRoutes } from "./route";
 import type { MarketplaceListingServices } from "./runtime";
 
-function buildApp(options: Readonly<{
-  actor: MarketplaceApiEnv["Variables"]["actor"];
-  services: MarketplaceListingServices;
-}>) {
+function buildApp(
+  options: Readonly<{
+    actor: MarketplaceApiEnv["Variables"]["actor"];
+    services: MarketplaceListingServices;
+  }>,
+) {
   const app = new Hono<MarketplaceApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -156,9 +158,7 @@ describe("marketplace listing routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://marketplace.test/account/listings/lst_1/fee-history"),
-    );
+    const response = await app.fetch(new Request("http://marketplace.test/account/listings/lst_1/fee-history"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -194,9 +194,7 @@ describe("marketplace listing routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://marketplace.test/account/listings/fee-lock-report"),
-    );
+    const response = await app.fetch(new Request("http://marketplace.test/account/listings/fee-lock-report"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({

@@ -27,9 +27,15 @@ function canRaiseException(status: string) {
 }
 
 const uspsServiceLevels = [
-  { value: "USPS_GROUND_ADVANTAGE", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.ground.advantage") },
+  {
+    value: "USPS_GROUND_ADVANTAGE",
+    label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.ground.advantage"),
+  },
   { value: "PRIORITY", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.priority.mail") },
-  { value: "PRIORITY_EXPRESS", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.priority.mail.express") },
+  {
+    value: "PRIORITY_EXPRESS",
+    label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.priority.mail.express"),
+  },
   { value: "MEDIA_MAIL", label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.media.mail") },
 ];
 
@@ -44,16 +50,63 @@ function AddressFields({
 }) {
   return (
     <>
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.name`)} name={`${prefix}Name`} required defaultValue={address.name} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.company`)} name={`${prefix}Company`} defaultValue={address.company ?? ""} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.street`)} name={`${prefix}Street1`} required defaultValue={address.line1} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.street.2`)} name={`${prefix}Street2`} defaultValue={address.line2 ?? ""} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.city`)} name={`${prefix}City`} required defaultValue={address.city} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.state`)} name={`${prefix}State`} required defaultValue={address.state} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.zip`)} name={`${prefix}PostalCode`} required defaultValue={address.postalCode} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.country`)} name={`${prefix}Country`} required defaultValue={address.country} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.phone`)} name={`${prefix}Phone`} defaultValue={address.phone ?? ""} />
-      <TextInput label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.email`)} name={`${prefix}Email`} type="email" defaultValue={address.email ?? ""} />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.name`)}
+        name={`${prefix}Name`}
+        required
+        defaultValue={address.name}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.company`)}
+        name={`${prefix}Company`}
+        defaultValue={address.company ?? ""}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.street`)}
+        name={`${prefix}Street1`}
+        required
+        defaultValue={address.line1}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.street.2`)}
+        name={`${prefix}Street2`}
+        defaultValue={address.line2 ?? ""}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.city`)}
+        name={`${prefix}City`}
+        required
+        defaultValue={address.city}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.state`)}
+        name={`${prefix}State`}
+        required
+        defaultValue={address.state}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.zip`)}
+        name={`${prefix}PostalCode`}
+        required
+        defaultValue={address.postalCode}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.country`)}
+        name={`${prefix}Country`}
+        required
+        defaultValue={address.country}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.phone`)}
+        name={`${prefix}Phone`}
+        defaultValue={address.phone ?? ""}
+      />
+      <TextInput
+        label={t(`fulfillment.features.shipments.ui.shipmentDetailPage.${labelPrefix}.email`)}
+        name={`${prefix}Email`}
+        type="email"
+        defaultValue={address.email ?? ""}
+      />
     </>
   );
 }
@@ -71,8 +124,8 @@ export function FulfillmentShipmentDetailPage({
 }) {
   const counterpartLabel =
     role === "buyer"
-      ? shipment.seller_display_name ?? shipment.seller_account_id
-      : shipment.buyer_display_name ?? shipment.buyer_account_id;
+      ? (shipment.seller_display_name ?? shipment.seller_account_id)
+      : (shipment.buyer_display_name ?? shipment.buyer_account_id);
   const recipientSnapshot = shipment.shipping_destination_snapshot;
   const senderSnapshot = shipment.shipping_origin_snapshot;
   const packingSlipHref = `/account/sales/shipments/packing-slips?shipmentIds=${encodeURIComponent(shipment.shipment_id)}&format=letter`;
@@ -80,7 +133,11 @@ export function FulfillmentShipmentDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow={role === "buyer" ? t("fulfillment.features.shipments.ui.shipmentDetailPage.buyer") : t("fulfillment.features.shipments.ui.shipmentDetailPage.seller")}
+        eyebrow={
+          role === "buyer"
+            ? t("fulfillment.features.shipments.ui.shipmentDetailPage.buyer")
+            : t("fulfillment.features.shipments.ui.shipmentDetailPage.seller")
+        }
         title={t("fulfillment.features.shipments.ui.shipmentDetailPage.shipment")}
         description={t("fulfillment.features.shipments.ui.shipmentDetailPage.order.with.counterpart", {
           orderId: shipment.order_id,
@@ -90,16 +147,22 @@ export function FulfillmentShipmentDetailPage({
           <Stack gap={2}>
             {role === "seller" ? (
               <LinkButton href={packingSlipHref} tone="primary" target="_blank">
-                {t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip")}</LinkButton>
+                {t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip")}
+              </LinkButton>
             ) : null}
             <LinkButton href={backHref} tone="secondary">
-              {t("fulfillment.features.shipments.ui.shipmentDetailPage.back")}</LinkButton>
+              {t("fulfillment.features.shipments.ui.shipmentDetailPage.back")}
+            </LinkButton>
           </Stack>
         }
       />
 
       {errorMessage ? (
-        <MarketplaceNotice tone="error" title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")} description={errorMessage} />
+        <MarketplaceNotice
+          tone="error"
+          title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}
+          description={errorMessage}
+        />
       ) : null}
 
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}>
@@ -108,21 +171,22 @@ export function FulfillmentShipmentDetailPage({
             steps={[
               {
                 label: shipment.status,
-                description: t("fulfillment.features.shipments.ui.shipmentDetailPage.package.state") + shipment.package_status,
-                status: shipment.status === "delivered"
-                  ? "complete"
-                  : shipment.status === "exception"
-                    ? "issue"
-                    : "current",
+                description:
+                  t("fulfillment.features.shipments.ui.shipmentDetailPage.package.state") + shipment.package_status,
+                status:
+                  shipment.status === "delivered" ? "complete" : shipment.status === "exception" ? "issue" : "current",
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking"),
-                description: shipment.tracking_identifier ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet"),
+                description:
+                  shipment.tracking_identifier ??
+                  t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet"),
                 status: shipment.tracking_identifier ? "complete" : "upcoming",
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.carrier"),
-                description: shipment.carrier_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.3"),
+                description:
+                  shipment.carrier_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.3"),
                 status: shipment.carrier_name ? "complete" : "upcoming",
               },
             ]}
@@ -137,11 +201,15 @@ export function FulfillmentShipmentDetailPage({
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.method"),
-                value: shipment.shipping_method ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet"),
+                value:
+                  shipment.shipping_method ??
+                  t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet"),
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.service.level"),
-                value: shipment.postage_service_level ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.2"),
+                value:
+                  shipment.postage_service_level ??
+                  t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.2"),
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status"),
@@ -149,11 +217,14 @@ export function FulfillmentShipmentDetailPage({
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider"),
-                value: shipment.postage_provider_name ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
+                value:
+                  shipment.postage_provider_name ??
+                  t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
               },
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.package.count"),
-                value: shipment.package_count ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+                value:
+                  shipment.package_count ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
               },
             ]}
           />
@@ -163,7 +234,9 @@ export function FulfillmentShipmentDetailPage({
             items={[
               {
                 title: t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking"),
-                description: shipment.tracking_identifier ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet"),
+                description:
+                  shipment.tracking_identifier ??
+                  t("fulfillment.features.shipments.ui.shipmentDetailPage.not.attached.yet"),
               },
               {
                 title: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status"),
@@ -171,19 +244,25 @@ export function FulfillmentShipmentDetailPage({
               },
               {
                 title: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage"),
-                description: shipment.postage_amount_cents != null
-                  ? `${(shipment.postage_amount_cents / 100).toFixed(2)} ${shipment.postage_currency ?? "USD"}`
-                  : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
+                description:
+                  shipment.postage_amount_cents != null
+                    ? `${(shipment.postage_amount_cents / 100).toFixed(2)} ${shipment.postage_currency ?? "USD"}`
+                    : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
               },
             ]}
           />
 
           {shipment.label_document_url ? (
             <LinkButton href={shipment.label_document_url} tone="secondary">
-              {t("fulfillment.features.shipments.ui.shipmentDetailPage.open.label.pdf")}</LinkButton>
+              {t("fulfillment.features.shipments.ui.shipmentDetailPage.open.label.pdf")}
+            </LinkButton>
           ) : null}
           {shipment.label_error_message ? (
-            <MarketplaceNotice tone="warning" title={t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")} description={shipment.label_error_message} />
+            <MarketplaceNotice
+              tone="warning"
+              title={t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")}
+              description={shipment.label_error_message}
+            />
           ) : null}
           {shipment.label_refund_status ? (
             <MarketplaceNotice
@@ -213,10 +292,15 @@ export function FulfillmentShipmentDetailPage({
                   </Text>
                 ) : null}
                 <ProductOptions
-                  options={productOptionsFromSummary(line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.standard"))}
+                  options={productOptionsFromSummary(
+                    line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.standard"),
+                  )}
                   variant="chips"
                 />
-                <Text>{t("fulfillment.features.shipments.ui.shipmentDetailPage.quantity")}{line.quantity}</Text>
+                <Text>
+                  {t("fulfillment.features.shipments.ui.shipmentDetailPage.quantity")}
+                  {line.quantity}
+                </Text>
               </Stack>
             </Card>
           ))}
@@ -236,7 +320,8 @@ export function FulfillmentShipmentDetailPage({
                 <Stack gap={1}>
                   <Text weight="semibold">{exception.exception_type}</Text>
                   <Text size="sm" tone="secondary">
-                    {t("fulfillment.features.shipments.ui.shipmentDetailPage.raised.at")}{exception.raised_at}
+                    {t("fulfillment.features.shipments.ui.shipmentDetailPage.raised.at")}
+                    {exception.raised_at}
                   </Text>
                   {exception.notes ? <Text>{exception.notes}</Text> : null}
                 </Stack>
@@ -261,7 +346,8 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue={shipment.package_count ?? 1}
                     />
                     <Button type="submit" name="intent" value="prepare-package">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.package.ready")}</Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.package.ready")}
+                    </Button>
                   </Stack>
                 </form>
               </Card>
@@ -320,7 +406,8 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue="4"
                     />
                     <Button type="submit" name="intent" value="purchase-label">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.usps.label")}</Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.usps.label")}
+                    </Button>
                   </Stack>
                 </form>
               </Card>
@@ -331,7 +418,8 @@ export function FulfillmentShipmentDetailPage({
                 <form method="post">
                   <Stack gap={3}>
                     <Button type="submit" name="intent" value="dispatch-shipment">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.dispatched")}</Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.dispatched")}
+                    </Button>
                     <TextInput
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking.identifier")}
                       name="trackingIdentifier"
@@ -339,18 +427,20 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue={shipment.tracking_identifier ?? ""}
                     />
                     <Button type="submit" name="intent" value="void-label" tone="secondary">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.void.label")}</Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.void.label")}
+                    </Button>
                   </Stack>
                 </form>
               </Card>
             ) : null}
 
-            {(shipment.status === "dispatched" || shipment.status === "exception") ? (
+            {shipment.status === "dispatched" || shipment.status === "exception" ? (
               <Card>
                 <Stack gap={3}>
                   <form method="post">
                     <Button type="submit" name="intent" value="deliver-shipment">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.delivered")}</Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.delivered")}
+                    </Button>
                   </form>
                   <form method="post">
                     <Stack gap={3}>
@@ -361,7 +451,8 @@ export function FulfillmentShipmentDetailPage({
                         defaultValue=""
                       />
                       <Button type="submit" name="intent" value="return-shipment" tone="secondary">
-                        {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.returned")}</Button>
+                        {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.returned")}
+                      </Button>
                     </Stack>
                   </form>
                 </Stack>
@@ -385,7 +476,8 @@ export function FulfillmentShipmentDetailPage({
                       defaultValue={shipment.current_exception_notes ?? ""}
                     />
                     <Button type="submit" name="intent" value="raise-exception" tone="secondary">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.raise.exception")}</Button>
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.raise.exception")}
+                    </Button>
                   </Stack>
                 </form>
               </Card>

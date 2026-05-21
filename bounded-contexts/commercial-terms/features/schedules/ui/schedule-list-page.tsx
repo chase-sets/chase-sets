@@ -33,7 +33,9 @@ export function ScheduleListPage({
       <PageHeader
         eyebrow={t("commercialTerms.features.schedules.ui.scheduleListPage.admin")}
         title={t("commercialTerms.features.schedules.ui.scheduleListPage.fee.schedules")}
-        description={t("commercialTerms.features.schedules.ui.scheduleListPage.manage.default.marketplace.fee.schedules")}
+        description={t(
+          "commercialTerms.features.schedules.ui.scheduleListPage.manage.default.marketplace.fee.schedules",
+        )}
       />
 
       <Banner
@@ -52,7 +54,11 @@ export function ScheduleListPage({
         <Card>
           <form method="post">
             <Stack gap={3}>
-              <TextInput label={t("commercialTerms.features.schedules.ui.scheduleListPage.label")} name="label" required />
+              <TextInput
+                label={t("commercialTerms.features.schedules.ui.scheduleListPage.label")}
+                name="label"
+                required
+              />
               <NativeSelect
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.account.type")}
                 name="accountType"
@@ -61,7 +67,10 @@ export function ScheduleListPage({
                 items={[
                   { value: "personal", label: t("commercialTerms.features.schedules.ui.scheduleListPage.personal") },
                   { value: "business", label: t("commercialTerms.features.schedules.ui.scheduleListPage.business") },
-                  { value: "enterprise", label: t("commercialTerms.features.schedules.ui.scheduleListPage.enterprise") },
+                  {
+                    value: "enterprise",
+                    label: t("commercialTerms.features.schedules.ui.scheduleListPage.enterprise"),
+                  },
                 ]}
               />
               <NumberInput
@@ -106,7 +115,9 @@ export function ScheduleListPage({
                 name="effectiveUntil"
                 placeholder={t("commercialTerms.features.schedules.ui.scheduleListPage.optional.iso.timestamp")}
               />
-              <Button type="submit">{t("commercialTerms.features.schedules.ui.scheduleListPage.create.schedule.2")}</Button>
+              <Button type="submit">
+                {t("commercialTerms.features.schedules.ui.scheduleListPage.create.schedule.2")}
+              </Button>
             </Stack>
           </form>
         </Card>
@@ -150,12 +161,15 @@ export function ScheduleListPage({
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/commercial-terms/schedules/${row.schedule_id}`} tone="secondary" size="sm">
-                  {t("commercialTerms.features.schedules.ui.scheduleListPage.open")}</LinkButton>
+                  {t("commercialTerms.features.schedules.ui.scheduleListPage.open")}
+                </LinkButton>
               ),
             },
           ]}
           emptyTitle={t("commercialTerms.features.schedules.ui.scheduleListPage.no.schedules.yet")}
-          emptyDescription={t("commercialTerms.features.schedules.ui.scheduleListPage.create.a.default.schedule.before.commercial")}
+          emptyDescription={t(
+            "commercialTerms.features.schedules.ui.scheduleListPage.create.a.default.schedule.before.commercial",
+          )}
         />
       </PageSection>
     </Page>

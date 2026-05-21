@@ -8,14 +8,17 @@ describe("public presence home route", () => {
         { title: "Chase Sets Seller Beta Waitlist | Trading Card Marketplace" },
         {
           name: "description",
-          content: "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, bulk card workflows, and buyer-visible delivered totals.",
+          content:
+            "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, bulk card workflows, and buyer-visible delivered totals.",
         },
         { property: "og:url", content: "https://chasesets.com/" },
       ]),
     );
-    expect(meta({} as never)).not.toContainEqual(expect.objectContaining({
-      rel: "canonical",
-    }));
+    expect(meta({} as never)).not.toContainEqual(
+      expect.objectContaining({
+        rel: "canonical",
+      }),
+    );
   });
 
   it("exposes structured data for the public waitlist action", () => {
@@ -60,13 +63,15 @@ describe("public presence home route", () => {
       context: undefined,
     } as never);
 
-    expect(meta({
-      data,
-      params: {},
-      location: { pathname: "/", search: "", hash: "", state: null, key: "test" },
-      matches: [],
-      error: undefined,
-    } as never)).toContainEqual({
+    expect(
+      meta({
+        data,
+        params: {},
+        location: { pathname: "/", search: "", hash: "", state: null, key: "test" },
+        matches: [],
+        error: undefined,
+      } as never),
+    ).toContainEqual({
       property: "og:url",
       content: "https://preview.chasesets.test/",
     });

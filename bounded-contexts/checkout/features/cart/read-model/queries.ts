@@ -93,9 +93,7 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
       source.seller_average_rating === null || source.seller_average_rating === undefined
         ? null
         : String(source.seller_average_rating).trim() || null,
-    seller_review_count: Number.isFinite(Number(source.seller_review_count))
-      ? Number(source.seller_review_count)
-      : 0,
+    seller_review_count: Number.isFinite(Number(source.seller_review_count)) ? Number(source.seller_review_count) : 0,
     price_amount: priceAmount,
     available_quantity: availableQuantity,
     product_summary:
@@ -108,17 +106,14 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
 function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
   return {
     ...row,
-    fulfillment_mode:
-      row.fulfillment_mode === "locked-listing" ? "locked-listing" : "optimize",
+    fulfillment_mode: row.fulfillment_mode === "locked-listing" ? "locked-listing" : "optimize",
     availability_state:
       row.availability_state === "unavailable" ||
       row.availability_state === "changed" ||
       row.availability_state === "waiting-for-supply"
         ? row.availability_state
         : "available",
-    selected_options: Array.isArray(row.selected_options)
-      ? (row.selected_options as VersionSelectedOptionEntry[])
-      : [],
+    selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
     seller_options: Array.isArray(row.seller_options)
       ? row.seller_options
           .map(mapSellerOption)
@@ -127,10 +122,7 @@ function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
   };
 }
 
-export async function listCartLines(
-  db: PgQueryable,
-  buyerAccountId: string,
-): Promise<CheckoutCartLineRow[]> {
+export async function listCartLines(db: PgQueryable, buyerAccountId: string): Promise<CheckoutCartLineRow[]> {
   const result = await db.query<CartLinePageRow>(
     `SELECT
        line.buyer_account_id,

@@ -1,32 +1,22 @@
 import type { JsonObject } from "../primitives/json";
 
 // Domain events keep only what aggregates need for deterministic rehydration.
-export type DomainEvent<
-  Type extends string = string,
-  Data extends JsonObject = JsonObject,
-> = Readonly<{
+export type DomainEvent<Type extends string = string, Data extends JsonObject = JsonObject> = Readonly<{
   type: Type;
   data: Data;
 }>;
 
-export type AggregateEvolver<
-  State,
-  Event extends DomainEvent = DomainEvent,
-> = (state: Readonly<State>, event: Readonly<Event>) => State;
+export type AggregateEvolver<State, Event extends DomainEvent = DomainEvent> = (
+  state: Readonly<State>,
+  event: Readonly<Event>,
+) => State;
 
-export type AggregateDecider<
-  State,
-  Command,
-  Event extends DomainEvent = DomainEvent,
-> = (
+export type AggregateDecider<State, Command, Event extends DomainEvent = DomainEvent> = (
   state: Readonly<State>,
   command: Readonly<Command>,
 ) => readonly Event[] | Promise<readonly Event[]>;
 
-export type RehydratedAggregate<
-  State,
-  Event extends DomainEvent = DomainEvent,
-> = Readonly<{
+export type RehydratedAggregate<State, Event extends DomainEvent = DomainEvent> = Readonly<{
   state: State;
   version: number;
   events: readonly Event[];

@@ -12,8 +12,7 @@ export interface GalleryImage {
   alt: string;
 }
 
-export interface ImageGalleryProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface ImageGalleryProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   images: GalleryImage[];
   aspectRatio?: string;
   emptyState?: ReactNode;
@@ -51,12 +50,8 @@ export function ImageGallery({
   ...rest
 }: ImageGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [loadedImageSources, setLoadedImageSources] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const [failedImageSources, setFailedImageSources] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [loadedImageSources, setLoadedImageSources] = useState<ReadonlySet<string>>(() => new Set());
+  const [failedImageSources, setFailedImageSources] = useState<ReadonlySet<string>>(() => new Set());
 
   function resolveImage(image: GalleryImage | undefined): GalleryImage | undefined {
     if (!image) {
@@ -99,9 +94,7 @@ export function ImageGallery({
   }
 
   const hasProvidedImages = images.length > 0;
-  const galleryImages = fallbackImageMode === "permanent" && fallbackImage
-    ? [...images, fallbackImage]
-    : images;
+  const galleryImages = fallbackImageMode === "permanent" && fallbackImage ? [...images, fallbackImage] : images;
   const safeGalleryIndex = activeIndex < galleryImages.length ? activeIndex : 0;
   const active = resolveImage(hasProvidedImages ? galleryImages[safeGalleryIndex] : undefined);
   const showLoadingFallback = Boolean(
@@ -124,55 +117,49 @@ export function ImageGallery({
         "lg:max-w-full",
       )
     : "";
-  const productFrameClassName = cx(
-    "relative overflow-visible",
-    constrainedFrameClasses,
-  );
+  const productFrameClassName = cx("relative overflow-visible", constrainedFrameClasses);
   const surfaceFrameClassName = cx(
     "modern-surface relative overflow-hidden rounded-tokenLg border border-muted",
     constrainedFrameClasses,
   );
-  const thumbnailRail = galleryImages.length > 1 ? (
-    <div
-      className={cx(
-        "flex gap-2 overflow-auto",
-        thumbnailPlacement === "left"
-          ? "max-h-full w-16 shrink-0 flex-col"
-          : "overflow-x-auto",
-      )}
-    >
-      {galleryImages.map((image, index) => {
-        const thumbnail = resolveImage(image);
+  const thumbnailRail =
+    galleryImages.length > 1 ? (
+      <div
+        className={cx(
+          "flex gap-2 overflow-auto",
+          thumbnailPlacement === "left" ? "max-h-full w-16 shrink-0 flex-col" : "overflow-x-auto",
+        )}
+      >
+        {galleryImages.map((image, index) => {
+          const thumbnail = resolveImage(image);
 
-        return (
-          <button
-            key={index}
-            type="button"
-            onClick={() => setActiveIndex(index)}
-            aria-label={image.alt}
-            className={cx(
-              "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
-              index === safeGalleryIndex
-                ? "border-accent shadow-tokenSm"
-                : "border-muted hover:border-accent",
-            )}
-          >
-            {thumbnail ? (
-              <img
-                src={thumbnail.thumbnailSrc ?? thumbnail.src}
-                alt=""
-                aria-hidden="true"
-                srcSet={thumbnail.thumbnailSrcSet ?? thumbnail.srcSet}
-                sizes="64px"
-                onError={() => markImageFailed(thumbnail.thumbnailSrc ?? thumbnail.src)}
-                className="h-full w-full object-cover"
-              />
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
-  ) : null;
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => setActiveIndex(index)}
+              aria-label={image.alt}
+              className={cx(
+                "focus-ring h-16 w-16 shrink-0 overflow-hidden rounded-tokenMd border transition",
+                index === safeGalleryIndex ? "border-accent shadow-tokenSm" : "border-muted hover:border-accent",
+              )}
+            >
+              {thumbnail ? (
+                <img
+                  src={thumbnail.thumbnailSrc ?? thumbnail.src}
+                  alt=""
+                  aria-hidden="true"
+                  srcSet={thumbnail.thumbnailSrcSet ?? thumbnail.srcSet}
+                  sizes="64px"
+                  onError={() => markImageFailed(thumbnail.thumbnailSrc ?? thumbnail.src)}
+                  className="h-full w-full object-cover"
+                />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
 
   if (!hasProvidedImages && !fallbackImage) {
     if (!emptyState) {
@@ -180,17 +167,9 @@ export function ImageGallery({
     }
 
     return (
-      <div
-        {...rest}
-        className={thumbnailPlacement === "left"
-          ? "flex items-start justify-center gap-3"
-          : "space-y-3"}
-      >
+      <div {...rest} className={thumbnailPlacement === "left" ? "flex items-start justify-center gap-3" : "space-y-3"}>
         <div
-          className={cx(
-            surfaceFrameClassName,
-            "flex items-center justify-center p-6 shadow-tokenSm",
-          )}
+          className={cx(surfaceFrameClassName, "flex items-center justify-center p-6 shadow-tokenSm")}
           style={galleryStyle}
         >
           {emptyState}
@@ -200,17 +179,9 @@ export function ImageGallery({
   }
 
   return (
-    <div
-      {...rest}
-      className={thumbnailPlacement === "left"
-        ? "flex items-start justify-center gap-3"
-        : "space-y-3"}
-    >
+    <div {...rest} className={thumbnailPlacement === "left" ? "flex items-start justify-center gap-3" : "space-y-3"}>
       {thumbnailPlacement === "left" ? thumbnailRail : null}
-      <div
-        className={active ? productFrameClassName : surfaceFrameClassName}
-        style={galleryStyle}
-      >
+      <div className={active ? productFrameClassName : surfaceFrameClassName} style={galleryStyle}>
         {active ? (
           <>
             {loadingFallback ? (
@@ -233,7 +204,9 @@ export function ImageGallery({
               className="relative"
             />
           </>
-        ) : emptyState ?? null}
+        ) : (
+          (emptyState ?? null)
+        )}
       </div>
       {thumbnailPlacement === "bottom" ? thumbnailRail : null}
     </div>

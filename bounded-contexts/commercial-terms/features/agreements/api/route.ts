@@ -11,20 +11,36 @@ function requireAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("commercialTerms.features.agreements.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("commercialTerms.features.agreements.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("commercialTerms.features.agreements.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authorization_forbidden",
+            message: t("commercialTerms.features.agreements.api.route.forbidden"),
+          },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -63,7 +79,12 @@ export function createAgreementRoutes(services: AgreementServices) {
 
     const agreement = await services.getAgreement(c.req.param("id"));
     if (!agreement) {
-      return c.json({ error: { code: "not_found", message: t("commercialTerms.features.agreements.api.route.agreement.not.found") } }, 404);
+      return c.json(
+        {
+          error: { code: "not_found", message: t("commercialTerms.features.agreements.api.route.agreement.not.found") },
+        },
+        404,
+      );
     }
 
     return c.json(agreement);
@@ -76,7 +97,15 @@ export function createAgreementRoutes(services: AgreementServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("commercialTerms.features.agreements.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("commercialTerms.features.agreements.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -90,10 +119,7 @@ export function createAgreementRoutes(services: AgreementServices) {
           marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
           shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
           status: String(body.status ?? "active") as never,
-          effectiveFrom:
-            typeof body.effectiveFrom === "string"
-              ? body.effectiveFrom
-              : new Date().toISOString(),
+          effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
           effectiveUntil:
             typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0
               ? body.effectiveUntil

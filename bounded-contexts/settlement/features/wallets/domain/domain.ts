@@ -1,15 +1,5 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import type {
-  AccountId,
-  LedgerEntryId,
-  OrderId,
-  PaymentId,
-  PayoutId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import {
   addMoney,
   assert,
@@ -95,10 +85,7 @@ export type MarkLedgerEntryAvailableCommand = Readonly<{
   availableAt: string;
 }>;
 
-export type WalletCommand =
-  | OpenWalletCommand
-  | PostLedgerEntryCommand
-  | MarkLedgerEntryAvailableCommand;
+export type WalletCommand = OpenWalletCommand | PostLedgerEntryCommand | MarkLedgerEntryAvailableCommand;
 
 export type WalletOpenedEvent = DomainEvent<
   "settlement.wallet.opened",
@@ -137,23 +124,13 @@ export type WalletLedgerEntryAvailableEvent = DomainEvent<
   }>
 >;
 
-export type WalletEvent =
-  | WalletOpenedEvent
-  | WalletLedgerEntryPostedEvent
-  | WalletLedgerEntryAvailableEvent;
+export type WalletEvent = WalletOpenedEvent | WalletLedgerEntryPostedEvent | WalletLedgerEntryAvailableEvent;
 
-function hasLedgerEntry(
-  entries: readonly WalletLedgerEntry[],
-  ledgerEntryId: LedgerEntryId,
-) {
+function hasLedgerEntry(entries: readonly WalletLedgerEntry[], ledgerEntryId: LedgerEntryId) {
   return entries.some((entry) => entry.ledgerEntryId === ledgerEntryId);
 }
 
-export const decideWallet: AggregateDecider<
-  WalletState,
-  WalletCommand,
-  WalletEvent
-> = (state, command) => {
+export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEvent> = (state, command) => {
   switch (command.type) {
     case "OpenWallet":
       if (state.accountId !== null) {
@@ -166,19 +143,13 @@ export const decideWallet: AggregateDecider<
           data: {
             accountId: command.accountId,
             currencyCode: normalizeCurrencyCode(command.currencyCode),
-            openedAt: ensureIsoTimestamp(
-              command.openedAt,
-              "Wallet opening must record a timestamp.",
-            ),
+            openedAt: ensureIsoTimestamp(command.openedAt, "Wallet opening must record a timestamp."),
           },
         },
       ];
     case "PostLedgerEntry":
       assert(state.accountId !== null, "Wallet must be opened first.");
-      assert(
-        !hasLedgerEntry(state.entries, command.ledgerEntryId),
-        "Ledger entry has already been posted.",
-      );
+      assert(!hasLedgerEntry(state.entries, command.ledgerEntryId), "Ledger entry has already been posted.");
       assert(
         state.currencyCode === normalizeCurrencyCode(command.currencyCode),
         "Ledger entries must use the wallet currency.",
@@ -207,26 +178,18 @@ export const decideWallet: AggregateDecider<
             paymentId: command.paymentId ?? null,
             payoutId: command.payoutId ?? null,
             description: normalizeOptionalText(command.description),
-            postedAt: ensureIsoTimestamp(
-              command.postedAt,
-              "Ledger entry posting must record a timestamp.",
-            ),
+            postedAt: ensureIsoTimestamp(command.postedAt, "Ledger entry posting must record a timestamp."),
           },
         },
       ];
     case "MarkLedgerEntryAvailable": {
       assert(state.accountId !== null, "Wallet must be opened first.");
-      const entry = state.entries.find((candidate) =>
-        candidate.ledgerEntryId === command.ledgerEntryId
-      );
+      const entry = state.entries.find((candidate) => candidate.ledgerEntryId === command.ledgerEntryId);
       assert(entry, "Ledger entry was not found.");
       if (entry.fundsStatus === "available") {
         return [];
       }
-      assert(
-        entry.direction === "credit",
-        "Only pending credit entries can become available.",
-      );
+      assert(entry.direction === "credit", "Only pending credit entries can become available.");
 
       return [
         {
@@ -235,10 +198,7 @@ export const decideWallet: AggregateDecider<
             accountId: state.accountId,
             ledgerEntryId: entry.ledgerEntryId,
             amount: entry.amount,
-            availableAt: ensureIsoTimestamp(
-              command.availableAt,
-              "Ledger entry availability must record a timestamp.",
-            ),
+            availableAt: ensureIsoTimestamp(command.availableAt, "Ledger entry availability must record a timestamp."),
           },
         },
       ];
@@ -248,10 +208,7 @@ export const decideWallet: AggregateDecider<
   }
 };
 
-export const evolveWallet: AggregateEvolver<
-  WalletState,
-  WalletEvent
-> = (state, event) => {
+export const evolveWallet: AggregateEvolver<WalletState, WalletEvent> = (state, event) => {
   switch (event.type) {
     case "settlement.wallet.opened":
       return {
@@ -266,10 +223,7 @@ export const evolveWallet: AggregateEvolver<
         updatedAt: event.data.openedAt,
       };
     case "settlement.wallet.ledger-entry-posted": {
-      const signedAmount =
-        event.data.direction === "credit"
-          ? event.data.amount
-          : `-${event.data.amount}`;
+      const signedAmount = event.data.direction === "credit" ? event.data.amount : `-${event.data.amount}`;
       const pendingBalanceAmount =
         event.data.fundsStatus === "pending"
           ? addMoney(state.pendingBalanceAmount, signedAmount)
@@ -314,14 +268,8 @@ export const evolveWallet: AggregateEvolver<
     case "settlement.wallet.ledger-entry-available-recorded":
       return {
         ...state,
-        pendingBalanceAmount: addMoney(
-          state.pendingBalanceAmount,
-          `-${event.data.amount}`,
-        ),
-        availableBalanceAmount: addMoney(
-          state.availableBalanceAmount,
-          event.data.amount,
-        ),
+        pendingBalanceAmount: addMoney(state.pendingBalanceAmount, `-${event.data.amount}`),
+        availableBalanceAmount: addMoney(state.availableBalanceAmount, event.data.amount),
         entries: state.entries.map((entry) =>
           entry.ledgerEntryId === event.data.ledgerEntryId
             ? {
@@ -329,7 +277,7 @@ export const evolveWallet: AggregateEvolver<
                 fundsStatus: "available",
                 availableAt: event.data.availableAt,
               }
-            : entry
+            : entry,
         ),
         updatedAt: event.data.availableAt,
       };

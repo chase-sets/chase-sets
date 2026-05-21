@@ -18,27 +18,37 @@ function requirePaymentAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("payments.features.payments.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("payments.features.payments.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
-    if (
-      options.allowGuestCheckout &&
-      actor.permissions.includes("guest-checkout.manage")
-    ) {
+    if (options.allowGuestCheckout && actor.permissions.includes("guest-checkout.manage")) {
       return { actor, response: null };
     }
 
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("payments.features.payments.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("payments.features.payments.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -55,25 +65,22 @@ function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Re
     return null;
   }
   const quote = JSON.parse(message.slice("fee_quote_stale:".length));
-  return c.json({
-    error: {
-      code: "fee_quote_stale",
-      message: t("payments.features.payments.api.route.marketplace.checkout.fee.quote.stale"),
+  return c.json(
+    {
+      error: {
+        code: "fee_quote_stale",
+        message: t("payments.features.payments.api.route.marketplace.checkout.fee.quote.stale"),
+      },
+      marketplace_checkout_fee: quote,
     },
-    marketplace_checkout_fee: quote,
-  }, 409);
+    409,
+  );
 }
 
 function resolvePublicOrigin(requestUrl: string, headers: Headers) {
   const parsed = new URL(requestUrl);
-  const host =
-    headers.get("x-forwarded-host") ??
-    headers.get("host") ??
-    parsed.host;
-  const protocol =
-    headers.get("x-forwarded-proto") ??
-    parsed.protocol.replace(":", "") ??
-    "https";
+  const host = headers.get("x-forwarded-host") ?? headers.get("host") ?? parsed.host;
+  const protocol = headers.get("x-forwarded-proto") ?? parsed.protocol.replace(":", "") ?? "https";
 
   return `${protocol}://${host}`;
 }
@@ -83,23 +90,15 @@ function readAgenticPayment(value: unknown) {
     return null;
   }
   const source = value as Record<string, unknown>;
-  const token = typeof source.sharedPaymentGrantedToken === "string"
-    ? source.sharedPaymentGrantedToken.trim()
-    : "";
+  const token = typeof source.sharedPaymentGrantedToken === "string" ? source.sharedPaymentGrantedToken.trim() : "";
   if (source.kind !== "stripe-shared-payment-token" || !token) {
     return null;
   }
   return {
     kind: "stripe-shared-payment-token" as const,
     sharedPaymentGrantedToken: token,
-    ap2CheckoutMandateId:
-      typeof source.ap2CheckoutMandateId === "string"
-        ? source.ap2CheckoutMandateId
-        : null,
-    ap2PaymentMandateId:
-      typeof source.ap2PaymentMandateId === "string"
-        ? source.ap2PaymentMandateId
-        : null,
+    ap2CheckoutMandateId: typeof source.ap2CheckoutMandateId === "string" ? source.ap2CheckoutMandateId : null,
+    ap2PaymentMandateId: typeof source.ap2PaymentMandateId === "string" ? source.ap2PaymentMandateId : null,
   };
 }
 
@@ -116,30 +115,30 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("payments.features.payments.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("payments.features.payments.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
     const sourceContext =
-      body.sourceContext === null || body.sourceContext === undefined
-        ? null
-        : String(body.sourceContext);
+      body.sourceContext === null || body.sourceContext === undefined ? null : String(body.sourceContext);
     const sourceReferenceId =
-      body.sourceReferenceId === null || body.sourceReferenceId === undefined
-        ? null
-        : String(body.sourceReferenceId);
+      body.sourceReferenceId === null || body.sourceReferenceId === undefined ? null : String(body.sourceReferenceId);
 
     try {
       const payment = await services.createAccountPayment(
         {
           accountId: access.actor.accountId as never,
-          orderIds: Array.isArray(body.orderIds)
-            ? body.orderIds.map(String)
-            : [],
+          orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           currencyCode: String(body.currencyCode ?? "usd"),
-          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
-            body.requestedBalanceCreditAmount,
-          ),
+          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
           paymentMethodCategory:
             body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
               ? null
@@ -151,22 +150,15 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
               : String(body.marketplaceCheckoutFeeQuoteFingerprint),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
           returnUrlPath:
-            body.returnUrlPath === null || body.returnUrlPath === undefined
-              ? null
-              : String(body.returnUrlPath),
+            body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
           clientRiskContext: {
-            ipAddress:
-              c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-              c.req.header("x-real-ip") ??
-              null,
+            ipAddress: c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? null,
             userAgent: c.req.header("user-agent") ?? null,
           },
           ...(readAgenticPayment(body.agenticPayment)
             ? { agenticPayment: readAgenticPayment(body.agenticPayment) }
             : {}),
-          ...(sourceContext && sourceReferenceId
-            ? { sourceContext, sourceReferenceId }
-            : {}),
+          ...(sourceContext && sourceReferenceId ? { sourceContext, sourceReferenceId } : {}),
         },
         context,
       );
@@ -192,14 +184,16 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     try {
       const orderIds =
         c.req.queries("orderId") ??
-        c.req.query("orderIds")?.split(",").map((value) => value.trim()) ??
+        c.req
+          .query("orderIds")
+          ?.split(",")
+          .map((value) => value.trim()) ??
         [];
       const status = await services.getCheckoutStatus({
         accountId: access.actor.accountId as never,
         orderIds: orderIds.filter(Boolean) as never,
         currencyCode: c.req.query("currencyCode") ?? "usd",
-        requestedBalanceCreditAmount:
-          c.req.query("requestedBalanceCreditAmount") ?? null,
+        requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
         paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
       });
 
@@ -230,7 +224,15 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("payments.features.payments.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("payments.features.payments.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -238,13 +240,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       const payment = await services.recoverCheckoutPayment(
         {
           accountId: access.actor.accountId as never,
-          orderIds: Array.isArray(body.orderIds)
-            ? body.orderIds.map(String)
-            : [],
+          orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           currencyCode: String(body.currencyCode ?? "usd"),
-          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
-            body.requestedBalanceCreditAmount,
-          ),
+          requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
           paymentMethodCategory:
             body.paymentMethodCategory === null || body.paymentMethodCategory === undefined
               ? null
@@ -256,14 +254,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
               : String(body.marketplaceCheckoutFeeQuoteFingerprint),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
           returnUrlPath:
-            body.returnUrlPath === null || body.returnUrlPath === undefined
-              ? null
-              : String(body.returnUrlPath),
+            body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
           clientRiskContext: {
-            ipAddress:
-              c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-              c.req.header("x-real-ip") ??
-              null,
+            ipAddress: c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? null,
             userAgent: c.req.header("user-agent") ?? null,
           },
           ...(readAgenticPayment(body.agenticPayment)
@@ -294,14 +287,16 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     try {
       const orderIds =
         c.req.queries("orderId") ??
-        c.req.query("orderIds")?.split(",").map((value) => value.trim()) ??
+        c.req
+          .query("orderIds")
+          ?.split(",")
+          .map((value) => value.trim()) ??
         [];
       const recovery = await services.getCheckoutRecoveryOptions({
         accountId: access.actor.accountId as never,
         orderIds: orderIds.filter(Boolean) as never,
         currencyCode: c.req.query("currencyCode") ?? "usd",
-        requestedBalanceCreditAmount:
-          c.req.query("requestedBalanceCreditAmount") ?? null,
+        requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
         paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
       });
 
@@ -319,12 +314,12 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
 
-    const payment = await services.getAccountPayment(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const payment = await services.getAccountPayment(c.req.param("id"), access.actor.accountId);
     if (!payment) {
-      return c.json({ error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found") } },
+        404,
+      );
     }
 
     return c.json(payment);
@@ -343,7 +338,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       accountId: access.actor.accountId,
     });
     if (!timeline) {
-      return c.json({ error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found.2") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("payments.features.payments.api.route.payment.not.found.2") } },
+        404,
+      );
     }
 
     return c.json(timeline);
@@ -360,7 +358,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       accountId: access.actor.accountId,
     });
     if (!event) {
-      return c.json({ error: { code: "not_found", message: t("payments.features.payments.api.route.provider.event.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("payments.features.payments.api.route.provider.event.not.found") } },
+        404,
+      );
     }
 
     return c.json(event);
@@ -405,9 +406,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
   return app;
 }
 
-export function createPaymentProcessorWebhookRoutes(
-  services: PaymentServices,
-) {
+export function createPaymentProcessorWebhookRoutes(services: PaymentServices) {
   const app = new Hono();
 
   app.post("/webhooks", async (c) => {

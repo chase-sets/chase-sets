@@ -1,21 +1,13 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type {
-  AccountId,
-  CheckoutSessionId,
-  OrderId,
-  PaymentId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, CheckoutSessionId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import {
@@ -48,11 +40,7 @@ export type CheckoutSessionRuntimeDeps = Readonly<{
 }>;
 
 export type CheckoutSessionServices = Readonly<{
-  commandHandler: CommandHandler<
-    CheckoutSessionCommand,
-    CheckoutSessionState,
-    CheckoutSessionEvent
-  >;
+  commandHandler: CommandHandler<CheckoutSessionCommand, CheckoutSessionState, CheckoutSessionEvent>;
   createFromCart: (
     params: Readonly<{
       accountId: AccountId;
@@ -156,10 +144,7 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ sessionId: string }>;
-  getSession: (
-    sessionId: string,
-    accountId: string,
-  ) => ReturnType<typeof getCheckoutSession>;
+  getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   projectors: readonly Projector[];
 }>;
 
@@ -181,9 +166,7 @@ function cartLineToSessionLine(line: CheckoutCartLineRow): CheckoutSessionLine {
   };
 }
 
-export function createCheckoutSessionRuntime(
-  deps: CheckoutSessionRuntimeDeps,
-): CheckoutSessionServices {
+export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): CheckoutSessionServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -201,11 +184,13 @@ export function createCheckoutSessionRuntime(
     handlers: buildCheckoutSessionProjectionHandlers(deps.db),
   });
 
-  async function validateCatalogSelection(params: Readonly<{
-    catalogItemId: string;
-    productId: string;
-    selectedOptions: readonly { dimensionId: string; optionId: string }[];
-  }>) {
+  async function validateCatalogSelection(
+    params: Readonly<{
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+    }>,
+  ) {
     const result = await deps.db.query<{
       catalog_item_id: string;
       status: string;
@@ -221,38 +206,36 @@ export function createCheckoutSessionRuntime(
       throw new CheckoutDomainError("Catalog item not found.");
     }
     if (catalogItem.status !== "active") {
-      throw new CheckoutDomainError(
-        "Checkout lines may only reference active catalog items.",
-      );
+      throw new CheckoutDomainError("Checkout lines may only reference active catalog items.");
     }
 
     const descriptor = createCheckoutProductDescriptor({
       catalogItemId: params.catalogItemId,
       productSchema:
-        typeof catalogItem.product_schema === "object" &&
-        catalogItem.product_schema !== null
+        typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
           ? (catalogItem.product_schema as CheckoutVersionSchema)
           : null,
       selection: params.selectedOptions,
     });
     if (params.productId.trim() !== descriptor.productId) {
-      throw new CheckoutDomainError(
-        "Checkout line product id does not match the selected options.",
-      );
+      throw new CheckoutDomainError("Checkout line product id does not match the selected options.");
     }
     return descriptor;
   }
 
-  async function startSession(params: Readonly<{
-    accountId: AccountId;
-    sourceType: "cart" | "buy-now" | "offer-intent";
-    optimizationGoal?: CheckoutOptimizationGoal;
-    fulfillmentPreviewRevision?: string | null;
-    shippingOption: ShippingOption;
-    lines: readonly CheckoutSessionLine[];
-    sessionIdOverride?: CheckoutSessionId;
-  }>, context: EventStoreContext) {
-    const sessionId = params.sessionIdOverride ?? createId("chk") as CheckoutSessionId;
+  async function startSession(
+    params: Readonly<{
+      accountId: AccountId;
+      sourceType: "cart" | "buy-now" | "offer-intent";
+      optimizationGoal?: CheckoutOptimizationGoal;
+      fulfillmentPreviewRevision?: string | null;
+      shippingOption: ShippingOption;
+      lines: readonly CheckoutSessionLine[];
+      sessionIdOverride?: CheckoutSessionId;
+    }>,
+    context: EventStoreContext,
+  ) {
+    const sessionId = params.sessionIdOverride ?? (createId("chk") as CheckoutSessionId);
     await commandHandler({
       streamId: `checkout.session-${sessionId}`,
       command: {
@@ -296,9 +279,7 @@ export function createCheckoutSessionRuntime(
       const descriptor = await validateCatalogSelection(params);
       const lockedListingId = params.lockedListingId?.trim() || params.listingId.trim() || null;
       const fulfillmentMode =
-        params.fulfillmentMode === "locked-listing" || lockedListingId
-          ? "locked-listing"
-          : "optimize";
+        params.fulfillmentMode === "locked-listing" || lockedListingId ? "locked-listing" : "optimize";
       return startSession(
         {
           accountId: params.accountId,
@@ -359,11 +340,7 @@ export function createCheckoutSessionRuntime(
       );
     },
     selectShippingOption: async (params, context) => {
-      const session = await getCheckoutSession(
-        deps.db,
-        params.sessionId,
-        params.accountId,
-      );
+      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
       if (!session) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
@@ -380,11 +357,7 @@ export function createCheckoutSessionRuntime(
       return { sessionId: params.sessionId };
     },
     selectOptimizationGoal: async (params, context) => {
-      const session = await getCheckoutSession(
-        deps.db,
-        params.sessionId,
-        params.accountId,
-      );
+      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
       if (!session) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
@@ -401,11 +374,7 @@ export function createCheckoutSessionRuntime(
       return { sessionId: params.sessionId };
     },
     recordFulfillmentPreview: async (params, context) => {
-      const session = await getCheckoutSession(
-        deps.db,
-        params.sessionId,
-        params.accountId,
-      );
+      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
       if (!session) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
@@ -422,11 +391,7 @@ export function createCheckoutSessionRuntime(
       return { sessionId: params.sessionId };
     },
     setShippingAddress: async (params, context) => {
-      const session = await getCheckoutSession(
-        deps.db,
-        params.sessionId,
-        params.accountId,
-      );
+      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
       if (!session) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
@@ -443,11 +408,7 @@ export function createCheckoutSessionRuntime(
       return { sessionId: params.sessionId };
     },
     recordOrdersCreated: async (params, context) => {
-      const session = await getCheckoutSession(
-        deps.db,
-        params.sessionId,
-        params.accountId,
-      );
+      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
       if (!session) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
@@ -488,11 +449,7 @@ export function createCheckoutSessionRuntime(
       return { sessionId: params.sessionId };
     },
     recordPaymentStarted: async (params, context) => {
-      const session = await getCheckoutSession(
-        deps.db,
-        params.sessionId,
-        params.accountId,
-      );
+      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
       if (!session) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
@@ -509,11 +466,7 @@ export function createCheckoutSessionRuntime(
       return { sessionId: params.sessionId };
     },
     recordOfferSubmitted: async (params, context) => {
-      const session = await getCheckoutSession(
-        deps.db,
-        params.sessionId,
-        params.accountId,
-      );
+      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
       if (!session) {
         throw new CheckoutDomainError("Checkout session not found.");
       }
@@ -529,8 +482,7 @@ export function createCheckoutSessionRuntime(
       });
       return { sessionId: params.sessionId };
     },
-    getSession: (sessionId, accountId) =>
-      getCheckoutSession(deps.db, sessionId, accountId),
+    getSession: (sessionId, accountId) => getCheckoutSession(deps.db, sessionId, accountId),
     projectors: [sessionProjector],
   };
 }

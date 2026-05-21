@@ -5,17 +5,14 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  type OfferMatchListItem,
-} from "../support/request-support/api-client";
+import { type OfferMatchListItem } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import { MarketplaceOfferMatchListPage } from "../features/offers/ui/offer-match-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
-const MARKETPLACE_DESCRIPTION =
-  t("marketplace.routes.accountOfferMatches.review.offer.matches.against.your.active");
+const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferMatches.review.offer.matches.against.your.active");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -81,9 +78,7 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountOfferMatchesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const rootData = useRouteLoaderData("root") as
-    | { actor?: { accountId?: string } | null }
-    | undefined;
+  const rootData = useRouteLoaderData("root") as { actor?: { accountId?: string } | null } | undefined;
   const accountId = rootData?.actor?.accountId ?? null;
 
   return (
@@ -121,12 +116,7 @@ function MarketplaceAccountOfferMatchesRealtimeView({
     onSyncRequired: reloadForRealtimeSync,
   });
 
-  return (
-    <MarketplaceOfferMatchListPage
-      data={offerMatches}
-      errorMessage={actionData?.error ?? null}
-    />
-  );
+  return <MarketplaceOfferMatchListPage data={offerMatches} errorMessage={actionData?.error ?? null} />;
 }
 
 function reloadForRealtimeSync() {

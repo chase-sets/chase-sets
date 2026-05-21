@@ -28,9 +28,7 @@ export function createPublicPresenceServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const transactionalEmailOutbox =
-    ports.transactionalEmailOutbox ??
-    createPostgresTransactionalEmailOutbox({ db });
+  const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
   const waitlist = createWaitlistRuntime({
     eventStore,
     checkpointStore,

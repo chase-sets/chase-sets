@@ -2,18 +2,16 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import { searchDiscoveryItems } from "./queries";
 
-function encodeCursor(input: {
-  id: string;
-  title: string;
-  updatedAt: string;
-  rank?: number;
-}) {
-  return Buffer.from(JSON.stringify({
-    id: input.id,
-    title: input.title,
-    updatedAt: input.updatedAt,
-    rank: input.rank ?? 0,
-  }), "utf8").toString("base64url");
+function encodeCursor(input: { id: string; title: string; updatedAt: string; rank?: number }) {
+  return Buffer.from(
+    JSON.stringify({
+      id: input.id,
+      title: input.title,
+      updatedAt: input.updatedAt,
+      rank: input.rank ?? 0,
+    }),
+    "utf8",
+  ).toString("base64url");
 }
 
 function createCapturingDb() {
@@ -63,24 +61,21 @@ describe("searchDiscoveryItems cursor paging", () => {
       expectedOrder: "ORDER BY updated_at DESC, catalog_item_id DESC",
       expectedCursorValues: ["2026-05-16T00:00:00.000Z", "cat_002"],
     },
-  ])("applies stable cursor ordering for $sort", async ({
-    sort,
-    cursor,
-    expectedCondition,
-    expectedOrder,
-    expectedCursorValues,
-  }) => {
-    const { db, calls } = createCapturingDb();
+  ])(
+    "applies stable cursor ordering for $sort",
+    async ({ sort, cursor, expectedCondition, expectedOrder, expectedCursorValues }) => {
+      const { db, calls } = createCapturingDb();
 
-    await searchDiscoveryItems(db, { sort, cursor, limit: 24 });
+      await searchDiscoveryItems(db, { sort, cursor, limit: 24 });
 
-    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
-    expect(listCall?.sql).toContain(expectedCondition);
-    expect(listCall?.sql).toContain(expectedOrder);
-    expect(listCall?.sql).toContain("LIMIT $4");
-    expect(listCall?.sql).not.toContain("OFFSET");
-    expect(listCall?.values).toEqual(["active", ...expectedCursorValues, 25]);
-  });
+      const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+      expect(listCall?.sql).toContain(expectedCondition);
+      expect(listCall?.sql).toContain(expectedOrder);
+      expect(listCall?.sql).toContain("LIMIT $4");
+      expect(listCall?.sql).not.toContain("OFFSET");
+      expect(listCall?.values).toEqual(["active", ...expectedCursorValues, 25]);
+    },
+  );
 
   it("applies a rank cursor for relevance searches", async () => {
     const { db, calls } = createCapturingDb();
@@ -140,13 +135,15 @@ describe("searchDiscoveryItems cursor paging", () => {
         calls.push({ sql, values });
         if (sql.includes("AS summaries")) {
           return {
-            rows: [{
-              kind: "field",
-              id: "fld_seed_release_year",
-              label: "Release Year",
-              coverage: 3,
-              distinct_count: 3,
-            }] as Row[],
+            rows: [
+              {
+                kind: "field",
+                id: "fld_seed_release_year",
+                label: "Release Year",
+                coverage: 3,
+                distinct_count: 3,
+              },
+            ] as Row[],
             rowCount: 1,
           };
         }
@@ -176,13 +173,15 @@ describe("searchDiscoveryItems cursor paging", () => {
         calls.push({ sql, values });
         if (sql.includes("AS summaries")) {
           return {
-            rows: [{
-              kind: "dimension",
-              id: "dim_seed_grade",
-              label: "Grade",
-              coverage: 4,
-              distinct_count: 4,
-            }] as Row[],
+            rows: [
+              {
+                kind: "dimension",
+                id: "dim_seed_grade",
+                label: "Grade",
+                coverage: 4,
+                distinct_count: 4,
+              },
+            ] as Row[],
             rowCount: 1,
           };
         }
@@ -198,7 +197,9 @@ describe("searchDiscoveryItems cursor paging", () => {
 
     const facetValueCall = calls.find((call) => call.sql.includes("facet.value->>'valueKind'"));
     expect(facetValueCall?.sql).toContain("CASE WHEN value_kind = 'numeric' THEN numeric_value END DESC NULLS LAST");
-    expect(facetValueCall?.sql).toContain("CASE WHEN value_kind IN ('ordered', 'numeric') THEN display_order END ASC NULLS LAST");
+    expect(facetValueCall?.sql).toContain(
+      "CASE WHEN value_kind IN ('ordered', 'numeric') THEN display_order END ASC NULLS LAST",
+    );
     expect(facetValueCall?.sql).toContain("ROW_NUMBER() OVER (ORDER BY selected DESC");
     expect(facetValueCall?.sql).toContain("WHERE selected OR facet_rank <= 50");
     expect(facetValueCall?.sql).toContain("ORDER BY selected DESC");
@@ -212,20 +213,24 @@ describe("searchDiscoveryItems facets", () => {
     const responses: { rows: readonly unknown[] }[] = [
       { rows: [] },
       {
-        rows: [{
-          kind: "field",
-          id: "field_rarity",
-          label: "Rarity",
-          coverage: 12,
-          distinct_count: 12,
-        }],
+        rows: [
+          {
+            kind: "field",
+            id: "field_rarity",
+            label: "Rarity",
+            coverage: 12,
+            distinct_count: 12,
+          },
+        ],
       },
       {
-        rows: [{
-          value: "rare",
-          label: "Rare",
-          count: 3,
-        }],
+        rows: [
+          {
+            value: "rare",
+            label: "Rare",
+            count: 3,
+          },
+        ],
       },
     ];
     const db = {
@@ -284,33 +289,39 @@ describe("searchDiscoveryItems facets", () => {
         if (sql.includes("facet.value->>'fieldId'")) {
           const fieldId = values.at(-2);
           return {
-            rows: [{
-              value: `${fieldId}_value`,
-              label: `${fieldId} value`,
-              count: 1,
-            }] as T[],
+            rows: [
+              {
+                value: `${fieldId}_value`,
+                label: `${fieldId} value`,
+                count: 1,
+              },
+            ] as T[],
           };
         }
 
         if (sql.includes("facet.value->>'typeKey'")) {
           const typeKey = values.at(-2);
           return {
-            rows: [{
-              reference_id: `${typeKey}_reference`,
-              label: `${typeKey} reference`,
-              count: 1,
-            }] as T[],
+            rows: [
+              {
+                reference_id: `${typeKey}_reference`,
+                label: `${typeKey} reference`,
+                count: 1,
+              },
+            ] as T[],
           };
         }
 
         if (sql.includes("facet.value->>'dimensionId'")) {
           const dimensionId = values.at(-2);
           return {
-            rows: [{
-              option_id: `${dimensionId}_option`,
-              label: `${dimensionId} option`,
-              count: 1,
-            }] as T[],
+            rows: [
+              {
+                option_id: `${dimensionId}_option`,
+                label: `${dimensionId} option`,
+                count: 1,
+              },
+            ] as T[],
           };
         }
 

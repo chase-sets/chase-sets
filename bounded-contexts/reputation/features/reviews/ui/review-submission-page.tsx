@@ -38,8 +38,7 @@ export function ReviewSubmissionPage({
 }) {
   const [rating, setRating] = useState(defaultRating);
   const counterpartyRole = getCounterpartyRole(opportunity.author_role);
-  const counterpartyLabel =
-    opportunity.subject_display_name ?? opportunity.subject_account_id;
+  const counterpartyLabel = opportunity.subject_display_name ?? opportunity.subject_account_id;
 
   return (
     <Page>
@@ -54,7 +53,8 @@ export function ReviewSubmissionPage({
         })}
         actions={
           <LinkButton href={backHref} tone="secondary">
-            {t("reputation.features.reviews.ui.reviewSubmissionPage.back")}</LinkButton>
+            {t("reputation.features.reviews.ui.reviewSubmissionPage.back")}
+          </LinkButton>
         }
       />
 
@@ -105,7 +105,11 @@ export function ReviewSubmissionPage({
         <Card>
           <Stack gap={3}>
             {errorMessage ? (
-              <MarketplaceNotice tone="error" title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")} description={errorMessage} />
+              <MarketplaceNotice
+                tone="error"
+                title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}
+                description={errorMessage}
+              />
             ) : null}
             <form method="post">
               <Stack gap={3}>
@@ -127,7 +131,9 @@ export function ReviewSubmissionPage({
                   description={t("reputation.features.reviews.ui.reviewSubmissionPage.tell.the.account.what.went.well")}
                 />
                 <Button type="submit">
-                  {isSubmitting ? t("reputation.features.reviews.ui.reviewSubmissionPage.submitting.review") : t("reputation.features.reviews.ui.reviewSubmissionPage.submit.account.review")}
+                  {isSubmitting
+                    ? t("reputation.features.reviews.ui.reviewSubmissionPage.submitting.review")
+                    : t("reputation.features.reviews.ui.reviewSubmissionPage.submit.account.review")}
                 </Button>
               </Stack>
             </form>

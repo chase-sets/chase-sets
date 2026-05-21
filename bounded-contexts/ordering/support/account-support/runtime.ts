@@ -14,9 +14,7 @@ export type OrderingAccountServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createOrderingAccountRuntime(
-  deps: OrderingAccountRuntimeDeps,
-): OrderingAccountServices {
+export function createOrderingAccountRuntime(deps: OrderingAccountRuntimeDeps): OrderingAccountServices {
   return {
     projectors: [
       createProjector({

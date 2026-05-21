@@ -3,19 +3,9 @@ import { cx } from "../../utils/cx";
 import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface TextareaProps
-  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className" | "style">,
-    BaseInputProps {}
+  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className" | "style">, BaseInputProps {}
 
-export function Textarea({
-  id,
-  label,
-  description,
-  error,
-  required,
-  hideLabel,
-  rows = 4,
-  ...rest
-}: TextareaProps) {
+export function Textarea({ id, label, description, error, required, hideLabel, rows = 4, ...rest }: TextareaProps) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
 
@@ -33,7 +23,7 @@ export function Textarea({
         id={inputId}
         required={required}
         rows={rows}
-        aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+        aria-describedby={error || description ? fieldHintId(inputId) : undefined}
         aria-invalid={!!error || undefined}
         className={cx(controlClass, !!error && controlErrorClass, "min-h-28 resize-y")}
       />

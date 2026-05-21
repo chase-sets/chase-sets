@@ -49,14 +49,10 @@ export function ToastProvider({
   children,
   timeout = 4000,
   limit = 3,
-  manager = defaultToastManager
+  manager = defaultToastManager,
 }: ToastProviderProps) {
   return (
-    <ToastPrimitive.Provider
-      timeout={timeout}
-      limit={limit}
-      toastManager={manager}
-    >
+    <ToastPrimitive.Provider timeout={timeout} limit={limit} toastManager={manager}>
       {children}
     </ToastPrimitive.Provider>
   );
@@ -73,7 +69,7 @@ export function showToast({
   tone = "info",
   dismissLabel = "Dismiss notification",
   timeout,
-  priority
+  priority,
 }: ShowToastOptions) {
   return defaultToastManager.add({
     id,
@@ -84,14 +80,14 @@ export function showToast({
     priority,
     data: {
       tone,
-      dismissLabel
-    }
+      dismissLabel,
+    },
   });
 }
 
 function ToastRegionItem({
   toast,
-  onDismiss
+  onDismiss,
 }: {
   toast: ToastPrimitive.Root.ToastObject<ToastData>;
   onDismiss: () => void;
@@ -106,11 +102,7 @@ function ToastRegionItem({
     >
       <ToastPrimitive.Content className="grid grid-cols-[auto_1fr_auto] items-start gap-3 p-4">
         <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
-          <Icon
-            name={toneIcon(tone)}
-            size="sm"
-            tone={tone}
-          />
+          <Icon name={toneIcon(tone)} size="sm" tone={tone} />
         </div>
         <div className="min-w-0 space-y-1">
           <ToastPrimitive.Title className="text-sm font-semibold text-foreground" />
@@ -130,10 +122,7 @@ function ToastRegionItem({
   );
 }
 
-function ToastRegionContent({
-  items = [],
-  timeout = 4000
-}: Pick<ToastRegionProps, "items" | "timeout">) {
+function ToastRegionContent({ items = [], timeout = 4000 }: Pick<ToastRegionProps, "items" | "timeout">) {
   const { toastNode } = usePortalRoots();
   const toastManager = ToastPrimitive.useToastManager<ToastData>();
   const [openById, setOpenById] = useState<Record<string, boolean>>({});
@@ -155,14 +144,14 @@ function ToastRegionContent({
         timeout,
         data: {
           tone: item.tone ?? "info",
-          dismissLabel: item.dismissLabel ?? "Dismiss notification"
+          dismissLabel: item.dismissLabel ?? "Dismiss notification",
         },
         onClose: () => {
           if (item.open === undefined) {
             setOpenById((current) => ({ ...current, [item.id]: false }));
           }
           item.onOpenChange?.(false);
-        }
+        },
       });
     });
   }, [items, openById, timeout]);
@@ -173,11 +162,7 @@ function ToastRegionContent({
     <ToastPrimitive.Portal container={toastNode ?? undefined}>
       <ToastPrimitive.Viewport className="fixed inset-x-0 bottom-0 z-toast mx-auto flex w-full max-w-md flex-col gap-3 p-4 outline-none">
         {toasts.map((toast) => (
-          <ToastRegionItem
-            key={toast.id}
-            toast={toast}
-            onDismiss={() => toastManager.close(toast.id)}
-          />
+          <ToastRegionItem key={toast.id} toast={toast} onDismiss={() => toastManager.close(toast.id)} />
         ))}
       </ToastPrimitive.Viewport>
     </ToastPrimitive.Portal>
@@ -185,19 +170,10 @@ function ToastRegionContent({
 }
 
 export function ToastRegion(props: ToastRegionProps) {
-  const {
-    items = [],
-    timeout = 4000,
-    limit = 3,
-    manager = defaultToastManager
-  } = props;
+  const { items = [], timeout = 4000, limit = 3, manager = defaultToastManager } = props;
 
   return (
-    <ToastProvider
-      timeout={timeout}
-      limit={limit}
-      manager={manager}
-    >
+    <ToastProvider timeout={timeout} limit={limit} manager={manager}>
       <ToastRegionContent items={items} timeout={timeout} />
     </ToastProvider>
   );

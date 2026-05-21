@@ -12,11 +12,10 @@ export interface TabItem {
   badge?: string;
 }
 
-export interface TabsProps
-  extends Omit<
-    ComponentProps<typeof TabsPrimitive.Root>,
-    "children" | "className" | "style" | "onValueChange"
-  > {
+export interface TabsProps extends Omit<
+  ComponentProps<typeof TabsPrimitive.Root>,
+  "children" | "className" | "style" | "onValueChange"
+> {
   items: TabItem[];
   activationMode?: "automatic" | "manual";
   dir?: "ltr" | "rtl";
@@ -30,7 +29,7 @@ export function Tabs({
   onValueChange,
   orientation = "horizontal",
   dir,
-  activationMode = "automatic"
+  activationMode = "automatic",
 }: TabsProps) {
   const resolvedValue = defaultValue ?? items[0]?.value;
   const [internalValue, setInternalValue] = useState(resolvedValue);
@@ -121,10 +120,12 @@ export function Tabs({
               <TabsPrimitive.Tab
                 key={item.value}
                 value={item.value}
-                className={(state) => cx(
-                  "focus-ring relative inline-flex touch-target min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-center text-sm font-semibold text-secondary transition md:flex-1 md:basis-0 md:px-4",
-                  state.active && "text-accent"
-                )}
+                className={(state) =>
+                  cx(
+                    "focus-ring relative inline-flex touch-target min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-center text-sm font-semibold text-secondary transition md:flex-1 md:basis-0 md:px-4",
+                    state.active && "text-accent",
+                  )
+                }
               >
                 {active ? renderActivePill(groupId, "accent") : null}
                 <span className="relative z-10 min-w-0 break-words">{item.label}</span>
@@ -152,11 +153,7 @@ export function Tabs({
             transition={{ duration: 0.18 }}
             onAnimationComplete={releaseReservedPanelHeight}
           >
-            <TabsPrimitive.Panel
-              value={currentValue}
-              keepMounted
-              className="focus-visible:outline-none"
-            >
+            <TabsPrimitive.Panel value={currentValue} keepMounted className="focus-visible:outline-none">
               {items.find((item) => item.value === currentValue)?.content}
             </TabsPrimitive.Panel>
           </motion.div>

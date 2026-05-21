@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideProductAlert,
-  evolveProductAlert,
-  initialProductAlertState,
-} from "./domain";
+import { decideProductAlert, evolveProductAlert, initialProductAlertState } from "./domain";
 
 describe("Product Alert domain", () => {
   it("creates a normalized exact-product alert with an optional threshold", () => {
@@ -56,8 +52,8 @@ describe("Product Alert domain", () => {
       data: {},
     });
 
-    expect(() =>
-      decideProductAlert(deleted, { type: "PauseProductAlert" }),
-    ).toThrow("Deleted Product Alerts cannot be changed.");
+    expect(() => decideProductAlert(deleted, { type: "PauseProductAlert" })).toThrow(
+      "Deleted Product Alerts cannot be changed.",
+    );
   });
 });

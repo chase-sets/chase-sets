@@ -23,10 +23,9 @@ async function refreshCategoryPageRow(
   tableName: "catalog_admin_category_list_pages" | "catalog_admin_category_detail_pages",
   categoryId: string,
 ): Promise<void> {
-  const result = await db.query<BaseCategoryRow>(
-    `SELECT * FROM catalog_categories WHERE category_id = $1`,
-    [categoryId],
-  );
+  const result = await db.query<BaseCategoryRow>(`SELECT * FROM catalog_categories WHERE category_id = $1`, [
+    categoryId,
+  ]);
 
   const category = result.rows[0];
 
@@ -36,7 +35,9 @@ async function refreshCategoryPageRow(
   }
 
   const parentCategoryName = category.parent_category_id
-    ? (await loadNameMap(db, "catalog_categories", "category_id", "name", [category.parent_category_id])).get(category.parent_category_id)
+    ? (await loadNameMap(db, "catalog_categories", "category_id", "name", [category.parent_category_id])).get(
+        category.parent_category_id,
+      )
     : undefined;
 
   await db.query(
@@ -82,10 +83,7 @@ async function refreshCategoryPageRow(
   );
 }
 
-export async function refreshCatalogAdminCategoryPages(
-  db: PgQueryable,
-  categoryId: string,
-): Promise<void> {
+export async function refreshCatalogAdminCategoryPages(db: PgQueryable, categoryId: string): Promise<void> {
   await Promise.all([
     refreshCategoryPageRow(db, "catalog_admin_category_list_pages", categoryId),
     refreshCategoryPageRow(db, "catalog_admin_category_detail_pages", categoryId),
@@ -104,7 +102,9 @@ async function findCategoryChildren(db: PgQueryable, categoryId: string): Promis
 export function buildCatalogAdminCategoryProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   async function refreshCategoryAndChildren(categoryId: string) {
     await refreshCatalogAdminCategoryPages(db, categoryId);
-    await Promise.all((await findCategoryChildren(db, categoryId)).map((childId) => refreshCatalogAdminCategoryPages(db, childId)));
+    await Promise.all(
+      (await findCategoryChildren(db, categoryId)).map((childId) => refreshCatalogAdminCategoryPages(db, childId)),
+    );
   }
 
   return {

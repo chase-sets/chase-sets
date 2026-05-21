@@ -1,20 +1,17 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildInventoryHoldProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildInventoryHoldProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.hold.placed": async (event) => {
-      const { holdId, accountId, itemId, quantity, reason, notes } =
-        event.data as {
-          holdId: string;
-          accountId: string;
-          itemId: string;
-          quantity: number;
-          reason: string;
-          notes: string | null;
-        };
+      const { holdId, accountId, itemId, quantity, reason, notes } = event.data as {
+        holdId: string;
+        accountId: string;
+        itemId: string;
+        quantity: number;
+        reason: string;
+        notes: string | null;
+      };
 
       await db.query(
         `INSERT INTO inventory_holds (
@@ -42,16 +39,7 @@ export function buildInventoryHoldProjectionHandlers(
              released_at = NULL,
              last_stream_version = $8
          WHERE inventory_holds.last_stream_version < $8`,
-        [
-          holdId,
-          accountId,
-          itemId,
-          quantity,
-          reason,
-          notes,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
+        [holdId, accountId, itemId, quantity, reason, notes, event.timing.recordedAt, event.streamVersion],
       );
     },
     "inventory.hold.released": async (event) => {

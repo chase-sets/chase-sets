@@ -51,4 +51,3 @@ export function useFetch<T>(
 
   return { data, loading, error, refresh };
 }
-

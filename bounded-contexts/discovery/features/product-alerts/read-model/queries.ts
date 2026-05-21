@@ -15,9 +15,10 @@ export type ProductAlertPageRow = Readonly<{
   updated_at: string;
 }>;
 
-type ProductAlertDbRow = Omit<ProductAlertPageRow, "selected_options"> & Readonly<{
-  selected_options: unknown;
-}>;
+type ProductAlertDbRow = Omit<ProductAlertPageRow, "selected_options"> &
+  Readonly<{
+    selected_options: unknown;
+  }>;
 
 export async function listProductAlerts(
   db: PgQueryable,
@@ -79,14 +80,8 @@ function rowToProductAlert(row: ProductAlertDbRow): ProductAlertPageRow {
     created_at: new Date(row.created_at).toISOString(),
     updated_at: new Date(row.updated_at).toISOString(),
     selected_options: Array.isArray(row.selected_options)
-      ? row.selected_options.filter(
-          (entry): entry is { dimensionId: string; optionId: string } =>
-            Boolean(
-              entry &&
-                typeof entry === "object" &&
-                "dimensionId" in entry &&
-                "optionId" in entry,
-            ),
+      ? row.selected_options.filter((entry): entry is { dimensionId: string; optionId: string } =>
+          Boolean(entry && typeof entry === "object" && "dimensionId" in entry && "optionId" in entry),
         )
       : [],
   };

@@ -3,27 +3,20 @@ import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { type Tone, softToneClasses, toneIcon } from "./shared";
 
-export interface BannerProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+export interface BannerProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   title: ReactNode;
   description?: ReactNode;
   tone?: Exclude<Tone, "neutral">;
   actions?: ReactNode;
 }
 
-export function Banner({
-  title,
-  description,
-  tone = "info",
-  actions,
-  ...rest
-}: BannerProps) {
+export function Banner({ title, description, tone = "info", actions, ...rest }: BannerProps) {
   return (
     <div
       {...rest}
       className={cx(
         "flex flex-col gap-4 rounded-tokenLg border p-4 md:flex-row md:items-center md:justify-between",
-        softToneClasses[tone]
+        softToneClasses[tone],
       )}
     >
       <div className="flex min-w-0 flex-1 items-start gap-3">

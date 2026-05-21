@@ -13,8 +13,7 @@ export interface DataColumn<T> {
   sortable?: boolean;
 }
 
-export interface DataTableProps<T>
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface DataTableProps<T> extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   rows: T[];
   columns: DataColumn<T>[];
   mobileMode?: "stack" | "scroll";
@@ -56,12 +55,7 @@ export function DataTable<T>({
   const cellPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
   const headPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
   if (!loading && rows.length === 0) {
-    return (
-      <EmptyState
-        title={emptyTitle}
-        description={emptyDescription}
-      />
-    );
+    return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
 
   const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
@@ -79,8 +73,7 @@ export function DataTable<T>({
 
   function handleSortClick(column: DataColumn<T>) {
     if (!column.sortable || !onSortChange) return;
-    const nextDirection =
-      sortKey === column.key && sortDirection === "asc" ? "desc" : "asc";
+    const nextDirection = sortKey === column.key && sortDirection === "asc" ? "desc" : "asc";
     onSortChange(column.key, nextDirection);
   }
 
@@ -110,13 +103,7 @@ export function DataTable<T>({
     if (sortKey !== column.key) {
       return <Icon name="chevronDown" size="sm" tone="secondary" />;
     }
-    return (
-      <Icon
-        name={sortDirection === "asc" ? "chevronUp" : "chevronDown"}
-        size="sm"
-        tone="accent"
-      />
-    );
+    return <Icon name={sortDirection === "asc" ? "chevronUp" : "chevronDown"} size="sm" tone="accent" />;
   }
 
   const table = (
@@ -137,10 +124,7 @@ export function DataTable<T>({
             {columns.map((column) => (
               <th
                 key={column.key}
-                className={cx(
-                  headPad, "font-semibold text-foreground",
-                  column.align === "right" && "text-right"
-                )}
+                className={cx(headPad, "font-semibold text-foreground", column.align === "right" && "text-right")}
               >
                 {column.sortable ? (
                   <button
@@ -169,7 +153,7 @@ export function DataTable<T>({
                         aria-hidden="true"
                         className={cx(
                           "h-4 animate-pulse rounded-tokenSm bg-muted",
-                          skeletonWidths[(i + colIndex) % skeletonWidths.length]
+                          skeletonWidths[(i + colIndex) % skeletonWidths.length],
                         )}
                       />
                     </td>
@@ -185,7 +169,7 @@ export function DataTable<T>({
                     key={rowId}
                     className={cx(
                       "border-b border-muted transition-colors last:border-b-0",
-                      isSelected ? "bg-surface-2" : "hover:bg-surface-2/70"
+                      isSelected ? "bg-surface-2" : "hover:bg-surface-2/70",
                     )}
                   >
                     {selectable ? (
@@ -194,12 +178,7 @@ export function DataTable<T>({
                           type="checkbox"
                           checked={isSelected}
                           disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
-                          onChange={() =>
-                            handleSelectRow(
-                              rowId,
-                              isRowSelectable ? isRowSelectable(row, index) : true,
-                            )
-                          }
+                          onChange={() => handleSelectRow(rowId, isRowSelectable ? isRowSelectable(row, index) : true)}
                           aria-label={`Select row ${rowId}`}
                           className="h-4 w-4 rounded border-border accent-accent"
                         />
@@ -208,10 +187,7 @@ export function DataTable<T>({
                     {columns.map((column) => (
                       <td
                         key={column.key}
-                        className={cx(
-                          cellPad, "text-foreground",
-                          column.align === "right" && "text-right"
-                        )}
+                        className={cx(cellPad, "text-foreground", column.align === "right" && "text-right")}
                       >
                         {column.cell(row)}
                       </td>
@@ -228,7 +204,10 @@ export function DataTable<T>({
     <div role="list" className="space-y-3 md:hidden">
       {loading
         ? Array.from({ length: loadingRows }, (_, i) => (
-            <div key={`skeleton-card-${i}`} className="glass-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm">
+            <div
+              key={`skeleton-card-${i}`}
+              className="glass-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
+            >
               <div className="space-y-3">
                 {columns.map((column, colIndex) => (
                   <div key={column.key} className="flex items-start justify-between gap-4">
@@ -237,7 +216,7 @@ export function DataTable<T>({
                       aria-hidden="true"
                       className={cx(
                         "h-4 animate-pulse rounded-tokenSm bg-muted",
-                        skeletonWidths[(i + colIndex) % skeletonWidths.length]
+                        skeletonWidths[(i + colIndex) % skeletonWidths.length],
                       )}
                     />
                   </div>
@@ -281,7 +260,7 @@ export function DataTable<T>({
                       <div
                         className={cx(
                           "max-w-[60%] text-right text-sm text-foreground",
-                          column.align === "left" && "text-left"
+                          column.align === "left" && "text-left",
                         )}
                       >
                         {column.cell(row)}

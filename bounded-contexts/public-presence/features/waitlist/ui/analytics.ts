@@ -12,11 +12,9 @@ export const waitlistAnalyticsEventNames = [
   "policy_link_clicked",
 ] as const;
 
-export type WaitlistAnalyticsEventName = typeof waitlistAnalyticsEventNames[number];
+export type WaitlistAnalyticsEventName = (typeof waitlistAnalyticsEventNames)[number];
 
-export type WaitlistAnalyticsProperties = Readonly<
-  Record<string, string | number | boolean | null | undefined>
->;
+export type WaitlistAnalyticsProperties = Readonly<Record<string, string | number | boolean | null | undefined>>;
 
 declare global {
   interface Window {
@@ -24,10 +22,7 @@ declare global {
   }
 }
 
-export function trackWaitlistEvent(
-  name: WaitlistAnalyticsEventName,
-  properties: WaitlistAnalyticsProperties = {},
-) {
+export function trackWaitlistEvent(name: WaitlistAnalyticsEventName, properties: WaitlistAnalyticsProperties = {}) {
   if (typeof window === "undefined") {
     return;
   }

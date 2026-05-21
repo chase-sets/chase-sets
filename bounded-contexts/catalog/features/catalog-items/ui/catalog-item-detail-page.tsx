@@ -41,18 +41,27 @@ import { useFieldList } from "../../fields/ui/use-fields";
 import type { ReferenceRecord } from "../../reference-data/ui/contracts";
 import { useReferenceRecordList } from "../../reference-data/ui/use-reference-data";
 import type { CatalogItemImageFallback, CatalogReferenceRecordRef } from "./contracts";
-import {
-  buildReferenceDetailRows,
-  formatReferenceTypeLabel,
-  type ReferenceDetailRow,
-} from "./reference-detail-rows";
+import { buildReferenceDetailRows, formatReferenceTypeLabel, type ReferenceDetailRow } from "./reference-detail-rows";
 
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish"), action: "publish", tone: "primary" }];
+      return [
+        {
+          label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish"),
+          action: "publish",
+          tone: "primary",
+        },
+      ];
     case "active":
-      return [{ label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
+      return [
+        {
+          label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.archive"),
+          action: "archive",
+          confirm: true,
+          tone: "danger",
+        },
+      ];
     default:
       return [];
   }
@@ -145,8 +154,7 @@ function formatReferenceAttributes(attributes: unknown): Array<{ key: string; va
     return [];
   }
 
-  return Object.entries(attributes)
-    .map(([key, value]) => ({ key, value: formatFieldValue(value) }));
+  return Object.entries(attributes).map(([key, value]) => ({ key, value: formatFieldValue(value) }));
 }
 
 function formatRelationshipType(value: string): string {
@@ -238,11 +246,7 @@ function ReferenceDetailDialog({
             {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.attributes")}
           </Text>
           {attributes.length > 0 ? (
-            <KeyValueList
-              density="compact"
-              variant="plain"
-              items={attributes}
-            />
+            <KeyValueList density="compact" variant="plain" items={attributes} />
           ) : (
             <Text size="sm" tone="secondary">
               {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.attributes")}
@@ -254,11 +258,7 @@ function ReferenceDetailDialog({
             {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.relationships")}
           </Text>
           {relationships.length > 0 ? (
-            <KeyValueList
-              density="compact"
-              variant="plain"
-              items={relationships}
-            />
+            <KeyValueList density="compact" variant="plain" items={relationships} />
           ) : (
             <Text size="sm" tone="secondary">
               {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.relationships")}
@@ -270,11 +270,16 @@ function ReferenceDetailDialog({
   );
 }
 
-export function CatalogItemDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useCatalogItem>[1] }) {
+export function CatalogItemDetailPage({
+  id,
+  initialData,
+}: {
+  id: string;
+  initialData?: Parameters<typeof useCatalogItem>[1];
+}) {
   const { data, loading, error, refresh } = useCatalogItem(id, initialData);
   const { addToast } = useToasts();
-  const [selectedReference, setSelectedReference] =
-    useState<CatalogReferenceRecordRef | null>(null);
+  const [selectedReference, setSelectedReference] = useState<CatalogReferenceRecordRef | null>(null);
 
   // Blueprint assignment
   const [showAssignBlueprint, setShowAssignBlueprint] = useState(false);
@@ -349,14 +354,20 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       archive: () => archiveCatalogItem(id),
     };
     await actions[action]?.();
-    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.lifecycle.completed", {
-      action: lifecycleActionLabel(action),
-    }), "success");
+    addToast(
+      t("catalog.features.catalogItems.ui.catalogItemDetailPage.lifecycle.completed", {
+        action: lifecycleActionLabel(action),
+      }),
+      "success",
+    );
     refresh();
   }
 
   async function handlePublish() {
-    const requiredIds = publishRequiredFieldIds.split(",").map((s) => s.trim()).filter(Boolean);
+    const requiredIds = publishRequiredFieldIds
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     await publishCatalogItem(id, publishBlueprintActive, requiredIds);
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.item.published"), "success");
     setShowPublish(false);
@@ -372,9 +383,10 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   }
 
   async function handleSetFieldValue() {
-    const value = selectedFieldIsReference && referenceRecordId
-      ? { referenceId: referenceRecordId }
-      : parseFieldValueInput(fieldValue);
+    const value =
+      selectedFieldIsReference && referenceRecordId
+        ? { referenceId: referenceRecordId }
+        : parseFieldValueInput(fieldValue);
 
     await apiSetFieldValue(id, fieldId, value);
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.field.value.set"), "success");
@@ -434,7 +446,10 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   }
 
   async function handleSetTags() {
-    const tags = tagsInput.split(",").map((s) => s.trim()).filter(Boolean);
+    const tags = tagsInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     await setTags(id, tags);
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags.updated"), "success");
     setShowSetTags(false);
@@ -449,7 +464,10 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   }
 
   async function handleSetImageUrls() {
-    const urls = imageUrlsInput.split("\n").map((s) => s.trim()).filter(Boolean);
+    const urls = imageUrlsInput
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
     await setImageUrls(id, urls);
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.updated"), "success");
     setShowSetImageUrls(false);
@@ -506,12 +524,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       })
       .filter((entry) => entry.dimensionId.length > 0 && entry.optionId.length > 0);
 
-    await linkExternalProductReference(
-      id,
-      externalProviderKey,
-      externalKey,
-      selectedOptions,
-    );
+    await linkExternalProductReference(id, externalProviderKey, externalKey, selectedOptions);
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.linked"), "success");
     setShowLinkExternalReference(false);
     setExternalProviderKey("tcgplayer");
@@ -532,16 +545,15 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
   const externalReferences = data?.external_product_references ?? [];
 
   const fieldValueColumns: DataColumn<ReferenceDetailRow>[] = [
-    { key: "fieldId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field"), cell: (row) => row.label },
+    {
+      key: "fieldId",
+      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.field"),
+      cell: (row) => row.label,
+    },
     {
       key: "value",
       header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.value"),
-      cell: (row) => (
-        <ReferenceValueCue
-          row={row}
-          onSelectReference={setSelectedReference}
-        />
-      ),
+      cell: (row) => <ReferenceValueCue row={row} onSelectReference={setSelectedReference} />,
     },
     {
       key: "actions",
@@ -550,7 +562,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         const fieldId = row.id.startsWith("field:") ? row.id.slice("field:".length) : null;
 
         return data?.status !== "archived" && fieldId ? (
-          <Button size="sm" tone="danger" onClick={() => handleClearFieldValue(fieldId)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear")}</Button>
+          <Button size="sm" tone="danger" onClick={() => handleClearFieldValue(fieldId)}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear")}
+          </Button>
         ) : null;
       },
     },
@@ -574,7 +588,8 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditMetadata}>
-                  {t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.metadata")}</Button>
+                  {t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.metadata")}
+                </Button>
               )}
             </Inline>
           ) : undefined
@@ -588,10 +603,22 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
             <KeyValueList
               items={[
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.title"), value: data.title },
-                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle"), value: data.subtitle ?? "—" },
-                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.language"), value: formatLanguageCodeLabel(data.language_code) },
-                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.description"), value: data.description ?? "—" },
-                { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint"), value: data.blueprint?.name ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.none") },
+                {
+                  key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle"),
+                  value: data.subtitle ?? "—",
+                },
+                {
+                  key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.language"),
+                  value: formatLanguageCodeLabel(data.language_code),
+                },
+                {
+                  key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.description"),
+                  value: data.description ?? "—",
+                },
+                {
+                  key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint"),
+                  value: data.blueprint?.name ?? t("catalog.features.catalogItems.ui.catalogItemDetailPage.none"),
+                },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.status"), value: data.status },
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.updated"), value: data.updated_at },
               ]}
@@ -599,7 +626,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
 
             {data.status === "draft" && !data.blueprint && (
               <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint")}>
-                <Button size="sm" onClick={() => setShowAssignBlueprint(true)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.blueprint")}</Button>
+                <Button size="sm" onClick={() => setShowAssignBlueprint(true)}>
+                  {t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.blueprint")}
+                </Button>
               </PageSection>
             )}
 
@@ -607,7 +636,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={() => setShowSetField(true)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.field.value")}</Button>
+                    <Button size="sm" onClick={() => setShowSetField(true)}>
+                      {t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.field.value")}
+                    </Button>
                   </Inline>
                 )}
                 <DataTable
@@ -623,22 +654,33 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={() => setShowAssignCategory(true)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.category")}</Button>
+                    <Button size="sm" onClick={() => setShowAssignCategory(true)}>
+                      {t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.category")}
+                    </Button>
                   </Inline>
                 )}
                 {categories.length === 0 ? (
-                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.categories.assigned")}</Text>
+                  <Text tone="secondary">
+                    {t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.categories.assigned")}
+                  </Text>
                 ) : (
                   <DataTable
                     rows={categories}
                     columns={[
-                      { key: "categoryId", header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.category"), cell: (row) => row.name },
+                      {
+                        key: "categoryId",
+                        header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.category"),
+                        cell: (row) => row.name,
+                      },
                       {
                         key: "actions",
                         header: "",
-                        cell: (row) => data.status !== "archived" ? (
-                          <Button size="sm" tone="danger" onClick={() => handleRemoveCategory(row.categoryId)}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.remove")}</Button>
-                        ) : null,
+                        cell: (row) =>
+                          data.status !== "archived" ? (
+                            <Button size="sm" tone="danger" onClick={() => handleRemoveCategory(row.categoryId)}>
+                              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.remove")}
+                            </Button>
+                          ) : null,
                       },
                     ]}
                     getRowId={(row) => row.categoryId}
@@ -650,150 +692,190 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags")}>
               <ProgressiveDisclosure
                 title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags")}
-                summary={(data.tags ?? []).length === 0
-                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.tags")
-                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags.summary", {
-                      count: (data.tags ?? []).length,
-                    })}
+                summary={
+                  (data.tags ?? []).length === 0
+                    ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.tags")
+                    : t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags.summary", {
+                        count: (data.tags ?? []).length,
+                      })
+                }
                 tone="info"
               >
-              <Stack gap={3}>
-                {data.status !== "archived" && (
-                  <Inline>
-                    <Button size="sm" onClick={startSetTags}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.tags")}</Button>
-                  </Inline>
-                )}
-                {(data.tags ?? []).length === 0 ? (
-                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.tags")}</Text>
-                ) : (
-                  <Text>{(data.tags ?? []).join(", ")}</Text>
-                )}
-              </Stack>
+                <Stack gap={3}>
+                  {data.status !== "archived" && (
+                    <Inline>
+                      <Button size="sm" onClick={startSetTags}>
+                        {t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.tags")}
+                      </Button>
+                    </Inline>
+                  )}
+                  {(data.tags ?? []).length === 0 ? (
+                    <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.tags")}</Text>
+                  ) : (
+                    <Text>{(data.tags ?? []).join(", ")}</Text>
+                  )}
+                </Stack>
               </ProgressiveDisclosure>
             </PageSection>
 
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls")}>
               <ProgressiveDisclosure
                 title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls")}
-                summary={(data.image_urls ?? []).length === 0
-                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.urls")
-                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.summary", {
-                      count: (data.image_urls ?? []).length,
-                    })}
+                summary={
+                  (data.image_urls ?? []).length === 0
+                    ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.urls")
+                    : t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.summary", {
+                        count: (data.image_urls ?? []).length,
+                      })
+                }
                 tone="info"
               >
-              <Stack gap={3}>
-                {data.status !== "archived" && (
-                  <Inline>
-                    <Button size="sm" onClick={startSetImageUrls}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.urls")}</Button>
-                  </Inline>
-                )}
-                {(data.image_urls ?? []).length === 0 ? (
-                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.urls")}</Text>
-                ) : (
-                  <Stack gap={1}>
-                    {(data.image_urls ?? []).map((url, i) => (
-                      <Text key={i}>{url}</Text>
-                    ))}
-                  </Stack>
-                )}
-              </Stack>
+                <Stack gap={3}>
+                  {data.status !== "archived" && (
+                    <Inline>
+                      <Button size="sm" onClick={startSetImageUrls}>
+                        {t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.urls")}
+                      </Button>
+                    </Inline>
+                  )}
+                  {(data.image_urls ?? []).length === 0 ? (
+                    <Text tone="secondary">
+                      {t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.urls")}
+                    </Text>
+                  ) : (
+                    <Stack gap={1}>
+                      {(data.image_urls ?? []).map((url, i) => (
+                        <Text key={i}>{url}</Text>
+                      ))}
+                    </Stack>
+                  )}
+                </Stack>
               </ProgressiveDisclosure>
             </PageSection>
 
             <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback")}>
               <ProgressiveDisclosure
                 title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback")}
-                summary={data.image_fallback
-                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.summary", {
-                      usage: data.image_fallback.usage,
-                    })
-                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback")}
+                summary={
+                  data.image_fallback
+                    ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.summary", {
+                        usage: data.image_fallback.usage,
+                      })
+                    : t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback")
+                }
                 tone="info"
               >
-              <Stack gap={3}>
-                {data.status !== "archived" && (
-                  <Inline>
-                    <Button size="sm" onClick={startSetImageFallback}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.fallback")}</Button>
-                    {data.image_fallback ? (
-                      <Button size="sm" tone="danger" onClick={handleClearImageFallback}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear.image.fallback")}</Button>
-                    ) : null}
-                  </Inline>
-                )}
-                {data.image_fallback ? (
-                  <KeyValueList
-                    items={[
-                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.url"), value: data.image_fallback.url },
-                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.alt.text"), value: data.image_fallback.alt },
-                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.usage"), value: data.image_fallback.usage },
-                      { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.variants"), value: JSON.stringify(data.image_fallback.variants) },
-                    ]}
-                  />
-                ) : (
-                  <Text tone="secondary">{t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback")}</Text>
-                )}
-              </Stack>
+                <Stack gap={3}>
+                  {data.status !== "archived" && (
+                    <Inline>
+                      <Button size="sm" onClick={startSetImageFallback}>
+                        {t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.fallback")}
+                      </Button>
+                      {data.image_fallback ? (
+                        <Button size="sm" tone="danger" onClick={handleClearImageFallback}>
+                          {t("catalog.features.catalogItems.ui.catalogItemDetailPage.clear.image.fallback")}
+                        </Button>
+                      ) : null}
+                    </Inline>
+                  )}
+                  {data.image_fallback ? (
+                    <KeyValueList
+                      items={[
+                        {
+                          key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.url"),
+                          value: data.image_fallback.url,
+                        },
+                        {
+                          key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.alt.text"),
+                          value: data.image_fallback.alt,
+                        },
+                        {
+                          key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.usage"),
+                          value: data.image_fallback.usage,
+                        },
+                        {
+                          key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.variants"),
+                          value: JSON.stringify(data.image_fallback.variants),
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <Text tone="secondary">
+                      {t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback")}
+                    </Text>
+                  )}
+                </Stack>
               </ProgressiveDisclosure>
             </PageSection>
 
-            <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}>
+            <PageSection
+              title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}
+            >
               <ProgressiveDisclosure
                 title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references")}
-                summary={externalReferences.length === 0
-                  ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references")
-                  : t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.references.summary", {
-                      count: externalReferences.length,
-                    })}
+                summary={
+                  externalReferences.length === 0
+                    ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references")
+                    : t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.references.summary", {
+                        count: externalReferences.length,
+                      })
+                }
                 tone={externalReferences.length > 0 ? "info" : "neutral"}
               >
-              <Stack gap={3}>
-                {data.status !== "archived" && (
-                  <Inline>
-                    <Button size="sm" onClick={() => setShowLinkExternalReference(true)}>
-                      {t("catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference")}</Button>
-                  </Inline>
-                )}
-                <DataTable
-                  rows={externalReferences}
-                  columns={[
-                    {
-                      key: "provider",
-                      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.provider"),
-                      cell: (row) => row.providerKey,
-                    },
-                    {
-                      key: "externalKey",
-                      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.key"),
-                      cell: (row) => row.externalKey,
-                    },
-                    {
-                      key: "options",
-                      header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options"),
-                      cell: (row) =>
-                        row.selectedOptions.length > 0
-                          ? row.selectedOptions
-                              .map((option) =>
-                                t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.option.reference", {
-                                  dimensionId: option.dimensionId,
-                                  optionId: option.optionId,
-                                }),
-                              )
-                              .join(", ")
-                          : t("catalog.features.catalogItems.ui.catalogItemDetailPage.none"),
-                    },
-                    {
-                      key: "actions",
-                      header: "",
-                      cell: (row) => data.status !== "archived" ? (
-                        <Button size="sm" tone="danger" onClick={() => handleUnlinkExternalReference(row)}>
-                          {t("catalog.features.catalogItems.ui.catalogItemDetailPage.unlink")}</Button>
-                      ) : null,
-                    },
-                  ]}
-                  getRowId={(row) => `${row.providerKey}:${row.externalKey}`}
-                  emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references")}
-                />
-              </Stack>
+                <Stack gap={3}>
+                  {data.status !== "archived" && (
+                    <Inline>
+                      <Button size="sm" onClick={() => setShowLinkExternalReference(true)}>
+                        {t("catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference")}
+                      </Button>
+                    </Inline>
+                  )}
+                  <DataTable
+                    rows={externalReferences}
+                    columns={[
+                      {
+                        key: "provider",
+                        header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.provider"),
+                        cell: (row) => row.providerKey,
+                      },
+                      {
+                        key: "externalKey",
+                        header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.key"),
+                        cell: (row) => row.externalKey,
+                      },
+                      {
+                        key: "options",
+                        header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.selected.options"),
+                        cell: (row) =>
+                          row.selectedOptions.length > 0
+                            ? row.selectedOptions
+                                .map((option) =>
+                                  t(
+                                    "catalog.features.catalogItems.ui.catalogItemDetailPage.selected.option.reference",
+                                    {
+                                      dimensionId: option.dimensionId,
+                                      optionId: option.optionId,
+                                    },
+                                  ),
+                                )
+                                .join(", ")
+                            : t("catalog.features.catalogItems.ui.catalogItemDetailPage.none"),
+                      },
+                      {
+                        key: "actions",
+                        header: "",
+                        cell: (row) =>
+                          data.status !== "archived" ? (
+                            <Button size="sm" tone="danger" onClick={() => handleUnlinkExternalReference(row)}>
+                              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.unlink")}
+                            </Button>
+                          ) : null,
+                      },
+                    ]}
+                    getRowId={(row) => `${row.providerKey}:${row.externalKey}`}
+                    emptyTitle={t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references")}
+                  />
+                </Stack>
               </ProgressiveDisclosure>
             </PageSection>
           </Stack>
@@ -804,16 +886,28 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         open={showAssignBlueprint}
         onOpenChange={setShowAssignBlueprint}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.blueprint.2")}
-        footer={<Button onClick={handleAssignBlueprint}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign")}</Button>}
+        footer={
+          <Button onClick={handleAssignBlueprint}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign")}
+          </Button>
+        }
       >
-        <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint.id")} value={blueprintId} onChange={(e) => setBlueprintId(e.target.value)} />
+        <TextInput
+          label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint.id")}
+          value={blueprintId}
+          onChange={(e) => setBlueprintId(e.target.value)}
+        />
       </Dialog>
 
       <Dialog
         open={showSetField}
         onOpenChange={setShowSetField}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.field.value.2")}
-        footer={<Button onClick={handleSetFieldValue}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.set")}</Button>}
+        footer={
+          <Button onClick={handleSetFieldValue}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.set")}
+          </Button>
+        }
       >
         <Stack gap={3}>
           {fieldOptions.length > 0 ? (
@@ -857,22 +951,50 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         open={showAssignCategory}
         onOpenChange={setShowAssignCategory}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.category.2")}
-        footer={<Button onClick={handleAssignCategory}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.2")}</Button>}
+        footer={
+          <Button onClick={handleAssignCategory}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.assign.2")}
+          </Button>
+        }
       >
-        <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.category.id")} value={categoryId} onChange={(e) => setCategoryId(e.target.value)} />
+        <TextInput
+          label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.category.id")}
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+        />
       </Dialog>
 
       <Dialog
         open={showEditMetadata}
         onOpenChange={setShowEditMetadata}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.metadata.2")}
-        footer={<Button onClick={handleReviseMetadata}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save")}</Button>}
+        footer={
+          <Button onClick={handleReviseMetadata}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.save")}
+          </Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.title")} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle")} value={editSubtitle} onChange={(e) => setEditSubtitle(e.target.value)} />
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.language.code")} value={editLanguageCode} onChange={(e) => setEditLanguageCode(e.target.value)} />
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.title")}
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle")}
+            value={editSubtitle}
+            onChange={(e) => setEditSubtitle(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.language.code")}
+            value={editLanguageCode}
+            onChange={(e) => setEditLanguageCode(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.description")}
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+          />
         </Stack>
       </Dialog>
 
@@ -881,7 +1003,11 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         onOpenChange={setShowPublish}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.catalog.item")}
         description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.confirm.that.the.blueprint.is.active")}
-        footer={<Button onClick={handlePublish}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.2")}</Button>}
+        footer={
+          <Button onClick={handlePublish}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.2")}
+          </Button>
+        }
       >
         <Stack gap={3}>
           <TextInput
@@ -897,7 +1023,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         onOpenChange={setShowSetTags}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.tags.2")}
         description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.enter.tags.separated.by.commas")}
-        footer={<Button onClick={handleSetTags}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.2")}</Button>}
+        footer={
+          <Button onClick={handleSetTags}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.2")}</Button>
+        }
       >
         <TextInput
           label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.tags.2")}
@@ -911,7 +1039,11 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         onOpenChange={setShowSetImageUrls}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.urls.2")}
         description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.enter.one.url.per.line")}
-        footer={<Button onClick={handleSetImageUrls}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.3")}</Button>}
+        footer={
+          <Button onClick={handleSetImageUrls}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.3")}
+          </Button>
+        }
       >
         <TextInput
           label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.2")}
@@ -925,7 +1057,11 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         onOpenChange={setShowSetImageFallback}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.set.image.fallback.2")}
         description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.fallback.description")}
-        footer={<Button onClick={handleSetImageFallback}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.4")}</Button>}
+        footer={
+          <Button onClick={handleSetImageFallback}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.save.4")}
+          </Button>
+        }
       >
         <Stack gap={3}>
           <TextInput
@@ -941,7 +1077,9 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
           <TextInput
             label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.usage")}
             value={imageFallbackUsage}
-            onChange={(event) => setImageFallbackUsage(event.target.value === "loading-only" ? "loading-only" : "permanent")}
+            onChange={(event) =>
+              setImageFallbackUsage(event.target.value === "loading-only" ? "loading-only" : "permanent")
+            }
           />
           <TextInput
             label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.variants.json")}
@@ -956,7 +1094,11 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
         onOpenChange={setShowLinkExternalReference}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference.2")}
         description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.description")}
-        footer={<Button onClick={handleLinkExternalReference}>{t("catalog.features.catalogItems.ui.catalogItemDetailPage.link")}</Button>}
+        footer={
+          <Button onClick={handleLinkExternalReference}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.link")}
+          </Button>
+        }
       >
         <Stack gap={3}>
           <TextInput

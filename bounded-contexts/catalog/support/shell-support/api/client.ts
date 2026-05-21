@@ -80,9 +80,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function resolveHeaders(
-  headers?: HeadersInit | (() => HeadersInit),
-) {
+function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
 
@@ -838,15 +836,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async unlinkExternalProductReference<T>(
-      id: string,
-      providerKey: string,
-      externalKey: string,
-    ): Promise<T> {
-      const response = await client.items[":id"]["external-product-references"][":providerKey"][":externalKey"].$delete({
-        param: { id, providerKey, externalKey },
-        header: headers,
-      });
+    async unlinkExternalProductReference<T>(id: string, providerKey: string, externalKey: string): Promise<T> {
+      const response = await client.items[":id"]["external-product-references"][":providerKey"][":externalKey"].$delete(
+        {
+          param: { id, providerKey, externalKey },
+          header: headers,
+        },
+      );
       return parseJsonResponse<T>(response);
     },
 
@@ -878,10 +874,7 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async importTcgdexSet<T>(
-      body: unknown,
-      options: CatalogImportProgressOptions = {},
-    ): Promise<T> {
+    async importTcgdexSet<T>(body: unknown, options: CatalogImportProgressOptions = {}): Promise<T> {
       if (options.onProgress) {
         return streamImportTcgdexSet<T>({
           baseUrl,
@@ -1063,19 +1056,13 @@ export function createCatalogApiClient({
       return parseJsonResponse<T>(response);
     },
     async listActiveSourceObservationBulkJobs<T>(): Promise<T> {
-      const response = await configuredFetch(
-        `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/active`,
-        {
-          method: "GET",
-          headers: headersToRecord(headers),
-        },
-      );
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/active`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
       return parseJsonResponse<T>(response);
     },
-    async watchSourceObservationBulkJob<T>(
-      jobId: string,
-      options: CatalogBulkActionProgressOptions = {},
-    ): Promise<T> {
+    async watchSourceObservationBulkJob<T>(jobId: string, options: CatalogBulkActionProgressOptions = {}): Promise<T> {
       return streamBulkJob<T>({
         baseUrl,
         fetch: configuredFetch,
@@ -1175,17 +1162,14 @@ async function startBulkJob<T>(input: {
   body: unknown;
   errorMessage: string;
 }): Promise<CatalogBulkReviewJob<T>> {
-  const response = await input.fetch(
-    `${input.baseUrl.replace(/\/$/, "")}${input.path}`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...headersToRecord(input.headers),
-      },
-      body: JSON.stringify(input.body),
+  const response = await input.fetch(`${input.baseUrl.replace(/\/$/, "")}${input.path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headersToRecord(input.headers),
     },
-  );
+    body: JSON.stringify(input.body),
+  });
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);

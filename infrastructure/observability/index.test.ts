@@ -94,14 +94,16 @@ describe("structured logging", () => {
 
 describe("public presence waitlist analytics observability", () => {
   it("maps landing analytics to bounded metric labels", () => {
-    expect(publicPresenceWaitlistAnalyticsAttributes({
-      event: "cta clicked!",
-      section: "hero",
-      role: "sell",
-      interest: "low-sales-fees",
-      variant: "landing-audit-remediation",
-      status: null,
-    })).toEqual({
+    expect(
+      publicPresenceWaitlistAnalyticsAttributes({
+        event: "cta clicked!",
+        section: "hero",
+        role: "sell",
+        interest: "low-sales-fees",
+        variant: "landing-audit-remediation",
+        status: null,
+      }),
+    ).toEqual({
       context: "public-presence",
       event: "cta_clicked_",
       section: "hero",

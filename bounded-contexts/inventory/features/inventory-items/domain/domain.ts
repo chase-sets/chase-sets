@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
 import {
@@ -71,9 +67,7 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   reason: string;
 }>;
 
-export type InventoryItemCommand =
-  | CreateInventoryItemCommand
-  | AdjustInventoryItemQuantityCommand;
+export type InventoryItemCommand = CreateInventoryItemCommand | AdjustInventoryItemQuantityCommand;
 
 export type InventoryItemCreatedEvent = DomainEvent<
   "inventory.item.created",
@@ -99,22 +93,16 @@ export type InventoryItemAdjustedEvent = DomainEvent<
   }>
 >;
 
-export type InventoryItemEvent =
-  | InventoryItemCreatedEvent
-  | InventoryItemAdjustedEvent;
+export type InventoryItemEvent = InventoryItemCreatedEvent | InventoryItemAdjustedEvent;
 
-export const decideInventoryItem: AggregateDecider<
-  InventoryItemState,
-  InventoryItemCommand,
-  InventoryItemEvent
-> = (state, command) => {
+export const decideInventoryItem: AggregateDecider<InventoryItemState, InventoryItemCommand, InventoryItemEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "CreateInventoryItem":
       assert(state.id === null, "Inventory item has already been created.");
-      ensurePositiveInteger(
-        command.totalQuantity,
-        "Inventory items require a positive total quantity.",
-      );
+      ensurePositiveInteger(command.totalQuantity, "Inventory items require a positive total quantity.");
       return [
         {
           type: "inventory.item.created",
@@ -136,15 +124,9 @@ export const decideInventoryItem: AggregateDecider<
       ];
     case "AdjustInventoryItemQuantity":
       requireCreatedInventoryItem(state);
-      ensureInteger(
-        command.quantityDelta,
-        "Inventory adjustments must use a whole-number quantity delta.",
-      );
+      ensureInteger(command.quantityDelta, "Inventory adjustments must use a whole-number quantity delta.");
       assert(command.quantityDelta !== 0, "Quantity adjustments must change inventory.");
-      assert(
-        state.totalQuantity + command.quantityDelta >= 0,
-        "Inventory quantity cannot fall below zero.",
-      );
+      assert(state.totalQuantity + command.quantityDelta >= 0, "Inventory quantity cannot fall below zero.");
       return [
         {
           type: "inventory.item.adjusted",
@@ -160,10 +142,7 @@ export const decideInventoryItem: AggregateDecider<
   }
 };
 
-export const evolveInventoryItem: AggregateEvolver<
-  InventoryItemState,
-  InventoryItemEvent
-> = (state, event) => {
+export const evolveInventoryItem: AggregateEvolver<InventoryItemState, InventoryItemEvent> = (state, event) => {
   switch (event.type) {
     case "inventory.item.created":
       return {
@@ -196,9 +175,7 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeGradedCardDetails(
-  details: GradedCardDetails | null,
-): GradedCardDetails | null {
+function normalizeGradedCardDetails(details: GradedCardDetails | null): GradedCardDetails | null {
   if (!details) {
     return null;
   }

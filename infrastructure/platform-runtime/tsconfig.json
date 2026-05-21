@@ -4,12 +4,7 @@
     "rootDir": "../..",
     "types": ["node", "vitest/globals"]
   },
-  "include": [
-    "*.ts",
-    "../../contracts/**/*.ts",
-    "../../bounded-contexts/**/*.ts",
-    "../../infrastructure/**/*.ts"
-  ],
+  "include": ["*.ts", "../../contracts/**/*.ts", "../../bounded-contexts/**/*.ts", "../../infrastructure/**/*.ts"],
   "exclude": [
     "../../bounded-contexts/**/*.test.ts",
     "../../bounded-contexts/**/*.test.tsx",

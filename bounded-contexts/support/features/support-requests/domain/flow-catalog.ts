@@ -76,7 +76,8 @@ export const supportFlowCatalog = [
     ],
     allowedResolutions: ["full-refund", "replacement", "no-action", "support-reviewed"],
     defaultResolution: "full-refund",
-    automationSummary: "If delivery cannot be proven by the response deadline, the buyer is eligible for a full refund without additional buyer-seller messages.",
+    automationSummary:
+      "If delivery cannot be proven by the response deadline, the buyer is eligible for a full refund without additional buyer-seller messages.",
   },
   {
     flowType: "product-not-as-described",
@@ -112,15 +113,10 @@ export const supportFlowCatalog = [
       "challenge-with-evidence",
       "request-support-review",
     ],
-    allowedResolutions: [
-      "return-for-refund",
-      "partial-refund",
-      "replacement",
-      "no-action",
-      "support-reviewed",
-    ],
+    allowedResolutions: ["return-for-refund", "partial-refund", "replacement", "no-action", "support-reviewed"],
     defaultResolution: "return-for-refund",
-    automationSummary: "Photos and condition notes replace open-ended negotiation; seller chooses return, partial refund, replacement, or evidence challenge.",
+    automationSummary:
+      "Photos and condition notes replace open-ended negotiation; seller chooses return, partial refund, replacement, or evidence challenge.",
   },
   {
     flowType: "product-damaged",
@@ -158,15 +154,10 @@ export const supportFlowCatalog = [
       "challenge-with-evidence",
       "request-support-review",
     ],
-    allowedResolutions: [
-      "full-refund",
-      "partial-refund",
-      "return-for-refund",
-      "replacement",
-      "support-reviewed",
-    ],
+    allowedResolutions: ["full-refund", "partial-refund", "return-for-refund", "replacement", "support-reviewed"],
     defaultResolution: "return-for-refund",
-    automationSummary: "Damage evidence and carrier claim data allow support to resolve without parties negotiating packaging details.",
+    automationSummary:
+      "Damage evidence and carrier claim data allow support to resolve without parties negotiating packaging details.",
   },
   {
     flowType: "wrong-product-received",
@@ -187,13 +178,7 @@ export const supportFlowCatalog = [
       },
       sellerAttestation,
     ],
-    allowedEvidenceTypes: [
-      "buyer-attestation",
-      "photo",
-      "unboxing-photo",
-      "seller-attestation",
-      "support-note",
-    ],
+    allowedEvidenceTypes: ["buyer-attestation", "photo", "unboxing-photo", "seller-attestation", "support-note"],
     allowedResponses: [
       "accept-return",
       "offer-replacement",
@@ -224,13 +209,7 @@ export const supportFlowCatalog = [
       },
       sellerAttestation,
     ],
-    allowedEvidenceTypes: [
-      "buyer-attestation",
-      "missing-quantity",
-      "photo",
-      "seller-attestation",
-      "support-note",
-    ],
+    allowedEvidenceTypes: ["buyer-attestation", "missing-quantity", "photo", "seller-attestation", "support-note"],
     allowedResponses: [
       "offer-replacement",
       "offer-partial-refund",
@@ -260,17 +239,12 @@ export const supportFlowCatalog = [
         required: true,
       },
     ],
-    allowedEvidenceTypes: [
-      "buyer-attestation",
-      "photo",
-      "authenticity-notes",
-      "seller-attestation",
-      "support-note",
-    ],
+    allowedEvidenceTypes: ["buyer-attestation", "photo", "authenticity-notes", "seller-attestation", "support-note"],
     allowedResponses: ["challenge-with-evidence", "accept-return", "request-support-review"],
     allowedResolutions: ["return-for-refund", "full-refund", "no-action", "support-reviewed"],
     defaultResolution: "support-reviewed",
-    automationSummary: "Authenticity concerns go straight to support review with seller response captured through evidence, not direct debate.",
+    automationSummary:
+      "Authenticity concerns go straight to support review with seller response captured through evidence, not direct debate.",
   },
   {
     flowType: "return-request",
@@ -291,15 +265,11 @@ export const supportFlowCatalog = [
       sellerAttestation,
     ],
     allowedEvidenceTypes: ["return-reason", "photo", "seller-attestation", "support-note"],
-    allowedResponses: [
-      "accept-return",
-      "offer-partial-refund",
-      "challenge-with-evidence",
-      "request-support-review",
-    ],
+    allowedResponses: ["accept-return", "offer-partial-refund", "challenge-with-evidence", "request-support-review"],
     allowedResolutions: ["return-for-refund", "partial-refund", "no-action", "support-reviewed"],
     defaultResolution: "return-for-refund",
-    automationSummary: "Return reasons and policy outcome are captured in one flow so sellers respond with a decision instead of a conversation.",
+    automationSummary:
+      "Return reasons and policy outcome are captured in one flow so sellers respond with a decision instead of a conversation.",
   },
   {
     flowType: "buyer-cancel-request",
@@ -337,7 +307,8 @@ export const supportFlowCatalog = [
     allowedResponses: ["confirm-cannot-fulfill", "issue-refund", "request-support-review"],
     allowedResolutions: ["cancel-order", "full-refund", "support-reviewed"],
     defaultResolution: "full-refund",
-    automationSummary: "Seller fulfillment failures move directly to support so buyer refund and inventory cleanup are not delayed.",
+    automationSummary:
+      "Seller fulfillment failures move directly to support so buyer refund and inventory cleanup are not delayed.",
   },
   {
     flowType: "refund-status",
@@ -410,9 +381,7 @@ export const supportFlowCatalog = [
   },
 ] as const satisfies readonly SupportFlowDefinition[];
 
-export function getSupportFlowDefinition(
-  flowType: SupportFlowType,
-): SupportFlowDefinition {
+export function getSupportFlowDefinition(flowType: SupportFlowType): SupportFlowDefinition {
   const definition = supportFlowCatalog.find((entry) => entry.flowType === flowType);
   if (!definition) {
     throw new SupportDomainError("Support flow type is not configured.");
@@ -428,9 +397,6 @@ export function createChecklist(flowType: SupportFlowType): readonly SupportChec
   }));
 }
 
-export function includesEvidenceType(
-  allowedTypes: readonly SupportEvidenceType[],
-  evidenceType: SupportEvidenceType,
-) {
+export function includesEvidenceType(allowedTypes: readonly SupportEvidenceType[], evidenceType: SupportEvidenceType) {
   return allowedTypes.includes(evidenceType);
 }

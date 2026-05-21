@@ -1,7 +1,4 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 
 export class CommercialTermsApiError extends Error {
   public constructor(

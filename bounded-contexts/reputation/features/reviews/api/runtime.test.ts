@@ -60,8 +60,7 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
   return {
-    loadCheckpoint: async (projectorName) =>
-      checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
     saveCheckpoint: async (projectorName, checkpoint) => {
       checkpoints.set(projectorName, checkpoint);
     },
@@ -116,30 +115,15 @@ describe("reputation review runtime", () => {
       deliveredAt: "2026-04-02T00:00:00.000Z",
     });
     expect(inserts).toEqual([
-      [
-        "ord_1",
-        "acc_buyer",
-        "acc_seller",
-        "buyer",
-        "2026-04-02T00:00:00.000Z",
-      ],
-      [
-        "ord_1",
-        "acc_seller",
-        "acc_buyer",
-        "seller",
-        "2026-04-02T00:00:00.000Z",
-      ],
+      ["ord_1", "acc_buyer", "acc_seller", "buyer", "2026-04-02T00:00:00.000Z"],
+      ["ord_1", "acc_seller", "acc_buyer", "seller", "2026-04-02T00:00:00.000Z"],
     ]);
   });
 
   it("submits a seller-to-buyer review from seller eligibility", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
-        if (
-          sql.includes("FROM reputation_review_eligibility_pages") &&
-          sql.includes("author_account_id = $2")
-        ) {
+        if (sql.includes("FROM reputation_review_eligibility_pages") && sql.includes("author_account_id = $2")) {
           return {
             rows: [
               {

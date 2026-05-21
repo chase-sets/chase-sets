@@ -4,8 +4,7 @@ import { cx } from "../../utils/cx";
 import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface TextInputProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style" | "size">,
-    BaseInputProps {}
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style" | "size">, BaseInputProps {}
 
 export function TextInput({
   id,
@@ -29,7 +28,15 @@ export function TextInput({
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
-      <input {...rest} id={inputId} required={required} type={type} aria-describedby={(error || description) ? fieldHintId(inputId) : undefined} aria-invalid={!!error || undefined} className={cx(controlClass, !!error && controlErrorClass)} />
+      <input
+        {...rest}
+        id={inputId}
+        required={required}
+        type={type}
+        aria-describedby={error || description ? fieldHintId(inputId) : undefined}
+        aria-invalid={!!error || undefined}
+        className={cx(controlClass, !!error && controlErrorClass)}
+      />
     </FieldChrome>
   );
 }
@@ -76,7 +83,7 @@ export function CurrencyInput({
           required={required}
           type="number"
           inputMode="decimal"
-          aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+          aria-describedby={error || description ? fieldHintId(inputId) : undefined}
           aria-invalid={!!error || undefined}
           className={cx(controlClass, !!error && controlErrorClass, "pl-8")}
         />
@@ -117,7 +124,7 @@ export function SearchInput({
           id={inputId}
           required={required}
           type="search"
-          aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+          aria-describedby={error || description ? fieldHintId(inputId) : undefined}
           aria-invalid={!!error || undefined}
           className={cx(controlClass, !!error && controlErrorClass, "pl-10")}
         />

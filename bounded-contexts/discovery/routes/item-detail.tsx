@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { redirect, useActionData, useFetcher, useLoaderData } from "react-router";
 import {
@@ -32,17 +28,11 @@ import {
   type AccordionSectionEdge,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import {
-  requireActorFromAuthApi,
-  resolveActorFromAuthApi,
-} from "@chase-sets/platform-runtime/auth";
+import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import {
-  createDiscoveryRequestApiClient,
-  DiscoveryApiError,
-} from "../support/request-support/api-client";
+import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
 import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import type {
@@ -68,11 +58,9 @@ import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 
 type CommerceAccordionEdge = AccordionSectionEdge;
 
-const MARKETPLACE_DESCRIPTION =
-  t("discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with");
+const MARKETPLACE_DESCRIPTION = t("discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with");
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
-const LISTING_STOCK_LOCATION_DESCRIPTION =
-  "Auto-managed stock backing standard marketplace listings.";
+const LISTING_STOCK_LOCATION_DESCRIPTION = "Auto-managed stock backing standard marketplace listings.";
 const LISTING_STOCK_SHIP_FROM_CODE = "LISTING-STOCK";
 
 const EMPTY_ITEM_DETAIL_RESULT = {
@@ -94,9 +82,10 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   canonicalUrl: null,
 } as const;
 
-type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch & Readonly<{
-  acceptance_terms: MarketplaceListingTermsPreview | null;
-}>;
+type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch &
+  Readonly<{
+    acceptance_terms: MarketplaceListingTermsPreview | null;
+  }>;
 
 const PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_BPS = 700;
 const PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_FIXED_AMOUNT = 0.05;
@@ -107,9 +96,7 @@ type ProductSelectionDisplayDetail = Readonly<{
   value: ReactNode;
 }>;
 
-function productOptionsFromSelectionDetails(
-  selections: readonly ProductSelectionDisplayDetail[],
-) {
+function productOptionsFromSelectionDetails(selections: readonly ProductSelectionDisplayDetail[]) {
   return selections.map((selection) => ({
     dimensionLabel: selection.label,
     optionLabel: selection.value,
@@ -135,9 +122,7 @@ function ProductQuantitySummary({
         variant="compact"
         className="min-w-0 text-sm font-semibold leading-5"
       />
-      <span className="text-sm font-medium leading-5 text-secondary">
-        {availability}
-      </span>
+      <span className="text-sm font-medium leading-5 text-secondary">{availability}</span>
     </div>
   );
 }
@@ -148,24 +133,19 @@ type AddToCartActionData = Readonly<{
   quantity: number;
 }>;
 
-type ItemDetailActionData =
-  | AddToCartActionData
-  | Readonly<{ error: string }>
-  | null;
+type ItemDetailActionData = AddToCartActionData | Readonly<{ error: string }> | null;
 
 function isAddToCartActionData(value: unknown): value is AddToCartActionData {
   return Boolean(
     value &&
-      typeof value === "object" &&
-      "status" in value &&
-      (value as { status?: unknown }).status === "added-to-cart",
+    typeof value === "object" &&
+    "status" in value &&
+    (value as { status?: unknown }).status === "added-to-cart",
   );
 }
 
 function getActionErrorMessage(value: unknown) {
-  return value && typeof value === "object" && "error" in value
-    ? String(value.error ?? "")
-    : null;
+  return value && typeof value === "object" && "error" in value ? String(value.error ?? "") : null;
 }
 
 function notifyCartCountChanged(quantity: number) {
@@ -180,9 +160,7 @@ function notifyCartCountChanged(quantity: number) {
   );
 }
 
-function canUseAccountCheckoutCart(
-  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
-) {
+function canUseAccountCheckoutCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor);
 }
 
@@ -197,8 +175,7 @@ function parseMoneyAmount(value: string | null | undefined): number | null {
 }
 
 function formatMoneyAmount(value: string | number | null | undefined) {
-  const amount =
-    typeof value === "number" ? value : parseMoneyAmount(value);
+  const amount = typeof value === "number" ? value : parseMoneyAmount(value);
 
   return amount === null
     ? t("discovery.routes.itemDetail.unavailable")
@@ -228,9 +205,7 @@ function toMoneyAmount(value: number) {
   return roundMoneyAmount(value).toFixed(2);
 }
 
-function createSellerRegistrationQuote(
-  priceAmount: string,
-): MarketplaceListingTermsPreview | null {
+function createSellerRegistrationQuote(priceAmount: string): MarketplaceListingTermsPreview | null {
   const basisAmount = parseMoneyAmount(priceAmount);
 
   if (basisAmount === null) {
@@ -238,13 +213,9 @@ function createSellerRegistrationQuote(
   }
 
   const marketplaceFeeUnitAmount = roundMoneyAmount(
-    (basisAmount * PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_BPS) / 10000 +
-      PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_FIXED_AMOUNT,
+    (basisAmount * PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_BPS) / 10000 + PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_FIXED_AMOUNT,
   );
-  const sellerNetUnitAmount = Math.max(
-    0,
-    roundMoneyAmount(basisAmount - marketplaceFeeUnitAmount),
-  );
+  const sellerNetUnitAmount = Math.max(0, roundMoneyAmount(basisAmount - marketplaceFeeUnitAmount));
 
   return {
     account_type: "personal",
@@ -269,15 +240,15 @@ function selectItemImageUrl(
   item: Partial<Pick<DiscoveryItemDetail, "image_urls" | "product_asset_sets" | "image_fallback">>,
   role: "thumbnail" | "catalog-detail" = "catalog-detail",
 ): string | null {
-  const productAssetSets = Array.isArray(item.product_asset_sets)
-    ? item.product_asset_sets
-    : [];
+  const productAssetSets = Array.isArray(item.product_asset_sets) ? item.product_asset_sets : [];
   const imageUrls = Array.isArray(item.image_urls) ? item.image_urls : [];
 
-  return selectDiscoveryProductAssetUrl(productAssetSets, role) ??
+  return (
+    selectDiscoveryProductAssetUrl(productAssetSets, role) ??
     imageUrls[0] ??
     (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : null) ??
-    null;
+    null
+  );
 }
 
 function formatTermsSource(terms: MarketplaceListingTermsPreview) {
@@ -314,10 +285,7 @@ export function readInitialSelectedOptions(searchParams: URLSearchParams) {
       continue;
     }
 
-    selectedByDimension.set(
-      dimensionId,
-      new Set([...(selectedByDimension.get(dimensionId) ?? []), optionId]),
-    );
+    selectedByDimension.set(dimensionId, new Set([...(selectedByDimension.get(dimensionId) ?? []), optionId]));
   }
 
   return [...selectedByDimension.entries()]
@@ -329,14 +297,10 @@ export function readInitialSelectedOptions(searchParams: URLSearchParams) {
 }
 
 function hasInitialSelectedOptionFilters(searchParams: URLSearchParams) {
-  return [...searchParams.entries()].some(([key, value]) =>
-    key.startsWith("dimension.") && value.trim().length > 0,
-  );
+  return [...searchParams.entries()].some(([key, value]) => key.startsWith("dimension.") && value.trim().length > 0);
 }
 
-function toSellerInventoryItem(
-  inventoryItem: MarketplaceListingInventoryItemOption,
-): DiscoverySellerInventoryItem {
+function toSellerInventoryItem(inventoryItem: MarketplaceListingInventoryItemOption): DiscoverySellerInventoryItem {
   return {
     item_id: inventoryItem.item_id,
     catalog_catalog_item_id: inventoryItem.catalog_catalog_item_id,
@@ -357,14 +321,10 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
 
     return Array.isArray(parsed)
       ? parsed
-          .filter(
-            (selection): selection is { dimensionId: string; optionId: string } =>
-              Boolean(
-                selection &&
-                typeof selection === "object" &&
-                "dimensionId" in selection &&
-                "optionId" in selection,
-              ),
+          .filter((selection): selection is { dimensionId: string; optionId: string } =>
+            Boolean(
+              selection && typeof selection === "object" && "dimensionId" in selection && "optionId" in selection,
+            ),
           )
           .map((selection) => ({
             dimensionId: String(selection.dimensionId ?? ""),
@@ -386,13 +346,7 @@ function shipFromAddressFromForm(formData: FormData) {
     country: String(formData.get("shipFromCountry") ?? "US").trim() || "US",
   };
 
-  if (
-    !address.name &&
-    !address.line1 &&
-    !address.city &&
-    !address.state &&
-    !address.postalCode
-  ) {
+  if (!address.name && !address.line1 && !address.city && !address.state && !address.postalCode) {
     return null;
   }
 
@@ -439,19 +393,13 @@ function ProductAlertCreationSection({
           <input type="hidden" name="marketSide" value={marketSide} />
           <input type="hidden" name="catalogItemId" value={catalogItemId} />
           <input type="hidden" name="productId" value={productId ?? ""} />
-          <input
-            type="hidden"
-            name="selectedOptions"
-            value={JSON.stringify(selectedOptions)}
-          />
+          <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
           <input type="hidden" name="productSummary" value={productSummary ?? ""} />
           {showSummary ? (
             <Stack gap={3}>
               <Stack gap={1}>
                 <Text weight="semibold">
-                  {isListingAlert
-                    ? t("discovery.routes.itemDetail.alert.criteria")
-                    : "Watch for offers"}
+                  {isListingAlert ? t("discovery.routes.itemDetail.alert.criteria") : "Watch for offers"}
                 </Text>
                 <Text size="sm" tone="secondary">
                   {isListingAlert
@@ -513,7 +461,8 @@ function MarketplaceOfferSubmissionSection({
 }) {
   const defaultActions = (
     <Button type="submit" disabled={!productId} block>
-      {t("discovery.routes.itemDetail.submit.offer")}</Button>
+      {t("discovery.routes.itemDetail.submit.offer")}
+    </Button>
   );
   const form = (
     <form id={formId} method="post">
@@ -521,11 +470,7 @@ function MarketplaceOfferSubmissionSection({
         <input type="hidden" name="intent" value="submit-offer" />
         <input type="hidden" name="catalogItemId" value={catalogItemId} />
         <input type="hidden" name="productId" value={productId ?? ""} />
-        <input
-          type="hidden"
-          name="selectedOptions"
-          value={JSON.stringify(selectedOptions)}
-        />
+        <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
         {showSummary ? (
           <Stack gap={3}>
@@ -572,7 +517,12 @@ function MarketplaceOfferSubmissionSection({
           step="0.01"
           required
         />
-        <NumberInput label={t("discovery.routes.itemDetail.quantity.requested")} name="quantityRequested" min="1" required />
+        <NumberInput
+          label={t("discovery.routes.itemDetail.quantity.requested")}
+          name="quantityRequested"
+          min="1"
+          required
+        />
         {actions !== undefined ? actions : defaultActions}
       </Stack>
     </form>
@@ -608,9 +558,7 @@ function MarketplaceOfferRegistrationSection({
         {showSummary ? (
           <Stack gap={2}>
             <Text weight="semibold">
-              {isAuthenticated
-                ? "Make offer unavailable"
-                : t("discovery.routes.itemDetail.make.offer.after.sign.in")}
+              {isAuthenticated ? "Make offer unavailable" : t("discovery.routes.itemDetail.make.offer.after.sign.in")}
             </Text>
             <ProductOptions
               options={productOptionsFromSelectionDetails(productSelectionDetails)}
@@ -628,15 +576,15 @@ function MarketplaceOfferRegistrationSection({
                     ),
                   })
                 : productId
-                ? t("discovery.routes.itemDetail.offer.registration.context", {
-                    count: visibleListingCount,
-                    listingLabel: t(
-                      visibleListingCount === 1
-                        ? "discovery.routes.itemDetail.listing.singular"
-                        : "discovery.routes.itemDetail.listing.plural",
-                    ),
-                  })
-                : t("discovery.routes.itemDetail.choose.options.before.offer.registration")}
+                  ? t("discovery.routes.itemDetail.offer.registration.context", {
+                      count: visibleListingCount,
+                      listingLabel: t(
+                        visibleListingCount === 1
+                          ? "discovery.routes.itemDetail.listing.singular"
+                          : "discovery.routes.itemDetail.listing.plural",
+                      ),
+                    })
+                  : t("discovery.routes.itemDetail.choose.options.before.offer.registration")}
             </Text>
           </Stack>
         ) : null}
@@ -704,10 +652,9 @@ export function CheckoutPurchaseIntentSection({
   const selectedListingPrice = selectedListing
     ? formatMoneyAmount(selectedListing.price_amount)
     : t("discovery.routes.itemDetail.unavailable");
-  const selectedListingSeller =
-    selectedListing
-      ? selectedListing.seller_display_name ?? t("discovery.routes.itemDetail.seller")
-      : "No active seller";
+  const selectedListingSeller = selectedListing
+    ? (selectedListing.seller_display_name ?? t("discovery.routes.itemDetail.seller"))
+    : "No active seller";
   const selectedListingSellerHref = selectedListing?.seller_slug
     ? `/accounts/${selectedListing.seller_slug}#feedback`
     : null;
@@ -716,9 +663,7 @@ export function CheckoutPurchaseIntentSection({
         count: selectedListingQuantity,
       })
     : t("discovery.routes.itemDetail.unavailable");
-  const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data)
-    ? addToCartFetcher.data
-    : null;
+  const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data) ? addToCartFetcher.data : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
   function getProductIntentGuidance() {
@@ -799,17 +744,18 @@ export function CheckoutPurchaseIntentSection({
         : t("discovery.routes.itemDetail.add.to.cart")}
     </Button>
   );
-  const defaultActions = actionMode === "buy-now" ? (
-    buyNowAction
-  ) : actionMode === "add-to-cart" ? (
-    addToCartAction
-  ) : (
-    <>
-      {buyNowAction}
-      {lockedListingAction}
-      {addToCartAction}
-    </>
-  );
+  const defaultActions =
+    actionMode === "buy-now" ? (
+      buyNowAction
+    ) : actionMode === "add-to-cart" ? (
+      addToCartAction
+    ) : (
+      <>
+        {buyNowAction}
+        {lockedListingAction}
+        {addToCartAction}
+      </>
+    );
   const form = (
     <form id={formId} method="post" ref={formRef}>
       <Stack gap={3}>
@@ -817,11 +763,7 @@ export function CheckoutPurchaseIntentSection({
         <input type="hidden" name="listingId" value="" />
         <input type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
         <input type="hidden" name="productId" value={productId ?? ""} />
-        <input
-          type="hidden"
-          name="selectedOptions"
-          value={JSON.stringify(selectedOptions)}
-        />
+        <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <input type="hidden" name="productSummary" value={productSummary ?? ""} />
         <input type="hidden" name="priceAmount" value={selectedListing?.price_amount ?? ""} />
         <input type="hidden" name="sellerName" value={selectedListing?.seller_display_name ?? ""} />
@@ -862,16 +804,13 @@ export function CheckoutPurchaseIntentSection({
                 availability={selectedListingAvailability}
                 productSelectionDetails={productSelectionDetails}
                 productSummary={productSummary}
-                fallback={
-                  productId
-                    ? itemTitle
-                    : t("discovery.routes.itemDetail.choose.options.to.add.this.product")
-                }
+                fallback={productId ? itemTitle : t("discovery.routes.itemDetail.choose.options.to.add.this.product")}
               />
             </Stack>
             {productId && visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}</Text>
+                {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}
+              </Text>
             ) : null}
             {actionMode === "all" ? (
               <Text size="sm" tone="secondary">
@@ -899,9 +838,7 @@ export function CheckoutPurchaseIntentSection({
             }
           />
         ) : null}
-        {addToCartError ? (
-          <Banner tone="danger" title={addToCartError} />
-        ) : null}
+        {addToCartError ? <Banner tone="danger" title={addToCartError} /> : null}
         <NumberInput
           label={t("discovery.routes.itemDetail.quantity")}
           name="quantity"
@@ -914,7 +851,11 @@ export function CheckoutPurchaseIntentSection({
     </form>
   );
 
-  return <FormPanel variant={panelVariant} glow={visibleListingCount > 0}>{form}</FormPanel>;
+  return (
+    <FormPanel variant={panelVariant} glow={visibleListingCount > 0}>
+      {form}
+    </FormPanel>
+  );
 }
 
 export function MarketplaceOfferMatchSection({
@@ -957,46 +898,25 @@ export function MarketplaceOfferMatchSection({
   errorMessage?: string | null;
 }) {
   const acceptedQuantity = selectedOffer?.quantity_requested ?? 0;
-  const acceptedValue = selectedOffer
-    ? multiplyMoneyAmount(selectedOffer.price_amount, acceptedQuantity)
-    : null;
+  const acceptedValue = selectedOffer ? multiplyMoneyAmount(selectedOffer.price_amount, acceptedQuantity) : null;
   const acceptanceTerms = selectedOffer?.acceptance_terms ?? null;
   const marketplaceFeeTotal =
     selectedOffer && acceptanceTerms
-      ? multiplyMoneyAmount(
-          acceptanceTerms.marketplace_sales_fee_unit_amount,
-          acceptedQuantity,
-        )
+      ? multiplyMoneyAmount(acceptanceTerms.marketplace_sales_fee_unit_amount, acceptedQuantity)
       : null;
   const sellerNetTotal =
     selectedOffer && acceptanceTerms
-      ? multiplyMoneyAmount(
-          acceptanceTerms.seller_net_unit_amount,
-          acceptedQuantity,
-        )
+      ? multiplyMoneyAmount(acceptanceTerms.seller_net_unit_amount, acceptedQuantity)
       : null;
   const shippingAllowanceAmount =
     acceptanceTerms && acceptedValue !== null
       ? (acceptedValue * acceptanceTerms.shipping_allowance_percentage_bps) / 10000
       : null;
-  const quoteTime = acceptanceTerms
-    ? new Date(acceptanceTerms.resolved_at).toLocaleString()
-    : null;
-  const selectedOfferBuyer =
-    selectedOffer?.buyer_display_name ??
-    selectedOffer?.buyer_account_id ??
-    "Buyer account";
-  const selectedOfferBuyerHref = selectedOffer?.buyer_slug
-    ? `/accounts/${selectedOffer.buyer_slug}#feedback`
-    : null;
+  const quoteTime = acceptanceTerms ? new Date(acceptanceTerms.resolved_at).toLocaleString() : null;
+  const selectedOfferBuyer = selectedOffer?.buyer_display_name ?? selectedOffer?.buyer_account_id ?? "Buyer account";
+  const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
   const sellNowAction = (
-    <Button
-      type="submit"
-      name="intent"
-      value="sell-now"
-      disabled={!selectedOffer?.can_fulfill}
-      block
-    >
+    <Button type="submit" name="intent" value="sell-now" disabled={!selectedOffer?.can_fulfill} block>
       {t("discovery.routes.itemDetail.sell.now")}
     </Button>
   );
@@ -1009,19 +929,22 @@ export function MarketplaceOfferMatchSection({
       disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
       block
     >
-      {selectedOffer?.in_sell_list ? t("discovery.routes.itemDetail.in.sell.list") : t("discovery.routes.itemDetail.add.to.sell.list")}
+      {selectedOffer?.in_sell_list
+        ? t("discovery.routes.itemDetail.in.sell.list")
+        : t("discovery.routes.itemDetail.add.to.sell.list")}
     </Button>
   );
-  const defaultActions = actionMode === "sell-now" ? (
-    sellNowAction
-  ) : actionMode === "add-to-sell-list" ? (
-    addToSellListAction
-  ) : (
-    <>
-      {sellNowAction}
-      {addToSellListAction}
-    </>
-  );
+  const defaultActions =
+    actionMode === "sell-now" ? (
+      sellNowAction
+    ) : actionMode === "add-to-sell-list" ? (
+      addToSellListAction
+    ) : (
+      <>
+        {sellNowAction}
+        {addToSellListAction}
+      </>
+    );
   const form = (
     <form id={formId} method="post">
       <Stack gap={3}>
@@ -1044,7 +967,9 @@ export function MarketplaceOfferMatchSection({
                       })}
                     </Text>
                     <Badge tone={selectedOffer.can_fulfill ? "success" : "warning"}>
-                      {selectedOffer.can_fulfill ? t("discovery.routes.itemDetail.can.fulfill") : t("discovery.routes.itemDetail.needs.supply")}
+                      {selectedOffer.can_fulfill
+                        ? t("discovery.routes.itemDetail.can.fulfill")
+                        : t("discovery.routes.itemDetail.needs.supply")}
                     </Badge>
                   </Inline>
                   <AccountReputationSummary
@@ -1056,11 +981,7 @@ export function MarketplaceOfferMatchSection({
                   />
                   <ProductOptions
                     options={productOptionsFromSelectionDetails(productSelectionDetails)}
-                    emptyLabel={
-                      selectedOffer.product_summary ??
-                      productSummary ??
-                      "Selected product"
-                    }
+                    emptyLabel={selectedOffer.product_summary ?? productSummary ?? "Selected product"}
                   />
                 </Stack>
                 {acceptanceTerms ? (
@@ -1087,9 +1008,7 @@ export function MarketplaceOfferMatchSection({
                           key: t("discovery.routes.itemDetail.shipping.allowance"),
                           value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
                             amount: formatMoneyAmount(shippingAllowanceAmount),
-                            percentage: formatAllowancePercentage(
-                              acceptanceTerms.shipping_allowance_percentage_bps,
-                            ),
+                            percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
                           }),
                         },
                       ]}
@@ -1114,7 +1033,7 @@ export function MarketplaceOfferMatchSection({
                   : matchingOfferCount > 0
                     ? t("discovery.routes.itemDetail.matching.offers.need.more.active.supply")
                     : t("discovery.routes.itemDetail.no.offers.match.this.product.yet")}
-                </Text>
+              </Text>
             )}
           </Stack>
         ) : null}
@@ -1161,17 +1080,11 @@ export function ProductSellListIntentSection({
           <input type="hidden" name="intent" value="add-product-to-sell-list" />
           <input type="hidden" name="catalogItemId" value={catalogItemId} />
           <input type="hidden" name="productId" value={productId ?? ""} />
-          <input
-            type="hidden"
-            name="selectedOptions"
-            value={JSON.stringify(selectedOptions)}
-          />
+          <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
           <input type="hidden" name="productSummary" value={productSummary ?? ""} />
           {showSummary ? (
             <Stack gap={2}>
-              <Text weight="semibold">
-                {t("discovery.routes.itemDetail.add.product.to.sell.list")}
-              </Text>
+              <Text weight="semibold">{t("discovery.routes.itemDetail.add.product.to.sell.list")}</Text>
               <Text size="sm" tone="secondary">
                 {t("discovery.routes.itemDetail.add.product.to.sell.list.summary")}
               </Text>
@@ -1223,26 +1136,16 @@ export function MarketplaceSellerRegistrationSection({
   matchingOfferCount?: number;
   registerHref: string;
 }) {
-  const selectedOfferQuote = selectedOffer
-    ? createSellerRegistrationQuote(selectedOffer.price_amount)
-    : null;
+  const selectedOfferQuote = selectedOffer ? createSellerRegistrationQuote(selectedOffer.price_amount) : null;
   const acceptedQuantity = selectedOffer?.quantity_requested ?? 0;
-  const acceptedValue = selectedOffer
-    ? multiplyMoneyAmount(selectedOffer.price_amount, acceptedQuantity)
-    : null;
+  const acceptedValue = selectedOffer ? multiplyMoneyAmount(selectedOffer.price_amount, acceptedQuantity) : null;
   const marketplaceFeeTotal =
     selectedOffer && selectedOfferQuote
-      ? multiplyMoneyAmount(
-          selectedOfferQuote.marketplace_sales_fee_unit_amount,
-          acceptedQuantity,
-        )
+      ? multiplyMoneyAmount(selectedOfferQuote.marketplace_sales_fee_unit_amount, acceptedQuantity)
       : null;
   const sellerNetTotal =
     selectedOffer && selectedOfferQuote
-      ? multiplyMoneyAmount(
-          selectedOfferQuote.seller_net_unit_amount,
-          acceptedQuantity,
-        )
+      ? multiplyMoneyAmount(selectedOfferQuote.seller_net_unit_amount, acceptedQuantity)
       : null;
   const shippingAllowanceAmount =
     selectedOfferQuote && acceptedValue !== null
@@ -1253,9 +1156,7 @@ export function MarketplaceSellerRegistrationSection({
       <Stack gap={3}>
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">
-              {t("discovery.routes.itemDetail.accept.offer.after.registration")}
-            </Text>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.accept.offer.after.registration")}</Text>
             <Stack gap={1}>
               <Inline gap={2}>
                 <Text weight="semibold">
@@ -1300,9 +1201,7 @@ export function MarketplaceSellerRegistrationSection({
                         key: t("discovery.routes.itemDetail.shipping.allowance"),
                         value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
                           amount: formatMoneyAmount(shippingAllowanceAmount),
-                          percentage: formatAllowancePercentage(
-                            selectedOfferQuote.shipping_allowance_percentage_bps,
-                          ),
+                          percentage: formatAllowancePercentage(selectedOfferQuote.shipping_allowance_percentage_bps),
                         }),
                       },
                       {
@@ -1311,8 +1210,7 @@ export function MarketplaceSellerRegistrationSection({
                           <ProductOptions
                             options={productOptionsFromSelectionDetails(productSelectionDetails)}
                             emptyLabel={
-                              productSummary ??
-                              t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
+                              productSummary ?? t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
                             }
                           />
                         ),
@@ -1331,8 +1229,7 @@ export function MarketplaceSellerRegistrationSection({
                           <ProductOptions
                             options={productOptionsFromSelectionDetails(productSelectionDetails)}
                             emptyLabel={
-                              productSummary ??
-                              t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
+                              productSummary ?? t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
                             }
                           />
                         ),
@@ -1382,10 +1279,7 @@ export function MarketplaceSellerRegistrationSection({
                   value: (
                     <ProductOptions
                       options={productOptionsFromSelectionDetails(productSelectionDetails)}
-                      emptyLabel={
-                        productSummary ??
-                        t("discovery.routes.itemDetail.choose.options.to.sell.this.item")
-                      }
+                      emptyLabel={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.sell.this.item")}
                     />
                   ),
                 },
@@ -1406,7 +1300,8 @@ export function MarketplaceSellerRegistrationSection({
               </Text>
             ) : !selectedOffer ? (
               <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.choose.product.options.first.then.register")}</Text>
+                {t("discovery.routes.itemDetail.choose.product.options.first.then.register")}
+              </Text>
             ) : null}
           </Stack>
         ) : null}
@@ -1462,12 +1357,22 @@ export function ListingStockShipFromSetupSection({
             <TextInput label={t("discovery.routes.itemDetail.ship.from.state")} name="shipFromState" required />
           </Inline>
           <Inline>
-            <TextInput label={t("discovery.routes.itemDetail.ship.from.postal.code")} name="shipFromPostalCode" required />
-            <TextInput label={t("discovery.routes.itemDetail.ship.from.country")} name="shipFromCountry" defaultValue="US" required />
+            <TextInput
+              label={t("discovery.routes.itemDetail.ship.from.postal.code")}
+              name="shipFromPostalCode"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.ship.from.country")}
+              name="shipFromCountry"
+              defaultValue="US"
+              required
+            />
           </Inline>
           {errorMessage ? <Text>{errorMessage}</Text> : null}
           <Button type="submit" block>
-            {t("discovery.routes.itemDetail.save.ship.from.setup")}</Button>
+            {t("discovery.routes.itemDetail.save.ship.from.setup")}
+          </Button>
         </Stack>
       </form>
     </FormPanel>
@@ -1513,21 +1418,14 @@ export function MarketplaceListingSubmissionSection({
   const defaultQuantity = listing?.quantity_cap ?? 1;
   const requiresShipFromSetup = !listing && !hasListingStockLocation;
   const canUseListAction = Boolean(productId && listPrice && !requiresShipFromSetup);
-  const defaultActions = (
-    listing ? (
-      <LinkButton href={`/account/listings/${listing.listing_id}`} block>
-        {t("discovery.routes.itemDetail.manage.listing")}</LinkButton>
-    ) : (
-      <Button
-        type="submit"
-        name="intent"
-        value="list-at-price"
-        disabled={!canUseListAction}
-        block
-      >
-        {t("discovery.routes.itemDetail.list.at.price")}
-      </Button>
-    )
+  const defaultActions = listing ? (
+    <LinkButton href={`/account/listings/${listing.listing_id}`} block>
+      {t("discovery.routes.itemDetail.manage.listing")}
+    </LinkButton>
+  ) : (
+    <Button type="submit" name="intent" value="list-at-price" disabled={!canUseListAction} block>
+      {t("discovery.routes.itemDetail.list.at.price")}
+    </Button>
   );
 
   const form = (
@@ -1541,12 +1439,16 @@ export function MarketplaceListingSubmissionSection({
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">
-              {listing ? t("discovery.routes.itemDetail.update.your.listing") : t("discovery.routes.itemDetail.list.at.price.2")}
+              {listing
+                ? t("discovery.routes.itemDetail.update.your.listing")
+                : t("discovery.routes.itemDetail.list.at.price.2")}
             </Text>
             {productSelectionDetails.length > 0 ? (
               <ProductOptions
                 options={productOptionsFromSelectionDetails(productSelectionDetails)}
-                emptyLabel={productSummary ?? t("discovery.routes.itemDetail.choose.options.to.list.matching.inventory")}
+                emptyLabel={
+                  productSummary ?? t("discovery.routes.itemDetail.choose.options.to.list.matching.inventory")
+                }
               />
             ) : (
               <Text size="sm" tone="secondary">
@@ -1571,13 +1473,7 @@ export function MarketplaceListingSubmissionSection({
             ) : null}
           </Stack>
         ) : null}
-        {listing ? (
-          <input
-            type="hidden"
-            name="inventoryItemId"
-            value={listing.inventory_item_id}
-          />
-        ) : null}
+        {listing ? <input type="hidden" name="inventoryItemId" value={listing.inventory_item_id} /> : null}
         {!listing ? (
           <Text size="sm" tone="secondary">
             {requiresShipFromSetup
@@ -1593,12 +1489,11 @@ export function MarketplaceListingSubmissionSection({
 
   return (
     <Stack gap={3}>
-      <FormPanel variant={panelVariant} glow={Boolean(listing)}>{form}</FormPanel>
+      <FormPanel variant={panelVariant} glow={Boolean(listing)}>
+        {form}
+      </FormPanel>
       {requiresShipFromSetup ? (
-        <ListingStockShipFromSetupSection
-          formId={`${formId}-ship-from-setup`}
-          errorMessage={errorMessage}
-        />
+        <ListingStockShipFromSetupSection formId={`${formId}-ship-from-setup`} errorMessage={errorMessage} />
       ) : null}
     </Stack>
   );
@@ -1650,7 +1545,9 @@ function ItemDetailActionCard<TAction extends string>({
       <Stack gap={3}>
         <Stack gap={1}>
           <Text weight="semibold">{title}</Text>
-          <Text size="sm" tone="secondary">{description}</Text>
+          <Text size="sm" tone="secondary">
+            {description}
+          </Text>
           {showProductSummary ? (
             <ProductOptions
               options={productOptionsFromSelectionDetails(productSelectionDetails)}
@@ -1718,10 +1615,7 @@ export function BuyActionCard({
   renderAddToCart: (formId: string) => ReactNode;
   renderOffer: (formId: string) => ReactNode;
 }) {
-  const defaultAction: BuyAction =
-    productId && visibleListingCount > 0
-      ? "buy-now"
-      : "make-offer";
+  const defaultAction: BuyAction = productId && visibleListingCount > 0 ? "buy-now" : "make-offer";
   const [selectedAction, setSelectedAction] = useState<BuyAction | "">(defaultAction);
 
   useEffect(() => {
@@ -1808,11 +1702,7 @@ export function SellActionCard({
   renderAddProductToSellList: (formId: string) => ReactNode;
   renderListing: (formId: string) => ReactNode;
 }) {
-  const defaultAction: SellAction | "" = hasMatchingOffer
-    ? "sell-now"
-    : canUseListingFeatures
-      ? "list-for-sale"
-      : "";
+  const defaultAction: SellAction | "" = hasMatchingOffer ? "sell-now" : canUseListingFeatures ? "list-for-sale" : "";
   const [selectedAction, setSelectedAction] = useState<SellAction | "">(defaultAction);
 
   useEffect(() => {
@@ -1856,9 +1746,9 @@ export function SellActionCard({
         ? renderAddToSellList(`${formIdPrefix}-sell-list`)
         : selectedAction === "add-product-to-sell-list"
           ? renderAddProductToSellList(`${formIdPrefix}-product-sell-list`)
-        : selectedAction === "list-for-sale"
-          ? renderListing(`${formIdPrefix}-list-for-sale`)
-          : null;
+          : selectedAction === "list-for-sale"
+            ? renderListing(`${formIdPrefix}-list-for-sale`)
+            : null;
 
   return (
     <ItemDetailActionCard
@@ -1877,11 +1767,7 @@ export function SellActionCard({
       accordionEdge={accordionEdge}
       glow={hasMatchingOffer}
       showProductSummary={false}
-      footer={
-        <Badge tone="accent">
-          {t("discovery.routes.itemDetail.same.buyer.shipping.allowance")}
-        </Badge>
-      }
+      footer={<Badge tone="accent">{t("discovery.routes.itemDetail.same.buyer.shipping.allowance")}</Badge>}
     >
       {selectedContent}
     </ItemDetailActionCard>
@@ -1978,9 +1864,7 @@ export function ItemCommercePanel({
             { value: "watch", label: t("discovery.routes.itemDetail.watch") },
           ]}
           value={mode}
-          onValueChange={(value) =>
-            setMode(value === "sell" ? "sell" : value === "watch" ? "watch" : "buy")
-          }
+          onValueChange={(value) => setMode(value === "sell" ? "sell" : value === "watch" ? "watch" : "buy")}
         />
       ) : null}
       {mode === "watch" && watch ? watch : mode === "sell" && showSellerTab ? seller : buyer}
@@ -1995,11 +1879,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const id = params.id;
   const url = new URL(request.url);
   const initialMarketIntent: "buy" | "sell" | "watch" =
-    url.searchParams.get("market") === "sell"
-      ? "sell"
-      : url.searchParams.get("market") === "watch"
-        ? "watch"
-        : "buy";
+    url.searchParams.get("market") === "sell" ? "sell" : url.searchParams.get("market") === "watch" ? "watch" : "buy";
   const initialSelectedOptions = readInitialSelectedOptions(url.searchParams);
   const initialSelectedOptionFiltersPresent = hasInitialSelectedOptionFilters(url.searchParams);
 
@@ -2032,12 +1912,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     const actor = await resolveActorFromAuthApi({ request });
     const canReviewAccountOfferMatches = Boolean(
-      actor?.permissions.includes("offers.view") &&
-        actor.permissions.includes("listings.view"),
+      actor?.permissions.includes("offers.view") && actor.permissions.includes("listings.view"),
     );
     const canSellOnItem = Boolean(
-      actor?.permissions.includes("listings.view") &&
-        actor.permissions.includes("listings.manage"),
+      actor?.permissions.includes("listings.view") && actor.permissions.includes("listings.manage"),
     );
     const canSubmitOffers = Boolean(actor);
     let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
@@ -2047,16 +1925,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     if (canReviewAccountOfferMatches) {
       try {
         const result = await marketplaceApi.listOfferMatches("limit=100&offset=0");
-        const matchingOffers = result.items.filter(
-          (offer) => offer.catalog_catalog_item_id === item.catalog_item_id,
-        );
+        const matchingOffers = result.items.filter((offer) => offer.catalog_catalog_item_id === item.catalog_item_id);
         accountOfferMatches = await Promise.all(
           matchingOffers.map(async (offer) => ({
             ...offer,
             acceptance_terms:
-              offer.status === "submitted"
-                ? await marketplaceApi.previewOfferAcceptanceTerms(offer.offer_id)
-                : null,
+              offer.status === "submitted" ? await marketplaceApi.previewOfferAcceptanceTerms(offer.offer_id) : null,
           })),
         );
       } catch {
@@ -2072,8 +1946,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           ),
           inventoryApi.listStorageLocations("limit=100&offset=0"),
         ]);
-        sellerInventoryItems = (items.items as MarketplaceListingInventoryItemOption[])
-          .map(toSellerInventoryItem);
+        sellerInventoryItems = (items.items as MarketplaceListingInventoryItemOption[]).map(toSellerInventoryItem);
         hasListingStockLocation = storageLocations.items.some(
           (location) => location.name === LISTING_STOCK_LOCATION_NAME,
         );
@@ -2086,7 +1959,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       item,
       accountOfferMatches,
       sellerInventoryItems,
-      sellerAccountId: canSellOnItem ? actor?.accountId ?? null : null,
+      sellerAccountId: canSellOnItem ? (actor?.accountId ?? null) : null,
       hasListingStockLocation,
       viewerAccountId: actor?.accountId ?? null,
       initialMarketIntent,
@@ -2161,9 +2034,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
       const item = await discoveryApi.getItemDetail(params.id!);
       await discoveryApi.createProductAlert({
-        marketSide: String(formData.get("marketSide") ?? "") === "offer"
-          ? "offer"
-          : "listing",
+        marketSide: String(formData.get("marketSide") ?? "") === "offer" ? "offer" : "listing",
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
@@ -2235,9 +2106,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const lockedListingId =
-        intent === "buy-this-listing"
-          ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "")
-          : "";
+        intent === "buy-this-listing" ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "") : "";
       const source = {
         type: "buy-now",
         listingId: lockedListingId,
@@ -2248,7 +2117,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity: Number(formData.get("quantity") ?? 0),
-        fulfillmentMode: lockedListingId ? "locked-listing" as const : "optimize" as const,
+        fulfillmentMode: lockedListingId ? ("locked-listing" as const) : ("optimize" as const),
         lockedListingId: lockedListingId || null,
       } as const;
 
@@ -2277,9 +2146,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         source,
       });
 
-      return redirect(
-        appendFreshWriteToken(`/checkout/${session.session_id}`, session),
-      );
+      return redirect(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
     }
 
     if (intent === "sell-now") {
@@ -2303,9 +2170,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       const item = await discoveryApi.getItemDetail(params.id!);
       const offerId = String(formData.get("offerId") ?? "");
-      const offer = item.offer_demand_matches.find(
-        (candidate) => candidate.offer_id === offerId,
-      );
+      const offer = item.offer_demand_matches.find((candidate) => candidate.offer_id === offerId);
       if (!offer) {
         throw new Error("Offer match is no longer available.");
       }
@@ -2418,7 +2283,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
               })
             ).snapshot,
           };
-      const result = await marketplaceApi.createListing(listingBody) as { id?: string; feeQuoteFingerprint?: string };
+      const result = (await marketplaceApi.createListing(listingBody)) as { id?: string; feeQuoteFingerprint?: string };
 
       if (result.id) {
         await marketplaceApi.publishListing(result.id, {
@@ -2446,17 +2311,13 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
     title: data?.item
       ? `${data.item.title} | Marketplace`
       : t("discovery.routes.itemDetail.item.not.found.marketplace"),
-    description: data?.item?.description
-      ? data.item.description
-      : MARKETPLACE_DESCRIPTION,
+    description: data?.item?.description ? data.item.description : MARKETPLACE_DESCRIPTION,
     imageUrl: data?.item
-      ? selectItemImageUrl(data.item, "catalog-detail") ?? discoveryAssetUrls.defaultProductImage
+      ? (selectItemImageUrl(data.item, "catalog-detail") ?? discoveryAssetUrls.defaultProductImage)
       : undefined,
     type: data?.item ? "product" : "website",
   }),
-  ...(data?.canonicalUrl
-    ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }]
-    : []),
+  ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
 ];
 
 export default function DiscoveryItemDetailRoute() {
@@ -2476,12 +2337,8 @@ export default function DiscoveryItemDetailRoute() {
   );
 }
 
-type DiscoveryItemDetailRouteData =
-  | typeof EMPTY_ITEM_DETAIL_RESULT
-  | Awaited<ReturnType<typeof loader>>;
-type DiscoveryItemDetailActionData =
-  | Exclude<Awaited<ReturnType<typeof action>>, Response>
-  | undefined;
+type DiscoveryItemDetailRouteData = typeof EMPTY_ITEM_DETAIL_RESULT | Awaited<ReturnType<typeof loader>>;
+type DiscoveryItemDetailActionData = Exclude<Awaited<ReturnType<typeof action>>, Response> | undefined;
 
 function DiscoveryItemDetailRealtimeView({
   data,
@@ -2494,9 +2351,7 @@ function DiscoveryItemDetailRealtimeView({
   const realtimeItem = useRealtimePatchedSnapshot({
     initialSnapshot: data.item,
     snapshotKey: JSON.stringify(data.item),
-    topics: data.item
-      ? discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id).topics
-      : [],
+    topics: data.item ? discoveryRealtimeRouteTopics.itemDetail(data.item.catalog_item_id).topics : [],
     applyPatch: applyDiscoveryItemPatch,
     onSyncRequired: reloadForRealtimeSync,
   });
@@ -2514,13 +2369,13 @@ function DiscoveryItemDetailRealtimeView({
       renderCommerce={
         data.item
           ? (context) => {
-              const ownListing = data.sellerAccountId && context.selectedProductId
-                ? context.visibleListings.find(
-                    (listing) =>
-                      listing.account_id === data.sellerAccountId &&
-                      listing.product_id === context.selectedProductId,
-                  ) ?? null
-                : null;
+              const ownListing =
+                data.sellerAccountId && context.selectedProductId
+                  ? (context.visibleListings.find(
+                      (listing) =>
+                        listing.account_id === data.sellerAccountId && listing.product_id === context.selectedProductId,
+                    ) ?? null)
+                  : null;
               const renderBuy = (
                 formId: string,
                 panelVariant: FormPanelVariant = "card",
@@ -2655,15 +2510,9 @@ function DiscoveryItemDetailRealtimeView({
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   visibleListingCount={context.visibleListings.length}
-                  renderBuyNow={(formId) =>
-                    renderBuy(formId, "plain", undefined, true, "buy-now")
-                  }
-                  renderAddToCart={(formId) =>
-                    renderBuy(formId, "plain", undefined, true, "add-to-cart")
-                  }
-                  renderOffer={(formId) =>
-                    renderOffer(formId, "plain", undefined, true)
-                  }
+                  renderBuyNow={(formId) => renderBuy(formId, "plain", undefined, true, "buy-now")}
+                  renderAddToCart={(formId) => renderBuy(formId, "plain", undefined, true, "add-to-cart")}
+                  renderOffer={(formId) => renderOffer(formId, "plain", undefined, true)}
                 />
               );
               const renderSellActionCard = (
@@ -2732,38 +2581,34 @@ function DiscoveryItemDetailRealtimeView({
                   productId={context.selectedProductId}
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
-                  renderListingAlert={(formId) =>
-                    renderProductAlert(formId, "listing", "plain", true)
-                  }
-                  renderOfferAlert={(formId) =>
-                    renderProductAlert(formId, "offer", "plain", true)
-                  }
+                  renderListingAlert={(formId) => renderProductAlert(formId, "listing", "plain", true)}
+                  renderOfferAlert={(formId) => renderProductAlert(formId, "offer", "plain", true)}
                 />
               );
-              return (
-                {
-                  buy: renderBuyActionCard("buy-card", "plain"),
-                  offer: null,
-                  sell: data.showSellerTab ? renderSellActionCard("sell-card", "plain") : undefined,
-                  watch: renderWatchActionCard("watch-card", "plain"),
-                  mobile: {
-                    buy: {
-                      content: renderBuyActionCard("mobile-buy-card", "plain", "panel"),
-                      title: t("discovery.routes.itemDetail.buy"),
-                    },
-                    sell: {
-                      content: renderSellActionCard("mobile-sell-card", "plain", "panel"),
-                      title: t("discovery.routes.itemDetail.sell.2"),
-                    },
-                    watch: {
-                      content: renderWatchActionCard("mobile-watch-card", "plain", "panel"),
-                      title: t("discovery.routes.itemDetail.watch"),
-                    },
+              return {
+                buy: renderBuyActionCard("buy-card", "plain"),
+                offer: null,
+                sell: data.showSellerTab ? renderSellActionCard("sell-card", "plain") : undefined,
+                watch: renderWatchActionCard("watch-card", "plain"),
+                mobile: {
+                  buy: {
+                    content: renderBuyActionCard("mobile-buy-card", "plain", "panel"),
+                    title: t("discovery.routes.itemDetail.buy"),
                   },
-                  sellLabel: data.canUseSellerFeatures ? t("discovery.routes.itemDetail.sell.2") : t("discovery.routes.itemDetail.sell.3"),
-                  watchLabel: t("discovery.routes.itemDetail.watch"),
-                }
-              );
+                  sell: {
+                    content: renderSellActionCard("mobile-sell-card", "plain", "panel"),
+                    title: t("discovery.routes.itemDetail.sell.2"),
+                  },
+                  watch: {
+                    content: renderWatchActionCard("mobile-watch-card", "plain", "panel"),
+                    title: t("discovery.routes.itemDetail.watch"),
+                  },
+                },
+                sellLabel: data.canUseSellerFeatures
+                  ? t("discovery.routes.itemDetail.sell.2")
+                  : t("discovery.routes.itemDetail.sell.3"),
+                watchLabel: t("discovery.routes.itemDetail.watch"),
+              };
             }
           : undefined
       }

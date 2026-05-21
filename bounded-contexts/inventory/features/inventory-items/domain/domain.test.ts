@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideInventoryItem,
-  evolveInventoryItem,
-  initialInventoryItemState,
-} from "./domain";
+import { decideInventoryItem, evolveInventoryItem, initialInventoryItemState } from "./domain";
 
 describe("inventory item domain", () => {
   it("creates and adjusts an inventory item", async () => {

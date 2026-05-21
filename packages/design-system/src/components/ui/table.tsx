@@ -8,7 +8,7 @@ export function Table({ className, ...props }: TableHTMLAttributes<HTMLTableElem
         {...props}
         className={cn(
           "w-full caption-bottom border-separate border-spacing-0 text-sm md:overflow-hidden md:rounded-[var(--radius-lg)] md:border md:border-[var(--muted)] md:bg-[var(--card)] md:shadow-[var(--shadow-sm)]",
-          className
+          className,
         )}
       />
     </div>
@@ -16,7 +16,12 @@ export function Table({ className, ...props }: TableHTMLAttributes<HTMLTableElem
 }
 
 export function TableHeader({ className, ...props }: TableHTMLAttributes<HTMLTableSectionElement>) {
-  return <thead {...props} className={cn("hidden bg-[var(--secondary)] text-[var(--secondary-foreground)] md:table-header-group", className)} />;
+  return (
+    <thead
+      {...props}
+      className={cn("hidden bg-[var(--secondary)] text-[var(--secondary-foreground)] md:table-header-group", className)}
+    />
+  );
 }
 
 export function TableBody({ className, ...props }: TableHTMLAttributes<HTMLTableSectionElement>) {
@@ -29,7 +34,7 @@ export function TableRow({ className, ...props }: TableHTMLAttributes<HTMLTableR
       {...props}
       className={cn(
         "ds-panel grid gap-3 rounded-[var(--radius-lg)] border border-[var(--muted)] p-4 shadow-[var(--shadow-sm)] transition-colors md:table-row md:rounded-none md:border-0 md:border-b md:p-0 md:shadow-none md:hover:bg-[var(--muted)]/60",
-        className
+        className,
       )}
     />
   );
@@ -37,7 +42,13 @@ export function TableRow({ className, ...props }: TableHTMLAttributes<HTMLTableR
 
 export function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <th {...props} className={cn("h-11 px-4 text-left align-middle text-xs font-semibold uppercase text-[var(--muted-foreground)]", className)} />
+    <th
+      {...props}
+      className={cn(
+        "h-11 px-4 text-left align-middle text-xs font-semibold uppercase text-[var(--muted-foreground)]",
+        className,
+      )}
+    />
   );
 }
 
@@ -47,7 +58,7 @@ export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCel
       {...props}
       className={cn(
         "grid gap-1 align-middle before:text-xs before:font-semibold before:uppercase before:text-[var(--muted-foreground)] before:content-[attr(data-label)] md:table-cell md:px-4 md:py-3 md:before:hidden",
-        className
+        className,
       )}
     />
   );

@@ -6,8 +6,7 @@ import { marketplaceAuthHostConfig } from "../../support/route-support/host-conf
 import { marketplaceAuthHost } from "../../support/route-support/auth-host.server";
 import { RegisterPage } from "../../features/registration/ui/register-page";
 
-export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.register! });
+export const meta: MetaFunction = () => buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.register! });
 
 export const action = marketplaceAuthHost.createRegisterAction();
 
@@ -25,11 +24,7 @@ export default function MarketplaceRegisterRoute() {
   return (
     <Container width="narrow" paddingX={0}>
       <RegisterPage
-        errorMessage={
-          actionData && "error" in actionData
-            ? actionData.error
-            : data.socialLoginError
-        }
+        errorMessage={actionData && "error" in actionData ? actionData.error : data.socialLoginError}
         notice={actionData && "status" in actionData ? actionData : null}
         returnTo={data.returnTo}
       />

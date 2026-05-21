@@ -12,14 +12,18 @@ export type SocialLoginProfile = Readonly<{
 
 export type SocialLoginProvider = Readonly<{
   providerName: SocialLoginProviderName;
-  createAuthorizationUrl: (params: Readonly<{
-    state: string;
-    redirectUri: string;
-  }>) => string;
-  exchangeCallback: (params: Readonly<{
-    code: string;
-    redirectUri: string;
-  }>) => Promise<SocialLoginProfile>;
+  createAuthorizationUrl: (
+    params: Readonly<{
+      state: string;
+      redirectUri: string;
+    }>,
+  ) => string;
+  exchangeCallback: (
+    params: Readonly<{
+      code: string;
+      redirectUri: string;
+    }>,
+  ) => Promise<SocialLoginProfile>;
 }>;
 
 type OAuthProviderConfig = Readonly<{
@@ -43,9 +47,7 @@ function requireText(value: unknown, fieldName: string) {
 }
 
 function getRecord(value: unknown) {
-  return value && typeof value === "object"
-    ? value as Record<string, unknown>
-    : {};
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
 async function parseOAuthJson(response: Response) {
@@ -57,9 +59,7 @@ async function parseOAuthJson(response: Response) {
   return body;
 }
 
-export function createOAuthSocialLoginProvider(
-  config: OAuthProviderConfig,
-): SocialLoginProvider {
+export function createOAuthSocialLoginProvider(config: OAuthProviderConfig): SocialLoginProvider {
   const fetchImpl = config.fetch ?? globalThis.fetch;
 
   return {

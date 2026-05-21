@@ -18,12 +18,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
-  { title: data?.data ? `${data.data.name} | Catalog Admin` : t("catalog.routes.admin.fieldsDetail.field.catalog.admin") },
+  {
+    title: data?.data
+      ? `${data.data.name} | Catalog Admin`
+      : t("catalog.routes.admin.fieldsDetail.field.catalog.admin"),
+  },
 ];
 
 export default function FieldDetailRoute() {
   const { id, data } = useLoaderData<typeof loader>();
   return <FieldDetailPage id={id} initialData={data} />;
 }
-
-

@@ -40,12 +40,8 @@ describe("platform api database pools", () => {
       expect(pools.auth).not.toBe(pools.catalog);
       expect(pools.payments).not.toBe(pools.catalog);
       expect(runtime.mountedContexts.length).toBeGreaterThan(0);
-      expect(runtime.mountedContexts.find((entry) => entry.contextName === "auth")?.pool).toBe(
-        pools.auth,
-      );
-      expect(
-        runtime.mountedContexts.find((entry) => entry.contextName === "payments")?.pool,
-      ).toBe(pools.payments);
+      expect(runtime.mountedContexts.find((entry) => entry.contextName === "auth")?.pool).toBe(pools.auth);
+      expect(runtime.mountedContexts.find((entry) => entry.contextName === "payments")?.pool).toBe(pools.payments);
     } finally {
       await closePlatformApiPools(pools);
     }

@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildCommercialTermsAccountProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildCommercialTermsAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const data = event.data as {

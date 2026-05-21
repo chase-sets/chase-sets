@@ -109,9 +109,7 @@ export type MoneyMovementGateway = Readonly<{
       providerReference: string;
     }>,
   ) => Promise<ProviderPayoutReadiness>;
-  retrievePlatformBalance: (
-    input: Readonly<{ currencyCode: CurrencyCode }>,
-  ) => Promise<ProviderPlatformBalance>;
+  retrievePlatformBalance: (input: Readonly<{ currencyCode: CurrencyCode }>) => Promise<ProviderPlatformBalance>;
   transferPlatformBalanceToConnectedAccount: (
     input: Readonly<{
       payoutId: PayoutId;

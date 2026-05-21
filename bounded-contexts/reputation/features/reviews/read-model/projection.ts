@@ -1,11 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-async function refreshReviewSummary(
-  db: PgQueryable,
-  subjectAccountId: string,
-  updatedAt: string,
-) {
+async function refreshReviewSummary(db: PgQueryable, subjectAccountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO review_summary_pages (
        account_id,
@@ -47,9 +43,7 @@ async function refreshReviewSummary(
   );
 }
 
-export function buildReviewProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildReviewProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "reputation.review.submitted": async (event) => {
       const data = event.data as {

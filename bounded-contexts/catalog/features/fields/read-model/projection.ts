@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.field-";
@@ -79,30 +75,28 @@ export function buildFieldProjectionHandlers(db: PgQueryable): ProjectorHandlerM
     "catalog.field.activated": async (event) => {
       const fieldId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_fields SET status = 'active', updated_at = $2 WHERE field_id = $1`,
-        [fieldId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_fields SET status = 'active', updated_at = $2 WHERE field_id = $1`, [
+        fieldId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.field.deprecated": async (event) => {
       const fieldId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_fields SET status = 'deprecated', updated_at = $2 WHERE field_id = $1`,
-        [fieldId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_fields SET status = 'deprecated', updated_at = $2 WHERE field_id = $1`, [
+        fieldId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.field.archived": async (event) => {
       const fieldId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_fields SET status = 'archived', updated_at = $2 WHERE field_id = $1`,
-        [fieldId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_fields SET status = 'archived', updated_at = $2 WHERE field_id = $1`, [
+        fieldId,
+        event.timing.recordedAt,
+      ]);
     },
   };
 }
-
-

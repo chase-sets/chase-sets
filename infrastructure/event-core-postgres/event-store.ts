@@ -3,16 +3,8 @@ import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { EventId } from "@chase-sets/primitives/typed-ids";
-import {
-  createEventStoreError,
-  EventStoreError,
-  type EventStore,
-} from "@chase-sets/event-core/event-store";
-import {
-  ZERO_GLOBAL_POSITION,
-  globalPositionFromBigInt,
-  parseGlobalPosition,
-} from "@chase-sets/event-core/storage";
+import { createEventStoreError, EventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
+import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { observeEventStoreOperation } from "@chase-sets/observability";
 import type {
   AppendToStreamInput,
@@ -80,16 +72,10 @@ const EVENT_COLUMNS = [
   "trace_state",
 ].join(", ");
 
-export function createPostgresEventStore(
-  config: PostgresEventStoreConfig,
-): EventStore {
+export function createPostgresEventStore(config: PostgresEventStoreConfig): EventStore {
   const pool = config.pool;
-  const eventsTable = assertSqlIdentifier(
-    config.eventsTableName ?? DEFAULT_EVENTS_TABLE,
-  );
-  const streamsTable = assertSqlIdentifier(
-    config.streamsTableName ?? DEFAULT_STREAMS_TABLE,
-  );
+  const eventsTable = assertSqlIdentifier(config.eventsTableName ?? DEFAULT_EVENTS_TABLE);
+  const streamsTable = assertSqlIdentifier(config.streamsTableName ?? DEFAULT_STREAMS_TABLE);
   const now = config.now ?? nowIsoUtcTimestamp;
   const createEventId = config.createEventId ?? createDefaultEventId;
 
@@ -189,47 +175,29 @@ export function createPostgresEventStore(
               }),
             );
           } catch (error) {
-            throw normalizeEventStoreError(
-              error,
-              "Failed to append events to Postgres event store.",
-            );
+            throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
           }
         },
       );
     },
 
     readStream: async (input: ReadStreamInput) => {
-      const fromVersion = assertPositiveInteger(
-        input.fromVersion ?? 1,
-        "fromVersion",
-      );
+      const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
       const limit = assertPositiveInteger(input.limit ?? 500, "limit");
 
-      return observeEventStoreOperation(
-        "read_stream",
-        { limit },
-        async () => {
-          try {
-            const result = await pool.query<DbEventRow>(readStreamSql, [
-              input.streamId,
-              fromVersion,
-              limit,
-            ]);
+      return observeEventStoreOperation("read_stream", { limit }, async () => {
+        try {
+          const result = await pool.query<DbEventRow>(readStreamSql, [input.streamId, fromVersion, limit]);
 
-            return result.rows.map(mapDbEventRow);
-          } catch (error) {
-            throw normalizeEventStoreError(
-              error,
-              "Failed to read stream events from Postgres event store.",
-            );
-          }
-        },
-      );
+          return result.rows.map(mapDbEventRow);
+        } catch (error) {
+          throw normalizeEventStoreError(error, "Failed to read stream events from Postgres event store.");
+        }
+      });
     },
 
     readAll: async (input?: ReadAllInput) => {
-      const afterGlobalPosition =
-        input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION;
+      const afterGlobalPosition = input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION;
       const limit = assertPositiveInteger(input?.limit ?? 500, "limit");
 
       return observeEventStoreOperation(
@@ -247,17 +215,11 @@ export function createPostgresEventStore(
               return result.rows.map(mapDbEventRow);
             }
 
-            const result = await pool.query<DbEventRow>(readAllSql, [
-              afterGlobalPosition,
-              limit,
-            ]);
+            const result = await pool.query<DbEventRow>(readAllSql, [afterGlobalPosition, limit]);
 
             return result.rows.map(mapDbEventRow);
           } catch (error) {
-            throw normalizeEventStoreError(
-              error,
-              "Failed to read global events from Postgres event store.",
-            );
+            throw normalizeEventStoreError(error, "Failed to read global events from Postgres event store.");
           }
         },
       );
@@ -276,35 +238,24 @@ type AppendInTransactionArgs = Readonly<{
   updateStreamVersionSql: string;
 }>;
 
-async function appendEventsToStream(
-  args: AppendInTransactionArgs,
-): Promise<readonly StoredEvent[]> {
+async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
   const now = args.now();
 
   await args.client.query(args.upsertStreamSql, [args.input.streamId, now]);
 
-  const streamVersionResult = await args.client.query<DbStreamVersionRow>(
-    args.readCurrentVersionSql,
-    [args.input.streamId],
-  );
+  const streamVersionResult = await args.client.query<DbStreamVersionRow>(args.readCurrentVersionSql, [
+    args.input.streamId,
+  ]);
 
   if (streamVersionResult.rows.length !== 1) {
-    throw createEventStoreError(
-      "infrastructure_failure",
-      "Stream row not found",
-      {
-        streamId: args.input.streamId,
-      },
-    );
+    throw createEventStoreError("infrastructure_failure", "Stream row not found", {
+      streamId: args.input.streamId,
+    });
   }
 
   const currentVersion = toNumber(streamVersionResult.rows[0].current_version);
 
-  assertExpectedVersion(
-    args.input.streamId,
-    args.input.expectedVersion,
-    currentVersion,
-  );
+  assertExpectedVersion(args.input.streamId, args.input.expectedVersion, currentVersion);
 
   const storedEvents: StoredEvent[] = [];
   let nextVersion = currentVersion;
@@ -326,11 +277,7 @@ async function appendEventsToStream(
     storedEvents.push(storedEvent);
   }
 
-  await args.client.query(args.updateStreamVersionSql, [
-    args.input.streamId,
-    nextVersion,
-    now,
-  ]);
+  await args.client.query(args.updateStreamVersionSql, [args.input.streamId, nextVersion, now]);
 
   return storedEvents;
 }
@@ -346,9 +293,7 @@ type InsertSingleEventArgs = Readonly<{
   createEventId: () => EventId;
 }>;
 
-async function insertSingleEvent(
-  args: InsertSingleEventArgs,
-): Promise<StoredEvent> {
+async function insertSingleEvent(args: InsertSingleEventArgs): Promise<StoredEvent> {
   const result = await args.client.query<DbEventRow>(args.insertEventSql, [
     args.createEventId(),
     args.streamId,
@@ -368,20 +313,13 @@ async function insertSingleEvent(
   ]);
 
   if (result.rows.length !== 1) {
-    throw createEventStoreError(
-      "infrastructure_failure",
-      "Failed to insert event row into Postgres event store.",
-    );
+    throw createEventStoreError("infrastructure_failure", "Failed to insert event row into Postgres event store.");
   }
 
   return mapDbEventRow(result.rows[0]);
 }
 
-function assertExpectedVersion(
-  streamId: string,
-  expectedVersion: ExpectedStreamVersion,
-  currentVersion: number,
-): void {
+function assertExpectedVersion(streamId: string, expectedVersion: ExpectedStreamVersion, currentVersion: number): void {
   if (expectedVersion === "any") {
     return;
   }
@@ -391,34 +329,23 @@ function assertExpectedVersion(
       return;
     }
 
-    throw createEventStoreError(
-      "concurrency_conflict",
-      "Expected no stream but stream already exists.",
-      {
-        streamId,
-        expectedVersion,
-        currentVersion,
-      },
-    );
+    throw createEventStoreError("concurrency_conflict", "Expected no stream but stream already exists.", {
+      streamId,
+      expectedVersion,
+      currentVersion,
+    });
   }
 
   if (expectedVersion !== currentVersion) {
-    throw createEventStoreError(
-      "concurrency_conflict",
-      "Expected stream version does not match current version.",
-      {
-        streamId,
-        expectedVersion,
-        currentVersion,
-      },
-    );
+    throw createEventStoreError("concurrency_conflict", "Expected stream version does not match current version.", {
+      streamId,
+      expectedVersion,
+      currentVersion,
+    });
   }
 }
 
-async function withTransaction<T>(
-  pool: PgTransactionalPool,
-  work: (client: PgPoolClient) => Promise<T>,
-): Promise<T> {
+async function withTransaction<T>(pool: PgTransactionalPool, work: (client: PgPoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
 
   try {
@@ -434,22 +361,15 @@ async function withTransaction<T>(
   }
 }
 
-function normalizeEventStoreError(
-  error: unknown,
-  message: string,
-): EventStoreError {
+function normalizeEventStoreError(error: unknown, message: string): EventStoreError {
   if (isEventStoreError(error)) {
     return error;
   }
 
   if (isPgUniqueViolation(error)) {
-    return createEventStoreError(
-      "concurrency_conflict",
-      "Unique constraint conflict while appending events.",
-      {
-        postgresCode: error.code,
-      },
-    );
+    return createEventStoreError("concurrency_conflict", "Unique constraint conflict while appending events.", {
+      postgresCode: error.code,
+    });
   }
 
   return createEventStoreError("infrastructure_failure", message, {
@@ -462,12 +382,7 @@ type PgError = Readonly<{
 }>;
 
 function isPgUniqueViolation(error: unknown): error is PgError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as PgError).code === "23505"
-  );
+  return typeof error === "object" && error !== null && "code" in error && (error as PgError).code === "23505";
 }
 
 function isEventStoreError(error: unknown): error is EventStoreError {
@@ -484,46 +399,28 @@ function mapDbEventRow(row: DbEventRow): StoredEvent {
     eventId: row.event_id as EventId,
     streamId: row.stream_id,
     streamVersion: toNumber(row.stream_version),
-    globalPosition: coerceDbGlobalPosition(
-      row.global_position,
-      "global_position",
-    ),
+    globalPosition: coerceDbGlobalPosition(row.global_position, "global_position"),
     tenantId: row.tenant_id as StoredEvent["tenantId"],
     eventType: row.event_type,
     payload: toJsonObject(row.payload, "payload"),
     metadata: toJsonObject(row.metadata ?? {}, "metadata"),
     occurredAt: toIsoUtcTimestamp(row.occurred_at),
     recordedAt: toIsoUtcTimestamp(row.recorded_at),
-    performedByUserId:
-      row.performed_by_user_id as StoredEvent["performedByUserId"],
-    forAccountId:
-      row.for_account_id as StoredEvent["forAccountId"],
-    traceId: row.trace_id
-      ? (row.trace_id as StoredEvent["traceId"])
-      : undefined,
-    spanId: row.span_id
-      ? (row.span_id as StoredEvent["spanId"])
-      : undefined,
-    parentSpanId: row.parent_span_id
-      ? (row.parent_span_id as StoredEvent["parentSpanId"])
-      : undefined,
-    traceState: row.trace_state
-      ? row.trace_state
-      : undefined,
+    performedByUserId: row.performed_by_user_id as StoredEvent["performedByUserId"],
+    forAccountId: row.for_account_id as StoredEvent["forAccountId"],
+    traceId: row.trace_id ? (row.trace_id as StoredEvent["traceId"]) : undefined,
+    spanId: row.span_id ? (row.span_id as StoredEvent["spanId"]) : undefined,
+    parentSpanId: row.parent_span_id ? (row.parent_span_id as StoredEvent["parentSpanId"]) : undefined,
+    traceState: row.trace_state ? row.trace_state : undefined,
   };
 }
 
-function coerceDbGlobalPosition(
-  value: string | number | bigint,
-  fieldName: string,
-): GlobalPosition {
+function coerceDbGlobalPosition(value: string | number | bigint, fieldName: string): GlobalPosition {
   if (typeof value === "string") {
     try {
       return parseGlobalPosition(value);
     } catch {
-      throw new Error(
-        `Expected "${fieldName}" to be a canonical unsigned base-10 string.`,
-      );
+      throw new Error(`Expected "${fieldName}" to be a canonical unsigned base-10 string.`);
     }
   }
 
@@ -536,9 +433,7 @@ function coerceDbGlobalPosition(
   }
 
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(
-      `Expected "${fieldName}" to be a non-negative safe integer when returned as a number.`,
-    );
+    throw new Error(`Expected "${fieldName}" to be a non-negative safe integer when returned as a number.`);
   }
 
   return globalPositionFromBigInt(BigInt(value));

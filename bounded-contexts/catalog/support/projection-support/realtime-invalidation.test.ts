@@ -43,9 +43,7 @@ describe("catalog admin realtime invalidation", () => {
     expect(sqlCalls[0]).toContain("UPDATE catalog_dimensions");
     expect(sqlCalls.some((sql) => sql.includes("INSERT INTO realtime_projection_outbox"))).toBe(true);
 
-    const outboxCall = query.mock.calls.find(([sql]) =>
-      sql.includes("INSERT INTO realtime_projection_outbox")
-    );
+    const outboxCall = query.mock.calls.find(([sql]) => sql.includes("INSERT INTO realtime_projection_outbox"));
     const values = outboxCall?.[1] as readonly unknown[];
     expect(values[1]).toBe("catalog-dimension-projection");
     expect(values[2]).toBe("dimensions:catalog.dimension-dim_1");

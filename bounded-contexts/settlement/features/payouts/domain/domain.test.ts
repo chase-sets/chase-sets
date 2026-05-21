@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decidePayout,
-  evolvePayout,
-  initialPayoutState,
-} from "./domain";
+import { decidePayout, evolvePayout, initialPayoutState } from "./domain";
 
 describe("settlement payout domain", () => {
   it("requests, sends, and completes a payout", () => {
@@ -74,10 +70,7 @@ describe("settlement payout domain", () => {
         failureReason: "Rejected",
         failedAt: "2026-04-02T01:00:00.000Z",
       },
-    ].reduce(
-      (state, command) => decidePayout(state, command).reduce(evolvePayout, state),
-      initialPayoutState,
-    );
+    ].reduce((state, command) => decidePayout(state, command).reduce(evolvePayout, state), initialPayoutState);
 
     expect(() =>
       decidePayout(failedState, {

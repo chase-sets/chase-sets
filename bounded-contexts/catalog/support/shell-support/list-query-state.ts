@@ -65,7 +65,9 @@ const EXTRA_FILTER_KEYS = [
 ] as const;
 
 type ExtraFilterKey = (typeof EXTRA_FILTER_KEYS)[number];
-type CatalogListQueryUpdate = Partial<Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "setId" | "typeKey" | "page" | ExtraFilterKey>>;
+type CatalogListQueryUpdate = Partial<
+  Pick<CatalogListQuery, "search" | "status" | "language" | "source" | "setId" | "typeKey" | "page" | ExtraFilterKey>
+>;
 
 export function readCatalogListQuery(request: Request): CatalogListQuery {
   const url = new URL(request.url);
@@ -232,10 +234,7 @@ export async function loadCatalogListRouteData<T>(
   return { data, query };
 }
 
-export function useCatalogListQueryControls(
-  query: CatalogListQuery,
-  debounceMs = CATALOG_LIST_SEARCH_DEBOUNCE_MS,
-) {
+export function useCatalogListQueryControls(query: CatalogListQuery, debounceMs = CATALOG_LIST_SEARCH_DEBOUNCE_MS) {
   const navigation = useNavigation();
   const [, setSearchParams] = useSearchParams();
   const [draftSearch, setDraftSearch] = useState(query.search);
@@ -262,10 +261,10 @@ export function useCatalogListQueryControls(
 
   const commit = useCallback(
     (update: CatalogListQueryUpdate, replace: boolean) => {
-      setSearchParams(
-        (current) => applyCatalogListQueryToSearchParams(current, update),
-        { preventScrollReset: true, replace },
-      );
+      setSearchParams((current) => applyCatalogListQueryToSearchParams(current, update), {
+        preventScrollReset: true,
+        replace,
+      });
     },
     [setSearchParams],
   );
@@ -349,8 +348,7 @@ export function useCatalogListQueryControls(
     setAttributeValue: (attributeValue: string) => commitWithCurrentSearch({ attributeValue }),
     setRelationshipType: (relationshipType: string) => commitWithCurrentSearch({ relationshipType }),
     setRelatedReferenceId: (relatedReferenceId: string) => commitWithCurrentSearch({ relatedReferenceId }),
-    setFilters: (filters: Omit<CatalogListQueryUpdate, "page">) =>
-      commitWithCurrentSearch(filters),
+    setFilters: (filters: Omit<CatalogListQueryUpdate, "page">) => commitWithCurrentSearch(filters),
     setPage: (page: number) => commitWithCurrentSearch({ page }),
   };
 }

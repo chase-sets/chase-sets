@@ -1,18 +1,12 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  createNoopTransactionalEmailOutbox,
-  type TransactionalEmailOutbox,
-} from "@chase-sets/communications-email";
+import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { stableWaitlistSignupId, type WaitlistSource } from "../domain/common";
 import {
   decideWaitlistSignup,
@@ -37,11 +31,7 @@ type WaitlistRuntimeDeps = Readonly<{
 }>;
 
 export type WaitlistServices = Readonly<{
-  commandHandler: CommandHandler<
-    WaitlistSignupCommand,
-    WaitlistSignupState,
-    WaitlistSignupEvent
-  >;
+  commandHandler: CommandHandler<WaitlistSignupCommand, WaitlistSignupState, WaitlistSignupEvent>;
   submitWaitlistSignup: (
     params: Readonly<{
       email: string;
@@ -52,16 +42,13 @@ export type WaitlistServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ signupId: string; version: number }>;
-  listWaitlistSignups: (
-    params: Parameters<typeof listWaitlistSignups>[1],
-  ) => ReturnType<typeof listWaitlistSignups>;
+  listWaitlistSignups: (params: Parameters<typeof listWaitlistSignups>[1]) => ReturnType<typeof listWaitlistSignups>;
   getWaitlistMetrics: () => ReturnType<typeof getWaitlistMetrics>;
   projectors: readonly Projector[];
 }>;
 
 export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServices {
-  const transactionalEmailOutbox =
-    deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,

@@ -33,16 +33,11 @@ function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
     ...row,
     line_type: row.line_type === "selected-offer" ? "selected-offer" : "product",
     fallback_mode: row.fallback_mode === "create-listing" ? "create-listing" : "none",
-    selected_options: Array.isArray(row.selected_options)
-      ? (row.selected_options as VersionSelectedOptionEntry[])
-      : [],
+    selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
   };
 }
 
-export async function listSellListLines(
-  db: PgQueryable,
-  sellerAccountId: string,
-): Promise<CheckoutSellListLineRow[]> {
+export async function listSellListLines(db: PgQueryable, sellerAccountId: string): Promise<CheckoutSellListLineRow[]> {
   const result = await db.query<SellListPageRow>(
     `SELECT
        seller_account_id,

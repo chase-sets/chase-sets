@@ -1,8 +1,5 @@
 import type { DomainEvent } from "@chase-sets/event-core/domain";
-import type {
-  CommandHandler,
-  CommandHandlerInput,
-} from "@chase-sets/event-core/command-handler";
+import type { CommandHandler, CommandHandlerInput } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { CatalogDomainError } from "./common";
@@ -11,12 +8,7 @@ export type BulkSelection<Query> =
   | Readonly<{ mode: "ids"; ids: readonly string[] }>
   | Readonly<{ mode: "filter"; query: Query }>;
 
-export type BulkLifecycleCandidateOutcome =
-  | "ready"
-  | "blocked"
-  | "succeeded"
-  | "skipped"
-  | "failed";
+export type BulkLifecycleCandidateOutcome = "ready" | "blocked" | "succeeded" | "skipped" | "failed";
 
 export type BulkLifecycleCandidate = Readonly<{
   id: string;
@@ -61,10 +53,7 @@ export type BulkLifecycleRow = Readonly<{
 }>;
 
 export type BulkLifecycleOperations<Query, Command, State, Event extends DomainEvent> = Readonly<{
-  preview: (
-    selection: BulkSelection<Query>,
-    action: string,
-  ) => Promise<BulkLifecyclePreview>;
+  preview: (selection: BulkSelection<Query>, action: string) => Promise<BulkLifecyclePreview>;
   execute: (
     selection: BulkSelection<Query>,
     action: string,
@@ -81,10 +70,7 @@ export function createBulkLifecycleOperations<Query, Command, State, Event exten
     projectors?: readonly Projector[];
   }>,
 ): BulkLifecycleOperations<Query, Command, State, Event> {
-  async function preview(
-    selection: BulkSelection<Query>,
-    action: string,
-  ): Promise<BulkLifecyclePreview> {
+  async function preview(selection: BulkSelection<Query>, action: string): Promise<BulkLifecyclePreview> {
     const definition = resolveAction(config.actions, action);
     const ids = normalizeBulkIds(await config.resolveIds(selection));
     const candidates = await classifyCandidates(config.loadRows, ids, definition);
@@ -169,9 +155,10 @@ export function normalizeBulkSelection<Query>(
 
   const selection = value as { mode?: unknown; ids?: unknown; query?: unknown };
   if (selection.mode === "filter") {
-    const query = selection.query && typeof selection.query === "object" && !Array.isArray(selection.query)
-      ? selection.query as Record<string, unknown>
-      : {};
+    const query =
+      selection.query && typeof selection.query === "object" && !Array.isArray(selection.query)
+        ? (selection.query as Record<string, unknown>)
+        : {};
 
     return { mode: "filter", query: normalizeQuery(query) };
   }
@@ -239,10 +226,7 @@ function normalizeBulkIds(ids: readonly string[]): string[] {
   return normalized;
 }
 
-function resolveAction<Command>(
-  actions: readonly BulkLifecycleActionDefinition<Command>[],
-  action: string,
-) {
+function resolveAction<Command>(actions: readonly BulkLifecycleActionDefinition<Command>[], action: string) {
   const definition = actions.find((candidate) => candidate.action === action);
 
   if (!definition) {

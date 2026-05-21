@@ -15,14 +15,10 @@ describe("order review opportunity callout", () => {
       />,
     );
 
-    expect(markup).toContain(
-      "This verified sale is ready for your buyer counterparty review.",
-    );
+    expect(markup).toContain("This verified sale is ready for your buyer counterparty review.");
     expect(markup).toContain("Leave account review");
     expect(markup).toContain("/account/sales/ord_1/review");
-    expect(markup).toContain(
-      "Reviews open only after delivery verifies both accounts in the transaction.",
-    );
+    expect(markup).toContain("Reviews open only after delivery verifies both accounts in the transaction.");
   });
 
   it("links to the active review when one already exists", () => {

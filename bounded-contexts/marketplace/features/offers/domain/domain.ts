@@ -1,12 +1,5 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import {
-  normalizeAddressSnapshot,
-  type AddressSnapshot,
-} from "@chase-sets/primitives/address-snapshot";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -34,19 +27,13 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
 function normalizeMoneyAmount(value: string): string {
   const normalized = value.trim();
   assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Offer price amount must be a valid decimal.");
-  assert(
-    Number.parseFloat(normalized) > 0,
-    "Offer price amount must be greater than zero.",
-  );
+  assert(Number.parseFloat(normalized) > 0, "Offer price amount must be greater than zero.");
   return normalized;
 }
 
 function normalizeNonNegativeMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
-  assert(
-    /^\d+(\.\d{1,2})?$/.test(normalized),
-    `${fieldName} must be a valid decimal.`,
-  );
+  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
   return normalized;
 }
 
@@ -56,32 +43,20 @@ function normalizePercentageBps(value: number, fieldName: string): number {
   return value;
 }
 
-function normalizeVersionSelection(
-  value: readonly { dimensionId: string; optionId: string }[],
-) {
+function normalizeVersionSelection(value: readonly { dimensionId: string; optionId: string }[]) {
   const normalized = value
     .map((selection) => ({
-      dimensionId: normalizeRequiredText(
-        selection.dimensionId,
-        "Offer selected options must include a dimension.",
-      ),
-      optionId: normalizeRequiredText(
-        selection.optionId,
-        "Offer selected options must include an option.",
-      ),
+      dimensionId: normalizeRequiredText(selection.dimensionId, "Offer selected options must include a dimension."),
+      optionId: normalizeRequiredText(selection.optionId, "Offer selected options must include an option."),
     }))
-    .sort((left, right) =>
-      left.dimensionId.localeCompare(right.dimensionId) ||
-      left.optionId.localeCompare(right.optionId),
+    .sort(
+      (left, right) => left.dimensionId.localeCompare(right.dimensionId) || left.optionId.localeCompare(right.optionId),
     );
 
   const seen = new Set<string>();
 
   for (const selection of normalized) {
-    assert(
-      !seen.has(selection.dimensionId),
-      "Offer selected options cannot include duplicate dimensions.",
-    );
+    assert(!seen.has(selection.dimensionId), "Offer selected options cannot include duplicate dimensions.");
     seen.add(selection.dimensionId);
   }
 
@@ -236,15 +211,9 @@ export const decideMarketplaceOffer: AggregateDecider<
           data: {
             offerId: command.offerId,
             buyerAccountId: command.buyerAccountId,
-            catalogItemId: normalizeRequiredText(
-              command.catalogItemId,
-              "Offer must reference a catalog item.",
-            ),
+            catalogItemId: normalizeRequiredText(command.catalogItemId, "Offer must reference a catalog item."),
             productId: command.productId,
-            itemTitle: normalizeRequiredText(
-              command.itemTitle,
-              "Offer must include an item title snapshot.",
-            ),
+            itemTitle: normalizeRequiredText(command.itemTitle, "Offer must include an item title snapshot."),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
             selectedOptions: normalizeVersionSelection(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
@@ -280,18 +249,12 @@ export const decideMarketplaceOffer: AggregateDecider<
             shippingDestinationSnapshot: state.shippingDestinationSnapshot!,
             priceAmount: state.priceAmount!,
             quantityRequested: state.quantityRequested,
-            acceptedAt: normalizeRequiredText(
-              command.acceptedAt,
-              "Offer acceptance must record a timestamp.",
-            ),
+            acceptedAt: normalizeRequiredText(command.acceptedAt, "Offer acceptance must record a timestamp."),
             marketplaceSalesFeeUnitAmount: normalizeNonNegativeMoneyAmount(
               command.marketplaceSalesFeeUnitAmount,
               "Marketplace sales fee unit amount",
             ),
-            sellerNetUnitAmount: normalizeNonNegativeMoneyAmount(
-              command.sellerNetUnitAmount,
-              "Seller net unit amount",
-            ),
+            sellerNetUnitAmount: normalizeNonNegativeMoneyAmount(command.sellerNetUnitAmount, "Seller net unit amount"),
             shippingAllowancePercentageBps: normalizePercentageBps(
               command.shippingAllowancePercentageBps ?? 500,
               "Shipping allowance percentage",
@@ -322,10 +285,10 @@ export const decideMarketplaceOffer: AggregateDecider<
   }
 };
 
-export const evolveMarketplaceOffer: AggregateEvolver<
-  MarketplaceOfferState,
-  MarketplaceOfferEvent
-> = (state, event) => {
+export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, MarketplaceOfferEvent> = (
+  state,
+  event,
+) => {
   if (event.type === "marketplace.offer.submitted") {
     return {
       offerId: event.data.offerId,

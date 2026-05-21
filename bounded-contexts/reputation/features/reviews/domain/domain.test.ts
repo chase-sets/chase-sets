@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideReview,
-  evolveReview,
-  initialReviewState,
-} from "./domain";
+import { decideReview, evolveReview, initialReviewState } from "./domain";
 
 describe("reputation review domain", () => {
   it("submits reviews in both transaction directions", async () => {
@@ -54,10 +50,7 @@ describe("reputation review domain", () => {
       feedback: "Fast shipping and careful packaging.",
       submittedAt: "2026-04-02T00:00:00.000Z",
     });
-    const submittedState = submittedEvents.reduce(
-      evolveReview,
-      initialReviewState,
-    );
+    const submittedState = submittedEvents.reduce(evolveReview, initialReviewState);
 
     const updatedEvents = await decideReview(submittedState, {
       type: "UpdateReview",
@@ -71,10 +64,7 @@ describe("reputation review domain", () => {
       type: "WithdrawReview",
       withdrawnAt: "2026-04-03T00:00:00.000Z",
     });
-    const withdrawnState = withdrawnEvents.reduce(
-      evolveReview,
-      updatedState,
-    );
+    const withdrawnState = withdrawnEvents.reduce(evolveReview, updatedState);
 
     expect(withdrawnState.status).toBe("withdrawn");
     expect(withdrawnState.rating).toBe(4);

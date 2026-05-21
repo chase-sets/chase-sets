@@ -143,49 +143,53 @@ describe("SearchPage", () => {
     renderSearchPage({
       data: {
         ...searchResponse,
-        items: [{
-          ...searchResult,
-          image_urls: ["https://assets.example/legacy-detail.webp"],
-          product_asset_sets: [{
-            kind: "product-image",
-            sourceHash: "source_hash",
-            source: {
-              role: "source",
-              width: 480,
-              height: 672,
-              density: null,
-              mediaType: "image/webp",
-              storageKey: "catalog/items/cat_test/product-image/source.webp",
-              publicUrl: "https://assets.example/source.webp",
-              byteSize: 100,
-              generatedAt: "2026-05-20T00:00:00.000Z",
-            },
-            variants: [
+        items: [
+          {
+            ...searchResult,
+            image_urls: ["https://assets.example/legacy-detail.webp"],
+            product_asset_sets: [
               {
-                role: "search-card",
-                width: 160,
-                height: 224,
-                density: 1,
-                mediaType: "image/webp",
-                storageKey: "catalog/items/cat_test/product-image/search-card-160w-1x.webp",
-                publicUrl: "https://assets.example/search-card-160w.webp",
-                byteSize: 80,
-                generatedAt: "2026-05-20T00:00:00.000Z",
-              },
-              {
-                role: "search-card",
-                width: 320,
-                height: 448,
-                density: 2,
-                mediaType: "image/webp",
-                storageKey: "catalog/items/cat_test/product-image/search-card-320w-2x.webp",
-                publicUrl: "https://assets.example/search-card-320w.webp",
-                byteSize: 120,
-                generatedAt: "2026-05-20T00:00:00.000Z",
+                kind: "product-image",
+                sourceHash: "source_hash",
+                source: {
+                  role: "source",
+                  width: 480,
+                  height: 672,
+                  density: null,
+                  mediaType: "image/webp",
+                  storageKey: "catalog/items/cat_test/product-image/source.webp",
+                  publicUrl: "https://assets.example/source.webp",
+                  byteSize: 100,
+                  generatedAt: "2026-05-20T00:00:00.000Z",
+                },
+                variants: [
+                  {
+                    role: "search-card",
+                    width: 160,
+                    height: 224,
+                    density: 1,
+                    mediaType: "image/webp",
+                    storageKey: "catalog/items/cat_test/product-image/search-card-160w-1x.webp",
+                    publicUrl: "https://assets.example/search-card-160w.webp",
+                    byteSize: 80,
+                    generatedAt: "2026-05-20T00:00:00.000Z",
+                  },
+                  {
+                    role: "search-card",
+                    width: 320,
+                    height: 448,
+                    density: 2,
+                    mediaType: "image/webp",
+                    storageKey: "catalog/items/cat_test/product-image/search-card-320w-2x.webp",
+                    publicUrl: "https://assets.example/search-card-320w.webp",
+                    byteSize: 120,
+                    generatedAt: "2026-05-20T00:00:00.000Z",
+                  },
+                ],
               },
             ],
-          }],
-        }],
+          },
+        ],
       },
     });
 
@@ -256,9 +260,7 @@ describe("SearchPage", () => {
     const mobileFilters = screen.getByLabelText("Search filters");
     const savedSearch = screen.getByText("Save this search");
 
-    expect(
-      mobileFilters.compareDocumentPosition(savedSearch) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(mobileFilters.compareDocumentPosition(savedSearch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
 
@@ -286,16 +288,18 @@ describe("SearchPage", () => {
       ],
       data: {
         items: [searchResult],
-        facets: [{
-          id: "dim_condition",
-          kind: "dimension",
-          label: "Condition",
-          values: [
-            { id: "opt_near_mint", label: "Near Mint", count: 3, selected: true },
-            { id: "opt_lightly_played", label: "Lightly Played", count: 2, selected: true },
-            { id: "opt_excellent", label: "Excellent", count: 1, selected: false },
-          ],
-        }],
+        facets: [
+          {
+            id: "dim_condition",
+            kind: "dimension",
+            label: "Condition",
+            values: [
+              { id: "opt_near_mint", label: "Near Mint", count: 3, selected: true },
+              { id: "opt_lightly_played", label: "Lightly Played", count: 2, selected: true },
+              { id: "opt_excellent", label: "Excellent", count: 1, selected: false },
+            ],
+          },
+        ],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -330,8 +334,12 @@ describe("SearchPage", () => {
     expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" })).toBeTruthy();
     expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" })).toBeTruthy();
     expect(within(filterSheet).getByRole("button", { name: "Any Condition" })).toBeTruthy();
-    expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(filterSheet).getByRole("button", { name: "Near Mint (3)" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(within(filterSheet).getByRole("button", { name: "Lightly Played (2)" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
     fireEvent.click(within(filterSheet).getByRole("button", { name: "Excellent (1)" }));
 
     expect(props.onDynamicFilterChange).toHaveBeenCalledWith({
@@ -343,20 +351,20 @@ describe("SearchPage", () => {
 
   it("renders reference facets with buyer-facing labels", () => {
     const props = renderSearchPage({
-      dynamicFilters: [
-        { kind: "reference", id: "series", value: "ref_mega_evolution" },
-      ],
+      dynamicFilters: [{ kind: "reference", id: "series", value: "ref_mega_evolution" }],
       data: {
         items: [searchResult],
-        facets: [{
-          id: "series",
-          kind: "reference",
-          label: "Series",
-          values: [
-            { id: "ref_mega_evolution", label: "Mega Evolution", count: 4, selected: true },
-            { id: "ref_scarlet_violet", label: "Scarlet & Violet", count: 3, selected: false },
-          ],
-        }],
+        facets: [
+          {
+            id: "series",
+            kind: "reference",
+            label: "Series",
+            values: [
+              { id: "ref_mega_evolution", label: "Mega Evolution", count: 4, selected: true },
+              { id: "ref_scarlet_violet", label: "Scarlet & Violet", count: 3, selected: false },
+            ],
+          },
+        ],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -381,17 +389,19 @@ describe("SearchPage", () => {
       category: "booster-packs",
       data: {
         items: [searchResult],
-        facets: [{
-          id: "dim_condition",
-          kind: "dimension",
-          label: "Condition",
-          values: Array.from({ length: 9 }, (_, index) => ({
-            id: `opt_${index + 1}`,
-            label: `Condition ${index + 1}`,
-            count: 10 - index,
-            selected: index === 0,
-          })),
-        }],
+        facets: [
+          {
+            id: "dim_condition",
+            kind: "dimension",
+            label: "Condition",
+            values: Array.from({ length: 9 }, (_, index) => ({
+              id: `opt_${index + 1}`,
+              label: `Condition ${index + 1}`,
+              count: 10 - index,
+              selected: index === 0,
+            })),
+          },
+        ],
         total: 1,
         count: 1,
         nextCursor: null,
@@ -441,12 +451,15 @@ describe("SearchPage", () => {
       },
     });
 
-    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href"))
-      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=buy");
-    expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href"))
-      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=sell");
-    expect(screen.getByRole("link", { name: "Watch product" }).getAttribute("href"))
-      .toBe("/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=watch");
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
+      "/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=buy",
+    );
+    expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href")).toBe(
+      "/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=sell",
+    );
+    expect(screen.getByRole("link", { name: "Watch product" }).getAttribute("href")).toBe(
+      "/items/bulbasaur-cat_bulbasaur?dimension.dim_condition=opt_near_mint&dimension.dim_finish=opt_holo&market=watch",
+    );
   });
 
   it("renders an accessible fallback action for cursor-loaded results", () => {
@@ -547,27 +560,31 @@ describe("SearchPage", () => {
             skippedCount: 1,
             overLimit: false,
             limit: 250,
-            lines: [{
-              catalog_item_id: "cat_bulbasaur",
-              slug: "bulbasaur-cat_bulbasaur",
-              title: "Bulbasaur",
-              subtitle: "Japanese Base Set",
-              image_url: null,
-              image_loading_url: null,
-              image_loading_alt: null,
-              image_loading_srcset: null,
-              product_id: "cat_bulbasaur::condition:raw",
-              selected_options: [{ dimensionId: "condition", optionId: "raw" }],
-              product_summary: "Condition: Raw",
-              quantity: 1,
-            }],
-            skippedItems: [{
-              catalog_item_id: "cat_charizard",
-              slug: "charizard-cat_charizard",
-              title: "Charizard",
-              reason: "product-options-required",
-              message: "Condition is required before this item can be added.",
-            }],
+            lines: [
+              {
+                catalog_item_id: "cat_bulbasaur",
+                slug: "bulbasaur-cat_bulbasaur",
+                title: "Bulbasaur",
+                subtitle: "Japanese Base Set",
+                image_url: null,
+                image_loading_url: null,
+                image_loading_alt: null,
+                image_loading_srcset: null,
+                product_id: "cat_bulbasaur::condition:raw",
+                selected_options: [{ dimensionId: "condition", optionId: "raw" }],
+                product_summary: "Condition: Raw",
+                quantity: 1,
+              },
+            ],
+            skippedItems: [
+              {
+                catalog_item_id: "cat_charizard",
+                slug: "charizard-cat_charizard",
+                title: "Charizard",
+                reason: "product-options-required",
+                message: "Condition is required before this item can be added.",
+              },
+            ],
           },
         },
       },

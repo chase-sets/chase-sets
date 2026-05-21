@@ -19,4 +19,3 @@ export default function UserDetailRoute() {
   const data = useLoaderData<typeof loader>();
   return <UserDetailPage data={data.data} />;
 }
-

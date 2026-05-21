@@ -30,10 +30,7 @@ describe("source observation read-model queries", () => {
   });
 
   it("lists eligible observed and changed IDs across the whole matching filter scope", async () => {
-    const db = queryable([
-      { observation_id: "obs_2" },
-      { observation_id: "obs_1" },
-    ]);
+    const db = queryable([{ observation_id: "obs_2" }, { observation_id: "obs_1" }]);
 
     const ids = await listSourceObservationIdsForPromotion(db, {
       search: "charizard",
@@ -42,10 +39,12 @@ describe("source observation read-model queries", () => {
     });
 
     expect(ids).toEqual(["obs_2", "obs_1"]);
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("ORDER BY observed_at DESC"),
-      ["en", "base1", ["observed", "changed"], "%charizard%"],
-    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), [
+      "en",
+      "base1",
+      ["observed", "changed"],
+      "%charizard%",
+    ]);
   });
 
   it("lists only changed IDs when the current status filter is changed", async () => {
@@ -57,18 +56,13 @@ describe("source observation read-model queries", () => {
     });
 
     expect(ids).toEqual(["obs_changed"]);
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("ORDER BY observed_at DESC"),
-      ["en", ["changed"]],
-    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), ["en", ["changed"]]);
   });
 
   it("does not query IDs when the current status filter is terminal", async () => {
     const db = queryable([]);
 
-    await expect(
-      listSourceObservationIdsForPromotion(db, { status: "rejected" }),
-    ).resolves.toEqual([]);
+    await expect(listSourceObservationIdsForPromotion(db, { status: "rejected" })).resolves.toEqual([]);
     expect(db.query).not.toHaveBeenCalled();
   });
 
@@ -107,10 +101,7 @@ describe("source observation read-model queries", () => {
       total_observations: 102,
       observed_observations: 100,
     });
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("GROUP BY"),
-      ["tcgdex", "en", "base1"],
-    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("GROUP BY"), ["tcgdex", "en", "base1"]);
   });
 });
 

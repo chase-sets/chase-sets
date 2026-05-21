@@ -1,16 +1,6 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createPaymentsApiClient,
-  PaymentsApiError,
-  paymentsApi,
-} from "../../client";
-export type {
-  PaymentsApiClientOptions,
-  PaymentsPaymentDetail,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createPaymentsApiClient, PaymentsApiError, paymentsApi } from "../../client";
+export type { PaymentsApiClientOptions, PaymentsPaymentDetail } from "../../client";
 export { normalizeRequestedBalanceCreditAmount } from "../../features/payments/api/balance-credit-request";
 import { createPaymentsApiClient } from "../../client";
 

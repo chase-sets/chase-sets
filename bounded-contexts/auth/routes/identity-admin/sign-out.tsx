@@ -5,4 +5,3 @@ export const action = identityAdminAuthHost.createSignOutAction();
 export default function IdentityAdminSignOutRoute() {
   return null;
 }
-

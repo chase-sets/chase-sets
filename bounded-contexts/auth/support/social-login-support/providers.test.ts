@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createFacebookSocialLoginProvider,
-  createGoogleSocialLoginProvider,
-} from "./providers";
+import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "./providers";
 
 describe("social login providers", () => {
   it("builds a Google authorization URL with state and callback", () => {
@@ -11,10 +8,12 @@ describe("social login providers", () => {
       clientSecret: "google-secret",
     });
 
-    const url = new URL(provider.createAuthorizationUrl({
-      state: "state-token",
-      redirectUri: "https://market.test/api/auth/social/google/callback",
-    }));
+    const url = new URL(
+      provider.createAuthorizationUrl({
+        state: "state-token",
+        redirectUri: "https://market.test/api/auth/social/google/callback",
+      }),
+    );
 
     expect(url.origin).toBe("https://accounts.google.com");
     expect(url.searchParams.get("client_id")).toBe("google-client");
@@ -42,10 +41,12 @@ describe("social login providers", () => {
       fetch: fetch as typeof globalThis.fetch,
     });
 
-    await expect(provider.exchangeCallback({
-      code: "code",
-      redirectUri: "https://market.test/api/auth/social/google/callback",
-    })).resolves.toMatchObject({
+    await expect(
+      provider.exchangeCallback({
+        code: "code",
+        redirectUri: "https://market.test/api/auth/social/google/callback",
+      }),
+    ).resolves.toMatchObject({
       providerName: "google",
       providerSubject: "google-subject",
       email: "buyer@example.com",
@@ -73,10 +74,12 @@ describe("social login providers", () => {
       fetch: fetch as typeof globalThis.fetch,
     });
 
-    await expect(provider.exchangeCallback({
-      code: "code",
-      redirectUri: "https://market.test/api/auth/social/facebook/callback",
-    })).resolves.toMatchObject({
+    await expect(
+      provider.exchangeCallback({
+        code: "code",
+        redirectUri: "https://market.test/api/auth/social/facebook/callback",
+      }),
+    ).resolves.toMatchObject({
       providerName: "facebook",
       providerSubject: "facebook-subject",
       email: "seller@example.com",

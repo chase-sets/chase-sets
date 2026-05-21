@@ -14,9 +14,7 @@ export type ReputationServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createReputationServices(
-  pool: PgTransactionalPool,
-): ReputationServices {
+export function createReputationServices(pool: PgTransactionalPool): ReputationServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;

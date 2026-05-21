@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideSession,
-  evolveSession,
-  initialSessionState,
-  type SessionEvent,
-  type SessionState,
-} from "./domain";
+import { decideSession, evolveSession, initialSessionState, type SessionEvent, type SessionState } from "./domain";
 import { AUTH_SESSION_TTL_MS, createExpiryTimestamp, toSessionStreamId } from "./auth-flow";
 
 function apply(events: readonly SessionEvent[]): SessionState {
@@ -45,9 +39,9 @@ describe("auth session domain", () => {
       }),
     );
 
-    expect(() =>
-      decideSession(state, { type: "SwitchSessionAccount", accountId: "acc_b" as never }),
-    ).toThrow("Session cannot switch to an unavailable account.");
+    expect(() => decideSession(state, { type: "SwitchSessionAccount", accountId: "acc_b" as never })).toThrow(
+      "Session cannot switch to an unavailable account.",
+    );
     expect(() =>
       decideSession(evolveSession(state, { type: "auth.session.revoked", data: {} }), {
         type: "ExpireSession",
@@ -56,9 +50,7 @@ describe("auth session domain", () => {
   });
 
   it("builds stable expiry timestamps and stream ids", () => {
-    expect(createExpiryTimestamp(AUTH_SESSION_TTL_MS, Date.UTC(2026, 3, 30))).toBe(
-      "2026-05-14T00:00:00.000Z",
-    );
+    expect(createExpiryTimestamp(AUTH_SESSION_TTL_MS, Date.UTC(2026, 3, 30))).toBe("2026-05-14T00:00:00.000Z");
     expect(toSessionStreamId("ses_1")).toBe("auth.session-ses_1");
   });
 });

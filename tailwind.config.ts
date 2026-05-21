@@ -38,25 +38,25 @@ const config: Config = {
         info: "var(--color-info)",
         focus: "var(--color-focus-ring)",
         "accent-hover": "var(--color-accent-hover)",
-        "danger-hover": "var(--color-danger-hover)"
+        "danger-hover": "var(--color-danger-hover)",
       },
       fontFamily: {
         display: ["var(--font-display)", "ui-sans-serif", "system-ui"],
         heading: ["var(--font-heading)", "ui-sans-serif", "system-ui"],
         body: ["var(--font-body)", "ui-sans-serif", "system-ui"],
-        mono: ["var(--font-mono)", "ui-monospace", "monospace"]
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       boxShadow: {
         tokenSm: "var(--shadow-sm)",
         tokenMd: "var(--shadow-md)",
         tokenLg: "var(--shadow-lg)",
-        overlay: "var(--shadow-overlay)"
+        overlay: "var(--shadow-overlay)",
       },
       borderRadius: {
         tokenSm: "var(--radius-sm)",
         tokenMd: "var(--radius-md)",
         tokenLg: "var(--radius-lg)",
-        tokenXl: "var(--radius-xl)"
+        tokenXl: "var(--radius-xl)",
       },
       zIndex: {
         sticky: "var(--z-sticky)",
@@ -64,10 +64,10 @@ const config: Config = {
         popover: "var(--z-popover)",
         drawer: "var(--z-drawer)",
         modal: "var(--z-modal)",
-        toast: "var(--z-toast)"
-      }
-    }
-  }
+        toast: "var(--z-toast)",
+      },
+    },
+  },
 };
 
 export default config;

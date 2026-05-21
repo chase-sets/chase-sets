@@ -20,9 +20,7 @@ export function OrderReviewOpportunityCallout({
   transactionLabel: "purchase" | "sale";
 }) {
   const counterpartyRole = getCounterpartyRole(opportunity.author_role);
-  const href = opportunity.active_review_id
-    ? `/account/reviews/${opportunity.active_review_id}`
-    : reviewHref;
+  const href = opportunity.active_review_id ? `/account/reviews/${opportunity.active_review_id}` : reviewHref;
 
   return (
     <Card>
@@ -36,9 +34,12 @@ export function OrderReviewOpportunityCallout({
               })}
         </Text>
         <Text size="sm" tone="secondary">
-          {t("ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies")}</Text>
+          {t("ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies")}
+        </Text>
         <LinkButton href={href}>
-          {opportunity.active_review_id ? t("ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review") : t("ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review")}
+          {opportunity.active_review_id
+            ? t("ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review")
+            : t("ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review")}
         </LinkButton>
       </Stack>
     </Card>

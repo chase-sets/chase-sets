@@ -11,20 +11,36 @@ function requireAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("commercialTerms.features.resolutions.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("commercialTerms.features.resolutions.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("commercialTerms.features.resolutions.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authorization_forbidden",
+            message: t("commercialTerms.features.resolutions.api.route.forbidden"),
+          },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -53,14 +69,12 @@ export function createResolutionRoutes(services: ResolutionServices) {
           ? await services.previewOrderTerms({
               accountId: String(body.accountId ?? access.actor.accountId),
               amount: String(body.amount ?? ""),
-              effectiveAt:
-                typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,
+              effectiveAt: typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,
             })
           : await services.previewListingTerms({
               accountId: String(body.accountId ?? access.actor.accountId),
               amount: String(body.amount ?? ""),
-              effectiveAt:
-                typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,
+              effectiveAt: typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,
             });
 
       return c.json(result);

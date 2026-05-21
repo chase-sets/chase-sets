@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  envReport,
-  runEdgeCheck,
-  runSellerFlow,
-} from "./stripe-money-smoke-test.mjs";
+import { envReport, runEdgeCheck, runSellerFlow } from "./stripe-money-smoke-test.mjs";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -28,11 +24,14 @@ function createSmokeFetch(calls) {
       return jsonResponse({ type: "session-started", sessionToken: "session_admin" });
     }
     if (path === "/api/auth/register") {
-      return jsonResponse({
-        type: "session-started",
-        sessionToken: "session_seller",
-        accountId: "acc_smoke_seller",
-      }, 201);
+      return jsonResponse(
+        {
+          type: "session-started",
+          sessionToken: "session_seller",
+          accountId: "acc_smoke_seller",
+        },
+        201,
+      );
     }
     if (path === "/api/payments/provider/webhooks") {
       return jsonResponse({ error: { code: "validation_failed" } }, 400);
@@ -82,10 +81,13 @@ function createSmokeFetch(calls) {
       });
     }
     if (path === "/api/marketplace/account/payments") {
-      return jsonResponse({
-        payment_id: "pay_smoke",
-        processor_payment_kind: "balance-credit",
-      }, 201);
+      return jsonResponse(
+        {
+          payment_id: "pay_smoke",
+          processor_payment_kind: "balance-credit",
+        },
+        201,
+      );
     }
     if (path === "/api/settlement/payout-setup/onboarding-session") {
       return jsonResponse({ url: "https://connect.stripe.test/setup" }, 201);
@@ -118,14 +120,16 @@ describe("stripe money smoke test", () => {
       testModeKeysLikely: false,
     });
 
-    expect(envReport({
-      PLATFORM_API_BASE_URL: "https://api.preview.test",
-      STRIPE_SECRET_KEY: "sk_test_123",
-      STRIPE_PUBLISHABLE_KEY: "pk_test_123",
-      STRIPE_WEBHOOK_SECRET: "whsec_test",
-      STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
-      STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
-    })).toMatchObject({
+    expect(
+      envReport({
+        PLATFORM_API_BASE_URL: "https://api.preview.test",
+        STRIPE_SECRET_KEY: "sk_test_123",
+        STRIPE_PUBLISHABLE_KEY: "pk_test_123",
+        STRIPE_WEBHOOK_SECRET: "whsec_test",
+        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
+        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
+      }),
+    ).toMatchObject({
       missing: [],
       testModeKeysLikely: true,
     });
@@ -133,17 +137,17 @@ describe("stripe money smoke test", () => {
 
   it("rejects unsigned payment and money movement webhooks in edge checks", async () => {
     const calls = [];
-    await expect(runEdgeCheck("https://api.preview.test", {
-      fetchImpl: createSmokeFetch(calls),
-    })).resolves.toEqual({
+    await expect(
+      runEdgeCheck("https://api.preview.test", {
+        fetchImpl: createSmokeFetch(calls),
+      }),
+    ).resolves.toEqual({
       health: "ok",
       unsignedPaymentWebhookRejected: true,
       unsignedMoneyMovementWebhookRejected: true,
     });
 
-    expect(calls.map((call) => new URL(call.url).pathname)).toContain(
-      "/api/payments/provider/webhooks",
-    );
+    expect(calls.map((call) => new URL(call.url).pathname)).toContain("/api/payments/provider/webhooks");
     expect(calls.map((call) => new URL(call.url).pathname)).toContain(
       "/api/settlement/provider/money-movement/webhooks",
     );
@@ -206,12 +210,10 @@ describe("stripe money smoke test", () => {
     expect(calls[0]).toMatchObject({
       url: "https://admin.preview.test/api/auth/password-sign-in",
     });
-    const accountStatusCall = calls.find((call) =>
-      call.url === "https://marketplace.preview.test/api/settlement/account-status"
+    const accountStatusCall = calls.find(
+      (call) => call.url === "https://marketplace.preview.test/api/settlement/account-status",
     );
-    expect(accountStatusCall.init.headers.get("Authorization")).toBe(
-      "Bearer session_admin",
-    );
+    expect(accountStatusCall.init.headers.get("Authorization")).toBe("Bearer session_admin");
   });
 
   it("can register a throwaway preview seller before running the seller flow", async () => {
@@ -243,18 +245,14 @@ describe("stripe money smoke test", () => {
         },
       ],
     });
-    const signInCall = calls.find((call) =>
-      call.url === "https://marketplace.preview.test/api/auth/password-sign-in"
-    );
+    const signInCall = calls.find((call) => call.url === "https://marketplace.preview.test/api/auth/password-sign-in");
     expect(JSON.parse(signInCall.init.body)).toMatchObject({
       email: "stripe-smoke@example.test",
       accountId: "acc_smoke_seller",
     });
-    const accountStatusCall = calls.find((call) =>
-      call.url === "https://marketplace.preview.test/api/settlement/account-status"
+    const accountStatusCall = calls.find(
+      (call) => call.url === "https://marketplace.preview.test/api/settlement/account-status",
     );
-    expect(accountStatusCall.init.headers.get("Authorization")).toBe(
-      "Bearer session_seller_login",
-    );
+    expect(accountStatusCall.init.headers.get("Authorization")).toBe("Bearer session_seller_login");
   });
 });

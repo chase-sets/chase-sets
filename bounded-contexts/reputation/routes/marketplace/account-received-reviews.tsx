@@ -5,9 +5,7 @@ import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  type ReviewListItem,
-} from "../../support/request-support/api-client";
+import { type ReviewListItem } from "../../support/request-support/api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/api-client";
 import { ReviewListPage } from "../../features/reviews/ui/review-list-page";
 
@@ -36,15 +34,19 @@ export default function MarketplaceAccountReceivedReviewsRoute() {
       title={t("reputation.routes.marketplace.accountReceivedReviews.received.reviews")}
       eyebrow={t("reputation.routes.marketplace.accountReceivedReviews.reviews")}
       emptyTitle={t("reputation.routes.marketplace.accountReceivedReviews.no.received.reviews.yet")}
-      emptyDescription={t("reputation.routes.marketplace.accountReceivedReviews.counterparty.feedback.about.your.completed.transactions")}
+      emptyDescription={t(
+        "reputation.routes.marketplace.accountReceivedReviews.counterparty.feedback.about.your.completed.transactions",
+      )}
       reviewDetailBasePath="/account/reviews"
       reviews={(data.reviews as ListResponse<ReviewListItem>).items}
       actions={
         <Stack direction="row" gap={2}>
           <LinkButton href="/account/reviews" tone="secondary">
-            {t("reputation.routes.marketplace.accountReceivedReviews.summary")}</LinkButton>
+            {t("reputation.routes.marketplace.accountReceivedReviews.summary")}
+          </LinkButton>
           <LinkButton href="/account/reviews/written" tone="secondary">
-            {t("reputation.routes.marketplace.accountReceivedReviews.written.reviews")}</LinkButton>
+            {t("reputation.routes.marketplace.accountReceivedReviews.written.reviews")}
+          </LinkButton>
         </Stack>
       }
     />

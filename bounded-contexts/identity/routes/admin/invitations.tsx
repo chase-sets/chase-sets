@@ -17,4 +17,3 @@ export default function InvitationsRoute() {
   const data = useLoaderData<typeof loader>();
   return <InvitationListPage initialData={data} />;
 }
-

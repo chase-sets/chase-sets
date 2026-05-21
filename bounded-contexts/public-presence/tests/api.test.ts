@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import {
-  createAdminWaitlistRoutes,
-  createPublicWaitlistRoutes,
-  type PublicPresenceApiEnv,
-} from "../api";
+import { createAdminWaitlistRoutes, createPublicWaitlistRoutes, type PublicPresenceApiEnv } from "../api";
 import type { WaitlistServices } from "../features/waitlist/api/runtime";
 
 function createServices(overrides: Partial<WaitlistServices> = {}) {
@@ -75,17 +71,14 @@ const validSignup = {
 describe("public presence API", () => {
   it("allows unauthenticated waitlist signup", async () => {
     const submitWaitlistSignup = vi.fn(async () => ({ signupId: "wls_test", version: 1 }));
-    const response = await publicAppFor(createServices({ submitWaitlistSignup })).request(
-      "/waitlist",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-forwarded-for": "203.0.113.10",
-        },
-        body: JSON.stringify(validSignup),
+    const response = await publicAppFor(createServices({ submitWaitlistSignup })).request("/waitlist", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.10",
       },
-    );
+      body: JSON.stringify(validSignup),
+    });
 
     expect(response.status).toBe(201);
     expect(submitWaitlistSignup).toHaveBeenCalledWith(
@@ -102,14 +95,16 @@ describe("public presence API", () => {
   });
 
   it("rejects honeypot submissions and missing consent", async () => {
-    const app = publicAppFor(createServices({
-      submitWaitlistSignup: vi.fn(async (params) => {
-        if (!params.emailConsent) {
-          throw new Error("Email consent is required.");
-        }
-        return { signupId: "wls_test", version: 1 };
+    const app = publicAppFor(
+      createServices({
+        submitWaitlistSignup: vi.fn(async (params) => {
+          if (!params.emailConsent) {
+            throw new Error("Email consent is required.");
+          }
+          return { signupId: "wls_test", version: 1 };
+        }),
       }),
-    }));
+    );
     const honeypot = await app.request("/waitlist", {
       method: "POST",
       headers: {

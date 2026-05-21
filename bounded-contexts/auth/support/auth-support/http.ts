@@ -1,11 +1,5 @@
-import {
-  AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
-  AUTH_SESSION_COOKIE_NAME,
-} from "../request-support/cookies";
-import {
-  AUTH_ACCOUNT_SELECTION_TTL_MS,
-  AUTH_SESSION_TTL_MS,
-} from "../../features/sessions/domain/auth-flow";
+import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
+import { AUTH_ACCOUNT_SELECTION_TTL_MS, AUTH_SESSION_TTL_MS } from "../../features/sessions/domain/auth-flow";
 
 export function parseCookieHeader(cookieHeader: string | null) {
   if (!cookieHeader) {
@@ -23,10 +17,7 @@ export function parseCookieHeader(cookieHeader: string | null) {
           return [part, ""];
         }
 
-        return [
-          part.slice(0, separatorIndex),
-          decodeURIComponent(part.slice(separatorIndex + 1)),
-        ];
+        return [part.slice(0, separatorIndex), decodeURIComponent(part.slice(separatorIndex + 1))];
       }),
   );
 }
@@ -43,20 +34,13 @@ export function serializeCookie(
     maxAgeSeconds?: number;
   }> = {},
 ) {
-  const parts = [
-    `${name}=${encodeURIComponent(value)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-  ];
+  const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax"];
 
   if (typeof options.maxAgeSeconds === "number") {
     parts.push(`Max-Age=${options.maxAgeSeconds}`);
   }
 
-  const protocol = options.request
-    ? new URL(options.request.url).protocol
-    : "http:";
+  const protocol = options.request ? new URL(options.request.url).protocol : "http:";
 
   if (protocol === "https:") {
     parts.push("Secure");
@@ -83,42 +67,28 @@ function appendCookie(
   headers.append("Set-Cookie", serializeCookie(name, value, options));
 }
 
-export function appendSessionCookie(
-  headers: Headers,
-  sessionToken: string,
-  request?: Request,
-) {
+export function appendSessionCookie(headers: Headers, sessionToken: string, request?: Request) {
   appendCookie(headers, AUTH_SESSION_COOKIE_NAME, sessionToken, {
     request,
     maxAgeSeconds: AUTH_SESSION_TTL_MS / 1000,
   });
 }
 
-export function clearSessionCookie(
-  headers: Headers,
-  request?: Request,
-) {
+export function clearSessionCookie(headers: Headers, request?: Request) {
   appendCookie(headers, AUTH_SESSION_COOKIE_NAME, "", {
     request,
     maxAgeSeconds: 0,
   });
 }
 
-export function appendAccountSelectionCookie(
-  headers: Headers,
-  selectionToken: string,
-  request?: Request,
-) {
+export function appendAccountSelectionCookie(headers: Headers, selectionToken: string, request?: Request) {
   appendCookie(headers, AUTH_ACCOUNT_SELECTION_COOKIE_NAME, selectionToken, {
     request,
     maxAgeSeconds: AUTH_ACCOUNT_SELECTION_TTL_MS / 1000,
   });
 }
 
-export function clearAccountSelectionCookie(
-  headers: Headers,
-  request?: Request,
-) {
+export function clearAccountSelectionCookie(headers: Headers, request?: Request) {
   appendCookie(headers, AUTH_ACCOUNT_SELECTION_COOKIE_NAME, "", {
     request,
     maxAgeSeconds: 0,

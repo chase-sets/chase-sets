@@ -14,12 +14,7 @@ export type {
   SaleListItem,
 } from "./features/orders/api/contracts";
 
-import type {
-  PurchaseDetail,
-  PurchaseListItem,
-  SaleDetail,
-  SaleListItem,
-} from "./features/orders/api/contracts";
+import type { PurchaseDetail, PurchaseListItem, SaleDetail, SaleListItem } from "./features/orders/api/contracts";
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -64,10 +59,7 @@ export type CreateCheckoutOrdersRequest = Readonly<{
   acknowledgedMaterialChanges?: boolean;
 }>;
 
-export type PreviewCheckoutFulfillmentRequest = Omit<
-  CreateCheckoutOrdersRequest,
-  "shippingAddress"
-> &
+export type PreviewCheckoutFulfillmentRequest = Omit<CreateCheckoutOrdersRequest, "shippingAddress"> &
   Readonly<{
     shippingAddress?: CreateCheckoutOrdersRequest["shippingAddress"] | null;
   }>;
@@ -128,7 +120,7 @@ export class OrderingApiError extends Error {
         "error" in body &&
         typeof (body as { error?: unknown }).error === "object" &&
         (body as { error?: unknown }).error !== null &&
-        "message" in ((body as { error: Record<string, unknown> }).error)
+        "message" in (body as { error: Record<string, unknown> }).error
         ? String((body as { error: { message?: unknown } }).error.message)
         : `API error ${status}`,
     );
@@ -172,9 +164,7 @@ export function createOrderingApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async createCheckoutOrders(
-      body: CreateCheckoutOrdersRequest,
-    ): Promise<{ orderIds: string[] }> {
+    async createCheckoutOrders(body: CreateCheckoutOrdersRequest): Promise<{ orderIds: string[] }> {
       return parseJsonResponse(
         await client.account.purchases.checkout.$post({
           json: body,
@@ -182,9 +172,7 @@ export function createOrderingApiClient({
         }),
       );
     },
-    async previewCheckoutFulfillment(
-      body: PreviewCheckoutFulfillmentRequest,
-    ): Promise<CheckoutFulfillmentPreview> {
+    async previewCheckoutFulfillment(body: PreviewCheckoutFulfillmentRequest): Promise<CheckoutFulfillmentPreview> {
       return parseJsonResponse(
         await client.account.purchases.checkout.preview.$post({
           json: body,
@@ -192,9 +180,7 @@ export function createOrderingApiClient({
         }),
       );
     },
-    async listPurchases(
-      query = "",
-    ): Promise<ListResponse<PurchaseListItem>> {
+    async listPurchases(query = ""): Promise<ListResponse<PurchaseListItem>> {
       return parseJsonResponse(
         await client.account.purchases.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -219,9 +205,7 @@ export function createOrderingApiClient({
         }),
       );
     },
-    async listSales(
-      query = "",
-    ): Promise<ListResponse<SaleListItem>> {
+    async listSales(query = ""): Promise<ListResponse<SaleListItem>> {
       return parseJsonResponse(
         await client.account.sales.$get({
           query: Object.fromEntries(new URLSearchParams(query)),

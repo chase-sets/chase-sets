@@ -29,13 +29,7 @@ function displayActorUserName(display: CurrentActorDisplay) {
   return display.user.display_name ?? display.user.primary_email ?? display.user.user_id;
 }
 
-function AccountNameWithBadges({
-  badges,
-  name,
-}: {
-  badges: readonly string[];
-  name: string;
-}) {
+function AccountNameWithBadges({ badges, name }: { badges: readonly string[]; name: string }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <span>{name}</span>
@@ -73,16 +67,15 @@ export function AccountProfilePage({
           title={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.identity")}
           description={t("identity.features.accounts.ui.currentActorDisplayCue.signed.in.identity.description")}
           accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account")}
-          accountName={(
-            <AccountNameWithBadges
-              name={displayActorAccountName(actorDisplay)}
-              badges={actorDisplay.account.badges}
-            />
-          )}
+          accountName={
+            <AccountNameWithBadges name={displayActorAccountName(actorDisplay)} badges={actorDisplay.account.badges} />
+          }
           accountDetail={t("identity.features.accounts.ui.currentActorDisplayCue.selected.account")}
           userLabel={t("identity.features.accounts.ui.currentActorDisplayCue.user")}
           userName={displayActorUserName(actorDisplay)}
-          userDetail={actorDisplay.user.primary_email ?? t("identity.features.accounts.ui.currentActorDisplayCue.current.user")}
+          userDetail={
+            actorDisplay.user.primary_email ?? t("identity.features.accounts.ui.currentActorDisplayCue.current.user")
+          }
           membershipLabel={t("identity.features.accounts.ui.currentActorDisplayCue.membership")}
           membershipName={formatAccountValue(actorDisplay.membership.role_key)}
           membershipDetail={t("identity.features.accounts.ui.currentActorDisplayCue.active.membership")}

@@ -145,10 +145,7 @@ describe("magic link auth routes", () => {
       type: "session-started",
       sessionToken: "session_token",
     });
-    expect(mockConsumeMagicLinkToken).toHaveBeenCalledWith(
-      services.db,
-      "hashed:magic_token",
-    );
+    expect(mockConsumeMagicLinkToken).toHaveBeenCalledWith(services.db, "hashed:magic_token");
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
       services,
       expect.objectContaining({

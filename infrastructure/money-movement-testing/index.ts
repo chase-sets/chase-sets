@@ -18,8 +18,7 @@ export type FakeMoneyMovementGatewayOptions = Readonly<{
   initialReadinessStatus?: "pending" | "ready";
 }>;
 
-export type FakeMoneyMovementGateway = MoneyMovementGateway &
-  Readonly<{ usedIdempotencyKeys: readonly string[] }>;
+export type FakeMoneyMovementGateway = MoneyMovementGateway & Readonly<{ usedIdempotencyKeys: readonly string[] }>;
 
 function normalizeMoneyAmount(value: string, fieldName: string) {
   const parsed = Number.parseFloat(value);
@@ -73,10 +72,7 @@ export function createFakeMoneyMovementGateway(
   const accounts = new Map<AccountId, ProviderPayoutReadiness>();
   const payouts = new Map<string, RetrievedProviderPayout>();
   const usedIdempotencyKeys: string[] = [];
-  let availableAmount = normalizeMoneyAmount(
-    options.availableAmount ?? "999999.00",
-    "Platform balance",
-  );
+  let availableAmount = normalizeMoneyAmount(options.availableAmount ?? "999999.00", "Platform balance");
 
   function readinessFor(accountId: AccountId) {
     const existing = accounts.get(accountId);
@@ -85,9 +81,10 @@ export function createFakeMoneyMovementGateway(
     }
 
     const providerReference = `acct_fake_${accountId}`;
-    const readiness = options.initialReadinessStatus === "pending"
-      ? pendingReadiness(providerReference)
-      : readyReadiness(providerReference);
+    const readiness =
+      options.initialReadinessStatus === "pending"
+        ? pendingReadiness(providerReference)
+        : readyReadiness(providerReference);
     accounts.set(accountId, readiness);
     return readiness;
   }
@@ -109,9 +106,7 @@ export function createFakeMoneyMovementGateway(
         readiness,
       };
     },
-    async createAccountManagementSession(
-      input,
-    ): Promise<CreatedAccountManagementSession> {
+    async createAccountManagementSession(input): Promise<CreatedAccountManagementSession> {
       usedIdempotencyKeys.push(input.idempotencyKey);
       return {
         providerReference: input.providerReference,
@@ -128,9 +123,7 @@ export function createFakeMoneyMovementGateway(
         availableAmount,
       };
     },
-    async transferPlatformBalanceToConnectedAccount(
-      input,
-    ): Promise<CreatedProviderTransfer> {
+    async transferPlatformBalanceToConnectedAccount(input): Promise<CreatedProviderTransfer> {
       usedIdempotencyKeys.push(input.idempotencyKey);
       if (options.failTransfer) {
         throw new Error("Provider transfer failed.");
@@ -163,12 +156,14 @@ export function createFakeMoneyMovementGateway(
       };
     },
     async retrieveConnectedAccountPayout(input): Promise<RetrievedProviderPayout> {
-      return payouts.get(input.providerPayoutReference) ?? {
-        providerPayoutReference: input.providerPayoutReference,
-        providerStatus: "pending",
-        failureCode: null,
-        failureMessage: null,
-      };
+      return (
+        payouts.get(input.providerPayoutReference) ?? {
+          providerPayoutReference: input.providerPayoutReference,
+          providerStatus: "pending",
+          failureCode: null,
+          failureMessage: null,
+        }
+      );
     },
     async parseMoneyMovementWebhook(input) {
       const event = JSON.parse(input.rawBody) as {

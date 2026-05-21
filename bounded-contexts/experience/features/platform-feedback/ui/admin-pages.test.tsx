@@ -1,14 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import type {
-  PlatformFeedbackListItem,
-  PlatformFeedbackMetrics,
-} from "../api/contracts";
-import {
-  PlatformFeedbackAdminDetailPage,
-  PlatformFeedbackAdminListPage,
-} from "./admin-pages";
+import type { PlatformFeedbackListItem, PlatformFeedbackMetrics } from "../api/contracts";
+import { PlatformFeedbackAdminDetailPage, PlatformFeedbackAdminListPage } from "./admin-pages";
 
 const feedbackItem = {
   feedback_id: "pfb_test",
@@ -66,9 +60,7 @@ describe("platform feedback admin UI", () => {
   });
 
   it("renders detail attribution, related links, and status actions", () => {
-    render(
-      <PlatformFeedbackAdminDetailPage feedback={feedbackItem} />,
-    );
+    render(<PlatformFeedbackAdminDetailPage feedback={feedbackItem} />);
 
     expect(screen.getByRole("heading", { name: "Feedback pfb_test" })).toBeTruthy();
     expect(screen.getByText("Checkout was clear.")).toBeTruthy();

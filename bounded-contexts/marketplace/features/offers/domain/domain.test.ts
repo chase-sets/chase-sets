@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideMarketplaceOffer,
-  evolveMarketplaceOffer,
-  initialMarketplaceOfferState,
-} from "./domain";
+import { decideMarketplaceOffer, evolveMarketplaceOffer, initialMarketplaceOfferState } from "./domain";
 
 const shippingDestinationSnapshot = {
   name: "Jane Smith",
@@ -40,9 +36,7 @@ describe("marketplace offer domain", () => {
     expect(state.status).toBe("submitted");
     expect(state.priceAmount).toBe("350.00");
     expect(state.quantityRequested).toBe(1);
-    expect(state.selectedOptions).toEqual([
-      { dimensionId: "form", optionId: "raw" },
-    ]);
+    expect(state.selectedOptions).toEqual([{ dimensionId: "form", optionId: "raw" }]);
   });
 
   it("rejects invalid monetary and quantity inputs", () => {
@@ -117,13 +111,13 @@ describe("marketplace offer domain", () => {
   it("accepts a submitted offer once and records the seller", () => {
     const submittedState = decideMarketplaceOffer(initialMarketplaceOfferState, {
       type: "SubmitOffer",
-        offerId: "off_test" as never,
-        buyerAccountId: "acc_buyer" as never,
-        catalogItemId: "cat_charizard",
-        productId: "cat_charizard::" as never,
-        itemTitle: "Charizard",
-        itemSubtitle: null,
-        selectedOptions: [],
+      offerId: "off_test" as never,
+      buyerAccountId: "acc_buyer" as never,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
       productSummary: null,
       priceAmount: "10.00",
       quantityRequested: 1,

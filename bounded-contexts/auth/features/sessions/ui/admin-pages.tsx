@@ -1,13 +1,5 @@
 import { t } from "@chase-sets/localization";
-import {
-  Card,
-  DataTable,
-  LinkButton,
-  Stack,
-  StatusPill,
-  Text,
-  type DataColumn,
-} from "@chase-sets/design-system";
+import { Card, DataTable, LinkButton, Stack, StatusPill, Text, type DataColumn } from "@chase-sets/design-system";
 
 export function AdminListPage<T>({
   title,
@@ -30,7 +22,8 @@ export function AdminListPage<T>({
           header: "",
           cell: (row) => (
             <LinkButton href={getHref(row)} size="sm" tone="secondary">
-              {t("auth.features.sessions.ui.adminPages.view")}</LinkButton>
+              {t("auth.features.sessions.ui.adminPages.view")}
+            </LinkButton>
           ),
         },
       ]
@@ -41,9 +34,11 @@ export function AdminListPage<T>({
       <Text size="lg" weight="semibold">
         {title}
       </Text>
-      <Card title={t("auth.features.sessions.ui.adminPages.item.count", {
-        count: items.length,
-      })}>
+      <Card
+        title={t("auth.features.sessions.ui.adminPages.item.count", {
+          count: items.length,
+        })}
+      >
         {items.length === 0 ? (
           <Text tone="secondary">{emptyMessage}</Text>
         ) : (

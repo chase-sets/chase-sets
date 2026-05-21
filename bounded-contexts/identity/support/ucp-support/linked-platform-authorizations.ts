@@ -59,44 +59,46 @@ export type LinkedPlatformAuthorizationRow = Readonly<{
 }>;
 
 export type LinkedPlatformAuthorizationStore = Readonly<{
-  grant: (params: Readonly<{
-    authorizationId: string;
-    platformProfileUrl: string;
-    clientId: string;
-    userId: string;
-    accountId: string;
-    scopes: readonly string[];
-    accessTokenHash: string;
-    refreshTokenHash?: string | null;
-    accessTokenExpiresAt: string;
-    refreshTokenExpiresAt?: string | null;
-    grantedAt: string;
-  }>) => Promise<LinkedPlatformAuthorizationRow>;
-  resolveAccessToken: (
-    accessTokenHash: string,
-  ) => Promise<LinkedPlatformAuthorizationRow | null>;
+  grant: (
+    params: Readonly<{
+      authorizationId: string;
+      platformProfileUrl: string;
+      clientId: string;
+      userId: string;
+      accountId: string;
+      scopes: readonly string[];
+      accessTokenHash: string;
+      refreshTokenHash?: string | null;
+      accessTokenExpiresAt: string;
+      refreshTokenExpiresAt?: string | null;
+      grantedAt: string;
+    }>,
+  ) => Promise<LinkedPlatformAuthorizationRow>;
+  resolveAccessToken: (accessTokenHash: string) => Promise<LinkedPlatformAuthorizationRow | null>;
   resolveToken: (tokenHash: string) => Promise<LinkedPlatformAuthorizationRow | null>;
-  rotateRefreshToken: (params: Readonly<{
-    refreshTokenHash: string;
-    newAccessTokenHash: string;
-    newRefreshTokenHash: string;
-    accessTokenExpiresAt: string;
-    refreshTokenExpiresAt: string;
-    refreshedAt: string;
-  }>) => Promise<LinkedPlatformAuthorizationRow | null>;
+  rotateRefreshToken: (
+    params: Readonly<{
+      refreshTokenHash: string;
+      newAccessTokenHash: string;
+      newRefreshTokenHash: string;
+      accessTokenExpiresAt: string;
+      refreshTokenExpiresAt: string;
+      refreshedAt: string;
+    }>,
+  ) => Promise<LinkedPlatformAuthorizationRow | null>;
   revokeToken: (tokenHash: string, revokedAt: string) => Promise<boolean>;
-  revokeAuthorization: (params: Readonly<{
-    authorizationId: string;
-    accountId: string;
-    revokedAt: string;
-    reason?: string | null;
-  }>) => Promise<boolean>;
+  revokeAuthorization: (
+    params: Readonly<{
+      authorizationId: string;
+      accountId: string;
+      revokedAt: string;
+      reason?: string | null;
+    }>,
+  ) => Promise<boolean>;
   listForAccount: (accountId: string) => Promise<readonly LinkedPlatformAuthorizationRow[]>;
 }>;
 
-export function createLinkedPlatformAuthorizationStore(
-  db: PgQueryable,
-): LinkedPlatformAuthorizationStore {
+export function createLinkedPlatformAuthorizationStore(db: PgQueryable): LinkedPlatformAuthorizationStore {
   return {
     grant: async (params) => {
       const result = await db.query<LinkedPlatformAuthorizationRow>(
@@ -156,9 +158,7 @@ export function createLinkedPlatformAuthorizationStore(
          LIMIT 1`,
         [accessTokenHash],
       );
-      return result.rows[0]
-        ? mapLinkedPlatformAuthorizationRow(result.rows[0])
-        : null;
+      return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
     },
     resolveToken: async (tokenHash) => {
       const result = await db.query<LinkedPlatformAuthorizationRow>(
@@ -173,9 +173,7 @@ export function createLinkedPlatformAuthorizationStore(
          LIMIT 1`,
         [tokenHash],
       );
-      return result.rows[0]
-        ? mapLinkedPlatformAuthorizationRow(result.rows[0])
-        : null;
+      return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
     },
     rotateRefreshToken: async (params) => {
       const result = await db.query<LinkedPlatformAuthorizationRow>(
@@ -201,9 +199,7 @@ export function createLinkedPlatformAuthorizationStore(
           params.refreshedAt,
         ],
       );
-      return result.rows[0]
-        ? mapLinkedPlatformAuthorizationRow(result.rows[0])
-        : null;
+      return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
     },
     revokeToken: async (tokenHash, revokedAt) => {
       const result = await db.query(
@@ -228,12 +224,7 @@ export function createLinkedPlatformAuthorizationStore(
          WHERE authorization_id = $1
            AND account_id = $2
            AND status = 'active'`,
-        [
-          params.authorizationId,
-          params.accountId,
-          params.revokedAt,
-          params.reason ?? "account_consent_revoked",
-        ],
+        [params.authorizationId, params.accountId, params.revokedAt, params.reason ?? "account_consent_revoked"],
       );
       return (result.rowCount ?? 0) > 0;
     },
@@ -250,9 +241,7 @@ export function createLinkedPlatformAuthorizationStore(
   };
 }
 
-function mapLinkedPlatformAuthorizationRow(
-  row: LinkedPlatformAuthorizationRow,
-): LinkedPlatformAuthorizationRow {
+function mapLinkedPlatformAuthorizationRow(row: LinkedPlatformAuthorizationRow): LinkedPlatformAuthorizationRow {
   return {
     ...row,
     scopes: Array.isArray(row.scopes) ? row.scopes : [],

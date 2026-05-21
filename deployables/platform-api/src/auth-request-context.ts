@@ -21,18 +21,13 @@ function parseCookieHeader(cookieHeader: string | null) {
           return [part, ""];
         }
 
-        return [
-          part.slice(0, separatorIndex),
-          decodeURIComponent(part.slice(separatorIndex + 1)),
-        ];
+        return [part.slice(0, separatorIndex), decodeURIComponent(part.slice(separatorIndex + 1))];
       }),
   );
 }
 
 function readAuthSessionToken(request: Request) {
-  const cookieToken =
-    parseCookieHeader(request.headers.get("cookie")).get(AUTH_SESSION_COOKIE_NAME) ??
-    null;
+  const cookieToken = parseCookieHeader(request.headers.get("cookie")).get(AUTH_SESSION_COOKIE_NAME) ?? null;
   if (cookieToken) {
     return cookieToken;
   }
@@ -45,9 +40,7 @@ function readAuthSessionToken(request: Request) {
   return authorization.slice("Bearer ".length).trim() || null;
 }
 
-export function createAuthBootstrapContext(
-  services: PlatformIdentityServices["auth"],
-): EventStoreContext {
+export function createAuthBootstrapContext(services: PlatformIdentityServices["auth"]): EventStoreContext {
   return {
     tenantId: services.identity.bootstrapTenantId as never,
     audit: {
@@ -63,18 +56,11 @@ async function resolveActorFromSessionId(
   sessionId: string,
 ): Promise<ResolvedActor | null> {
   const session = await services.sessions.getSession(sessionId);
-  if (
-    !session ||
-    session.status !== "active" ||
-    new Date(session.expires_at).getTime() <= Date.now()
-  ) {
+  if (!session || session.status !== "active" || new Date(session.expires_at).getTime() <= Date.now()) {
     return null;
   }
 
-  const membership = await services.identity.getActiveMembershipForUserAccount(
-    session.user_id,
-    session.account_id,
-  );
+  const membership = await services.identity.getActiveMembershipForUserAccount(session.user_id, session.account_id);
 
   if (!membership) {
     return null;
@@ -95,9 +81,7 @@ async function resolveGuestCheckoutActor(
   services: PlatformIdentityServices["auth"],
   request: Request,
 ): Promise<ResolvedActor | null> {
-  const guestToken =
-    parseCookieHeader(request.headers.get("cookie")).get(AUTH_GUEST_CHECKOUT_COOKIE_NAME) ??
-    null;
+  const guestToken = parseCookieHeader(request.headers.get("cookie")).get(AUTH_GUEST_CHECKOUT_COOKIE_NAME) ?? null;
   if (!guestToken) {
     return null;
   }
@@ -179,16 +163,14 @@ async function resolveLinkedPlatformActor(
     return null;
   }
 
-  const linked = await services.identity.linkedPlatformAuthorizations
-    .resolveAccessToken(services.auth.auth.hashSecret(token));
+  const linked = await services.identity.linkedPlatformAuthorizations.resolveAccessToken(
+    services.auth.auth.hashSecret(token),
+  );
   if (!linked) {
     return null;
   }
 
-  const membership = await services.auth.identity.getActiveMembershipForUserAccount(
-    linked.user_id,
-    linked.account_id,
-  );
+  const membership = await services.auth.identity.getActiveMembershipForUserAccount(linked.user_id, linked.account_id);
   if (!membership) {
     return null;
   }
@@ -200,17 +182,11 @@ async function resolveLinkedPlatformActor(
     accountId: linked.account_id,
     membershipId: membership.membership_id,
     roleKey: membership.role_key,
-    permissions: scopedPermissions(
-      linked.scopes,
-      membership.role_permissions as readonly string[],
-    ),
+    permissions: scopedPermissions(linked.scopes, membership.role_permissions as readonly string[]),
   };
 }
 
-function scopedPermissions(
-  scopes: readonly string[],
-  membershipPermissions: readonly string[],
-) {
+function scopedPermissions(scopes: readonly string[], membershipPermissions: readonly string[]) {
   const allowed = new Set<string>();
   if (scopes.includes("catalog:read")) {
     allowed.add("catalog.view");

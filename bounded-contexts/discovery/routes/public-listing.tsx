@@ -18,10 +18,7 @@ import {
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import {
-  createDiscoveryRequestApiClient,
-  DiscoveryApiError,
-} from "../support/request-support/api-client";
+import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
 import type { DiscoveryPublicListing } from "../support/client-support/contracts";
 import { applyDiscoveryPublicListingPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
@@ -39,9 +36,7 @@ function parseRating(value: string | null | undefined): number | undefined {
   return Number.isFinite(rating) ? rating : undefined;
 }
 
-function titleForListing(listing: {
-  item_title: string | null;
-}) {
+function titleForListing(listing: { item_title: string | null }) {
   return listing.item_title ?? t("discovery.routes.publicListing.marketplace.listing");
 }
 
@@ -77,10 +72,7 @@ function availableQuantityLabel(visibleQuantity: number | null, quantityCap: num
 }
 
 function purchaseLimitLabel(
-  listing: Pick<
-    DiscoveryPublicListing,
-    "max_units_per_order" | "max_units_per_day" | "max_units_per_customer_account"
-  >,
+  listing: Pick<DiscoveryPublicListing, "max_units_per_order" | "max_units_per_day" | "max_units_per_customer_account">,
 ) {
   if (listing.max_units_per_customer_account) {
     return `Limit ${listing.max_units_per_customer_account} per customer`;
@@ -107,10 +99,9 @@ function checkoutStartHref(listing: DiscoveryPublicListing) {
     selectedOptions: JSON.stringify(listing.selected_options ?? []),
     priceAmount: listing.price_amount,
     sellerName: listing.seller_display_name ?? t("discovery.routes.publicListing.seller"),
-    availability: [
-      availableQuantityLabel(listing.visible_quantity, listing.quantity_cap),
-      purchaseLimitLabel(listing),
-    ].filter(Boolean).join(" | "),
+    availability: [availableQuantityLabel(listing.visible_quantity, listing.quantity_cap), purchaseLimitLabel(listing)]
+      .filter(Boolean)
+      .join(" | "),
     fulfillment: buyerFulfillmentLabel(listing.ship_from_code),
   });
 
@@ -163,9 +154,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
       : t("discovery.routes.publicListing.this.marketplace.listing.is.not.available"),
     type: "product",
   }),
-  ...(data?.canonicalUrl
-    ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }]
-    : []),
+  ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
 ];
 
 export default function PublicListingRoute() {
@@ -173,10 +162,7 @@ export default function PublicListingRoute() {
 
   return (
     <PublicListingRealtimeView
-      key={[
-        data.listing?.listing_id ?? "empty",
-        data.listing?.updated_at ?? data.listing?.status ?? "",
-      ].join("\n")}
+      key={[data.listing?.listing_id ?? "empty", data.listing?.updated_at ?? data.listing?.status ?? ""].join("\n")}
       data={data}
     />
   );
@@ -186,9 +172,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const listing = useRealtimePatchedSnapshot({
     initialSnapshot: data.listing,
     snapshotKey: JSON.stringify(data.listing),
-    topics: data.listing
-      ? discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id).topics
-      : [],
+    topics: data.listing ? discoveryRealtimeRouteTopics.publicListing(data.listing.listing_id).topics : [],
     applyPatch: applyDiscoveryPublicListingPatch,
     onSyncRequired: reloadForRealtimeSync,
   });
@@ -207,8 +191,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const itemMarketHref = `/items/${listing.catalog_item_slug ?? listing.catalog_catalog_item_id}`;
   const accountHref = listing.seller_slug ? `/accounts/${listing.seller_slug}` : null;
   const availability = availableQuantityLabel(listing.visible_quantity, listing.quantity_cap);
-  const sellerListingsAvailable =
-    (listing.seller_listing_availability_status ?? "available") === "available";
+  const sellerListingsAvailable = (listing.seller_listing_availability_status ?? "available") === "available";
   const limitLabel = purchaseLimitLabel(listing);
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
   const sellerRating = parseRating(listing.seller_average_rating);
@@ -263,9 +246,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 </Stack>
               }
               availability={
-                sellerListingsAvailable
-                  ? availability
-                  : t("discovery.routes.publicListing.seller.listings.unavailable")
+                sellerListingsAvailable ? availability : t("discovery.routes.publicListing.seller.listings.unavailable")
               }
               fulfillment={fulfillment}
               policy={t("discovery.routes.publicListing.returns.reviewed.before.payment")}
@@ -299,23 +280,24 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                 {
                   label: t("discovery.routes.publicListing.availability"),
                   value: sellerListingsAvailable
-                    ? limitLabel ? `${availability} | ${limitLabel}` : availability
+                    ? limitLabel
+                      ? `${availability} | ${limitLabel}`
+                      : availability
                     : t("discovery.routes.publicListing.seller.listings.unavailable"),
                 },
                 {
                   label: t("discovery.routes.publicListing.shipping.credit"),
-                  value: listing.shipping_allowance_percentage_bps > 0
-                    ? `${listing.shipping_allowance_percentage_bps / 100}%`
-                    : t("discovery.routes.publicListing.none"),
+                  value:
+                    listing.shipping_allowance_percentage_bps > 0
+                      ? `${listing.shipping_allowance_percentage_bps / 100}%`
+                      : t("discovery.routes.publicListing.none"),
                 },
                 {
                   label: t("discovery.routes.publicListing.product"),
-                  value: (
-                    listing.product_summary ? (
-                      <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
-                    ) : (
-                      <Badge tone="neutral">{t("discovery.routes.publicListing.standard")}</Badge>
-                    )
+                  value: listing.product_summary ? (
+                    <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
+                  ) : (
+                    <Badge tone="neutral">{t("discovery.routes.publicListing.standard")}</Badge>
                   ),
                 },
               ]}

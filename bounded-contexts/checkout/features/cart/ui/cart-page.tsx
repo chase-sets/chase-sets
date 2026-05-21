@@ -79,17 +79,9 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
   );
 }
 
-function mergeSellerOptions(
-  left: CheckoutCartLine["seller_options"],
-  right: CheckoutCartLine["seller_options"],
-) {
-  return [
-    ...new Map(
-      [...left, ...right].map((option) => [option.listing_id, option] as const),
-    ).values(),
-  ].sort((a, b) =>
-    Number(a.price_amount) - Number(b.price_amount) ||
-    a.listing_id.localeCompare(b.listing_id),
+function mergeSellerOptions(left: CheckoutCartLine["seller_options"], right: CheckoutCartLine["seller_options"]) {
+  return [...new Map([...left, ...right].map((option) => [option.listing_id, option] as const)).values()].sort(
+    (a, b) => Number(a.price_amount) - Number(b.price_amount) || a.listing_id.localeCompare(b.listing_id),
   );
 }
 
@@ -109,10 +101,7 @@ function fulfillmentLabel(line: CheckoutCartLine) {
       : "Locked seller needs review";
   }
 
-  if (
-    line.availability_state === "waiting-for-supply" ||
-    line.availability_state === "unavailable"
-  ) {
+  if (line.availability_state === "waiting-for-supply" || line.availability_state === "unavailable") {
     return "Waiting for supply";
   }
 
@@ -128,12 +117,8 @@ export function CheckoutCartPage({
 }) {
   const cartLineGroups = groupCartLines(cartLines);
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
-  const selectedListingLineGroups = cartLineGroups.filter(
-    (line) => line.fulfillment_mode === "locked-listing",
-  );
-  const productLineGroups = cartLineGroups.filter(
-    (line) => line.fulfillment_mode !== "locked-listing",
-  );
+  const selectedListingLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode === "locked-listing");
+  const productLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode !== "locked-listing");
 
   function renderCartLine(line: CheckoutCartLineGroup) {
     return (
@@ -276,12 +261,7 @@ export function CheckoutCartPage({
                 {t("checkout.features.cart.ui.cartPage.remove")}
               </Button>
               {line.availability_state !== "available" ? (
-                <LinkButton
-                  href={marketRecoveryHref(line.item_title)}
-                  tone="secondary"
-                  size="md"
-                  block
-                >
+                <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="md" block>
                   {t("checkout.features.cart.ui.cartPage.make.offer")}
                 </LinkButton>
               ) : null}
@@ -309,7 +289,9 @@ export function CheckoutCartPage({
       <Stack gap={3}>
         <Stack gap={1}>
           <Text weight="semibold">{title}</Text>
-          <Text size="sm" tone="secondary">{description}</Text>
+          <Text size="sm" tone="secondary">
+            {description}
+          </Text>
         </Stack>
         {lines.map((line) => renderCartLine(line))}
       </Stack>
@@ -343,9 +325,7 @@ export function CheckoutCartPage({
                 />
               }
               recoveryActions={
-                <LinkButton href="/search">
-                  {t("checkout.features.cart.ui.cartPage.keep.shopping")}
-                </LinkButton>
+                <LinkButton href="/search">{t("checkout.features.cart.ui.cartPage.keep.shopping")}</LinkButton>
               }
             />
           ) : (
@@ -385,7 +365,10 @@ export function CheckoutCartPage({
                 lines={[
                   { label: t("checkout.features.cart.ui.cartPage.items"), value: cartLineCount },
                   { label: t("checkout.features.cart.ui.cartPage.buy.cart.lines"), value: cartLineGroups.length },
-                  { label: t("checkout.features.cart.ui.cartPage.pricing"), value: t("checkout.features.cart.ui.cartPage.calculated.during.checkout") },
+                  {
+                    label: t("checkout.features.cart.ui.cartPage.pricing"),
+                    value: t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
+                  },
                   {
                     label: t("checkout.features.cart.ui.cartPage.fulfillment"),
                     value: t("checkout.features.cart.ui.cartPage.live.preview.before.payment"),
@@ -397,9 +380,7 @@ export function CheckoutCartPage({
               />
               <Card variant="feature">
                 <Stack gap={2}>
-                  <Text weight="semibold">
-                    {t("checkout.features.cart.ui.cartPage.smart.match.settings")}
-                  </Text>
+                  <Text weight="semibold">{t("checkout.features.cart.ui.cartPage.smart.match.settings")}</Text>
                   <Text size="sm" tone="secondary">
                     {t("checkout.features.cart.ui.cartPage.smart.match.settings.description")}
                   </Text>
@@ -441,7 +422,9 @@ export function CheckoutCartPage({
           <Stack gap={4}>
             <Banner
               title={t("checkout.features.cart.ui.cartPage.shipping.credit.grows.with.same.seller.cards")}
-              description={t("checkout.features.cart.ui.cartPage.listings.earn.five.percent.of.item.value.toward.shipping")}
+              description={t(
+                "checkout.features.cart.ui.cartPage.listings.earn.five.percent.of.item.value.toward.shipping",
+              )}
             />
             {cartContent}
             <StickyCtaBar

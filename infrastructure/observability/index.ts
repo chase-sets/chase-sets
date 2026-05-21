@@ -6,15 +6,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import {
-  SpanKind,
-  SpanStatusCode,
-  context,
-  metrics,
-  propagation,
-  trace,
-  type Attributes,
-} from "@opentelemetry/api";
+import { SpanKind, SpanStatusCode, context, metrics, propagation, trace, type Attributes } from "@opentelemetry/api";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export type ObservabilityConfig = Readonly<{
@@ -50,8 +42,7 @@ export type ObservabilityRuntime = Readonly<{
 const DEFAULT_SERVICE_NAME = "platform-api";
 const DEFAULT_ENVIRONMENT = "local";
 const DEFAULT_OTLP_ENDPOINT = "http://localhost:4318";
-const SENSITIVE_FIELD_RE =
-  /(authorization|cookie|token|secret|password|email|address|card|key|apiKey)/i;
+const SENSITIVE_FIELD_RE = /(authorization|cookie|token|secret|password|email|address|card|key|apiKey)/i;
 const LEVEL_PRIORITY = {
   debug: 10,
   info: 20,
@@ -82,9 +73,7 @@ const realtimeActiveConnections = meter.createUpDownCounter("chase_sets_realtime
 const realtimeStreamDuration = meter.createHistogram("chase_sets_realtime_stream_duration_ms", {
   unit: "ms",
 });
-const realtimeAuthorizationRejectedCounter = meter.createCounter(
-  "chase_sets_realtime_authorization_rejected_total",
-);
+const realtimeAuthorizationRejectedCounter = meter.createCounter("chase_sets_realtime_authorization_rejected_total");
 const realtimeBatchSize = meter.createHistogram("chase_sets_realtime_batch_messages", {
   unit: "{message}",
 });
@@ -94,22 +83,16 @@ const realtimePayloadBytes = meter.createHistogram("chase_sets_realtime_payload_
 });
 const realtimeSyncRequiredCounter = meter.createCounter("chase_sets_realtime_sync_required_total");
 const realtimeWakeCounter = meter.createCounter("chase_sets_realtime_wake_waits_total");
-const realtimeWakeNotificationCounter = meter.createCounter(
-  "chase_sets_realtime_wake_notifications_total",
-);
+const realtimeWakeNotificationCounter = meter.createCounter("chase_sets_realtime_wake_notifications_total");
 const realtimeReadHubCounter = meter.createCounter("chase_sets_realtime_read_hub_total");
 const realtimeTopicLag = meter.createHistogram("chase_sets_realtime_topic_lag", {
   unit: "{message}",
 });
 const ucpOperationCounter = meter.createCounter("chase_sets_ucp_operations_total");
 const ucpSignedWriteRejectedCounter = meter.createCounter("chase_sets_ucp_signed_write_rejected_total");
-const ucpSignatureVerificationFailedCounter = meter.createCounter(
-  "chase_sets_ucp_signature_verification_failed_total",
-);
+const ucpSignatureVerificationFailedCounter = meter.createCounter("chase_sets_ucp_signature_verification_failed_total");
 const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_total");
-const publicPresenceWaitlistEventCounter = meter.createCounter(
-  "chase_sets_public_presence_waitlist_events_total",
-);
+const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_public_presence_waitlist_events_total");
 
 export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   event: string;
@@ -136,18 +119,14 @@ export function loadObservabilityConfig(
     deploymentEnvironment: nonEmpty(env.DEPLOYMENT_ENVIRONMENT) ?? DEFAULT_ENVIRONMENT,
     otlpEndpoint: nonEmpty(env.OTEL_EXPORTER_OTLP_ENDPOINT) ?? DEFAULT_OTLP_ENDPOINT,
     tracesSampler: nonEmpty(env.OTEL_TRACES_SAMPLER) ?? "parentbased_traceidratio",
-    tracesSamplerArg:
-      nonEmpty(env.OTEL_TRACES_SAMPLER_ARG) ??
-      (env.NODE_ENV === "production" ? "0.1" : "1.0"),
+    tracesSamplerArg: nonEmpty(env.OTEL_TRACES_SAMPLER_ARG) ?? (env.NODE_ENV === "production" ? "0.1" : "1.0"),
     logFilePath: nonEmpty(env.LOG_FILE_PATH),
     logLevel: parseLogLevel(env.LOG_LEVEL),
     resourceAttributes: parseResourceAttributes(env.OTEL_RESOURCE_ATTRIBUTES),
   };
 }
 
-export function startObservability(
-  config = loadObservabilityConfig(),
-): ObservabilityRuntime {
+export function startObservability(config = loadObservabilityConfig()): ObservabilityRuntime {
   if (runtime) {
     return runtime;
   }
@@ -266,9 +245,7 @@ export function createLogger(config = loadObservabilityConfig()): Logger {
   };
 }
 
-export function attachActiveTraceContext(
-  eventContext: EventStoreContext,
-): EventStoreContext {
+export function attachActiveTraceContext(eventContext: EventStoreContext): EventStoreContext {
   const spanContext = trace.getSpanContext(context.active());
 
   if (!spanContext?.traceId || !spanContext.spanId) {
@@ -286,9 +263,7 @@ export function attachActiveTraceContext(
   };
 }
 
-export function createHonoObservabilityMiddleware(
-  logger = getObservabilityRuntime().logger,
-) {
+export function createHonoObservabilityMiddleware(logger = getObservabilityRuntime().logger) {
   return async function observabilityMiddleware(
     c: {
       req: {
@@ -398,11 +373,7 @@ export function observeProjectors<TProjector extends { runOnce: () => Promise<{ 
   }));
 }
 
-export function observeWorker<T>(
-  name: string,
-  attributes: Attributes,
-  work: () => Promise<T>,
-): Promise<T> {
+export function observeWorker<T>(name: string, attributes: Attributes, work: () => Promise<T>): Promise<T> {
   return observeOperation({
     name: `worker.${name}`,
     attributes,
@@ -412,10 +383,12 @@ export function observeWorker<T>(
   });
 }
 
-export function recordRealtimeConnectionOpened(event: Readonly<{
-  storeNames: readonly string[];
-  topics: readonly string[];
-}>): void {
+export function recordRealtimeConnectionOpened(
+  event: Readonly<{
+    storeNames: readonly string[];
+    topics: readonly string[];
+  }>,
+): void {
   realtimeConnectionCounter.add(1, {
     store_count: event.storeNames.length,
     topic_count: event.topics.length,
@@ -423,33 +396,39 @@ export function recordRealtimeConnectionOpened(event: Readonly<{
   realtimeActiveConnections.add(1);
 }
 
-export function recordRealtimeConnectionClosed(event: Readonly<{
-  durationMs: number;
-}>): void {
+export function recordRealtimeConnectionClosed(
+  event: Readonly<{
+    durationMs: number;
+  }>,
+): void {
   realtimeActiveConnections.add(-1);
   realtimeStreamDuration.record(event.durationMs);
 }
 
-export function recordRealtimeAuthorizationRejected(event: Readonly<{
-  reason: string;
-  topics: readonly string[];
-}>): void {
+export function recordRealtimeAuthorizationRejected(
+  event: Readonly<{
+    reason: string;
+    topics: readonly string[];
+  }>,
+): void {
   realtimeAuthorizationRejectedCounter.add(1, {
     reason: event.reason,
     topic_count: event.topics.length,
   });
 }
 
-export function recordRealtimeBatchRead(event: Readonly<{
-  messageCount: number;
-  expiredContextCount: number;
-  storeNames: readonly string[];
-  topicLags?: readonly Readonly<{
-    contextName: string;
-    topic: string;
-    lag: number;
-  }>[];
-}>): void {
+export function recordRealtimeBatchRead(
+  event: Readonly<{
+    messageCount: number;
+    expiredContextCount: number;
+    storeNames: readonly string[];
+    topicLags?: readonly Readonly<{
+      contextName: string;
+      topic: string;
+      lag: number;
+    }>[];
+  }>,
+): void {
   realtimeBatchSize.record(event.messageCount, {
     store_count: event.storeNames.length,
     expired_context_count: event.expiredContextCount,
@@ -463,11 +442,13 @@ export function recordRealtimeBatchRead(event: Readonly<{
   }
 }
 
-export function recordRealtimeMessageSent(event: Readonly<{
-  contextName: string;
-  eventKind: string;
-  payloadBytes?: number;
-}>): void {
+export function recordRealtimeMessageSent(
+  event: Readonly<{
+    contextName: string;
+    eventKind: string;
+    payloadBytes?: number;
+  }>,
+): void {
   realtimeMessageCounter.add(1, {
     context: event.contextName,
     event_kind: event.eventKind,
@@ -480,11 +461,13 @@ export function recordRealtimeMessageSent(event: Readonly<{
   }
 }
 
-export function recordRealtimeSyncRequired(event: Readonly<{
-  reason: string;
-  contexts: readonly string[];
-  payloadBytes?: number;
-}>): void {
+export function recordRealtimeSyncRequired(
+  event: Readonly<{
+    reason: string;
+    contexts: readonly string[];
+    payloadBytes?: number;
+  }>,
+): void {
   for (const contextName of event.contexts) {
     realtimeSyncRequiredCounter.add(1, {
       context: contextName,
@@ -499,37 +482,45 @@ export function recordRealtimeSyncRequired(event: Readonly<{
   }
 }
 
-export function recordRealtimeWakeWaitEnded(event: Readonly<{
-  result: string;
-}>): void {
+export function recordRealtimeWakeWaitEnded(
+  event: Readonly<{
+    result: string;
+  }>,
+): void {
   realtimeWakeCounter.add(1, {
     result: event.result,
   });
 }
 
-export function recordRealtimeWakeNotificationReceived(event: Readonly<{
-  matchedWaiterCount: number;
-}>): void {
+export function recordRealtimeWakeNotificationReceived(
+  event: Readonly<{
+    matchedWaiterCount: number;
+  }>,
+): void {
   realtimeWakeNotificationCounter.add(1, {
     matched: event.matchedWaiterCount > 0,
   });
 }
 
-export function recordRealtimeReadHub(event: Readonly<{
-  action: "started" | "coalesced";
-  topics: readonly string[];
-}>): void {
+export function recordRealtimeReadHub(
+  event: Readonly<{
+    action: "started" | "coalesced";
+    topics: readonly string[];
+  }>,
+): void {
   realtimeReadHubCounter.add(1, {
     action: event.action,
     topic_count: event.topics.length,
   });
 }
 
-export function recordUcpOperationCompleted(event: Readonly<{
-  transport: string;
-  operation: string;
-  status: string;
-}>): void {
+export function recordUcpOperationCompleted(
+  event: Readonly<{
+    transport: string;
+    operation: string;
+    status: string;
+  }>,
+): void {
   ucpOperationCounter.add(1, {
     transport: event.transport,
     operation: event.operation,
@@ -537,11 +528,13 @@ export function recordUcpOperationCompleted(event: Readonly<{
   });
 }
 
-export function recordUcpSignedWriteRejected(event: Readonly<{
-  transport: string;
-  operation: string;
-  reason: string;
-}>): void {
+export function recordUcpSignedWriteRejected(
+  event: Readonly<{
+    transport: string;
+    operation: string;
+    reason: string;
+  }>,
+): void {
   ucpSignedWriteRejectedCounter.add(1, {
     transport: event.transport,
     operation: event.operation,
@@ -549,11 +542,13 @@ export function recordUcpSignedWriteRejected(event: Readonly<{
   });
 }
 
-export function recordUcpSignatureVerificationFailed(event: Readonly<{
-  transport: string;
-  operation: string;
-  reason: string;
-}>): void {
+export function recordUcpSignatureVerificationFailed(
+  event: Readonly<{
+    transport: string;
+    operation: string;
+    reason: string;
+  }>,
+): void {
   ucpSignatureVerificationFailedCounter.add(1, {
     transport: event.transport,
     operation: event.operation,
@@ -561,10 +556,12 @@ export function recordUcpSignatureVerificationFailed(event: Readonly<{
   });
 }
 
-export function recordUcpIdempotencyReplayed(event: Readonly<{
-  transport: string;
-  operation: string;
-}>): void {
+export function recordUcpIdempotencyReplayed(
+  event: Readonly<{
+    transport: string;
+    operation: string;
+  }>,
+): void {
   ucpIdempotencyCounter.add(1, {
     transport: event.transport,
     operation: event.operation,
@@ -572,10 +569,12 @@ export function recordUcpIdempotencyReplayed(event: Readonly<{
   });
 }
 
-export function recordUcpIdempotencyConflict(event: Readonly<{
-  transport: string;
-  operation: string;
-}>): void {
+export function recordUcpIdempotencyConflict(
+  event: Readonly<{
+    transport: string;
+    operation: string;
+  }>,
+): void {
   ucpIdempotencyCounter.add(1, {
     transport: event.transport,
     operation: event.operation,
@@ -583,9 +582,7 @@ export function recordUcpIdempotencyConflict(event: Readonly<{
   });
 }
 
-export function publicPresenceWaitlistAnalyticsAttributes(
-  event: PublicPresenceWaitlistAnalyticsSignal,
-): Attributes {
+export function publicPresenceWaitlistAnalyticsAttributes(event: PublicPresenceWaitlistAnalyticsSignal): Attributes {
   return {
     context: "public-presence",
     event: boundedMetricLabel(event.event),
@@ -597,13 +594,8 @@ export function publicPresenceWaitlistAnalyticsAttributes(
   };
 }
 
-export function recordPublicPresenceWaitlistAnalytics(
-  event: PublicPresenceWaitlistAnalyticsSignal,
-): void {
-  publicPresenceWaitlistEventCounter.add(
-    1,
-    publicPresenceWaitlistAnalyticsAttributes(event),
-  );
+export function recordPublicPresenceWaitlistAnalytics(event: PublicPresenceWaitlistAnalyticsSignal): void {
+  publicPresenceWaitlistEventCounter.add(1, publicPresenceWaitlistAnalyticsAttributes(event));
 }
 
 export function sanitizeLogFields(fields: LogFields): LogFields {
@@ -657,9 +649,7 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 function parseLogLevel(value: string | undefined): LogLevel {
-  return value === "debug" || value === "info" || value === "warn" || value === "error"
-    ? value
-    : "info";
+  return value === "debug" || value === "info" || value === "warn" || value === "error" ? value : "info";
 }
 
 function parseResourceAttributes(value: string | undefined): Readonly<Record<string, string>> {
@@ -706,10 +696,7 @@ function writeLogFile(logFilePath: string | undefined, line: string): void {
   }
 }
 
-async function warnIfCollectorUnavailable(
-  config: ObservabilityConfig,
-  logger: Logger,
-): Promise<void> {
+async function warnIfCollectorUnavailable(config: ObservabilityConfig, logger: Logger): Promise<void> {
   if (!config.otlpEndpoint || typeof fetch !== "function") {
     return;
   }
@@ -754,7 +741,13 @@ function toStatusClass(status: number): string {
 }
 
 function normalizeReason(reason: string): string {
-  return reason.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "unknown";
+  return (
+    reason
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 80) || "unknown"
+  );
 }
 
 function boundedMetricLabel(value: string | null | undefined): string {

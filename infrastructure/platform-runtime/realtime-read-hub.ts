@@ -28,9 +28,11 @@ export type RealtimeReadHubEvent = Readonly<{
   batchSize: number;
 }>;
 
-export function createRealtimeReadHub(options: Readonly<{
-  observer?: RealtimeReadHubObserver;
-}> = {}): RealtimeReadHub {
+export function createRealtimeReadHub(
+  options: Readonly<{
+    observer?: RealtimeReadHubObserver;
+  }> = {},
+): RealtimeReadHub {
   const inFlightReads = new Map<string, Promise<RealtimeReadBatch>>();
 
   return {
@@ -59,10 +61,9 @@ export function createRealtimeReadHub(options: Readonly<{
         topics,
         batchSize,
       });
-      const read = readRealtimePatches(stores, topics, cursor, batchSize, readOptions)
-        .finally(() => {
-          inFlightReads.delete(key);
-        });
+      const read = readRealtimePatches(stores, topics, cursor, batchSize, readOptions).finally(() => {
+        inFlightReads.delete(key);
+      });
       inFlightReads.set(key, read);
       return read;
     },

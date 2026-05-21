@@ -32,10 +32,7 @@ function redirectToSignIn(request: Request) {
   });
 }
 
-export async function requireMarketplaceActor(
-  request: Request,
-  permission?: string,
-) {
+export async function requireMarketplaceActor(request: Request, permission?: string) {
   try {
     return await authPolicy.requireActor(request, permission);
   } catch (error) {

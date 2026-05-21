@@ -63,13 +63,8 @@ export type InventoryImportBatchServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<InventoryImportBatchDetail>;
-  getBatch: (
-    batchId: string,
-    accountId: string,
-  ) => ReturnType<typeof getImportBatch>;
-  listBatches: (
-    params: Parameters<typeof listImportBatches>[1],
-  ) => ReturnType<typeof listImportBatches>;
+  getBatch: (batchId: string, accountId: string) => ReturnType<typeof getImportBatch>;
+  listBatches: (params: Parameters<typeof listImportBatches>[1]) => ReturnType<typeof listImportBatches>;
   commitBatch: (
     params: Readonly<{ batchId: string; accountId: AccountId }>,
     context: EventStoreContext,
@@ -174,11 +169,7 @@ function wholeNumber(value: string | null, fieldName: string, errors: string[]) 
   return parsed;
 }
 
-function importedQuantity(
-  value: string | null,
-  quantityMode: InventoryImportQuantityMode,
-  errors: string[],
-) {
+function importedQuantity(value: string | null, quantityMode: InventoryImportQuantityMode, errors: string[]) {
   const parsed = wholeNumber(value, "totalQuantity", errors);
   if (parsed === null) {
     return { quantityDelta: null, setQuantity: null, displayQuantity: null };
@@ -301,9 +292,7 @@ async function refreshBatchCounts(db: PgQueryable, batchId: string) {
   );
 }
 
-export function createInventoryImportBatchRuntime(
-  deps: InventoryImportBatchRuntimeDeps,
-): InventoryImportBatchServices {
+export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRuntimeDeps): InventoryImportBatchServices {
   async function validateRow(
     accountId: AccountId,
     row: NormalizedInventoryImportRow,
@@ -376,19 +365,11 @@ export function createInventoryImportBatchRuntime(
     const listingPriceValue = clean(values.listingPriceAmount);
     const listingCapValue = clean(values.listingQuantityCap);
     const hasListingDraftFields = Boolean(listingPriceValue || listingCapValue);
-    const listingPriceAmount = moneyAmount(
-      listingPriceValue,
-      "listingPriceAmount",
-      errors,
-    );
+    const listingPriceAmount = moneyAmount(listingPriceValue, "listingPriceAmount", errors);
     const listingQuantityCap = listingCapValue
       ? positiveWholeNumber(listingCapValue, "listingQuantityCap", errors)
       : null;
-    const sourcePriceAmount = optionalMoneyAmount(
-      clean(values.sourcePriceAmount),
-      "sourcePriceAmount",
-      errors,
-    );
+    const sourcePriceAmount = optionalMoneyAmount(clean(values.sourcePriceAmount), "sourcePriceAmount", errors);
 
     if (hasListingDraftFields) {
       if (!listingPriceValue) {
@@ -509,9 +490,7 @@ export function createInventoryImportBatchRuntime(
             row.rowNumber,
             validated.status,
             JSON.stringify(row.rawRow),
-            validated.externalReference
-              ? JSON.stringify(validated.externalReference)
-              : null,
+            validated.externalReference ? JSON.stringify(validated.externalReference) : null,
             validated.rowFingerprint,
             validated.quantityMode,
             validated.quantityDelta,
@@ -548,9 +527,7 @@ export function createInventoryImportBatchRuntime(
         throw new InventoryDomainError("Import batch not found.");
       }
 
-      const rowsToCommit = detail.rows.filter((row) =>
-        row.status === "accepted" || row.status === "committed",
-      );
+      const rowsToCommit = detail.rows.filter((row) => row.status === "accepted" || row.status === "committed");
 
       for (const row of rowsToCommit) {
         if (row.status === "committed") {
@@ -571,15 +548,10 @@ export function createInventoryImportBatchRuntime(
         const quantityDelta =
           row.quantity_mode === "replace"
             ? (row.set_quantity ?? 0) - (existingItem?.total_quantity ?? 0)
-            : row.quantity_delta ?? 0;
+            : (row.quantity_delta ?? 0);
 
-        if (
-          existingItem &&
-          existingItem.total_quantity + quantityDelta < existingItem.held_quantity
-        ) {
-          throw new InventoryDomainError(
-            "Import cannot reduce total quantity below active held quantity.",
-          );
+        if (existingItem && existingItem.total_quantity + quantityDelta < existingItem.held_quantity) {
+          throw new InventoryDomainError("Import cannot reduce total quantity below active held quantity.");
         }
 
         let inventoryItemId: string | null = existingItem?.item_id ?? null;
@@ -603,23 +575,17 @@ export function createInventoryImportBatchRuntime(
               accountId: params.accountId,
               itemId: existingItem.item_id,
               quantityDelta,
-              reason:
-                row.quantity_mode === "replace"
-                  ? "Import exact quantity"
-                  : "Import quantity adjustment",
+              reason: row.quantity_mode === "replace" ? "Import exact quantity" : "Import quantity adjustment",
             },
             context,
           );
           inventoryItemId = existingItem.item_id;
         } else if (!existingItem && quantityDelta < 0) {
-          throw new InventoryDomainError(
-            "Import cannot reduce stock that does not exist in inventory.",
-          );
+          throw new InventoryDomainError("Import cannot reduce stock that does not exist in inventory.");
         }
 
-        const listingQuantity = row.quantity_mode === "replace"
-          ? row.set_quantity ?? row.total_quantity ?? 0
-          : Math.max(quantityDelta, 0);
+        const listingQuantity =
+          row.quantity_mode === "replace" ? (row.set_quantity ?? row.total_quantity ?? 0) : Math.max(quantityDelta, 0);
 
         let listingId: string | null = row.committed_listing_id;
         if (
@@ -629,11 +595,7 @@ export function createInventoryImportBatchRuntime(
           listingQuantity > 0 &&
           deps.draftListingCreator
         ) {
-          const location = await getStorageLocation(
-            deps.db,
-            row.storage_location_id,
-            params.accountId,
-          );
+          const location = await getStorageLocation(deps.db, row.storage_location_id, params.accountId);
           if (!location) {
             throw new InventoryDomainError("Storage location not found.");
           }

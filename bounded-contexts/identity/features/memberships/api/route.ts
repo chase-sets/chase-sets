@@ -60,10 +60,7 @@ export function membershipRoutes(services: MembershipServices) {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listMemberships({
-      search:
-        actor && !hasPermission(actor, "memberships.manage")
-          ? actor.userId
-          : search,
+      search: actor && !hasPermission(actor, "memberships.manage") ? actor.userId : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
@@ -74,15 +71,17 @@ export function membershipRoutes(services: MembershipServices) {
   app.get("/:id", async (c) => {
     const membership = await services.getMembership(c.req.param("id"));
     if (!membership) {
-      return c.json({ error: { code: "not_found", message: t("identity.features.memberships.api.route.membership.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.memberships.api.route.membership.not.found") } },
+        404,
+      );
     }
     const actor = c.var.actor;
-    if (
-      actor &&
-      !hasPermission(actor, "memberships.manage") &&
-      membership.user_id !== actor.userId
-    ) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("identity.features.memberships.api.route.forbidden") } }, 403);
+    if (actor && !hasPermission(actor, "memberships.manage") && membership.user_id !== actor.userId) {
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("identity.features.memberships.api.route.forbidden") } },
+        403,
+      );
     }
     return c.json(membership);
   });

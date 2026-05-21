@@ -1,8 +1,4 @@
-export type DiscoveryProductAssetRole =
-  | "source"
-  | "thumbnail"
-  | "search-card"
-  | "catalog-detail";
+export type DiscoveryProductAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
 export interface DiscoveryProductAssetVariant {
   role: DiscoveryProductAssetRole;
@@ -50,10 +46,13 @@ export interface DiscoveryImageFallback {
   url: string;
   alt: string;
   usage: "permanent" | "loading-only";
-  variants: Record<string, {
-    oneX?: string;
-    twoX?: string;
-  }>;
+  variants: Record<
+    string,
+    {
+      oneX?: string;
+      twoX?: string;
+    }
+  >;
 }
 
 export interface DiscoverySearchResponse {

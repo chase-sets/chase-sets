@@ -24,7 +24,7 @@ export function Combobox({
   value,
   onValueChange,
   placeholder = "Search options",
-  noMatchesLabel = "No matches"
+  noMatchesLabel = "No matches",
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -34,7 +34,7 @@ export function Combobox({
   const itemValues = useMemo(() => items.map((item) => item.value), [items]);
   const filteredItems = useMemo(
     () => items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
-    [items, query]
+    [items, query],
   );
   const { overlayNode } = usePortalRoots();
 
@@ -60,9 +60,7 @@ export function Combobox({
             setQuery(items.find((item) => item.value === nextValue)?.label ?? "");
           }
         }}
-        itemToStringLabel={(itemValue) =>
-          items.find((item) => item.value === itemValue)?.label ?? String(itemValue)
-        }
+        itemToStringLabel={(itemValue) => items.find((item) => item.value === itemValue)?.label ?? String(itemValue)}
         filter={(itemValue, inputValue) =>
           (items.find((item) => item.value === itemValue)?.label ?? String(itemValue))
             .toLowerCase()
@@ -73,14 +71,14 @@ export function Combobox({
           className={cx(
             controlClass,
             !!error && controlErrorClass,
-            "inline-flex items-center justify-between gap-2 p-0"
+            "inline-flex items-center justify-between gap-2 p-0",
           )}
         >
           <ComboboxPrimitive.Input
             id={inputId}
             placeholder={selected?.label ?? placeholder}
             aria-controls={listboxId}
-            aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+            aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
             className="min-w-0 flex-1 bg-transparent px-4 py-2.5 outline-none"
           />
@@ -107,11 +105,13 @@ export function Combobox({
                       index={index}
                       value={item.value}
                       disabled={item.disabled}
-                      className={(state) => cx(
-                        "focus-ring flex w-full cursor-pointer items-center justify-between rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
-                        state.highlighted && "bg-background",
-                        state.disabled && "cursor-not-allowed opacity-50"
-                      )}
+                      className={(state) =>
+                        cx(
+                          "focus-ring flex w-full cursor-pointer items-center justify-between rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
+                          state.highlighted && "bg-background",
+                          state.disabled && "cursor-not-allowed opacity-50",
+                        )
+                      }
                     >
                       <span>{item.label}</span>
                       <ComboboxPrimitive.ItemIndicator>

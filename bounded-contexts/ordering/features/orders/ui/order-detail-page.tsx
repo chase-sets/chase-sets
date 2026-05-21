@@ -83,11 +83,14 @@ export function OrderingOrderDetailPage({
 }) {
   const counterpartLabel =
     role === "buyer"
-      ? order.seller_display_name ?? order.seller_account_id
-      : order.buyer_display_name ?? order.buyer_account_id;
+      ? (order.seller_display_name ?? order.seller_account_id)
+      : (order.buyer_display_name ?? order.buyer_account_id);
   const canPay = order.status === "pending-payment" && paymentHref;
   const canCancel = role === "buyer" ? canSelfServiceCancel(order) : isPendingStatus(order.status);
-  const projectionLabel = role === "buyer" ? t("ordering.features.orders.ui.orderDetailPage.purchase") : t("ordering.features.orders.ui.orderDetailPage.sale");
+  const projectionLabel =
+    role === "buyer"
+      ? t("ordering.features.orders.ui.orderDetailPage.purchase")
+      : t("ordering.features.orders.ui.orderDetailPage.sale");
   const cancelIntent = role === "buyer" ? "cancel-purchase" : "cancel-sale";
   const supportLabel =
     role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
@@ -97,14 +100,19 @@ export function OrderingOrderDetailPage({
   return (
     <Page>
       <PageHeader
-        eyebrow={role === "buyer" ? t("ordering.features.orders.ui.orderDetailPage.buyer") : t("ordering.features.orders.ui.orderDetailPage.seller")}
+        eyebrow={
+          role === "buyer"
+            ? t("ordering.features.orders.ui.orderDetailPage.buyer")
+            : t("ordering.features.orders.ui.orderDetailPage.seller")
+        }
         title={projectionLabel}
         description={t("ordering.features.orders.ui.orderDetailPage.counterparty.description", {
           counterparty: counterpartLabel,
         })}
         actions={
           <LinkButton href={backHref} tone="secondary">
-            {t("ordering.features.orders.ui.orderDetailPage.back")}</LinkButton>
+            {t("ordering.features.orders.ui.orderDetailPage.back")}
+          </LinkButton>
         }
       />
 
@@ -124,22 +132,49 @@ export function OrderingOrderDetailPage({
           <Stack gap={4}>
             <PriceBreakdown
               lines={[
-                { label: t("ordering.features.orders.ui.orderDetailPage.status"), value: <Badge tone={statusTone(order.status)}>{order.status}</Badge> },
-                { label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"), value: formatMoney(order.item_subtotal_amount) },
-                { label: t("ordering.features.orders.ui.orderDetailPage.shipping.allowance"), value: formatMoney(order.shipping_allowance_amount) },
-                { label: t("ordering.features.orders.ui.orderDetailPage.shipping.overage"), value: formatMoney(order.shipping_overage_amount) },
-                { label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"), value: formatMoney(order.marketplace_sales_fee_amount) },
-                { label: t("ordering.features.orders.ui.orderDetailPage.seller.item.net"), value: formatMoney(order.seller_item_net_amount) },
-                { label: t("ordering.features.orders.ui.orderDetailPage.seller.payout"), value: formatMoney(order.seller_payout_amount) },
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.status"),
+                  value: <Badge tone={statusTone(order.status)}>{order.status}</Badge>,
+                },
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"),
+                  value: formatMoney(order.item_subtotal_amount),
+                },
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.shipping.allowance"),
+                  value: formatMoney(order.shipping_allowance_amount),
+                },
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.shipping.overage"),
+                  value: formatMoney(order.shipping_overage_amount),
+                },
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.marketplace.fee"),
+                  value: formatMoney(order.marketplace_sales_fee_amount),
+                },
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.seller.item.net"),
+                  value: formatMoney(order.seller_item_net_amount),
+                },
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.seller.payout"),
+                  value: formatMoney(order.seller_payout_amount),
+                },
               ]}
               total={formatMoney(order.total_amount)}
               totalLabel={t("ordering.features.orders.ui.orderDetailPage.summary.title", {
                 projectionLabel,
               })}
-              reassurance={<SecurePaymentIndicator label={t("ordering.features.orders.ui.orderDetailPage.secure.payment")} />}
+              reassurance={
+                <SecurePaymentIndicator label={t("ordering.features.orders.ui.orderDetailPage.secure.payment")} />
+              }
             />
             <OrderProtectionModule
-              title={role === "buyer" ? t("ordering.features.orders.ui.orderDetailPage.buyer.protection") : t("ordering.features.orders.ui.orderDetailPage.seller.protection")}
+              title={
+                role === "buyer"
+                  ? t("ordering.features.orders.ui.orderDetailPage.buyer.protection")
+                  : t("ordering.features.orders.ui.orderDetailPage.seller.protection")
+              }
               items={[
                 {
                   title: t("ordering.features.orders.ui.orderDetailPage.resolved.terms"),
@@ -165,21 +200,29 @@ export function OrderingOrderDetailPage({
             <Stack gap={4}>
               <Grid columns={{ base: 1, md: 3 }} gap={3}>
                 <Stack gap={1}>
-                  <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.source")}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("ordering.features.orders.ui.orderDetailPage.source")}
+                  </Text>
                   <Text weight="semibold">{formatSourceType(order.source_type)}</Text>
                 </Stack>
                 <Stack gap={1}>
-                  <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.counterparty")}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("ordering.features.orders.ui.orderDetailPage.counterparty")}
+                  </Text>
                   <Text weight="semibold">{counterpartLabel}</Text>
                 </Stack>
                 <Stack gap={1}>
-                  <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.terms.resolved")}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("ordering.features.orders.ui.orderDetailPage.terms.resolved")}
+                  </Text>
                   <Text>{new Date(order.terms_resolved_at).toLocaleString()}</Text>
                 </Stack>
               </Grid>
               <Divider />
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
-                {canPay ? <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton> : null}
+                {canPay ? (
+                  <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>
+                ) : null}
                 {supportHref ? (
                   <LinkButton href={supportHref} tone="secondary">
                     {supportLabel}
@@ -199,9 +242,7 @@ export function OrderingOrderDetailPage({
           </Surface>
 
           {supplementarySection ? (
-            <PageSection title={supplementarySectionTitle}>
-              {supplementarySection}
-            </PageSection>
+            <PageSection title={supplementarySectionTitle}>{supplementarySection}</PageSection>
           ) : null}
 
           <PageSection title={t("ordering.features.orders.ui.orderDetailPage.lines")}>
@@ -217,19 +258,24 @@ export function OrderingOrderDetailPage({
                         </Text>
                       ) : null}
                       <ProductOptions
-                        options={productOptionsFromSummary(line.product_summary ?? t("ordering.features.orders.ui.orderDetailPage.standard"))}
+                        options={productOptionsFromSummary(
+                          line.product_summary ?? t("ordering.features.orders.ui.orderDetailPage.standard"),
+                        )}
                         variant="chips"
                       />
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.quantity")}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("ordering.features.orders.ui.orderDetailPage.quantity")}
+                      </Text>
                       <Text weight="semibold">{line.quantity}</Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.line.total")}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("ordering.features.orders.ui.orderDetailPage.line.total")}
+                      </Text>
                       <Text weight="semibold">
-                        {line.quantity} x {formatMoney(line.unit_price_amount)} ={" "}
-                        {formatMoney(line.line_total_amount)}
+                        {line.quantity} x {formatMoney(line.unit_price_amount)} = {formatMoney(line.line_total_amount)}
                       </Text>
                     </Stack>
                   </Grid>
@@ -250,11 +296,15 @@ export function OrderingOrderDetailPage({
                       </Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.quantity.2")}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("ordering.features.orders.ui.orderDetailPage.quantity.2")}
+                      </Text>
                       <Text>{hold.quantity}</Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderDetailPage.status.2")}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("ordering.features.orders.ui.orderDetailPage.status.2")}
+                      </Text>
                       <Badge tone="accent">{hold.status}</Badge>
                     </Stack>
                   </Grid>

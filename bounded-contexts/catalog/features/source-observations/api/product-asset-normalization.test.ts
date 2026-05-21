@@ -28,24 +28,22 @@ describe("product asset normalization", () => {
     expect(assetSet.source.height).toBe(200);
     expect(storedAssets[0]?.body).toEqual(sourceBody);
 
-    const thumbnail = assetSet.variants.find((variant) =>
-      variant.role === "thumbnail" && variant.density === 1
-    );
-    const searchCard = assetSet.variants.find((variant) =>
-      variant.role === "search-card" && variant.density === 1
-    );
+    const thumbnail = assetSet.variants.find((variant) => variant.role === "thumbnail" && variant.density === 1);
+    const searchCard = assetSet.variants.find((variant) => variant.role === "search-card" && variant.density === 1);
 
-    expect(thumbnail).toEqual(expect.objectContaining({
-      width: 96,
-      height: 128,
-    }));
-    expect(searchCard).toEqual(expect.objectContaining({
-      width: 120,
-      height: 160,
-    }));
-    const storedSearchCard = storedAssets.find((asset) =>
-      asset.key.includes("search-card-160w-1x")
+    expect(thumbnail).toEqual(
+      expect.objectContaining({
+        width: 96,
+        height: 128,
+      }),
     );
+    expect(searchCard).toEqual(
+      expect.objectContaining({
+        width: 120,
+        height: 160,
+      }),
+    );
+    const storedSearchCard = storedAssets.find((asset) => asset.key.includes("search-card-160w-1x"));
     const searchCardMetadata = await sharp(storedSearchCard?.body).metadata();
     expect(searchCardMetadata.hasAlpha).toBe(true);
     expect(assetSet.variants.map((variant) => variant.storageKey)).toEqual(
@@ -59,11 +57,13 @@ describe("product asset normalization", () => {
 });
 
 async function transparentPaddedCardImage(): Promise<Uint8Array> {
-  const cardBody = await sharp(Buffer.from(`
+  const cardBody = await sharp(
+    Buffer.from(`
     <svg width="120" height="160" viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width="120" height="160" rx="10" ry="10" fill="rgb(210,40,68)" />
     </svg>
-  `))
+  `),
+  )
     .webp()
     .toBuffer();
 

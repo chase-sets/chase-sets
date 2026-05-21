@@ -1,8 +1,4 @@
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -77,10 +73,5 @@ export default function CheckoutAccountSellListRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return (
-    <CheckoutSellListPage
-      sellListLines={data.sellList.items}
-      errorMessage={actionData?.error ?? null}
-    />
-  );
+  return <CheckoutSellListPage sellListLines={data.sellList.items} errorMessage={actionData?.error ?? null} />;
 }

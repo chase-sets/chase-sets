@@ -9,17 +9,12 @@ export function Field(props: FieldProps) {
   return <FieldChrome {...props} />;
 }
 
-export interface HelperTextProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface HelperTextProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   tone?: "default" | "danger" | "success";
 }
 
-export function HelperText({
-  children,
-  tone = "default",
-  ...rest
-}: HelperTextProps) {
+export function HelperText({ children, tone = "default", ...rest }: HelperTextProps) {
   return (
     <div
       {...rest}
@@ -27,7 +22,7 @@ export function HelperText({
         "text-xs",
         tone === "default" && "text-secondary",
         tone === "danger" && "text-danger",
-        tone === "success" && "text-success"
+        tone === "success" && "text-success",
       )}
     >
       {children}
@@ -39,12 +34,7 @@ export interface InlineMessageProps extends HelperTextProps {
   icon?: "info" | "warning" | "check";
 }
 
-export function InlineMessage({
-  children,
-  icon = "info",
-  tone = "default",
-  ...rest
-}: InlineMessageProps) {
+export function InlineMessage({ children, icon = "info", tone = "default", ...rest }: InlineMessageProps) {
   return (
     <div
       {...rest}
@@ -52,7 +42,7 @@ export function InlineMessage({
         "flex items-start gap-2 rounded-tokenMd border px-3 py-2 text-sm",
         tone === "default" && "border-info bg-background text-info",
         tone === "danger" && "border-danger bg-background text-danger",
-        tone === "success" && "border-success bg-background text-success"
+        tone === "success" && "border-success bg-background text-success",
       )}
     >
       <Icon name={icon} size="sm" tone={tone === "default" ? "info" : tone} />

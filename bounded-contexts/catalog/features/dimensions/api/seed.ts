@@ -87,10 +87,7 @@ const dimensionDefs: DimensionDef[] = [
             "Tiny corner speck or edge nick",
             "Slight centering imperfection 60/40 or better",
           ],
-          verificationRequirements: [
-            "Front straight on photo required",
-            "Back straight on photo required",
-          ],
+          verificationRequirements: ["Front straight on photo required", "Back straight on photo required"],
         },
       },
       {
@@ -149,8 +146,7 @@ const dimensionDefs: DimensionDef[] = [
         label: "Poor",
         numericValue: 2,
         guideline: {
-          summary:
-            "Significant visible wear across much of the card, though the card remains structurally intact.",
+          summary: "Significant visible wear across much of the card, though the card remains structurally intact.",
           possibleIssues: [
             "Heavy corner rounding",
             "Major edge wear",
@@ -166,18 +162,9 @@ const dimensionDefs: DimensionDef[] = [
         label: "Damaged",
         numericValue: 1,
         guideline: {
-          summary:
-            "Card has structural damage but remains identifiable and authentic.",
-          possibleIssues: [
-            "Creases or folds",
-            "Tears",
-            "Water damage or staining",
-            "Peeling layers or severe dents",
-          ],
-          verificationRequirements: [
-            "Front straight on photo required",
-            "Back straight on photo required",
-          ],
+          summary: "Card has structural damage but remains identifiable and authentic.",
+          possibleIssues: ["Creases or folds", "Tears", "Water damage or staining", "Peeling layers or severe dents"],
+          verificationRequirements: ["Front straight on photo required", "Back straight on photo required"],
         },
       },
     ],
@@ -186,8 +173,7 @@ const dimensionDefs: DimensionDef[] = [
     key: "grading-company",
     dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId as DimensionId,
     name: "Grading Company",
-    description:
-      "Professional grading service that authenticated and graded the card",
+    description: "Professional grading service that authenticated and graded the card",
     valueKind: "unordered",
     options: [
       {
@@ -316,9 +302,7 @@ export type DimensionIds = Record<
   { dimensionId: DimensionId; optionIds: Record<string, OptionId>; orderedOptionIds: OptionId[] }
 >;
 
-export async function seedDimensions(
-  services: CatalogServices,
-): Promise<DimensionIds> {
+export async function seedDimensions(services: CatalogServices): Promise<DimensionIds> {
   console.log("Seeding dimensions...");
   const result: DimensionIds = {};
 
@@ -354,9 +338,7 @@ export async function seedDimensions(
     });
 
     result[def.key] = { dimensionId: def.dimensionId, optionIds, orderedOptionIds };
-    console.log(
-      `  Dimension "${def.name}" created with ${def.options.length} options`,
-    );
+    console.log(`  Dimension "${def.name}" created with ${def.options.length} options`);
   }
 
   return result;

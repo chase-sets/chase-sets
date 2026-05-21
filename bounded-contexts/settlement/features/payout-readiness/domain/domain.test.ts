@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decidePayoutReadiness,
-  evolvePayoutReadiness,
-  initialPayoutReadinessState,
-} from "./domain";
+import { decidePayoutReadiness, evolvePayoutReadiness, initialPayoutReadinessState } from "./domain";
 
 describe("payout readiness", () => {
   it("normalizes readiness requirements and provider references", () => {

@@ -1,13 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import {
-  AUTH_MAGIC_LINK_TTL_MS,
-  createExpiryTimestamp,
-} from "../../features/sessions/domain/auth-flow";
-import {
-  AUTH_ROLE_PERMISSIONS,
-} from "../auth-support/constants";
+import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   consumeChallenge,
   consumeGuestCheckoutClaimToken,
@@ -18,12 +13,7 @@ import {
   upsertPasskeyCredential,
 } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import {
-  createIdentityMutations,
-  createOwnedUserDisplayName,
-  getBootstrapContext,
-  type AuthApiApp,
-} from "./support";
+import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
 const AUTH_GUEST_CHECKOUT_TTL_MS = 1000 * 60 * 60 * 24;
 const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
@@ -44,10 +34,7 @@ function parseCookieHeader(cookieHeader: string | null) {
           return [part, ""];
         }
 
-        return [
-          part.slice(0, separatorIndex),
-          decodeURIComponent(part.slice(separatorIndex + 1)),
-        ];
+        return [part.slice(0, separatorIndex), decodeURIComponent(part.slice(separatorIndex + 1))];
       }),
   );
 }
@@ -66,18 +53,10 @@ function requireGuestCheckoutActor(actor: ResolvedActor | null) {
 }
 
 function readGuestCheckoutToken(request: Request) {
-  return (
-    parseCookieHeader(request.headers.get("cookie")).get(
-      AUTH_GUEST_CHECKOUT_COOKIE_NAME,
-    ) ?? null
-  );
+  return parseCookieHeader(request.headers.get("cookie")).get(AUTH_GUEST_CHECKOUT_COOKIE_NAME) ?? null;
 }
 
-async function requireGuestCheckoutContext(
-  services: AuthServices,
-  request: Request,
-  actor: ResolvedActor | null,
-) {
+async function requireGuestCheckoutContext(services: AuthServices, request: Request, actor: ResolvedActor | null) {
   const guestActor = requireGuestCheckoutActor(actor);
   if (!guestActor) {
     return null;
@@ -88,10 +67,7 @@ async function requireGuestCheckoutContext(
     return null;
   }
 
-  const tokenRecord = await getGuestCheckoutTokenByHash(
-    services.db,
-    services.auth.hashSecret(guestToken),
-  );
+  const tokenRecord = await getGuestCheckoutTokenByHash(services.db, services.auth.hashSecret(guestToken));
   if (!tokenRecord || tokenRecord.account_id !== guestActor.accountId) {
     return null;
   }
@@ -152,10 +128,7 @@ async function claimGuestAccountAndStartSession(
   });
 }
 
-export function registerGuestCheckoutRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/guest-checkout/start", async (c) => {
     const body = await c.req.json();
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
@@ -202,11 +175,7 @@ export function registerGuestCheckoutRoutes(
   });
 
   app.post("/guest-checkout/claim-context", async (c) => {
-    const context = await requireGuestCheckoutContext(
-      services,
-      c.req.raw,
-      c.var.actor,
-    );
+    const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
@@ -222,11 +191,7 @@ export function registerGuestCheckoutRoutes(
 
   app.post("/guest-checkout/claim-link/request", async (c) => {
     const body = await c.req.json();
-    const context = await requireGuestCheckoutContext(
-      services,
-      c.req.raw,
-      c.var.actor,
-    );
+    const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
@@ -251,11 +216,7 @@ export function registerGuestCheckoutRoutes(
 
   app.post("/guest-checkout/claim-with-magic-link", async (c) => {
     const body = await c.req.json();
-    const context = await requireGuestCheckoutContext(
-      services,
-      c.req.raw,
-      c.var.actor,
-    );
+    const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
@@ -283,21 +244,14 @@ export function registerGuestCheckoutRoutes(
       authenticationMethod: "magic-link",
       context: getBootstrapContext(c),
     });
-    await revokeGuestCheckoutTokenByHash(
-      services.db,
-      services.auth.hashSecret(context.guestToken),
-    );
+    await revokeGuestCheckoutTokenByHash(services.db, services.auth.hashSecret(context.guestToken));
 
     return c.json(authResult);
   });
 
   app.post("/guest-checkout/claim-with-passkey", async (c) => {
     const body = await c.req.json();
-    const context = await requireGuestCheckoutContext(
-      services,
-      c.req.raw,
-      c.var.actor,
-    );
+    const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
     }
@@ -311,7 +265,10 @@ export function registerGuestCheckoutRoutes(
       challengeValue: String(body.challenge ?? ""),
     });
     if (!challenge || challenge.email !== email) {
-      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.is.invalid.or.expired") }, 401);
+      return c.json(
+        { error: t("auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.is.invalid.or.expired") },
+        401,
+      );
     }
 
     const userId = await resolveClaimUser(services, identityMutations, {
@@ -319,7 +276,10 @@ export function registerGuestCheckoutRoutes(
       displayName,
     });
     if (challenge.user_id && challenge.user_id !== userId) {
-      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.does.not.match.this.email") }, 401);
+      return c.json(
+        { error: t("auth.support.apiSupport.guestCheckoutRoutes.passkey.challenge.does.not.match.this.email") },
+        401,
+      );
     }
 
     const credentialId = createId("crd");
@@ -341,10 +301,7 @@ export function registerGuestCheckoutRoutes(
       authenticationMethod: "passkey",
       context: getBootstrapContext(c),
     });
-    await revokeGuestCheckoutTokenByHash(
-      services.db,
-      services.auth.hashSecret(context.guestToken),
-    );
+    await revokeGuestCheckoutTokenByHash(services.db, services.auth.hashSecret(context.guestToken));
 
     return c.json(authResult);
   });

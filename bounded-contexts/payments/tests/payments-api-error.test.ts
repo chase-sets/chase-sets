@@ -10,9 +10,7 @@ describe("PaymentsApiError", () => {
       },
     });
 
-    expect(error.message).toBe(
-      "Marketplace checkout fee changed. Review the payment total and try again.",
-    );
+    expect(error.message).toBe("Marketplace checkout fee changed. Review the payment total and try again.");
   });
 
   it("uses string API errors without object coercion", () => {

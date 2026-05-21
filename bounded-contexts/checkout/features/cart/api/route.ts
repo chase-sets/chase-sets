@@ -13,23 +13,33 @@ function requireCartAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
-  if (
-    actor.permissions.includes("guest-checkout.manage") &&
-    !options.allowGuestCheckout
-  ) {
+  if (actor.permissions.includes("guest-checkout.manage") && !options.allowGuestCheckout) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("checkout.features.cart.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("checkout.features.cart.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -58,14 +68,8 @@ function createGuestCheckoutContext() {
 function parseVersionSelection(value: unknown) {
   return Array.isArray(value)
     ? value
-        .filter(
-          (selection): selection is { dimensionId: string; optionId: string } =>
-            Boolean(
-              selection &&
-              typeof selection === "object" &&
-              "dimensionId" in selection &&
-              "optionId" in selection,
-            ),
+        .filter((selection): selection is { dimensionId: string; optionId: string } =>
+          Boolean(selection && typeof selection === "object" && "dimensionId" in selection && "optionId" in selection),
         )
         .map((selection) => ({
           dimensionId: String(selection.dimensionId ?? ""),
@@ -82,8 +86,8 @@ function parseFulfillmentMode(body: Record<string, unknown>) {
   return {
     fulfillmentMode:
       body.fulfillmentMode === "locked-listing" || lockedListingId
-        ? "locked-listing" as const
-        : "optimize" as const,
+        ? ("locked-listing" as const)
+        : ("optimize" as const),
     lockedListingId,
     sellerPreferenceId:
       body.sellerPreferenceId === null || body.sellerPreferenceId === undefined
@@ -99,22 +103,14 @@ function parseCartLineBody(body: Record<string, unknown>) {
     catalogItemId: String(body.catalogItemId ?? ""),
     productId: String(body.productId ?? ""),
     itemTitle: String(body.itemTitle ?? ""),
-    itemSubtitle:
-      body.itemSubtitle === null || body.itemSubtitle === undefined
-        ? null
-        : String(body.itemSubtitle),
-    itemImageUrl:
-      body.itemImageUrl === null || body.itemImageUrl === undefined
-        ? null
-        : String(body.itemImageUrl),
+    itemSubtitle: body.itemSubtitle === null || body.itemSubtitle === undefined ? null : String(body.itemSubtitle),
+    itemImageUrl: body.itemImageUrl === null || body.itemImageUrl === undefined ? null : String(body.itemImageUrl),
     itemImageLoadingUrl: optionalBodyString(body.itemImageLoadingUrl),
     itemImageLoadingAlt: optionalBodyString(body.itemImageLoadingAlt),
     itemImageLoadingSrcSet: optionalBodyString(body.itemImageLoadingSrcSet),
     selectedOptions: parseVersionSelection(body.selectedOptions),
     productSummary:
-      body.productSummary === null || body.productSummary === undefined
-        ? null
-        : String(body.productSummary),
+      body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
     quantity: Number(body.quantity ?? 0),
     ...fulfillment,
   };
@@ -148,7 +144,15 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -176,7 +180,15 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json<Record<string, unknown>>();
@@ -207,7 +219,15 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -236,7 +256,15 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -272,7 +300,15 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("checkout.features.cart.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -318,7 +354,15 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
   app.post("/cart", async (c) => {
     const ownerId = requireAnonymousCartId(c);
     if (!ownerId) {
-      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+      return c.json(
+        {
+          error: {
+            code: "anonymous_cart_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        },
+        400,
+      );
     }
 
     const context = c.get("context") ?? createGuestCheckoutContext();
@@ -343,7 +387,15 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
   app.post("/cart/bulk", async (c) => {
     const ownerId = requireAnonymousCartId(c);
     if (!ownerId) {
-      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+      return c.json(
+        {
+          error: {
+            code: "anonymous_cart_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        },
+        400,
+      );
     }
 
     const context = c.get("context") ?? createGuestCheckoutContext();
@@ -370,7 +422,15 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
   app.post("/cart/:lineId/quantity", async (c) => {
     const ownerId = requireAnonymousCartId(c);
     if (!ownerId) {
-      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+      return c.json(
+        {
+          error: {
+            code: "anonymous_cart_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        },
+        400,
+      );
     }
 
     const context = c.get("context") ?? createGuestCheckoutContext();
@@ -395,7 +455,15 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
   app.post("/cart/:lineId/fulfillment", async (c) => {
     const ownerId = requireAnonymousCartId(c);
     if (!ownerId) {
-      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+      return c.json(
+        {
+          error: {
+            code: "anonymous_cart_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        },
+        400,
+      );
     }
 
     const context = c.get("context") ?? createGuestCheckoutContext();
@@ -427,7 +495,15 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
   app.post("/cart/:lineId/remove", async (c) => {
     const ownerId = requireAnonymousCartId(c);
     if (!ownerId) {
-      return c.json({ error: { code: "anonymous_cart_required", message: t("checkout.features.cart.api.route.authentication.required") } }, 400);
+      return c.json(
+        {
+          error: {
+            code: "anonymous_cart_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        },
+        400,
+      );
     }
 
     const context = c.get("context") ?? createGuestCheckoutContext();
@@ -460,7 +536,15 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "context_required", message: t("checkout.features.cart.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "context_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const result = await services.mergeCartIntoAccount(

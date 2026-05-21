@@ -13,9 +13,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction = () => [
-  { title: identityAdminAuthHostConfig.titles.sessionDetail! },
-];
+export const meta: MetaFunction = () => [{ title: identityAdminAuthHostConfig.titles.sessionDetail! }];
 
 export default function SessionDetailRoute() {
   const data = useLoaderData<typeof loader>();

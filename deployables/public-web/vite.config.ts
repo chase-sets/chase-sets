@@ -5,11 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { createWorkspaceSourceAliases } from "../../scripts/workspace-source-aliases.mjs";
 
 const localMachineHostnames = Array.from(
-  new Set(
-    [os.hostname().toLowerCase(), `${os.hostname().toLowerCase()}.local`].filter(
-      Boolean,
-    ),
-  ),
+  new Set([os.hostname().toLowerCase(), `${os.hostname().toLowerCase()}.local`].filter(Boolean)),
 );
 
 function escapeRegExp(value: string) {
@@ -18,15 +14,12 @@ function escapeRegExp(value: string) {
 
 const localDevCorsOrigins = [
   defaultAllowedOrigins,
-  ...localMachineHostnames.map(
-    (hostname) => new RegExp(`^https?:\\/\\/${escapeRegExp(hostname)}(?::\\d+)?$`, "i"),
-  ),
+  ...localMachineHostnames.map((hostname) => new RegExp(`^https?:\\/\\/${escapeRegExp(hostname)}(?::\\d+)?$`, "i")),
   /^https?:\/\/(?:[\w-]+\.)*[\w-]+\.local(?::\d+)?$/i,
   /^https?:\/\/(?:[\w-]+\.)*[\w-]+\.test(?::\d+)?$/i,
   /^https?:\/\/(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d+)?$/,
 ];
-const platformApiTarget =
-  process.env.VITE_PLATFORM_API_URL ?? process.env.PLATFORM_API_URL ?? "http://localhost:6182";
+const platformApiTarget = process.env.VITE_PLATFORM_API_URL ?? process.env.PLATFORM_API_URL ?? "http://localhost:6182";
 
 export default defineConfig({
   build: {

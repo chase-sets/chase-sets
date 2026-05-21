@@ -4,10 +4,7 @@ export type PgQueryResult<Row> = Readonly<{
 }>;
 
 export type PgQueryable = Readonly<{
-  query: <Row = Record<string, unknown>>(
-    text: string,
-    values?: readonly unknown[],
-  ) => Promise<PgQueryResult<Row>>;
+  query: <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => Promise<PgQueryResult<Row>>;
 }>;
 
 export type PgPoolClient = PgQueryable &

@@ -15,19 +15,10 @@ import {
   type DirectionValue,
   type JustifyValue,
   type SpaceToken,
-  type SystemProps
+  type SystemProps,
 } from "../utils/system";
 
-type BoxElement =
-  | "div"
-  | "section"
-  | "article"
-  | "aside"
-  | "header"
-  | "footer"
-  | "main"
-  | "nav"
-  | "span";
+type BoxElement = "div" | "section" | "article" | "aside" | "header" | "footer" | "main" | "nav" | "span";
 
 type FrameProps = Omit<HTMLAttributes<HTMLElement>, "className" | "style">;
 
@@ -35,16 +26,7 @@ export interface BoxProps extends PropsWithChildren, FrameProps, SystemProps {
   element?: BoxElement;
 }
 
-export function Box({
-  element = "div",
-  children,
-  padding,
-  paddingX,
-  paddingY,
-  gap,
-  textAlign,
-  ...rest
-}: BoxProps) {
+export function Box({ element = "div", children, padding, paddingX, paddingY, gap, textAlign, ...rest }: BoxProps) {
   const Component = element;
 
   return (
@@ -55,7 +37,7 @@ export function Box({
         paddingX,
         paddingY,
         gap,
-        textAlign
+        textAlign,
       })}
     >
       {children}
@@ -63,8 +45,7 @@ export function Box({
   );
 }
 
-export interface ContainerProps
-  extends Omit<BoxProps, "element"> {
+export interface ContainerProps extends Omit<BoxProps, "element"> {
   width?: LayoutWidth;
 }
 
@@ -75,7 +56,7 @@ export const layoutWidthClasses: Record<LayoutWidth, string> = {
   content: "max-w-5xl",
   wide: "max-w-7xl",
   expanded: "max-w-screen-2xl",
-  full: "max-w-none"
+  full: "max-w-none",
 };
 
 /**
@@ -94,27 +75,15 @@ export const sidebarWidthClasses = {
 
 export type SidebarWidth = keyof typeof sidebarWidthClasses;
 
-export function Container({
-  children,
-  width = "full",
-  paddingX = 4,
-  ...rest
-}: ContainerProps) {
+export function Container({ children, width = "full", paddingX = 4, ...rest }: ContainerProps) {
   return (
-    <div
-      {...rest}
-      className={cx("w-full", resolveSystemProps({ paddingX }))}
-    >
-      <div className={cx("mx-auto w-full", layoutWidthClasses[width])}>
-        {children}
-      </div>
+    <div {...rest} className={cx("w-full", resolveSystemProps({ paddingX }))}>
+      <div className={cx("mx-auto w-full", layoutWidthClasses[width])}>{children}</div>
     </div>
   );
 }
 
-export interface StackProps
-  extends PropsWithChildren,
-    Omit<FrameProps, "children"> {
+export interface StackProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   element?: BoxElement;
   direction?: ResponsiveValue<DirectionValue>;
   align?: ResponsiveValue<AlignValue>;
@@ -141,7 +110,7 @@ export function Stack({
         resolveDirectionClass(direction),
         resolveAlignClass(align),
         resolveJustifyClass(justify),
-        resolveSpaceClass("gap", gap)
+        resolveSpaceClass("gap", gap),
       )}
     >
       {children}
@@ -149,31 +118,15 @@ export function Stack({
   );
 }
 
-export interface InlineProps
-  extends PropsWithChildren,
-    Omit<FrameProps, "children"> {
+export interface InlineProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   gap?: SpaceToken;
   align?: ResponsiveValue<AlignValue>;
   wrap?: boolean;
 }
 
-export function Inline({
-  children,
-  gap = 3,
-  align = "center",
-  wrap = true,
-  ...rest
-}: InlineProps) {
+export function Inline({ children, gap = 3, align = "center", wrap = true, ...rest }: InlineProps) {
   return (
-    <div
-      {...rest}
-      className={cx(
-        "flex",
-        wrap && "flex-wrap",
-        resolveAlignClass(align),
-        resolveSpaceClass("gap", gap)
-      )}
-    >
+    <div {...rest} className={cx("flex", wrap && "flex-wrap", resolveAlignClass(align), resolveSpaceClass("gap", gap))}>
       {children}
     </div>
   );
@@ -183,13 +136,7 @@ export interface ClusterProps extends InlineProps {
   justify?: ResponsiveValue<JustifyValue>;
 }
 
-export function Cluster({
-  children,
-  justify = "between",
-  gap = 3,
-  align = "center",
-  ...rest
-}: ClusterProps) {
+export function Cluster({ children, justify = "between", gap = 3, align = "center", ...rest }: ClusterProps) {
   return (
     <div
       {...rest}
@@ -197,7 +144,7 @@ export function Cluster({
         "flex w-full flex-wrap",
         resolveAlignClass(align),
         resolveJustifyClass(justify),
-        resolveSpaceClass("gap", gap)
+        resolveSpaceClass("gap", gap),
       )}
     >
       {children}
@@ -205,23 +152,14 @@ export function Cluster({
   );
 }
 
-export interface GridProps
-  extends PropsWithChildren,
-    Omit<FrameProps, "children"> {
+export interface GridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   columns?: ResponsiveValue<ColumnCount>;
   gap?: SpaceToken;
   align?: ResponsiveValue<AlignValue>;
   justify?: ResponsiveValue<JustifyValue>;
 }
 
-export function Grid({
-  children,
-  columns = { base: 1, md: 2, xl: 3 },
-  gap = 4,
-  align,
-  justify,
-  ...rest
-}: GridProps) {
+export function Grid({ children, columns = { base: 1, md: 2, xl: 3 }, gap = 4, align, justify, ...rest }: GridProps) {
   return (
     <div
       {...rest}
@@ -230,7 +168,7 @@ export function Grid({
         resolveColumnsClass(columns),
         resolveAlignClass(align),
         resolveJustifyClass(justify),
-        resolveSpaceClass("gap", gap)
+        resolveSpaceClass("gap", gap),
       )}
     >
       {children}
@@ -244,21 +182,14 @@ export interface SpacerProps extends Omit<FrameProps, "children"> {
   flexible?: boolean;
 }
 
-export function Spacer({
-  axis = "vertical",
-  size = 4,
-  flexible = false,
-  ...rest
-}: SpacerProps) {
+export function Spacer({ axis = "vertical", size = 4, flexible = false, ...rest }: SpacerProps) {
   return (
     <div
       {...rest}
       aria-hidden="true"
       className={cx(
         flexible && "flex-1",
-        axis === "vertical"
-          ? resolveSpaceClass("my", size)
-          : resolveSpaceClass("mx", size)
+        axis === "vertical" ? resolveSpaceClass("my", size) : resolveSpaceClass("mx", size),
       )}
     />
   );
@@ -266,11 +197,7 @@ export function Spacer({
 
 export interface InsetProps extends BoxProps {}
 
-export function Inset({
-  children,
-  padding = 4,
-  ...rest
-}: InsetProps) {
+export function Inset({ children, padding = 4, ...rest }: InsetProps) {
   return (
     <Box {...rest} padding={padding}>
       {children}
@@ -282,35 +209,19 @@ export interface CenterProps extends PropsWithChildren, Omit<FrameProps, "childr
   inline?: boolean;
 }
 
-export function Center({
-  children,
-  inline = false,
-  ...rest
-}: CenterProps) {
+export function Center({ children, inline = false, ...rest }: CenterProps) {
   return (
-    <div
-      {...rest}
-      className={cx(
-        inline ? "inline-flex" : "flex",
-        "items-center justify-center"
-      )}
-    >
+    <div {...rest} className={cx(inline ? "inline-flex" : "flex", "items-center justify-center")}>
       {children}
     </div>
   );
 }
 
-export interface AspectRatioProps
-  extends PropsWithChildren,
-    Omit<FrameProps, "children"> {
+export interface AspectRatioProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   ratio?: number;
 }
 
-export function AspectRatio({
-  children,
-  ratio = 1,
-  ...rest
-}: AspectRatioProps) {
+export function AspectRatio({ children, ratio = 1, ...rest }: AspectRatioProps) {
   return (
     <div {...rest} style={{ aspectRatio: ratio }}>
       {children}
@@ -318,10 +229,7 @@ export function AspectRatio({
   );
 }
 
-export interface SurfaceProps
-  extends PropsWithChildren,
-    Omit<FrameProps, "children">,
-    SystemProps {
+export interface SurfaceProps extends PropsWithChildren, Omit<FrameProps, "children">, SystemProps {
   element?: BoxElement;
   tone?: "default" | "muted" | "accent" | "subtle";
   elevated?: boolean;
@@ -332,7 +240,7 @@ const surfaceToneClasses: Record<NonNullable<SurfaceProps["tone"]>, string> = {
   default: "glass-surface bg-elevated",
   muted: "bg-surface-2",
   accent: "brand-gradient text-accent-contrast",
-  subtle: "bg-surface border-muted"
+  subtle: "bg-surface border-muted",
 };
 
 export function Surface({
@@ -361,10 +269,10 @@ export function Surface({
           paddingX,
           paddingY,
           gap,
-          textAlign
+          textAlign,
         }),
         elevated ? "shadow-tokenLg" : "shadow-tokenSm",
-        glow && "glow-accent"
+        glow && "glow-accent",
       )}
     >
       {children}
@@ -372,32 +280,23 @@ export function Surface({
   );
 }
 
-export interface DividerProps
-  extends Omit<ComponentProps<typeof SeparatorPrimitive>, "className" | "style"> {
+export interface DividerProps extends Omit<ComponentProps<typeof SeparatorPrimitive>, "className" | "style"> {
   decorative?: boolean;
 }
 
-export function Divider({
-  orientation = "horizontal",
-  decorative = true,
-  ...rest
-}: DividerProps) {
+export function Divider({ orientation = "horizontal", decorative = true, ...rest }: DividerProps) {
   return (
     <SeparatorPrimitive
       {...rest}
       aria-hidden={decorative || undefined}
       orientation={orientation}
-      className={cx(
-        "shrink-0 bg-border",
-        orientation === "horizontal" ? "h-px w-full" : "h-full w-px"
-      )}
+      className={cx("shrink-0 bg-border", orientation === "horizontal" ? "h-px w-full" : "h-full w-px")}
     />
   );
 }
 
 export interface ScrollAreaProps
-  extends PropsWithChildren,
-    Omit<ComponentProps<typeof ScrollAreaPrimitive.Root>, "className" | "style" | "children"> {
+  extends PropsWithChildren, Omit<ComponentProps<typeof ScrollAreaPrimitive.Root>, "className" | "style" | "children"> {
   height?: "auto" | "sm" | "md" | "lg" | "full";
 }
 
@@ -406,25 +305,16 @@ const scrollHeights: Record<NonNullable<ScrollAreaProps["height"]>, string> = {
   sm: "max-h-48",
   md: "max-h-72",
   lg: "max-h-96",
-  full: "h-full"
+  full: "h-full",
 };
 
-export function ScrollArea({
-  children,
-  height = "auto",
-  ...rest
-}: ScrollAreaProps) {
+export function ScrollArea({ children, height = "auto", ...rest }: ScrollAreaProps) {
   return (
     <ScrollAreaPrimitive.Root
       {...rest}
-      className={cx(
-        "modern-surface overflow-hidden rounded-tokenLg border border-muted",
-        scrollHeights[height]
-      )}
+      className={cx("modern-surface overflow-hidden rounded-tokenLg border border-muted", scrollHeights[height])}
     >
-      <ScrollAreaPrimitive.Viewport className="h-full w-full">
-        {children}
-      </ScrollAreaPrimitive.Viewport>
+      <ScrollAreaPrimitive.Viewport className="h-full w-full">{children}</ScrollAreaPrimitive.Viewport>
       <ScrollAreaPrimitive.Scrollbar
         orientation="vertical"
         className="flex w-2.5 touch-none select-none bg-transparent p-0.5"
@@ -442,14 +332,9 @@ export function ScrollArea({
   );
 }
 
-export interface VisuallyHiddenProps
-  extends PropsWithChildren,
-    Omit<FrameProps, "children"> {}
+export interface VisuallyHiddenProps extends PropsWithChildren, Omit<FrameProps, "children"> {}
 
-export function VisuallyHidden({
-  children,
-  ...rest
-}: VisuallyHiddenProps) {
+export function VisuallyHidden({ children, ...rest }: VisuallyHiddenProps) {
   return (
     <span {...rest} className="sr-only">
       {children}
@@ -457,9 +342,7 @@ export function VisuallyHidden({
   );
 }
 
-export function renderOptionalNode(
-  node?: ReactNode
-): ReactNode {
+export function renderOptionalNode(node?: ReactNode): ReactNode {
   return node ?? null;
 }
 
@@ -468,10 +351,7 @@ export interface SkipLinkProps {
   label?: string;
 }
 
-export function SkipLink({
-  targetId = "main-content",
-  label = "Skip to main content"
-}: SkipLinkProps) {
+export function SkipLink({ targetId = "main-content", label = "Skip to main content" }: SkipLinkProps) {
   return (
     <a
       href={`#${targetId}`}

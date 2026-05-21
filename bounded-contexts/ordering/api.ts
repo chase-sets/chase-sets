@@ -1,10 +1,7 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { OrderingServices } from "./support/runtime-support/services";
-import {
-  createAccountPurchaseOrderRoutes,
-  createAccountSaleOrderRoutes,
-} from "./features/orders/api/route";
+import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "./features/orders/api/route";
 
 export type OrderingApiEnv = AuthenticatedApiEnv;
 

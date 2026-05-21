@@ -19,7 +19,7 @@ export function TagInput({
   values,
   onValuesChange,
   placeholder = "Add a tag\u2026",
-  maxTags
+  maxTags,
 }: TagInputProps) {
   const [input, setInput] = useState("");
   const inputId = useId();
@@ -79,7 +79,7 @@ export function TagInput({
           onKeyDown={handleKeyDown}
           onBlur={() => addTag(input)}
           placeholder={values.length === 0 ? placeholder : undefined}
-          aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+          aria-describedby={error || description ? fieldHintId(inputId) : undefined}
           aria-invalid={!!error || undefined}
           className="min-w-20 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-secondary"
         />

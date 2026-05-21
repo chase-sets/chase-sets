@@ -33,13 +33,7 @@ describe("item detail product selector", () => {
       ],
     };
 
-    render(
-      <ProductSelector
-        schema={schema}
-        selections={{}}
-        onSelectionChange={vi.fn()}
-      />,
-    );
+    render(<ProductSelector schema={schema} selections={{}} onSelectionChange={vi.fn()} />);
 
     await user.click(screen.getByRole("combobox", { name: "Condition" }));
 

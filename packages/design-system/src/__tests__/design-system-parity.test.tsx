@@ -28,7 +28,7 @@ import {
   ProgressiveDisclosureGroup,
   Rating,
   ToastRegion,
-  Tooltip
+  Tooltip,
 } from "../components/feedback";
 import {
   Checkbox,
@@ -40,7 +40,7 @@ import {
   SearchInput,
   Select,
   Switch,
-  TagInput
+  TagInput,
 } from "../components/forms";
 import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
@@ -62,7 +62,7 @@ import {
   ResponsiveEditSheet,
   SellerBadge,
   TokenSwatch,
-  Wizard
+  Wizard,
 } from "../patterns/app-shells";
 import { SkipLink } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
@@ -82,8 +82,8 @@ function ControlledToastHarness() {
             description: "Closes through caller state.",
             tone: "success",
             open,
-            onOpenChange: setOpen
-          }
+            onOpenChange: setOpen,
+          },
         ]}
       />
     </ChaseRoot>
@@ -99,8 +99,8 @@ function UncontrolledToastHarness() {
             id: "uncontrolled-toast",
             title: "Uncontrolled toast",
             description: "Closes without external state.",
-            tone: "info"
-          }
+            tone: "info",
+          },
         ]}
       />
     </ChaseRoot>
@@ -132,15 +132,13 @@ function DialogInteractionHarness({ title }: { title: string }) {
 }
 
 describe("design system", () => {
-  const marketplaceNav = [
-    { key: "browse", label: "Browse", icon: "search" as const }
-  ];
+  const marketplaceNav = [{ key: "browse", label: "Browse", icon: "search" as const }];
 
   it("resolves theme variables", () => {
     const style = resolveThemeStyle({
       colors: {
-        accent: "#000000"
-      }
+        accent: "#000000",
+      },
     });
 
     expect(style["--color-accent" as never]).toBe("#000000");
@@ -149,8 +147,8 @@ describe("design system", () => {
   it("only injects explicit theme overrides for scoped runtime styles", () => {
     const style = resolveThemeOverrideStyle({
       typography: {
-        body: "Instrument Sans"
-      }
+        body: "Instrument Sans",
+      },
     });
 
     expect(style?.["--font-body" as never]).toBe("Instrument Sans");
@@ -161,7 +159,7 @@ describe("design system", () => {
     const markup = renderToString(
       <ChaseRoot>
         <Button>Ship it</Button>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(markup).toContain("data-chase-theme");
@@ -173,7 +171,7 @@ describe("design system", () => {
     render(
       <ChaseRoot reducedMotion="always">
         <MotionStatus />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("reduced")).toBeTruthy();
@@ -187,14 +185,14 @@ describe("design system", () => {
       value: () => ({
         matches: true,
         addEventListener: () => {},
-        removeEventListener: () => {}
-      })
+        removeEventListener: () => {},
+      }),
     });
 
     render(
       <ChaseRoot>
         <MotionStatus />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("reduced")).toBeTruthy();
@@ -209,11 +207,11 @@ describe("design system", () => {
             {
               value: "one",
               label: "One",
-              content: <div>First tab</div>
-            }
+              content: <div>First tab</div>,
+            },
           ]}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("First tab")).toBeTruthy();
@@ -227,10 +225,10 @@ describe("design system", () => {
           {
             key: "name",
             header: "Name",
-            cell: (row: { name: string }) => row.name
-          }
+            cell: (row: { name: string }) => row.name,
+          },
         ]}
-      />
+      />,
     );
 
     expect(screen.getByText("Nothing to review")).toBeTruthy();
@@ -242,7 +240,7 @@ describe("design system", () => {
         <Dialog open title="Review listing">
           Content body
         </Dialog>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("Review listing")).toBeTruthy();
@@ -255,27 +253,22 @@ describe("design system", () => {
         <Dialog open title="Review listing">
           Content body
         </Dialog>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
-    expect(document.querySelector(".motion-safe-scroll-area")?.textContent)
-      .toContain("Content body");
+    expect(document.querySelector(".motion-safe-scroll-area")?.textContent).toContain("Content body");
 
     unmount();
 
     render(
       <ChaseRoot>
-        <Combobox
-          label="Condition"
-          items={[{ value: "nm", label: "Near Mint" }]}
-        />
-      </ChaseRoot>
+        <Combobox label="Condition" items={[{ value: "nm", label: "Near Mint" }]} />
+      </ChaseRoot>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Condition" }));
 
-    expect((await screen.findByRole("listbox")).getAttribute("class"))
-      .toContain("motion-safe-scroll-area");
+    expect((await screen.findByRole("listbox")).getAttribute("class")).toContain("motion-safe-scroll-area");
   });
 
   it("selects values from Base UI select popups", async () => {
@@ -288,11 +281,11 @@ describe("design system", () => {
           label="Condition"
           items={[
             { value: "lp", label: "Lightly Played" },
-            { value: "nm", label: "Near Mint" }
+            { value: "nm", label: "Near Mint" },
           ]}
           onValueChange={onValueChange}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     await user.click(screen.getByRole("combobox", { name: "Condition" }));
@@ -331,11 +324,8 @@ describe("design system", () => {
 
     render(
       <ChaseRoot>
-        <Menu
-          trigger={<Button>Actions</Button>}
-          items={[{ key: "duplicate", label: "Duplicate listing", onSelect }]}
-        />
-      </ChaseRoot>
+        <Menu trigger={<Button>Actions</Button>} items={[{ key: "duplicate", label: "Duplicate listing", onSelect }]} />
+      </ChaseRoot>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
@@ -353,7 +343,7 @@ describe("design system", () => {
       <ChaseRoot>
         <Checkbox label="Accept terms" onCheckedChange={onCheckedChange} />
         <Switch label="Auto price" onCheckedChange={onSwitchChange} />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     await user.click(screen.getByRole("checkbox", { name: "Accept terms" }));
@@ -369,7 +359,7 @@ describe("design system", () => {
         <Tooltip content="Price includes marketplace fees">
           <button type="button">Fee help</button>
         </Tooltip>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     fireEvent.focus(screen.getByRole("button", { name: "Fee help" }));
@@ -393,11 +383,11 @@ describe("design system", () => {
           label="Character"
           items={[
             { value: "charizard", label: "Charizard" },
-            { value: "pikachu", label: "Pikachu" }
+            { value: "pikachu", label: "Pikachu" },
           ]}
           onValueChange={onValueChange}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     await user.click(screen.getByRole("combobox", { name: "Character" }));
@@ -419,7 +409,7 @@ describe("design system", () => {
           incrementLabel="Increase quantity"
           decrementLabel="Decrease quantity"
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     await user.click(screen.getByRole("button", { name: "Increase quantity" }));
@@ -439,11 +429,11 @@ describe("design system", () => {
           label="View mode"
           items={[
             { value: "grid", label: "Grid" },
-            { value: "list", label: "List" }
+            { value: "list", label: "List" },
           ]}
           onValueChange={onValueChange}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     await user.click(screen.getByRole("button", { name: "Watch listing" }));
@@ -469,11 +459,11 @@ describe("design system", () => {
             {
               value: "sell",
               label: "Sell",
-              content: <div>Sales workflows</div>
-            }
+              content: <div>Sales workflows</div>,
+            },
           ]}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByRole("toolbar", { name: "Listing tools" })).toBeTruthy();
@@ -497,14 +487,12 @@ describe("design system", () => {
               key: "sell",
               label: "Sell",
               icon: "store",
-              children: [
-                { key: "listings", label: "Listings", href: "/account/listings" }
-              ]
-            }
+              children: [{ key: "listings", label: "Listings", href: "/account/listings" }],
+            },
           ]}
           activeKey="listings"
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     const sellSummary = screen.getByText("Sell").closest("summary");
@@ -525,7 +513,7 @@ describe("design system", () => {
             <div>Animated page</div>
           </ViewTransition>
         </Stagger>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(markup).toContain("Animated card");
@@ -536,13 +524,9 @@ describe("design system", () => {
     render(<ControlledToastHarness />);
 
     expect(screen.getByText("Controlled toast")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss notification" })).toBeTruthy();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
 
     await waitFor(() => {
       expect(screen.queryByText("Controlled toast")).toBeNull();
@@ -553,13 +537,9 @@ describe("design system", () => {
     render(<UncontrolledToastHarness />);
 
     expect(screen.getByText("Uncontrolled toast")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss notification" })).toBeTruthy();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Dismiss notification" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
 
     await waitFor(() => {
       expect(screen.queryByText("Uncontrolled toast")).toBeNull();
@@ -588,9 +568,9 @@ describe("design system", () => {
         note="Raw / Excellent"
         facts={[
           { label: "Available", value: "3" },
-          { label: "Sellers", value: "1" }
+          { label: "Sellers", value: "1" },
         ]}
-      />
+      />,
     );
 
     expect(markup).toContain("$21.50");
@@ -608,7 +588,7 @@ describe("design system", () => {
             aria-label="Choose intent"
             items={[
               { value: "buy", label: "Buy" },
-              { value: "sell", label: "Sell" }
+              { value: "sell", label: "Sell" },
             ]}
             value="buy"
           />
@@ -616,7 +596,7 @@ describe("design system", () => {
         summary="Raw / Near Mint"
         primaryAction={<button type="button">Buy</button>}
         secondaryAction={<button type="button">Make offer</button>}
-      />
+      />,
     );
 
     expect(markup).toContain("Choose intent");
@@ -631,31 +611,30 @@ describe("design system", () => {
           open
           title="Buy selected product"
           description="Raw / Near Mint"
-          footer={<Button form="commerce-form" type="submit">Buy now</Button>}
+          footer={
+            <Button form="commerce-form" type="submit">
+              Buy now
+            </Button>
+          }
         >
           <form id="commerce-form">Quantity</form>
         </CommerceBottomSheet>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     const bottomSheet = screen.getByRole("dialog", { name: "Buy selected product" });
     expect(within(bottomSheet).getByText("Quantity")).toBeTruthy();
     expect(within(bottomSheet).getByRole("button", { name: "Buy now" })).toBeTruthy();
-    expect(within(bottomSheet).getByText("Quantity").parentElement?.className)
-      .toContain("panel-edge-scroll-area");
+    expect(within(bottomSheet).getByText("Quantity").parentElement?.className).toContain("panel-edge-scroll-area");
   });
 
   it("renders responsive commerce and edit sheets", () => {
     const { unmount } = render(
       <ChaseRoot>
-        <CommerceSheet
-          open
-          title="Bulk add preview"
-          description="Inspect matching products."
-        >
+        <CommerceSheet open title="Bulk add preview" description="Inspect matching products.">
           Matching products
         </CommerceSheet>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByRole("dialog", { name: "Bulk add preview" })).toBeTruthy();
@@ -665,14 +644,10 @@ describe("design system", () => {
 
     render(
       <ChaseRoot>
-        <ResponsiveEditSheet
-          open
-          title="Edit saved address"
-          description="Update destination details."
-        >
+        <ResponsiveEditSheet open title="Edit saved address" description="Update destination details.">
           Address fields
         </ResponsiveEditSheet>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByRole("dialog", { name: "Edit saved address" })).toBeTruthy();
@@ -689,31 +664,37 @@ describe("design system", () => {
           open
           view="feed"
           unreadCount={1}
-          notifications={[{
-            deliveryId: "del_1",
-            title: "Shipment updated",
-            body: "Your order is moving.",
-            sourceLabel: "Shipments",
-            createdAtLabel: "Today",
-            read: false,
-          }]}
-          preferences={[{
-            key: "product-alerts",
-            label: "Product alerts",
-            description: "Notify when watched products match.",
-            enabled: true,
-          }]}
-          productAlerts={[{
-            id: "alert_1",
-            title: "Charizard / Near Mint",
-            detail: "Listings · at or below $20",
-            status: "active",
-            productHref: "/items/card_1",
-          }]}
+          notifications={[
+            {
+              deliveryId: "del_1",
+              title: "Shipment updated",
+              body: "Your order is moving.",
+              sourceLabel: "Shipments",
+              createdAtLabel: "Today",
+              read: false,
+            },
+          ]}
+          preferences={[
+            {
+              key: "product-alerts",
+              label: "Product alerts",
+              description: "Notify when watched products match.",
+              enabled: true,
+            },
+          ]}
+          productAlerts={[
+            {
+              id: "alert_1",
+              title: "Charizard / Near Mint",
+              detail: "Listings · at or below $20",
+              status: "active",
+              productHref: "/items/card_1",
+            },
+          ]}
           onViewChange={onViewChange}
           onMarkRead={onMarkRead}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     const sheet = screen.getByRole("dialog", { name: "Notifications" });
@@ -734,7 +715,7 @@ describe("design system", () => {
           md: "md:flex-row",
           lg: "lg:flex-row",
           xl: "xl:flex-row",
-          "2xl": "2xl:flex-row"
+          "2xl": "2xl:flex-row",
         },
         column: {
           base: "flex-col",
@@ -742,9 +723,9 @@ describe("design system", () => {
           md: "md:flex-col",
           lg: "lg:flex-col",
           xl: "xl:flex-col",
-          "2xl": "2xl:flex-col"
-        }
-      }
+          "2xl": "2xl:flex-col",
+        },
+      },
     );
 
     expect(result).toContain("flex-row");
@@ -760,7 +741,7 @@ describe("design system", () => {
   it("renders Rating with correct number of stars", () => {
     const markup = renderToString(<Rating value={3} max={5} label="Product rating" />);
 
-    expect(markup).toContain("aria-label=\"Product rating\"");
+    expect(markup).toContain('aria-label="Product rating"');
     // 3 filled stars have fill="currentColor", 2 empty stars do not
     const filledCount = (markup.match(/fill="currentColor"/g) || []).length;
     expect(filledCount).toBe(3);
@@ -770,7 +751,7 @@ describe("design system", () => {
     render(
       <ChaseRoot>
         <Rating value={3} max={5} interactive label="Rate this" />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByRole("radiogroup")).toBeTruthy();
@@ -784,10 +765,10 @@ describe("design system", () => {
           collapsible
           items={[
             { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
-            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> }
+            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> },
           ]}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("Section 1")).toBeTruthy();
@@ -805,10 +786,10 @@ describe("design system", () => {
           defaultValue="item1"
           items={[
             { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
-            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> }
+            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> },
           ]}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     const accordion = screen.getByTestId("section-list-accordion");
@@ -832,10 +813,10 @@ describe("design system", () => {
           defaultValue="item1"
           items={[
             { value: "item1", trigger: "Section 1", content: <div>Content 1</div> },
-            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> }
+            { value: "item2", trigger: "Section 2", content: <div>Content 2</div> },
           ]}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     const accordion = screen.getByTestId("sheet-list-accordion");
@@ -863,7 +844,7 @@ describe("design system", () => {
           description="Save this exact selection and continue shopping."
           active
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("Add to cart")).toBeTruthy();
@@ -891,7 +872,7 @@ describe("design system", () => {
         >
           <button type="button">Set account limits</button>
         </ProgressiveDisclosure>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     const trigger = screen.getByRole("button", { name: /Advanced seller controls/ });
@@ -921,7 +902,7 @@ describe("design system", () => {
               summary: "Return window visible",
               content: <div>Order protection and return paths.</div>,
               icon: "shield",
-              tone: "accent"
+              tone: "accent",
             },
             {
               value: "automation",
@@ -929,11 +910,11 @@ describe("design system", () => {
               summary: "Manual review",
               content: <div>Routing and notification controls.</div>,
               icon: "spark",
-              tone: "warning"
-            }
+              tone: "warning",
+            },
           ]}
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("Advanced options")).toBeTruthy();
@@ -949,9 +930,9 @@ describe("design system", () => {
       <ImageGallery
         images={[
           { src: "/img1.jpg", alt: "Front" },
-          { src: "/img2.jpg", alt: "Back" }
+          { src: "/img2.jpg", alt: "Back" },
         ]}
-      />
+      />,
     );
 
     expect(markup).toContain("Front");
@@ -959,13 +940,7 @@ describe("design system", () => {
   });
 
   it("renders ImageGallery product imagery in a chrome-less alpha-preserving frame", () => {
-    const markup = renderToString(
-      <ImageGallery
-        images={[
-          { src: "/img1.webp", alt: "Front" }
-        ]}
-      />
-    );
+    const markup = renderToString(<ImageGallery images={[{ src: "/img1.webp", alt: "Front" }]} />);
 
     expect(markup).toContain("relative overflow-visible");
     expect(markup).toContain("object-contain");
@@ -977,10 +952,10 @@ describe("design system", () => {
       <ImageGallery
         images={[
           { src: "/img1.jpg", alt: "Front" },
-          { src: "/img2.jpg", alt: "Back" }
+          { src: "/img2.jpg", alt: "Back" },
         ]}
         thumbnailPlacement="left"
-      />
+      />,
     );
 
     expect(markup).toContain("flex items-start justify-center gap-3");
@@ -988,12 +963,7 @@ describe("design system", () => {
   });
 
   it("renders ImageGallery empty states inside the gallery frame", () => {
-    const markup = renderToString(
-      <ImageGallery
-        images={[]}
-        emptyState={<div>Gallery placeholder</div>}
-      />
-    );
+    const markup = renderToString(<ImageGallery images={[]} emptyState={<div>Gallery placeholder</div>} />);
 
     expect(markup).toContain("Gallery placeholder");
   });
@@ -1004,7 +974,7 @@ describe("design system", () => {
         images={[]}
         fallbackImage={{ src: "/fallback-card-back.png", alt: "Card back" }}
         emptyState={<div>Gallery placeholder</div>}
-      />
+      />,
     );
 
     expect(markup).toContain('src="/fallback-card-back.png"');
@@ -1015,7 +985,7 @@ describe("design system", () => {
     render(
       <ChaseRoot>
         <CopyButton value="test-value" label="Copy ID" />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("Copy ID")).toBeTruthy();
@@ -1025,7 +995,7 @@ describe("design system", () => {
     render(
       <ChaseRoot>
         <TagInput values={["Pokemon", "Charizard"]} placeholder="Add tag" />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("Pokemon")).toBeTruthy();
@@ -1036,7 +1006,7 @@ describe("design system", () => {
     render(
       <ChaseRoot>
         <PasswordInput label="Password" />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByLabelText("Password")).toBeTruthy();
@@ -1054,7 +1024,7 @@ describe("design system", () => {
     const markup = renderToString(
       <Card media={<img src="/card.jpg" alt="Card" />}>
         <div>Card content</div>
-      </Card>
+      </Card>,
     );
 
     expect(markup).toContain("Card content");
@@ -1070,7 +1040,7 @@ describe("design system", () => {
         imageSrc="/demo-assets/pikachu-card.svg"
         imageAlt="Pikachu card"
         imageFit="contain"
-      />
+      />,
     );
 
     expect(markup).toContain("2020 Pikachu VMAX");
@@ -1087,7 +1057,7 @@ describe("design system", () => {
           fallbackImageSrc="/pokemon-card-back.png"
           fallbackImageAlt="Pokemon card back"
         />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     fireEvent.error(screen.getByAltText("Pikachu card"));
@@ -1097,13 +1067,7 @@ describe("design system", () => {
   });
 
   it("renders ProductCard as a link when href is provided", () => {
-    const markup = renderToString(
-      <ProductCard
-        href="/items/pikachu"
-        title="2020 Pikachu VMAX"
-        price="$1,250"
-      />
-    );
+    const markup = renderToString(<ProductCard href="/items/pikachu" title="2020 Pikachu VMAX" price="$1,250" />);
 
     expect(markup).toContain("<a");
     expect(markup).toContain('href="/items/pikachu"');
@@ -1113,12 +1077,8 @@ describe("design system", () => {
   it("renders ProductCard as a button when onSelect is provided", () => {
     render(
       <ChaseRoot>
-        <ProductCard
-          title="Selectable card"
-          selectLabel="Open selectable card"
-          onSelect={() => {}}
-        />
-      </ChaseRoot>
+        <ProductCard title="Selectable card" selectLabel="Open selectable card" onSelect={() => {}} />
+      </ChaseRoot>,
     );
 
     expect(screen.getByRole("button", { name: "Open selectable card" })).toBeTruthy();
@@ -1137,7 +1097,7 @@ describe("design system", () => {
         actionLabel="View listings"
         categoryTags={["Pokemon TCG", "Singles"]}
         metadataTags={["jungle", "pikachu"]}
-      />
+      />,
     );
 
     expect(markup).toContain("Available now");
@@ -1161,7 +1121,7 @@ describe("design system", () => {
         selectedId="pokemon"
         searchable
         onSelect={() => {}}
-      />
+      />,
     );
     const facetStripMarkup = renderToString(
       <MarketplaceFacetStrip
@@ -1170,7 +1130,7 @@ describe("design system", () => {
         items={[{ id: "near-mint", label: "Near Mint", count: 3 }]}
         selectedIds={["near-mint"]}
         onSelect={() => {}}
-      />
+      />,
     );
     const heroMarkup = renderToString(
       <MarketplaceLandingHero
@@ -1180,7 +1140,7 @@ describe("design system", () => {
         search={<SearchInput hideLabel label="Search" />}
         filters={[{ id: "", label: "All", selected: true, onSelect: () => {} }]}
         metrics={[{ label: "Available Now", value: 3, detail: "With active listings" }]}
-      />
+      />,
     );
     const statusMarkup = renderToString(<MarketStatusBadge status="marketOnly" />);
 
@@ -1188,7 +1148,9 @@ describe("design system", () => {
     expect(facetMarkup).toContain("Pokemon TCG (7)");
     expect(facetMarkup).toContain("Show more");
     expect(facetMarkup).toContain("<section");
-    expect(facetMarkup).not.toContain("glass-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2");
+    expect(facetMarkup).not.toContain(
+      "glass-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2",
+    );
     expect(facetMarkup).not.toContain("overflow-y-auto");
     expect(facetStripMarkup).toContain("Condition");
     expect(facetStripMarkup).toContain("Near Mint (3)");
@@ -1198,9 +1160,7 @@ describe("design system", () => {
   });
 
   it("renders token swatches for the spec board", () => {
-    const markup = renderToString(
-      <TokenSwatch label="Primary Blue" value="#3882F6" color="brandPrimary" />
-    );
+    const markup = renderToString(<TokenSwatch label="Primary Blue" value="#3882F6" color="brandPrimary" />);
 
     expect(markup).toContain("Primary Blue");
     expect(markup).toContain("#3882F6");
@@ -1209,12 +1169,8 @@ describe("design system", () => {
   it("renders NativeSelect with accessible label and placeholder", () => {
     render(
       <ChaseRoot>
-        <NativeSelect
-          label="Condition"
-          placeholder="Choose condition"
-          items={[{ value: "nm", label: "Near Mint" }]}
-        />
-      </ChaseRoot>
+        <NativeSelect label="Condition" placeholder="Choose condition" items={[{ value: "nm", label: "Near Mint" }]} />
+      </ChaseRoot>,
     );
 
     expect(screen.getByLabelText("Condition")).toBeTruthy();
@@ -1227,12 +1183,12 @@ describe("design system", () => {
         rows={[{ name: "Alpha", price: 10 }]}
         columns={[
           { key: "name", header: "Name", cell: (r: { name: string }) => r.name, sortable: true },
-          { key: "price", header: "Price", cell: (r: { price: number }) => r.price }
+          { key: "price", header: "Price", cell: (r: { price: number }) => r.price },
         ]}
         sortKey="name"
         sortDirection="asc"
         onSortChange={() => {}}
-      />
+      />,
     );
 
     expect(markup).toContain("Alpha");
@@ -1245,7 +1201,7 @@ describe("design system", () => {
     render(
       <ChaseRoot>
         <ColorModeToggle value="dark" onValueChange={() => {}} />
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByText("Dark")).toBeTruthy();
@@ -1256,11 +1212,11 @@ describe("design system", () => {
       <Wizard
         steps={[
           { key: "step1", label: "First", content: <div>Step 1 content</div> },
-          { key: "step2", label: "Second", content: <div>Step 2 content</div> }
+          { key: "step2", label: "Second", content: <div>Step 2 content</div> },
         ]}
         activeStep="step1"
         onStepChange={() => {}}
-      />
+      />,
     );
 
     expect(markup).toContain("Step 1 content");
@@ -1279,44 +1235,32 @@ describe("design system", () => {
         >
           <div>Body</div>
         </MarketplaceShell>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     const main = screen.getByRole("main");
 
     expect(main.getAttribute("id")).toBe("main-content");
     expect(main.getAttribute("class")).toContain("relative z-0");
-    expect(
-      screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")
-    ).toBe("#main-content");
+    expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
 
   it("renders admin shells with a main landmark and skip link target", () => {
     render(
       <ChaseRoot>
-        <AdminShell
-          brand={<div>Brand</div>}
-          navItems={marketplaceNav}
-          activeKey="browse"
-        >
+        <AdminShell brand={<div>Brand</div>} navItems={marketplaceNav} activeKey="browse">
           <div>Body</div>
         </AdminShell>
-      </ChaseRoot>
+      </ChaseRoot>,
     );
 
     expect(screen.getByRole("main").getAttribute("id")).toBe("main-content");
-    expect(
-      screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")
-    ).toBe("#main-content");
+    expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
 
   it("renders i18n props with custom labels", () => {
     const markup = renderToString(
-      <OrderSummary
-        lines={[{ label: "Subtotal", value: "$10" }]}
-        total="$10"
-        totalLabel="Grand Total"
-      />
+      <OrderSummary lines={[{ label: "Subtotal", value: "$10" }]} total="$10" totalLabel="Grand Total" />,
     );
 
     expect(markup).toContain("Grand Total");

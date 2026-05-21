@@ -10,11 +10,7 @@ const columns: DataColumn<ApiKey>[] = [
   { key: "status", header: t("identity.features.apiKeys.ui.apiKeyListPage.status"), cell: (row) => row.status },
 ];
 
-export function ApiKeyListPage({
-  initialData,
-}: {
-  initialData: { items: ApiKey[] };
-}) {
+export function ApiKeyListPage({ initialData }: { initialData: { items: ApiKey[] } }) {
   return (
     <AdminListPage
       title={t("identity.features.apiKeys.ui.apiKeyListPage.api.keys")}

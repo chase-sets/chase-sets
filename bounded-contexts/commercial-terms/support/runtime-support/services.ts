@@ -18,9 +18,7 @@ export type CommercialTermsServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createCommercialTermsServices(
-  pool: PgTransactionalPool,
-): CommercialTermsServices {
+export function createCommercialTermsServices(pool: PgTransactionalPool): CommercialTermsServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;

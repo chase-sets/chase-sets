@@ -27,8 +27,7 @@ export function resolvePlatformSmokeUrls({ cliArgs, env, sandboxEnv }) {
   }
 
   function getConfiguredUrl(primaryName, cliValue, fallbackName, options = {}) {
-    const explicitValue = getExplicitEnv(primaryName) ||
-      (fallbackName ? getExplicitEnv(fallbackName) : "");
+    const explicitValue = getExplicitEnv(primaryName) || (fallbackName ? getExplicitEnv(fallbackName) : "");
     if (explicitValue) {
       return explicitValue;
     }
@@ -41,30 +40,23 @@ export function resolvePlatformSmokeUrls({ cliArgs, env, sandboxEnv }) {
       return "";
     }
 
-    return sandboxEnv[primaryName] ||
-      (fallbackName ? sandboxEnv[fallbackName] : "") ||
-      "";
+    return sandboxEnv[primaryName] || (fallbackName ? sandboxEnv[fallbackName] : "") || "";
   }
 
   const hasExplicitCoreTarget = Boolean(
     cliArgs[0] ||
-      cliArgs[1] ||
-      getExplicitEnv("LANDING_WEB_URL") ||
-      getExplicitEnv("PUBLIC_WEB_URL") ||
-      getExplicitEnv("ADMIN_WEB_URL"),
+    cliArgs[1] ||
+    getExplicitEnv("LANDING_WEB_URL") ||
+    getExplicitEnv("PUBLIC_WEB_URL") ||
+    getExplicitEnv("ADMIN_WEB_URL"),
   );
 
   return {
     landingUrl: validateHttpUrl(
-      trimTrailingSlash(
-        getConfiguredUrl("LANDING_WEB_URL", cliArgs[0] || "", "PUBLIC_WEB_URL"),
-      ),
+      trimTrailingSlash(getConfiguredUrl("LANDING_WEB_URL", cliArgs[0] || "", "PUBLIC_WEB_URL")),
       "landing URL",
     ),
-    adminUrl: validateHttpUrl(
-      trimTrailingSlash(getConfiguredUrl("ADMIN_WEB_URL", cliArgs[1] || "")),
-      "admin URL",
-    ),
+    adminUrl: validateHttpUrl(trimTrailingSlash(getConfiguredUrl("ADMIN_WEB_URL", cliArgs[1] || "")), "admin URL"),
     marketplaceUrl: validateHttpUrl(
       trimTrailingSlash(
         getConfiguredUrl("MARKETPLACE_WEB_URL", cliArgs[2] || "", undefined, {

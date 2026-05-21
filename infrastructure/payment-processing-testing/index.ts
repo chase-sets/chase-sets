@@ -36,8 +36,7 @@ export function createFakePaymentProcessorGateway(
       return {
         processorName: "stripe",
         publishableKey: options.publishableKey ?? "pk_seed_offline",
-        confirmationExperience:
-          options.confirmationExperience ?? "processor-managed-form",
+        confirmationExperience: options.confirmationExperience ?? "processor-managed-form",
         dynamicPaymentMethods: true,
         sensitivePaymentDetailsHandledByProcessor: true,
       };

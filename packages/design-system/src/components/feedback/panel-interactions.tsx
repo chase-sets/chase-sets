@@ -2,11 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { useId } from "react";
 import type { NavigationItem, SideNavProps } from "../actions";
 import { IconButton, SideNav } from "../actions";
-import {
-  layoutWidthClasses,
-  type LayoutWidth,
-  type SidebarWidth as LayoutSidebarWidth
-} from "../../primitives/layout";
+import { layoutWidthClasses, type LayoutWidth, type SidebarWidth as LayoutSidebarWidth } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
 import { Dialog, ModalPanel, type DialogProps, type ModalPanelProps, type PanelBodyLayout } from "./dialog";
 
@@ -17,7 +13,7 @@ export type BottomSheetHeight = "compact" | "medium" | "expanded" | "full";
 const sideSheetWidthClasses: Record<PanelWidth, string> = {
   sm: "md:w-[24rem] md:max-w-[24rem]",
   md: "md:w-[28rem] md:max-w-[28rem]",
-  lg: "md:w-[36rem] md:max-w-[36rem]"
+  lg: "md:w-[36rem] md:max-w-[36rem]",
 };
 
 const sidebarWidthClasses: Record<SupportSidebarWidth, string> = {
@@ -27,14 +23,14 @@ const sidebarWidthClasses: Record<SupportSidebarWidth, string> = {
   summary: "lg:w-96 lg:max-w-96",
   sm: sideSheetWidthClasses.sm,
   md: sideSheetWidthClasses.md,
-  lg: sideSheetWidthClasses.lg
+  lg: sideSheetWidthClasses.lg,
 };
 
 const bottomSheetHeightClasses: Record<BottomSheetHeight, string> = {
   compact: "max-h-[35vh]",
   medium: "max-h-[60vh]",
   expanded: "max-h-[88vh]",
-  full: "inset-x-0 bottom-0 max-h-[calc(100vh-env(safe-area-inset-top))] rounded-b-none"
+  full: "inset-x-0 bottom-0 max-h-[calc(100vh-env(safe-area-inset-top))] rounded-b-none",
 };
 
 function renderPanelHeader({
@@ -43,7 +39,7 @@ function renderPanelHeader({
   titleId,
   descriptionId,
   closeLabel,
-  onClose
+  onClose,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -64,20 +60,12 @@ function renderPanelHeader({
           </p>
         ) : null}
       </div>
-      {onClose ? (
-        <IconButton
-          label={closeLabel ?? "Close panel"}
-          icon="close"
-          tone="ghost"
-          onClick={onClose}
-        />
-      ) : null}
+      {onClose ? <IconButton label={closeLabel ?? "Close panel"} icon="close" tone="ghost" onClick={onClose} /> : null}
     </div>
   );
 }
 
-export interface NonModalPanelFrameProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
+export interface NonModalPanelFrameProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
   title: ReactNode;
   description?: ReactNode;
   children?: ReactNode;
@@ -116,8 +104,11 @@ function NonModalPanelFrame({
       className={cx(
         "modern-surface flex min-h-0 flex-col rounded-tokenXl border border-muted p-5 shadow-overlay [--panel-content-inset:1.25rem]",
         placement === "bottom"
-          ? cx("fixed inset-x-3 bottom-3 z-sticky pb-[max(1.25rem,env(safe-area-inset-bottom))]", bottomSheetHeightClasses[height])
-          : cx("w-full", sideSheetWidthClasses[width])
+          ? cx(
+              "fixed inset-x-3 bottom-3 z-sticky pb-[max(1.25rem,env(safe-area-inset-bottom))]",
+              bottomSheetHeightClasses[height],
+            )
+          : cx("w-full", sideSheetWidthClasses[width]),
       )}
     >
       {renderPanelHeader({
@@ -126,13 +117,13 @@ function NonModalPanelFrame({
         titleId,
         descriptionId,
         closeLabel,
-        onClose
+        onClose,
       })}
       <div
         className={cx(
           "motion-safe-scroll-area mt-4 min-h-0 flex-1",
           bodyLayout === "edge" && "panel-edge-scroll-area",
-          bodyClassName
+          bodyClassName,
         )}
       >
         {children}
@@ -169,7 +160,7 @@ export function SideSheet({
   closeLabel,
   surfaceClassName,
   bodyClassName,
-  bodyLayout
+  bodyLayout,
 }: SideSheetProps) {
   if (modal) {
     return (
@@ -232,7 +223,7 @@ export function BottomSheet({
   closeLabel,
   surfaceClassName,
   bodyClassName,
-  bodyLayout
+  bodyLayout,
 }: BottomSheetProps) {
   if (modal) {
     return (
@@ -276,8 +267,10 @@ export function BottomSheet({
   );
 }
 
-export interface NavigationDrawerProps
-  extends Omit<SideSheetProps, "children" | "title" | "description" | "footer" | "modal" | "side"> {
+export interface NavigationDrawerProps extends Omit<
+  SideSheetProps,
+  "children" | "title" | "description" | "footer" | "modal" | "side"
+> {
   label?: ReactNode;
   description?: ReactNode;
   items: NavigationItem[];
@@ -299,15 +292,7 @@ export function NavigationDrawer({
   ...rest
 }: NavigationDrawerProps) {
   return (
-    <SideSheet
-      {...rest}
-      modal
-      side="left"
-      width={width}
-      title={label}
-      description={description}
-      footer={footer}
-    >
+    <SideSheet {...rest} modal side="left" width={width} title={label} description={description} footer={footer}>
       <div className="grid gap-4">
         {brand ? <div>{brand}</div> : null}
         <SideNav
@@ -321,8 +306,7 @@ export function NavigationDrawer({
   );
 }
 
-export interface SidebarProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title" | "onSelect"> {
+export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title" | "onSelect"> {
   title?: ReactNode;
   description?: ReactNode;
   label?: string;
@@ -358,11 +342,7 @@ export function Sidebar({
       {...rest}
       aria-label={!isNavigation ? label : undefined}
       aria-labelledby={!isNavigation && !label && title ? titleId : undefined}
-      className={cx(
-        "min-h-0 w-full",
-        sidebarWidthClasses[width],
-        sticky && "sticky top-20 self-start"
-      )}
+      className={cx("min-h-0 w-full", sidebarWidthClasses[width], sticky && "sticky top-20 self-start")}
     >
       <div className="glass-surface flex h-full min-h-0 flex-col gap-4 rounded-tokenLg border border-muted p-3 shadow-tokenSm">
         {title || description ? (
@@ -390,8 +370,7 @@ export function Sidebar({
   );
 }
 
-export interface FullPageProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
+export interface FullPageProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
   title: ReactNode;
   description?: ReactNode;
   eyebrow?: ReactNode;
@@ -414,23 +393,16 @@ export function FullPage({
   return (
     <main
       {...rest}
-      className={cx("mx-auto flex w-full min-w-0 max-w-full flex-col gap-6 px-4 py-6 md:px-6", layoutWidthClasses[width])}
+      className={cx(
+        "mx-auto flex w-full min-w-0 max-w-full flex-col gap-6 px-4 py-6 md:px-6",
+        layoutWidthClasses[width],
+      )}
     >
       <header className="flex min-w-0 flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0 space-y-2">
-          {eyebrow ? (
-            <div className="text-xs font-semibold uppercase text-accent">
-              {eyebrow}
-            </div>
-          ) : null}
-          <h1 className="font-display text-4xl font-semibold text-foreground md:text-5xl">
-            {title}
-          </h1>
-          {description ? (
-            <p className="max-w-3xl text-base leading-7 text-secondary">
-              {description}
-            </p>
-          ) : null}
+          {eyebrow ? <div className="text-xs font-semibold uppercase text-accent">{eyebrow}</div> : null}
+          <h1 className="font-display text-4xl font-semibold text-foreground md:text-5xl">{title}</h1>
+          {description ? <p className="max-w-3xl text-base leading-7 text-secondary">{description}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
       </header>

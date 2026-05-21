@@ -32,30 +32,21 @@ export interface MenuProps {
 function renderMenuItem(item: MenuItem) {
   const content = (
     <>
-      {item.icon ? (
-        <Icon
-          name={item.icon}
-          size="sm"
-          tone={item.destructive ? "danger" : "secondary"}
-        />
-      ) : null}
+      {item.icon ? <Icon name={item.icon} size="sm" tone={item.destructive ? "danger" : "secondary"} /> : null}
       <div className="flex-1 space-y-0.5">
         <div className="font-medium">{item.label}</div>
-        {item.description ? (
-          <div className="text-xs text-secondary">{item.description}</div>
-        ) : null}
+        {item.description ? <div className="text-xs text-secondary">{item.description}</div> : null}
       </div>
-      {item.shortcut ? (
-        <span className="ml-auto text-xs text-secondary">{item.shortcut}</span>
-      ) : null}
+      {item.shortcut ? <span className="ml-auto text-xs text-secondary">{item.shortcut}</span> : null}
     </>
   );
-  const className = (state: { highlighted?: boolean; disabled?: boolean }) => cx(
-    "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none",
-    state.highlighted && "bg-background",
-    state.disabled && "cursor-not-allowed opacity-50",
-    item.destructive ? "text-danger" : "text-foreground"
-  );
+  const className = (state: { highlighted?: boolean; disabled?: boolean }) =>
+    cx(
+      "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none",
+      state.highlighted && "bg-background",
+      state.disabled && "cursor-not-allowed opacity-50",
+      item.destructive ? "text-danger" : "text-foreground",
+    );
 
   if (item.href) {
     return (
@@ -80,22 +71,13 @@ function renderMenuItem(item: MenuItem) {
   }
 
   return (
-    <MenuPrimitive.Item
-      key={item.key}
-      disabled={item.disabled}
-      className={className}
-      onClick={item.onSelect}
-    >
+    <MenuPrimitive.Item key={item.key} disabled={item.disabled} className={className} onClick={item.onSelect}>
       {content}
     </MenuPrimitive.Item>
   );
 }
 
-export function Menu({
-  trigger,
-  items,
-  groups
-}: MenuProps) {
+export function Menu({ trigger, items, groups }: MenuProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
   const [open, setOpen] = useState(false);
@@ -103,7 +85,7 @@ export function Menu({
     motionSettings,
     open,
     { opacity: 1, y: 0, scale: 1 },
-    { opacity: 0, y: 10, scale: 0.98 }
+    { opacity: 0, y: 10, scale: 0.98 },
   );
 
   return (
@@ -116,7 +98,7 @@ export function Menu({
               initial: motionProps.initial,
               animate: motionProps.animate,
               transition: motionProps.transition,
-              className: "modern-surface min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay"
+              className: "modern-surface min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay",
             })}
           >
             {groups
@@ -128,9 +110,7 @@ export function Menu({
                       </MenuPrimitive.GroupLabel>
                     ) : null}
                     {group.items.map(renderMenuItem)}
-                    {groupIndex < groups.length - 1 ? (
-                      <MenuPrimitive.Separator className="my-1 h-px bg-muted" />
-                    ) : null}
+                    {groupIndex < groups.length - 1 ? <MenuPrimitive.Separator className="my-1 h-px bg-muted" /> : null}
                   </MenuPrimitive.Group>
                 ))
               : items?.map(renderMenuItem)}

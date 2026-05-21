@@ -1,50 +1,20 @@
 {
   "contextName": "inventory",
   "packageName": "@chase-sets/inventory",
-  "ownedNouns": [
-    "inventory-item",
-    "inventory-hold",
-    "import-batch",
-    "storage-location"
-  ],
+  "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "storage-location"],
   "streamPrefix": "inventory.",
   "apiBasePath": "/api/inventory",
-  "slices": [
-    "inventory-items",
-    "import-batches",
-    "holds",
-    "reservations",
-    "storage-locations"
-  ],
-  "allowedSupportDirectories": [
-    "catalog-item-support",
-    "request-support",
-    "runtime-support",
-    "seed-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
-  "allowedContextDependencies": [
-    "@chase-sets/catalog",
-    "@chase-sets/experience"
-  ],
-  "seedRequirements": [
-    "catalog",
-    "identity"
-  ],
+  "slices": ["inventory-items", "import-batches", "holds", "reservations", "storage-locations"],
+  "allowedSupportDirectories": ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedContextDependencies": ["@chase-sets/catalog", "@chase-sets/experience"],
+  "seedRequirements": ["catalog", "identity"],
   "eventSubscriptions": [
     {
       "sourceContextName": "catalog",
       "projectionName": "inventory-catalog-item-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "inventory-catalog-item-projection"
-      ],
+      "projectorNames": ["inventory-catalog-item-projection"],
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
@@ -70,22 +40,15 @@
       "sourceContextName": "ordering",
       "projectionName": "inventory-order-reservation-workflow",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "inventory-order-reservation-workflow"
-      ],
-      "eventTypes": [
-        "ordering.order.created",
-        "ordering.order.cancelled"
-      ],
+      "projectorNames": ["inventory-order-reservation-workflow"],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "order": 20
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "inventory-catalog-item-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
+      "sourceContextNames": ["catalog"],
       "ownedTables": [
         "inventory_catalog_items",
         "inventory_catalog_blueprints",
@@ -97,12 +60,8 @@
     },
     {
       "projectionName": "inventory-order-reservation-workflow",
-      "sourceContextNames": [
-        "ordering"
-      ],
-      "ownedTables": [
-        "inventory_reservation_pages"
-      ],
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["inventory_reservation_pages"],
       "requiredDuringBootstrap": false
     }
   ],
@@ -113,12 +72,8 @@
       "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
-  "runtimeDeployables": [
-    "platform-worker"
-  ],
+  "apiDeployables": ["platform-api"],
+  "runtimeDeployables": ["platform-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/inventory",
@@ -175,49 +130,37 @@
       "classification": "slice",
       "purpose": "Own inventory item feature behavior, read models, and UI contracts for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal inventory module composition"
-      ]
+      "expectedConsumers": ["Internal inventory module composition"]
     },
     "import-batches": {
       "classification": "slice",
       "purpose": "Own CSV intake, row validation, commit history, and batch stock intake behavior for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal inventory module composition"
-      ]
+      "expectedConsumers": ["Internal inventory module composition"]
     },
     "holds": {
       "classification": "slice",
       "purpose": "Own holds feature behavior, read models, and UI contracts for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal inventory module composition"
-      ]
+      "expectedConsumers": ["Internal inventory module composition"]
     },
     "reservations": {
       "classification": "slice",
       "purpose": "Own reservations feature behavior, read models, and UI contracts for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal inventory module composition"
-      ]
+      "expectedConsumers": ["Internal inventory module composition"]
     },
     "storage-locations": {
       "classification": "slice",
       "purpose": "Own storage-locations feature behavior, read models, and UI contracts for the inventory context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal inventory module composition"
-      ]
+      "expectedConsumers": ["Internal inventory module composition"]
     },
     "catalog-item-support": {
       "classification": "support",
       "purpose": "Provide reusable catalog-item-support assets shared by inventory-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "inventory-items"
-      ],
+      "expectedConsumers": ["inventory-items"],
       "justification": "catalog-item-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "inventory workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -226,10 +169,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple inventory slices",
-        "Deployable composition for inventory"
-      ],
+      "expectedConsumers": ["Multiple inventory slices", "Deployable composition for inventory"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "inventory workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -239,13 +179,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "holds",
-        "import-batches",
-        "inventory-items",
-        "reservations",
-        "storage-locations"
-      ],
+      "expectedConsumers": ["holds", "import-batches", "inventory-items", "reservations", "storage-locations"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "inventory workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -254,10 +188,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by inventory-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple inventory slices",
-        "Deployable composition for inventory"
-      ],
+      "expectedConsumers": ["Multiple inventory slices", "Deployable composition for inventory"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "inventory workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -267,9 +198,7 @@
       "classification": "routes",
       "purpose": "Expose inventory-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   }
 }

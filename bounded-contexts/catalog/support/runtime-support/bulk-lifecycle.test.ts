@@ -28,7 +28,7 @@ describe("bulk lifecycle operations", () => {
         },
       ],
       commandHandler: vi.fn(),
-      resolveIds: async (selection) => selection.mode === "ids" ? selection.ids : [],
+      resolveIds: async (selection) => (selection.mode === "ids" ? selection.ids : []),
       loadRows: async () => [
         { id: "one", label: "One", status: "draft" },
         { id: "two", label: "Two", status: "active" },
@@ -45,11 +45,7 @@ describe("bulk lifecycle operations", () => {
       ready_count: 1,
       blocked_count: 2,
     });
-    expect(preview.candidates.map((candidate) => candidate.outcome)).toEqual([
-      "ready",
-      "blocked",
-      "blocked",
-    ]);
+    expect(preview.candidates.map((candidate) => candidate.outcome)).toEqual(["ready", "blocked", "blocked"]);
   });
 
   it("executes only ready candidates and drains projectors", async () => {
@@ -60,9 +56,7 @@ describe("bulk lifecycle operations", () => {
       storedEvents: [],
     }));
     const projector = {
-      runOnce: vi.fn()
-        .mockResolvedValueOnce({ processed: 1 })
-        .mockResolvedValueOnce({ processed: 0 }),
+      runOnce: vi.fn().mockResolvedValueOnce({ processed: 1 }).mockResolvedValueOnce({ processed: 0 }),
     };
     const bulkLifecycle = createBulkLifecycleOperations<{ status?: string }, TestCommand, TestState, TestEvent>({
       actions: [
@@ -75,9 +69,8 @@ describe("bulk lifecycle operations", () => {
         },
       ],
       commandHandler,
-      resolveIds: async (selection) => selection.mode === "filter" && selection.query.status === "draft"
-        ? ["one", "two"]
-        : [],
+      resolveIds: async (selection) =>
+        selection.mode === "filter" && selection.query.status === "draft" ? ["one", "two"] : [],
       loadRows: async () => [
         { id: "one", label: "One", status: "draft" },
         { id: "two", label: "Two", status: "active" },
@@ -102,9 +95,6 @@ describe("bulk lifecycle operations", () => {
       skipped_count: 1,
       failed_count: 0,
     });
-    expect(result.candidates.map((candidate) => candidate.outcome)).toEqual([
-      "succeeded",
-      "skipped",
-    ]);
+    expect(result.candidates.map((candidate) => candidate.outcome)).toEqual(["succeeded", "skipped"]);
   });
 });

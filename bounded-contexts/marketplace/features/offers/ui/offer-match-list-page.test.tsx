@@ -36,11 +36,7 @@ const offer: OfferMatchListItem = {
 
 describe("MarketplaceOfferMatchListPage", () => {
   it("presents offer matches as a source list for checkout sell list review", () => {
-    const markup = renderToString(
-      <MarketplaceOfferMatchListPage
-        data={{ items: [offer] }}
-      />,
-    );
+    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
 
     expect(markup).toContain("Checkout Sell List");
     expect(markup).toContain("Offer Matches is now a Marketplace source list");
@@ -52,12 +48,7 @@ describe("MarketplaceOfferMatchListPage", () => {
   });
 
   it("shows listing price next to the best offer so sellers can judge the gap", () => {
-    const markup = renderToString(
-      <MarketplaceOfferMatchListPage
-        data={{ items: [offer] }}
-        cartData={{ items: [] }}
-      />,
-    );
+    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} cartData={{ items: [] }} />);
 
     expect(markup).toContain("Best Offer Matches");
     expect(markup).toContain("Your Listing");
@@ -69,12 +60,7 @@ describe("MarketplaceOfferMatchListPage", () => {
   });
 
   it("shows buyer reputation on offer match rows", () => {
-    const markup = renderToString(
-      <MarketplaceOfferMatchListPage
-        data={{ items: [offer] }}
-        cartData={{ items: [] }}
-      />,
-    );
+    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} cartData={{ items: [] }} />);
 
     expect(markup).toContain("Buyer reputation");
     expect(markup).toContain("4.6");

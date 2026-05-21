@@ -32,7 +32,7 @@ export function Autocomplete({
   defaultValue,
   onValueChange,
   placeholder = "Search",
-  noMatchesLabel = "No matches"
+  noMatchesLabel = "No matches",
 }: AutocompleteProps) {
   const inputId = useId();
   const listboxId = useId();
@@ -57,23 +57,21 @@ export function Autocomplete({
             onValueChange?.(nextValue);
           }
         }}
-        itemToStringValue={(itemValue) =>
-          items.find((item) => item.value === itemValue)?.label ?? String(itemValue)
-        }
+        itemToStringValue={(itemValue) => items.find((item) => item.value === itemValue)?.label ?? String(itemValue)}
         openOnInputClick
       >
         <AutocompletePrimitive.InputGroup
           className={cx(
             controlClass,
             !!error && controlErrorClass,
-            "inline-flex items-center justify-between gap-2 p-0"
+            "inline-flex items-center justify-between gap-2 p-0",
           )}
         >
           <AutocompletePrimitive.Input
             id={inputId}
             placeholder={placeholder}
             aria-controls={listboxId}
-            aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+            aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
             className="min-w-0 flex-1 bg-transparent px-4 py-2.5 outline-none"
           />
@@ -93,17 +91,17 @@ export function Autocomplete({
                     key={item.value}
                     value={item.value}
                     disabled={item.disabled}
-                    className={(state) => cx(
-                      "focus-ring cursor-pointer rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
-                      state.highlighted && "bg-background",
-                      state.disabled && "cursor-not-allowed opacity-50"
-                    )}
+                    className={(state) =>
+                      cx(
+                        "focus-ring cursor-pointer rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
+                        state.highlighted && "bg-background",
+                        state.disabled && "cursor-not-allowed opacity-50",
+                      )
+                    }
                   >
                     <div className="space-y-0.5">
                       <div>{item.label}</div>
-                      {item.description ? (
-                        <div className="text-xs text-secondary">{item.description}</div>
-                      ) : null}
+                      {item.description ? <div className="text-xs text-secondary">{item.description}</div> : null}
                     </div>
                   </AutocompletePrimitive.Item>
                 ))}

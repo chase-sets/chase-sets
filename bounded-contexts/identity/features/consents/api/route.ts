@@ -12,14 +12,8 @@ export function consentRoutes(services: ConsentServices) {
     const result = await services.listConsents({
       search,
       status,
-      userId:
-        actor && !hasPermission(actor, "security.manage")
-          ? actor.userId
-          : userId,
-      accountId:
-        actor && !hasPermission(actor, "security.manage")
-          ? actor.accountId
-          : accountId,
+      userId: actor && !hasPermission(actor, "security.manage") ? actor.userId : userId,
+      accountId: actor && !hasPermission(actor, "security.manage") ? actor.accountId : accountId,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
     });

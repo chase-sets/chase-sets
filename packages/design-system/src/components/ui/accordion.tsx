@@ -9,13 +9,7 @@ export interface AccordionItem {
   content: ReactNode;
 }
 
-export function Accordion({
-  items,
-  defaultValue
-}: {
-  items: AccordionItem[];
-  defaultValue?: string;
-}) {
+export function Accordion({ items, defaultValue }: { items: AccordionItem[]; defaultValue?: string }) {
   return (
     <AccordionPrimitive.Root
       defaultValue={defaultValue ? [defaultValue] : undefined}

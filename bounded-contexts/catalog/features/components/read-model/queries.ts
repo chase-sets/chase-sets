@@ -33,10 +33,11 @@ export type ComponentDetailRow = Readonly<{
   updated_at: string;
 }>;
 
-export type ComponentListParams = ListParams & Readonly<{
-  hasFieldRules?: string;
-  hasDimensionRules?: string;
-}>;
+export type ComponentListParams = ListParams &
+  Readonly<{
+    hasFieldRules?: string;
+    hasDimensionRules?: string;
+  }>;
 
 export async function listComponents(
   db: PgQueryable,
@@ -60,10 +61,7 @@ export async function listComponents(
   return executeListQuery<ComponentRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function listComponentIds(
-  db: PgQueryable,
-  params: ComponentListParams = {},
-): Promise<string[]> {
+export async function listComponentIds(db: PgQueryable, params: ComponentListParams = {}): Promise<string[]> {
   const result = await listComponents(db, { ...params, limit: undefined, offset: undefined });
   return result.items.map((row) => row.component_id);
 }
@@ -76,10 +74,9 @@ export async function listComponentBulkRows(
     return [];
   }
 
-  const result = await db.query<ComponentRow>(
-    `SELECT * FROM catalog_components WHERE component_id = ANY($1::text[])`,
-    [[...componentIds]],
-  );
+  const result = await db.query<ComponentRow>(`SELECT * FROM catalog_components WHERE component_id = ANY($1::text[])`, [
+    [...componentIds],
+  ]);
 
   return result.rows.map((row) => ({
     id: row.component_id,

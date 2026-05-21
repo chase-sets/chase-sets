@@ -7,33 +7,20 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type {
-  SettlementHostPorts,
-  SettlementServices,
-} from "./support/runtime-support/services";
-import {
-  buildSettlementApi,
-  buildSettlementMoneyMovementWebhookApi,
-} from "./api";
+import type { SettlementHostPorts, SettlementServices } from "./support/runtime-support/services";
+import { buildSettlementApi, buildSettlementMoneyMovementWebhookApi } from "./api";
 import { createSettlementServices } from "./support/runtime-support/services";
 import { settlementSchemaSql } from "./support/runtime-support/schema";
 import { seedSettlementDatabase } from "./support/runtime-support/seed";
 import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
 import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets/integrations/support-source/support-source-projection";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -45,11 +32,7 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<
-  SettlementServices,
-  PgTransactionalPool,
-  SettlementHostPorts
-> = {
+export const module: BcApiModule<SettlementServices, PgTransactionalPool, SettlementHostPorts> = {
   contextName: "settlement",
   routePrefix: "/api/settlement",
   streamPrefix: "settlement.",
@@ -61,20 +44,11 @@ export const module: BcApiModule<
   >["apiMounts"],
   projectionGroups,
   createServices: (pool, ports) => createSettlementServices(pool, ports),
-  buildApis: (services) => [
-    buildSettlementApi(services),
-    buildSettlementMoneyMovementWebhookApi(services),
-  ],
+  buildApis: (services) => [buildSettlementApi(services), buildSettlementMoneyMovementWebhookApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const paymentsSubscription = getEventSubscription(
-      "payments",
-      "settlement-payment-input-projection",
-    );
-    const supportSubscription = getEventSubscription(
-      "support",
-      "settlement-support-hold-projection",
-    );
+    const paymentsSubscription = getEventSubscription("payments", "settlement-payment-input-projection");
+    const supportSubscription = getEventSubscription("support", "settlement-support-hold-projection");
 
     return [
       {
@@ -82,10 +56,7 @@ export const module: BcApiModule<
         sourceContextName: "payments",
         projectionName: paymentsSubscription.projectionName,
         subscriptionVersion: paymentsSubscription.subscriptionVersion,
-        handlers: buildSettlementPaymentInputProjectionHandlers(
-          services.db,
-          services.wallets,
-        ),
+        handlers: buildSettlementPaymentInputProjectionHandlers(services.db, services.wallets),
         eventTypes: paymentsSubscription.eventTypes,
         streamPrefixes: paymentsSubscription.streamPrefixes,
         order: paymentsSubscription.order,

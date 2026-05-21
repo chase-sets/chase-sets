@@ -1,11 +1,6 @@
 import { assert } from "./common";
 import type { Branded } from "@chase-sets/primitives/brand";
-import type {
-  CatalogItemId,
-  OptionId,
-  DimensionId,
-  SelectedOptionEntry as TypedSelectedOptionEntry,
-} from "../../ids";
+import type { CatalogItemId, OptionId, DimensionId, SelectedOptionEntry as TypedSelectedOptionEntry } from "../../ids";
 
 export type ProductId = Branded<string, "ProductId">;
 
@@ -59,9 +54,7 @@ export type ProductResolutionInput = Readonly<{
   selectedOptions: readonly TypedSelectedOptionEntry[];
 }>;
 
-export function resolveProduct(
-  input: ProductResolutionInput,
-): ProductDescriptor {
+export function resolveProduct(input: ProductResolutionInput): ProductDescriptor {
   assert(
     hasExactDimensionSet(
       input.blueprint.dimensionRules.map((rule) => rule.dimensionId),
@@ -80,18 +73,12 @@ export function resolveProduct(
     const selectedOptionId = selectionByDimension.get(dimensionRule.dimensionId);
 
     if (!isActive) {
-      assert(
-        selectedOptionId === undefined,
-        "Selections cannot include inactive dimensions.",
-      );
+      assert(selectedOptionId === undefined, "Selections cannot include inactive dimensions.");
       continue;
     }
 
     if (selectedOptionId === undefined) {
-      assert(
-        !dimensionRule.required,
-        "Selections must include every required dimension.",
-      );
+      assert(!dimensionRule.required, "Selections must include every required dimension.");
       continue;
     }
 
@@ -104,11 +91,7 @@ export function resolveProduct(
   }
 
   assert(
-    selection.every((entry) =>
-      input.blueprint.dimensionRules.some(
-        (rule) => rule.dimensionId === entry.dimensionId,
-      ),
-    ),
+    selection.every((entry) => input.blueprint.dimensionRules.some((rule) => rule.dimensionId === entry.dimensionId)),
     "Selections cannot include dimensions not defined by the blueprint.",
   );
 
@@ -141,13 +124,9 @@ export function resolveProduct(
   };
 }
 
-export function toProductSchema(
-  blueprint: ProductDefiningBlueprint,
-): ProductSchema {
+export function toProductSchema(blueprint: ProductDefiningBlueprint): ProductSchema {
   return {
-    canonicalDimensionOrder: blueprint.canonicalDimensionOrder.map((dimensionId) =>
-      String(dimensionId),
-    ),
+    canonicalDimensionOrder: blueprint.canonicalDimensionOrder.map((dimensionId) => String(dimensionId)),
     dimensions: blueprint.dimensionRules.map((rule) => ({
       dimensionId: String(rule.dimensionId),
       required: rule.required,
@@ -160,25 +139,18 @@ export function toProductSchema(
   };
 }
 
-export function normalizeSelectedOptions(
-  selection: readonly TypedSelectedOptionEntry[],
-): TypedSelectedOptionEntry[] {
+export function normalizeSelectedOptions(selection: readonly TypedSelectedOptionEntry[]): TypedSelectedOptionEntry[] {
   const seenDimensionIds = new Set<string>();
 
   for (const entry of selection) {
-    assert(
-      !seenDimensionIds.has(entry.dimensionId),
-      "Selections may include at most one option per dimension.",
-    );
+    assert(!seenDimensionIds.has(entry.dimensionId), "Selections may include at most one option per dimension.");
     seenDimensionIds.add(entry.dimensionId);
   }
 
   return [...selection];
 }
 
-export function toProductSelectionEntry(
-  selectionEntry: TypedSelectedOptionEntry,
-): ProductSelectionEntry {
+export function toProductSelectionEntry(selectionEntry: TypedSelectedOptionEntry): ProductSelectionEntry {
   return {
     dimensionId: String(selectionEntry.dimensionId),
     optionId: String(selectionEntry.optionId),
@@ -189,10 +161,7 @@ export function createProductId(value: string): ProductId {
   return value as ProductId;
 }
 
-function hasExactDimensionSet(
-  left: readonly DimensionId[],
-  right: readonly DimensionId[],
-): boolean {
+function hasExactDimensionSet(left: readonly DimensionId[], right: readonly DimensionId[]): boolean {
   if (left.length !== right.length) {
     return false;
   }
@@ -216,9 +185,6 @@ function isDimensionRuleActive(
 ): boolean {
   return (rule.appliesWhen ?? []).every((clause) => {
     const selectedOptionId = selectionByDimension.get(clause.dimensionId);
-    return (
-      selectedOptionId !== undefined &&
-      clause.optionIds.includes(selectedOptionId)
-    );
+    return selectedOptionId !== undefined && clause.optionIds.includes(selectedOptionId);
   });
 }

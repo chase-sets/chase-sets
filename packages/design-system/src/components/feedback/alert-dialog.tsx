@@ -30,7 +30,7 @@ export function AlertDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   tone = "danger",
-  onConfirm
+  onConfirm,
 }: AlertDialogProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
@@ -42,24 +42,19 @@ export function AlertDialog({
     { opacity: 1, scale: 1, y: 0 },
     { opacity: 0, scale: 0.96, y: 14 },
     undefined,
-    "base"
+    "base",
   );
 
   return (
-    <AlertDialogPrimitive.Root
-      open={resolvedOpen}
-      onOpenChange={setResolvedOpen}
-    >
-      {trigger ? (
-        <AlertDialogPrimitive.Trigger render={renderButtonTrigger(trigger)} />
-      ) : null}
+    <AlertDialogPrimitive.Root open={resolvedOpen} onOpenChange={setResolvedOpen}>
+      {trigger ? <AlertDialogPrimitive.Trigger render={renderButtonTrigger(trigger)} /> : null}
       <AlertDialogPrimitive.Portal container={overlayNode ?? undefined}>
         <AlertDialogPrimitive.Backdrop
           render={renderMotionDiv({
             initial: overlayFade.initial,
             animate: overlayFade.animate,
             transition: overlayFade.transition,
-            className: "fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]"
+            className: "fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]",
           })}
         />
         <AlertDialogPrimitive.Popup
@@ -68,7 +63,7 @@ export function AlertDialog({
             animate: contentMotion.animate,
             transition: contentMotion.transition,
             className:
-              "modern-surface fixed left-1/2 top-1/2 z-modal w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-tokenXl border border-muted p-5 shadow-overlay"
+              "modern-surface fixed left-1/2 top-1/2 z-modal w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-tokenXl border border-muted p-5 shadow-overlay",
           })}
         >
           <div className="space-y-3">
@@ -85,14 +80,12 @@ export function AlertDialog({
             ) : null}
           </div>
           <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <AlertDialogPrimitive.Close
-              render={<Button tone="secondary">{cancelLabel}</Button>}
-            />
+            <AlertDialogPrimitive.Close render={<Button tone="secondary">{cancelLabel}</Button>} />
             <AlertDialogPrimitive.Close
               render={
-              <Button tone={tone === "danger" ? "danger" : "primary"} onClick={onConfirm}>
-                {confirmLabel}
-              </Button>
+                <Button tone={tone === "danger" ? "danger" : "primary"} onClick={onConfirm}>
+                  {confirmLabel}
+                </Button>
               }
             />
           </div>

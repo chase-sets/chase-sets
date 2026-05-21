@@ -133,8 +133,7 @@ describe("marketplace inventory routes", () => {
             item_id: "inv_1",
             account_id: "acc_1",
             catalog_catalog_item_id: "cat_charizard",
-            product_id:
-              "cat_charizard::dim_condition:near_mint|dim_form:raw",
+            product_id: "cat_charizard::dim_condition:near_mint|dim_form:raw",
             item_title: "Charizard ex",
             item_subtitle: null,
             selected_options: [
@@ -264,19 +263,22 @@ describe("marketplace inventory routes", () => {
         }
 
         return Promise.resolve(
-          jsonResponse({
-            batch_id: "imb_1",
-            account_id: "acc_1",
-            status: "uploaded",
-            source_filename: "stock.csv",
-            total_count: 1,
-            accepted_count: 1,
-            rejected_count: 0,
-            committed_count: 0,
-            created_at: "2026-05-09T00:00:00.000Z",
-            updated_at: "2026-05-09T00:00:00.000Z",
-            rows: [],
-          }, 201),
+          jsonResponse(
+            {
+              batch_id: "imb_1",
+              account_id: "acc_1",
+              status: "uploaded",
+              source_filename: "stock.csv",
+              total_count: 1,
+              accepted_count: 1,
+              rejected_count: 0,
+              committed_count: 0,
+              created_at: "2026-05-09T00:00:00.000Z",
+              updated_at: "2026-05-09T00:00:00.000Z",
+              rows: [],
+            },
+            201,
+          ),
         );
       }),
     );
@@ -358,4 +360,3 @@ describe("marketplace inventory routes", () => {
     expect(result).toEqual({ error: "Hold exceeds availability." });
   });
 });
-

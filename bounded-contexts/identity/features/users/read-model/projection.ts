@@ -40,13 +40,7 @@ async function syncUserEmailLookups(
            contact_method_id = $3,
            is_verified = $4,
            updated_at = $5`,
-      [
-        normalizeEmail(method.value),
-        userId,
-        method.contactMethodId,
-        method.verifiedAt !== null,
-        updatedAt,
-      ],
+      [normalizeEmail(method.value), userId, method.contactMethodId, method.verifiedAt !== null, updatedAt],
     );
   }
 }
@@ -79,13 +73,7 @@ async function syncUserPhoneLookups(
            contact_method_id = $3,
            is_verified = $4,
            updated_at = $5`,
-      [
-        normalizePhoneNumber(method.value),
-        userId,
-        method.contactMethodId,
-        method.verifiedAt !== null,
-        updatedAt,
-      ],
+      [normalizePhoneNumber(method.value), userId, method.contactMethodId, method.verifiedAt !== null, updatedAt],
     );
   }
 }
@@ -227,14 +215,15 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         `SELECT contact_methods FROM identity_users WHERE user_id = $1`,
         [userId],
       );
-      const contactMethods = (((current.rows[0]?.contact_methods as never[]) ?? []) as {
-        contactMethodId: string;
-        type: string;
-        value: string;
-        verifiedAt: string | null;
-      }[]).map((method) =>
-        method.contactMethodId ===
-        (event.data as { contactMethodId: string }).contactMethodId
+      const contactMethods = (
+        ((current.rows[0]?.contact_methods as never[]) ?? []) as {
+          contactMethodId: string;
+          type: string;
+          value: string;
+          verifiedAt: string | null;
+        }[]
+      ).map((method) =>
+        method.contactMethodId === (event.data as { contactMethodId: string }).contactMethodId
           ? {
               ...method,
               verifiedAt: (event.data as { verifiedAt: string }).verifiedAt,
@@ -257,10 +246,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         [userId],
       );
       const authMethods = [
-        ...new Set([
-          ...(current.rows[0]?.auth_methods ?? []),
-          (event.data as { authMethod: string }).authMethod,
-        ]),
+        ...new Set([...(current.rows[0]?.auth_methods ?? []), (event.data as { authMethod: string }).authMethod]),
       ].sort((left, right) => left.localeCompare(right));
       await db.query(
         `UPDATE identity_users
@@ -277,11 +263,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          SET password_credential_id = $2,
              updated_at = $3
          WHERE user_id = $1`,
-        [
-          userId,
-          (event.data as { credentialId: string }).credentialId,
-          event.timing.recordedAt,
-        ],
+        [userId, (event.data as { credentialId: string }).credentialId, event.timing.recordedAt],
       );
     },
     "identity.user.passkey-registered": async (event) => {
@@ -316,19 +298,15 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         `SELECT social_login_links FROM identity_users WHERE user_id = $1`,
         [userId],
       );
-      const currentLinks =
-        (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
+      const currentLinks = (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
       const links = [
-        ...currentLinks.filter((currentLink) =>
-          currentLink.providerName !== link.providerName ||
-          currentLink.providerSubject !== link.providerSubject
+        ...currentLinks.filter(
+          (currentLink) =>
+            currentLink.providerName !== link.providerName || currentLink.providerSubject !== link.providerSubject,
         ),
         link,
       ].sort((left, right) =>
-        `${left.providerName}:${left.providerSubject}`
-          .localeCompare(
-            `${right.providerName}:${right.providerSubject}`,
-          ),
+        `${left.providerName}:${left.providerSubject}`.localeCompare(`${right.providerName}:${right.providerSubject}`),
       );
 
       await db.query(

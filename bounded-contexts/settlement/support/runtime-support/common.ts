@@ -17,11 +17,7 @@ export type LedgerEntryKind =
   | "adjustment";
 
 export type PayoutStatus = "requested" | "in-transit" | "completed" | "failed";
-export type PayoutReadinessStatus =
-  | "not-started"
-  | "pending"
-  | "ready"
-  | "restricted";
+export type PayoutReadinessStatus = "not-started" | "pending" | "ready" | "restricted";
 export type ProviderSetupStatus = "not-started" | "pending" | "complete";
 export type ProviderCapabilityStatus = "inactive" | "pending" | "active";
 export type ProviderPayoutDestinationStatus = "missing" | "pending" | "ready";
@@ -125,10 +121,7 @@ export function normalizeMoneyAmount(
   const normalized = value.trim();
   const fieldName = options.fieldName ?? "Amount";
 
-  assert(
-    /^\d+(\.\d{1,2})?$/.test(normalized),
-    `${fieldName} must be a valid decimal.`,
-  );
+  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
 
   const numeric = Number.parseFloat(normalized);
   assert(
@@ -139,15 +132,9 @@ export function normalizeMoneyAmount(
   return numeric.toFixed(2);
 }
 
-export function normalizeSignedMoneyAmount(
-  value: string,
-  fieldName = "Amount",
-) {
+export function normalizeSignedMoneyAmount(value: string, fieldName = "Amount") {
   const normalized = value.trim();
-  assert(
-    /^-?\d+(\.\d{1,2})?$/.test(normalized),
-    `${fieldName} must be a valid signed decimal.`,
-  );
+  assert(/^-?\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid signed decimal.`);
   return Number.parseFloat(normalized).toFixed(2);
 }
 
@@ -268,9 +255,7 @@ export function normalizeProviderSetupStatus(value: string): ProviderSetupStatus
   }
 }
 
-export function normalizeProviderCapabilityStatus(
-  value: string,
-): ProviderCapabilityStatus {
+export function normalizeProviderCapabilityStatus(value: string): ProviderCapabilityStatus {
   switch (value.trim()) {
     case "inactive":
       return "inactive";
@@ -283,9 +268,7 @@ export function normalizeProviderCapabilityStatus(
   }
 }
 
-export function normalizeProviderPayoutDestinationStatus(
-  value: string,
-): ProviderPayoutDestinationStatus {
+export function normalizeProviderPayoutDestinationStatus(value: string): ProviderPayoutDestinationStatus {
   switch (value.trim()) {
     case "missing":
       return "missing";
@@ -294,9 +277,7 @@ export function normalizeProviderPayoutDestinationStatus(
     case "ready":
       return "ready";
     default:
-      throw new SettlementDomainError(
-        "Provider payout destination status is not supported.",
-      );
+      throw new SettlementDomainError("Provider payout destination status is not supported.");
   }
 }
 

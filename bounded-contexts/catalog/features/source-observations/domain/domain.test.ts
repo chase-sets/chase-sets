@@ -27,9 +27,7 @@ const normalized: SourceObservationNormalized = {
   releaseYear: 2020,
   category: "Pokemon",
   imageBaseUrl: "https://assets.tcgdex.net/en/swsh/swsh3/136",
-  imageUrls: [
-    "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp",
-  ],
+  imageUrls: ["https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp"],
   productAssetSet: null,
   parallelSet: true,
   cardVariantKey: "reverse-holo",

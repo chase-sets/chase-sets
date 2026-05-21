@@ -56,12 +56,12 @@ export type VoidedPostageLabel = Readonly<{
 export interface PostageLabelProvider {
   readonly providerName: string;
   readonly providerMode: PostageProviderMode;
-  purchaseUspsLabel(
-    request: PurchaseUspsLabelRequest,
-  ): Promise<PurchasedPostageLabel>;
-  voidLabel(request: Readonly<{
-    providerShipmentId: string;
-    providerLabelId: string;
-    trackingIdentifier: string;
-  }>): Promise<VoidedPostageLabel>;
+  purchaseUspsLabel(request: PurchaseUspsLabelRequest): Promise<PurchasedPostageLabel>;
+  voidLabel(
+    request: Readonly<{
+      providerShipmentId: string;
+      providerLabelId: string;
+      trackingIdentifier: string;
+    }>,
+  ): Promise<VoidedPostageLabel>;
 }

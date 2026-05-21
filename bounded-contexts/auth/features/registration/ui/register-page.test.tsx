@@ -17,9 +17,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  createPasskeyCredentialMock.mockRejectedValue(
-    new Error("Passkeys are not available in this browser."),
-  );
+  createPasskeyCredentialMock.mockRejectedValue(new Error("Passkeys are not available in this browser."));
 });
 
 function fillIdentity() {
@@ -69,9 +67,7 @@ describe("registration page", () => {
     expect(inputNamed("displayName").value).toBe("Todd");
     expect(inputNamed("email").value).toBe("todd@example.com");
     expect(screen.getByRole("button", { name: "Email me a magic link" })).toBeTruthy();
-    expect(
-      document.querySelector('input[name="intent"][value="magic-link-register"]'),
-    ).not.toBeNull();
+    expect(document.querySelector('input[name="intent"][value="magic-link-register"]')).not.toBeNull();
   });
 
   it("offers phone code registration without requiring email", () => {
@@ -83,9 +79,7 @@ describe("registration page", () => {
     expect(inputNamed("phone")).toBeTruthy();
     expect(screen.queryByLabelText("Email")).toBeNull();
     expect(screen.getByRole("button", { name: "Text me a code" })).toBeTruthy();
-    expect(
-      document.querySelector('input[name="intent"][value="phone-code-request"]'),
-    ).not.toBeNull();
+    expect(document.querySelector('input[name="intent"][value="phone-code-request"]')).not.toBeNull();
   });
 
   it("keeps password registration available as the fallback", () => {
@@ -96,9 +90,7 @@ describe("registration page", () => {
     expect(screen.getByText("Use this fallback when passkeys and magic links are not available.")).toBeTruthy();
     expect(inputNamed("password")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create account with password" })).toBeTruthy();
-    expect(
-      document.querySelector('input[name="intent"][value="password"]'),
-    ).not.toBeNull();
+    expect(document.querySelector('input[name="intent"][value="password"]')).not.toBeNull();
   });
 
   it("explains passkey failures and lets the user continue with magic link without losing progress", async () => {

@@ -85,9 +85,7 @@ function encodeBasicAuth(secretKey: string) {
   return Buffer.from(`${secretKey}:`).toString("base64");
 }
 
-function toFormBody(
-  entries: Record<string, string | readonly string[] | null | undefined>,
-) {
+function toFormBody(entries: Record<string, string | readonly string[] | null | undefined>) {
   const params = new URLSearchParams();
 
   for (const [key, value] of Object.entries(entries)) {
@@ -157,10 +155,7 @@ function verifyStripeSignature(
   const expectedBuffer = Buffer.from(expected, "hex");
   const receivedBuffer = Buffer.from(parsed.signature, "hex");
 
-  if (
-    expectedBuffer.length !== receivedBuffer.length ||
-    !timingSafeEqual(expectedBuffer, receivedBuffer)
-  ) {
+  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
     throw new Error("Stripe webhook signature verification failed.");
   }
 }
@@ -177,9 +172,7 @@ function validateHostedRedirectUrl(value: string | null | undefined, fieldName: 
     throw new Error(`${fieldName} must be an absolute URL.`);
   }
 
-  const isLocalHttp =
-    parsed.protocol === "http:" &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+  const isLocalHttp = parsed.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
   if (parsed.protocol !== "https:" && !isLocalHttp) {
     throw new Error(`${fieldName} must use HTTPS.`);
   }
@@ -205,7 +198,9 @@ function collectRequirements(account: StripeAccountResponse) {
     ...(account.requirements?.currently_due ?? []),
     ...(account.requirements?.past_due ?? []),
     ...(account.requirements?.eventually_due ?? []),
-  ].map((item) => item.trim()).filter(Boolean);
+  ]
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutReadiness {
@@ -214,26 +209,20 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
     throw new Error("Stripe account response did not include an id.");
   }
 
-  const stripeBalance =
-    account.configuration?.recipient?.capabilities?.stripe_balance;
-  const transferCapabilityStatus = statusToCapabilityStatus(
-    stripeBalance?.stripe_transfers?.status,
-  );
-  const payoutCapabilityStatus = statusToCapabilityStatus(
-    stripeBalance?.payouts?.status,
-  );
-  const missingRequirements = [...new Set(collectRequirements(account))].sort(
-    (left, right) => left.localeCompare(right),
+  const stripeBalance = account.configuration?.recipient?.capabilities?.stripe_balance;
+  const transferCapabilityStatus = statusToCapabilityStatus(stripeBalance?.stripe_transfers?.status);
+  const payoutCapabilityStatus = statusToCapabilityStatus(stripeBalance?.payouts?.status);
+  const missingRequirements = [...new Set(collectRequirements(account))].sort((left, right) =>
+    left.localeCompare(right),
   );
   const payoutDestinationStatus =
     payoutCapabilityStatus === "active" && missingRequirements.length === 0
       ? "ready"
-      : missingRequirements.some((requirement) =>
-          requirement.includes("external_account") ||
-          requirement.includes("payout")
-        )
-      ? "missing"
-      : "pending";
+      : missingRequirements.some(
+            (requirement) => requirement.includes("external_account") || requirement.includes("payout"),
+          )
+        ? "missing"
+        : "pending";
 
   return {
     providerReference,
@@ -246,8 +235,7 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
 }
 
 function occurredAtFromEvent(event: StripeEventEnvelope) {
-  return new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000)
-    .toISOString();
+  return new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
 }
 
 function expiresAtFromAccountLink(value: number | string | null | undefined) {
@@ -255,11 +243,12 @@ function expiresAtFromAccountLink(value: number | string | null | undefined) {
     return null;
   }
 
-  const timestamp = typeof value === "number"
-    ? value * 1000
-    : /^\d+$/.test(value)
-    ? Number.parseInt(value, 10) * 1000
-    : Date.parse(value);
+  const timestamp =
+    typeof value === "number"
+      ? value * 1000
+      : /^\d+$/.test(value)
+        ? Number.parseInt(value, 10) * 1000
+        : Date.parse(value);
   if (!Number.isFinite(timestamp)) {
     return null;
   }
@@ -303,16 +292,12 @@ export function createStripeConnectMoneyMovementGateway(
         typeof body === "object" &&
         body !== null &&
         "error" in body &&
-        typeof (body as { error?: { message?: unknown } }).error?.message ===
-          "string"
+        typeof (body as { error?: { message?: unknown } }).error?.message === "string"
           ? (body as { error: { message: string } }).error.message
           : `Stripe request failed with status ${response.status}.`;
 
       throw new ProviderAdapterError(
-        providerFailureCategoryFromText(
-          message,
-          providerFailureCategoryFromHttpStatus(response.status),
-        ),
+        providerFailureCategoryFromText(message, providerFailureCategoryFromHttpStatus(response.status)),
         message,
         response.status,
       );
@@ -326,16 +311,12 @@ export function createStripeConnectMoneyMovementGateway(
     include.set("include[0]", "configuration.recipient");
     include.set("include[1]", "requirements");
 
-    return stripeRequest<StripeAccountResponse>(
-      `/v2/core/accounts/${providerReference}?${include.toString()}`,
-      { method: "GET" },
-    );
+    return stripeRequest<StripeAccountResponse>(`/v2/core/accounts/${providerReference}?${include.toString()}`, {
+      method: "GET",
+    });
   }
 
-  async function configureOnDemandPayouts(
-    providerReference: string,
-    idempotencyKey: string,
-  ) {
+  async function configureOnDemandPayouts(providerReference: string, idempotencyKey: string) {
     await stripeRequest<unknown>("/v1/balance_settings", {
       method: "POST",
       headers: {
@@ -352,49 +333,43 @@ export function createStripeConnectMoneyMovementGateway(
   return {
     providerName: "stripe",
     async ensurePayoutAccount(input) {
-      const account = await stripeRequest<StripeAccountResponse>(
-        "/v2/core/accounts",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+      const account = await stripeRequest<StripeAccountResponse>("/v2/core/accounts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...(input.contactEmail ? { contact_email: input.contactEmail } : {}),
+          identity: {
+            country: input.countryCode ?? "US",
           },
-          body: JSON.stringify({
-            ...(input.contactEmail ? { contact_email: input.contactEmail } : {}),
-            identity: {
-              country: input.countryCode ?? "US",
-            },
-            metadata: {
-              chase_sets_account_id: input.accountId,
-            },
-            configuration: {
-              recipient: {
-                capabilities: {
-                  stripe_balance: {
-                    stripe_transfers: {
-                      requested: true,
-                    },
+          metadata: {
+            chase_sets_account_id: input.accountId,
+          },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: {
+                    requested: true,
                   },
                 },
               },
             },
-            defaults: {
-              responsibilities: {
-                losses_collector: "application",
-                fees_collector: "application",
-              },
+          },
+          defaults: {
+            responsibilities: {
+              losses_collector: "application",
+              fees_collector: "application",
             },
-            dashboard: "express",
-          }),
-          idempotencyKey: input.idempotencyKey,
-        },
-      );
+          },
+          dashboard: "express",
+        }),
+        idempotencyKey: input.idempotencyKey,
+      });
 
       const readiness = mapAccountReadiness(account);
-      await configureOnDemandPayouts(
-        readiness.providerReference,
-        `${input.idempotencyKey}:manual-payouts`,
-      );
+      await configureOnDemandPayouts(readiness.providerReference, `${input.idempotencyKey}:manual-payouts`);
 
       return readiness;
     },
@@ -411,39 +386,34 @@ export function createStripeConnectMoneyMovementGateway(
         throw new Error("Payout setup return and refresh URLs are required.");
       }
 
-      const accountLink = await stripeRequest<StripeAccountLinkResponse>(
-        "/v2/core/account_links",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            account: input.providerReference,
-            use_case: {
-              type: "account_onboarding",
-              account_onboarding: {
-                configurations: ["recipient"],
-                return_url: returnUrl,
-                refresh_url: refreshUrl,
-                collection_options: {
-                  fields: "eventually_due",
-                  future_requirements: "include",
-                },
+      const accountLink = await stripeRequest<StripeAccountLinkResponse>("/v2/core/account_links", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          account: input.providerReference,
+          use_case: {
+            type: "account_onboarding",
+            account_onboarding: {
+              configurations: ["recipient"],
+              return_url: returnUrl,
+              refresh_url: refreshUrl,
+              collection_options: {
+                fields: "eventually_due",
+                future_requirements: "include",
               },
             },
-          }),
-          idempotencyKey: input.idempotencyKey,
-        },
-      );
+          },
+        }),
+        idempotencyKey: input.idempotencyKey,
+      });
 
       if (!accountLink.url?.trim()) {
         throw new Error("Stripe did not return an onboarding URL.");
       }
 
-      const readiness = mapAccountReadiness(
-        await retrieveAccount(input.providerReference),
-      );
+      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
 
       return {
         providerReference: input.providerReference,
@@ -453,10 +423,7 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createAccountManagementSession(input) {
-      const returnUrl = validateHostedRedirectUrl(
-        input.returnUrl,
-        "Payout account return URL",
-      );
+      const returnUrl = validateHostedRedirectUrl(input.returnUrl, "Payout account return URL");
       const loginLink = await stripeRequest<StripeLoginLinkResponse>(
         `/v1/accounts/${encodeURIComponent(input.providerReference)}/login_links`,
         {
@@ -526,10 +493,7 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createConnectedAccountPayout(input) {
-      await configureOnDemandPayouts(
-        input.providerReference,
-        `${input.idempotencyKey}:manual-payouts`,
-      );
+      await configureOnDemandPayouts(input.providerReference, `${input.idempotencyKey}:manual-payouts`);
       const payout = await stripeRequest<StripePayoutResponse>("/v1/payouts", {
         method: "POST",
         headers: {
@@ -577,12 +541,7 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async parseMoneyMovementWebhook(input) {
-      verifyStripeSignature(
-        input.rawBody,
-        input.signatureHeader,
-        options.webhookSecret,
-        webhookToleranceSeconds,
-      );
+      verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret, webhookToleranceSeconds);
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
       const object = event.data?.object;
       const occurredAt = occurredAtFromEvent(event);
@@ -615,20 +574,13 @@ export function createStripeConnectMoneyMovementGateway(
           providerEventId: providerEventIdFromEvent(event, providerPayoutReference),
           providerPayoutReference,
           providerStatus: String(object.status ?? "failed"),
-          failureCode:
-            typeof object.failure_code === "string" ? object.failure_code : null,
-          failureMessage:
-            typeof object.failure_message === "string"
-              ? object.failure_message
-              : null,
+          failureCode: typeof object.failure_code === "string" ? object.failure_code : null,
+          failureMessage: typeof object.failure_message === "string" ? object.failure_message : null,
           occurredAt,
         } satisfies MoneyMovementWebhookEvent;
       }
 
-      if (
-        event.type === "v2.core.account[requirements].updated" ||
-        event.type === "v2.core.account.updated"
-      ) {
+      if (event.type === "v2.core.account[requirements].updated" || event.type === "v2.core.account.updated") {
         const providerReference = String(object.id ?? "").trim();
         return {
           kind: "payout-readiness-updated",

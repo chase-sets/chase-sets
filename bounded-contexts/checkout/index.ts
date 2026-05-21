@@ -17,19 +17,12 @@ import {
 import { checkoutSchemaSql } from "./support/runtime-support/schema";
 import { seedCheckoutDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -41,11 +34,7 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<
-  CheckoutServices,
-  PgTransactionalPool,
-  CheckoutServiceOptions
-> = {
+export const module: BcApiModule<CheckoutServices, PgTransactionalPool, CheckoutServiceOptions> = {
   contextName: "checkout",
   routePrefix: "/api/marketplace",
   streamPrefix: "checkout.",
@@ -61,10 +50,7 @@ export const module: BcApiModule<
   projectors: (services) => services.projectors,
   seed: seedCheckoutDatabase,
   buildSubscriptions: (services) => {
-    const catalogSubscription = getEventSubscription(
-      "catalog",
-      "checkout-catalog-item-projection",
-    );
+    const catalogSubscription = getEventSubscription("catalog", "checkout-catalog-item-projection");
 
     return [
       {

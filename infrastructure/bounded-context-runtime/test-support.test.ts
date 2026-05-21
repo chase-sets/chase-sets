@@ -7,10 +7,7 @@ type QueryCall = Readonly<{
   params: readonly unknown[];
 }>;
 
-function createAdminPool(options?: {
-  existingRoles?: readonly string[];
-  existingDatabases?: readonly string[];
-}) {
+function createAdminPool(options?: { existingRoles?: readonly string[]; existingDatabases?: readonly string[] }) {
   const existingRoles = new Set(options?.existingRoles ?? []);
   const existingDatabases = new Set(options?.existingDatabases ?? []);
   const calls: QueryCall[] = [];
@@ -66,15 +63,9 @@ describe("test-support database ownership", () => {
       identity: "postgresql://identity:identity@localhost:5432/identity",
     });
 
-    expect(calls.map((call) => call.sql)).toContain(
-      `CREATE ROLE "auth" WITH LOGIN PASSWORD 'auth'`,
-    );
-    expect(calls.map((call) => call.sql)).toContain(
-      `CREATE DATABASE "auth" OWNER "auth"`,
-    );
-    expect(calls.map((call) => call.sql)).toContain(
-      `GRANT ALL PRIVILEGES ON DATABASE "identity" TO "identity"`,
-    );
+    expect(calls.map((call) => call.sql)).toContain(`CREATE ROLE "auth" WITH LOGIN PASSWORD 'auth'`);
+    expect(calls.map((call) => call.sql)).toContain(`CREATE DATABASE "auth" OWNER "auth"`);
+    expect(calls.map((call) => call.sql)).toContain(`GRANT ALL PRIVILEGES ON DATABASE "identity" TO "identity"`);
   });
 
   it("is idempotent for existing roles and databases", async () => {
@@ -87,17 +78,9 @@ describe("test-support database ownership", () => {
       auth: "postgresql://auth:auth@localhost:5432/auth",
     });
 
-    expect(calls.map((call) => call.sql)).not.toContain(
-      `CREATE ROLE "auth" WITH LOGIN PASSWORD 'auth'`,
-    );
-    expect(calls.map((call) => call.sql)).not.toContain(
-      `CREATE DATABASE "auth" OWNER "auth"`,
-    );
-    expect(calls.map((call) => call.sql)).toContain(
-      `ALTER ROLE "auth" WITH LOGIN PASSWORD 'auth'`,
-    );
-    expect(calls.map((call) => call.sql)).toContain(
-      `ALTER DATABASE "auth" OWNER TO "auth"`,
-    );
+    expect(calls.map((call) => call.sql)).not.toContain(`CREATE ROLE "auth" WITH LOGIN PASSWORD 'auth'`);
+    expect(calls.map((call) => call.sql)).not.toContain(`CREATE DATABASE "auth" OWNER "auth"`);
+    expect(calls.map((call) => call.sql)).toContain(`ALTER ROLE "auth" WITH LOGIN PASSWORD 'auth'`);
+    expect(calls.map((call) => call.sql)).toContain(`ALTER DATABASE "auth" OWNER TO "auth"`);
   });
 });

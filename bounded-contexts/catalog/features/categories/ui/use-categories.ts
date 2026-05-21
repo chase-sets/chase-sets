@@ -3,7 +3,10 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { CategoryDetail, CategoryListItem } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
-import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import type {
+  BulkLifecyclePreview,
+  BulkLifecycleResult,
+} from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useCategoryList(query: string, initialData?: ListResponse<CategoryListItem> | null) {
   return useFetch(() => api.listCategories<ListResponse<CategoryListItem>>(query), [query], initialData);
@@ -24,13 +27,16 @@ export function createCategory(body: {
   return api.createCategory<CommandResponse>(body);
 }
 
-export function reviseCategory(id: string, body: {
-  key: string;
-  name: LocalizedTextMap;
-  description?: LocalizedTextMap;
-  parentCategoryId?: string | null;
-  displayOrder?: number;
-}) {
+export function reviseCategory(
+  id: string,
+  body: {
+    key: string;
+    name: LocalizedTextMap;
+    description?: LocalizedTextMap;
+    parentCategoryId?: string | null;
+    displayOrder?: number;
+  },
+) {
   return api.reviseCategory<CommandResponse>(id, body);
 }
 
@@ -53,7 +59,3 @@ export function previewBulkCategoryLifecycle(action: string, selection: unknown)
 export function confirmBulkCategoryLifecycle(action: string, selection: unknown) {
   return api.confirmBulkCategoryLifecycle<BulkLifecycleResult>(action, selection);
 }
-
-
-
-

@@ -1,9 +1,4 @@
-import type {
-  AccountId,
-  CredentialId,
-  MembershipId,
-  UserId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, CredentialId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 

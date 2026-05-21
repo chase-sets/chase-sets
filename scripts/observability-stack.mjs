@@ -2,11 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import {
-  applySandboxEnv,
-  buildDockerComposeArgs,
-  ensureWorktreeSandboxEnvironment,
-} from "./lib/sandbox.mjs";
+import { applySandboxEnv, buildDockerComposeArgs, ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 
 const command = process.argv[2] ?? "urls";
 const rootDir = fileURLToPath(new URL("../", import.meta.url));

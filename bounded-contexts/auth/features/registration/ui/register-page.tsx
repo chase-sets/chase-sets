@@ -17,22 +17,11 @@ import {
 import type { FormEvent, ReactNode, Ref } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { AuthActionNotice } from "../../../support/route-support/auth-host";
-import {
-  createPasskeyCredential,
-  type PasskeyCredentialPayload,
-} from "../../../support/ui-support/passkey-browser";
-import {
-  HiddenFields,
-  PasskeyHiddenFields,
-} from "../../../support/ui-support/auth-hidden-fields";
+import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
+import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
 
 type RegistrationMethod = "passkey" | "phone-code" | "magic-link" | "password";
-type RegistrationAnalyticsStage =
-  | "shown"
-  | "selected"
-  | "completed"
-  | "abandoned"
-  | "failed";
+type RegistrationAnalyticsStage = "shown" | "selected" | "completed" | "abandoned" | "failed";
 
 const DEFAULT_REGISTRATION_METHOD: RegistrationMethod = "passkey";
 const REGISTRATION_METHOD_OPTIONS: readonly {
@@ -62,9 +51,7 @@ const REGISTRATION_METHOD_OPTIONS: readonly {
   },
 ];
 
-const registrationMethods = REGISTRATION_METHOD_OPTIONS.map(
-  (option) => option.value,
-);
+const registrationMethods = REGISTRATION_METHOD_OPTIONS.map((option) => option.value);
 const registrationMethodsShown = registrationMethods.join(",");
 
 type RegistrationDetails = Readonly<{
@@ -103,11 +90,13 @@ function registrationMethodPriority(method: RegistrationMethod) {
   return registrationMethods.indexOf(method) + 1;
 }
 
-function trackRegistrationAnalytics(event: Readonly<{
-  method: RegistrationMethod;
-  stage: RegistrationAnalyticsStage;
-  reason?: string;
-}>) {
+function trackRegistrationAnalytics(
+  event: Readonly<{
+    method: RegistrationMethod;
+    stage: RegistrationAnalyticsStage;
+    reason?: string;
+  }>,
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -146,21 +135,11 @@ function RegistrationFormCard({
 }: RegistrationFormCardProps) {
   return (
     <Card glow={glow}>
-      <form
-        ref={formRef}
-        action={action}
-        method="post"
-        onSubmit={onSubmit}
-      >
+      <form ref={formRef} action={action} method="post" onSubmit={onSubmit}>
         <Stack gap={3}>
           <HiddenFields fields={hiddenFields} />
           <input type="hidden" name="registrationMethod" value={method} readOnly />
-          <input
-            type="hidden"
-            name="registrationMethodsShown"
-            value={registrationMethodsShown}
-            readOnly
-          />
+          <input type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
           <input type="hidden" name="intent" value={intent} readOnly />
           {children}
         </Stack>
@@ -193,23 +172,16 @@ function IdentityFields({ details, onChange }: IdentityFieldsProps) {
 
 export function RegisterPage(props: RegistrationPageProps) {
   const [method, setMethod] = useState<RegistrationMethod>(
-    props.notice?.status === "phone-code-sent"
-      ? "phone-code"
-      : DEFAULT_REGISTRATION_METHOD,
+    props.notice?.status === "phone-code-sent" ? "phone-code" : DEFAULT_REGISTRATION_METHOD,
   );
   const [details, setDetails] = useState<RegistrationDetails>({
-    displayName:
-      props.notice?.status === "phone-code-sent"
-        ? props.notice.displayName ?? ""
-        : "",
+    displayName: props.notice?.status === "phone-code-sent" ? (props.notice.displayName ?? "") : "",
     email: "",
-    phone:
-      props.notice?.status === "phone-code-sent" ? props.notice.phone : "",
+    phone: props.notice?.status === "phone-code-sent" ? props.notice.phone : "",
     phoneCode: "",
     password: "",
   });
-  const [passkeyPayload, setPasskeyPayload] =
-    useState<PasskeyCredentialPayload | null>(null);
+  const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
@@ -295,12 +267,7 @@ export function RegisterPage(props: RegistrationPageProps) {
   }
 
   const fallbackAction = (
-    <Button
-      type="button"
-      tone="secondary"
-      size="sm"
-      onClick={() => selectMethod("magic-link")}
-    >
+    <Button type="button" tone="secondary" size="sm" onClick={() => selectMethod("magic-link")}>
       {t("auth.features.registration.ui.registerPage.use.magic.link")}
     </Button>
   );
@@ -309,9 +276,11 @@ export function RegisterPage(props: RegistrationPageProps) {
     <Stack gap={4}>
       <Stack gap={2}>
         <Text size="lg" weight="semibold">
-          {t("auth.features.registration.ui.registerPage.create.account")}</Text>
+          {t("auth.features.registration.ui.registerPage.create.account")}
+        </Text>
         <Text tone="secondary">
-          {t("auth.features.registration.ui.registerPage.create.your.personal.identity.and.owner")}</Text>
+          {t("auth.features.registration.ui.registerPage.create.your.personal.identity.and.owner")}
+        </Text>
       </Stack>
 
       {props.errorMessage ? (
@@ -323,7 +292,11 @@ export function RegisterPage(props: RegistrationPageProps) {
         />
       ) : null}
       {props.notice?.status === "passkey-recovery" ? (
-        <Banner title={t("auth.features.registration.ui.registerPage.passkey.added")} description={props.notice.message} tone="success" />
+        <Banner
+          title={t("auth.features.registration.ui.registerPage.passkey.added")}
+          description={props.notice.message}
+          tone="success"
+        />
       ) : null}
       {props.notice?.status === "phone-code-sent" ? (
         <Banner
@@ -336,10 +309,10 @@ export function RegisterPage(props: RegistrationPageProps) {
       <Card glow>
         <Stack gap={3}>
           <Inline>
-            <Badge tone="accent">
-              {t("auth.features.registration.ui.registerPage.fastest")}</Badge>
+            <Badge tone="accent">{t("auth.features.registration.ui.registerPage.fastest")}</Badge>
             <Text size="sm" tone="secondary">
-              {t("auth.features.registration.ui.registerPage.use.an.account.you.already.have")}</Text>
+              {t("auth.features.registration.ui.registerPage.use.an.account.you.already.have")}
+            </Text>
           </Inline>
           <Inline>
             <LinkButton
@@ -347,13 +320,15 @@ export function RegisterPage(props: RegistrationPageProps) {
               leadingIcon="badgeCheck"
               block
             >
-              {t("auth.features.registration.ui.registerPage.continue.with.google")}</LinkButton>
+              {t("auth.features.registration.ui.registerPage.continue.with.google")}
+            </LinkButton>
             <LinkButton
               href={`/api/auth/social/facebook/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
               leadingIcon="users"
               block
             >
-              {t("auth.features.registration.ui.registerPage.continue.with.facebook")}</LinkButton>
+              {t("auth.features.registration.ui.registerPage.continue.with.facebook")}
+            </LinkButton>
           </Inline>
         </Stack>
       </Card>
@@ -381,11 +356,10 @@ export function RegisterPage(props: RegistrationPageProps) {
         >
           <PasskeyHiddenFields payload={passkeyPayload} />
           <Inline>
-            <Badge tone="accent">
-              {t("auth.features.registration.ui.registerPage.recommended")}
-            </Badge>
+            <Badge tone="accent">{t("auth.features.registration.ui.registerPage.recommended")}</Badge>
             <Text size="sm" tone="secondary">
-              {t("auth.features.registration.ui.registerPage.passkey.recommended.copy")}</Text>
+              {t("auth.features.registration.ui.registerPage.passkey.recommended.copy")}
+            </Text>
           </Inline>
           <IdentityFields details={details} onChange={updateDetails} />
           {passkeyError ? (
@@ -398,7 +372,8 @@ export function RegisterPage(props: RegistrationPageProps) {
             />
           ) : null}
           <Button type="submit" leadingIcon="shield" loading={passkeyLoading}>
-            {t("auth.features.registration.ui.registerPage.create.with.passkey")}</Button>
+            {t("auth.features.registration.ui.registerPage.create.with.passkey")}
+          </Button>
         </RegistrationFormCard>
       ) : null}
 
@@ -411,10 +386,12 @@ export function RegisterPage(props: RegistrationPageProps) {
           onSubmit={() => handleCompleted("magic-link")}
         >
           <Text size="sm" tone="secondary">
-            {t("auth.features.registration.ui.registerPage.magic.link.copy")}</Text>
+            {t("auth.features.registration.ui.registerPage.magic.link.copy")}
+          </Text>
           <IdentityFields details={details} onChange={updateDetails} />
           <Button type="submit" leadingIcon="message">
-            {t("auth.features.registration.ui.registerPage.email.me.magic.link")}</Button>
+            {t("auth.features.registration.ui.registerPage.email.me.magic.link")}
+          </Button>
         </RegistrationFormCard>
       ) : null}
 
@@ -428,15 +405,14 @@ export function RegisterPage(props: RegistrationPageProps) {
             onSubmit={() => handleCompleted("phone-code")}
           >
             <Text size="sm" tone="secondary">
-              {t("auth.features.registration.ui.registerPage.phone.code.copy")}</Text>
+              {t("auth.features.registration.ui.registerPage.phone.code.copy")}
+            </Text>
             <TextInput
               label={t("auth.features.registration.ui.registerPage.display.name")}
               name="displayName"
               required
               value={details.displayName}
-              onChange={(event) =>
-                updateDetails("displayName", event.currentTarget.value)
-              }
+              onChange={(event) => updateDetails("displayName", event.currentTarget.value)}
             />
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone")}
@@ -444,12 +420,11 @@ export function RegisterPage(props: RegistrationPageProps) {
               type="tel"
               required
               value={details.phone}
-              onChange={(event) =>
-                updateDetails("phone", event.currentTarget.value)
-              }
+              onChange={(event) => updateDetails("phone", event.currentTarget.value)}
             />
             <Button type="submit" leadingIcon="message">
-              {t("auth.features.registration.ui.registerPage.text.me.a.code")}</Button>
+              {t("auth.features.registration.ui.registerPage.text.me.a.code")}
+            </Button>
           </RegistrationFormCard>
 
           <RegistrationFormCard
@@ -460,7 +435,8 @@ export function RegisterPage(props: RegistrationPageProps) {
             onSubmit={() => handleCompleted("phone-code")}
           >
             <Text size="sm" tone="secondary">
-              {t("auth.features.registration.ui.registerPage.enter.phone.code.copy")}</Text>
+              {t("auth.features.registration.ui.registerPage.enter.phone.code.copy")}
+            </Text>
             <input type="hidden" name="displayName" value={details.displayName} readOnly />
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone")}
@@ -468,9 +444,7 @@ export function RegisterPage(props: RegistrationPageProps) {
               type="tel"
               required
               value={details.phone}
-              onChange={(event) =>
-                updateDetails("phone", event.currentTarget.value)
-              }
+              onChange={(event) => updateDetails("phone", event.currentTarget.value)}
             />
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone.code.2")}
@@ -478,12 +452,11 @@ export function RegisterPage(props: RegistrationPageProps) {
               inputMode="numeric"
               required
               value={details.phoneCode}
-              onChange={(event) =>
-                updateDetails("phoneCode", event.currentTarget.value)
-              }
+              onChange={(event) => updateDetails("phoneCode", event.currentTarget.value)}
             />
             <Button type="submit" leadingIcon="message" tone="secondary">
-              {t("auth.features.registration.ui.registerPage.create.account.with.code")}</Button>
+              {t("auth.features.registration.ui.registerPage.create.account.with.code")}
+            </Button>
           </RegistrationFormCard>
         </>
       ) : null}
@@ -497,7 +470,8 @@ export function RegisterPage(props: RegistrationPageProps) {
           onSubmit={() => handleCompleted("password")}
         >
           <Text size="sm" tone="secondary">
-            {t("auth.features.registration.ui.registerPage.password.fallback.copy")}</Text>
+            {t("auth.features.registration.ui.registerPage.password.fallback.copy")}
+          </Text>
           <Divider />
           <IdentityFields details={details} onChange={updateDetails} />
           <PasswordInput
@@ -508,7 +482,8 @@ export function RegisterPage(props: RegistrationPageProps) {
             onChange={(event) => updateDetails("password", event.currentTarget.value)}
           />
           <Button type="submit" leadingIcon="lock" tone="secondary">
-            {t("auth.features.registration.ui.registerPage.create.account.with.password")}</Button>
+            {t("auth.features.registration.ui.registerPage.create.account.with.password")}
+          </Button>
         </RegistrationFormCard>
       ) : null}
     </Stack>

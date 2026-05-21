@@ -3,8 +3,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapOrderConfirmedToTransactionalEmail } from "./transactional-email-intents";
 
-export const ORDERING_TRANSACTIONAL_EMAIL_PROJECTION =
-  "ordering-order-transactional-email-projection";
+export const ORDERING_TRANSACTIONAL_EMAIL_PROJECTION = "ordering-order-transactional-email-projection";
 
 export type OrderingOrderCreatedEmailEvent = Readonly<
   TransportEvent & {
@@ -52,7 +51,6 @@ export function buildOrderingTransactionalEmailProjectionHandlers(
   projectionName = ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
 ): ProjectorHandlerMap {
   return {
-    "ordering.order.created": (event) =>
-      projectOrderingEventToTransactionalEmail(outbox, event, projectionName),
+    "ordering.order.created": (event) => projectOrderingEventToTransactionalEmail(outbox, event, projectionName),
   };
 }

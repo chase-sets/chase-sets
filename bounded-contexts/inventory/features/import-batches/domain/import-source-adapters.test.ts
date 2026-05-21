@@ -71,8 +71,6 @@ describe("inventory import source adapters", () => {
   });
 
   it("rejects unsupported source keys at the registry boundary", () => {
-    expect(() => getInventoryImportSourceAdapter("unknown")).toThrow(
-      "Unsupported inventory import source",
-    );
+    expect(() => getInventoryImportSourceAdapter("unknown")).toThrow("Unsupported inventory import source");
   });
 });

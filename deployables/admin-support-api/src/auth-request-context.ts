@@ -20,18 +20,13 @@ function parseCookieHeader(cookieHeader: string | null) {
           return [part, ""];
         }
 
-        return [
-          part.slice(0, separatorIndex),
-          decodeURIComponent(part.slice(separatorIndex + 1)),
-        ];
+        return [part.slice(0, separatorIndex), decodeURIComponent(part.slice(separatorIndex + 1))];
       }),
   );
 }
 
 function readAuthSessionToken(request: Request) {
-  const cookieToken =
-    parseCookieHeader(request.headers.get("cookie")).get(AUTH_SESSION_COOKIE_NAME) ??
-    null;
+  const cookieToken = parseCookieHeader(request.headers.get("cookie")).get(AUTH_SESSION_COOKIE_NAME) ?? null;
   if (cookieToken) {
     return cookieToken;
   }
@@ -44,9 +39,7 @@ function readAuthSessionToken(request: Request) {
   return authorization.slice("Bearer ".length).trim() || null;
 }
 
-export function createAuthBootstrapContext(
-  services: PlatformIdentityServices["auth"],
-): EventStoreContext {
+export function createAuthBootstrapContext(services: PlatformIdentityServices["auth"]): EventStoreContext {
   return {
     tenantId: services.identity.bootstrapTenantId as never,
     audit: {
@@ -62,18 +55,11 @@ async function resolveActorFromSessionId(
   sessionId: string,
 ): Promise<ResolvedActor | null> {
   const session = await services.sessions.getSession(sessionId);
-  if (
-    !session ||
-    session.status !== "active" ||
-    new Date(session.expires_at).getTime() <= Date.now()
-  ) {
+  if (!session || session.status !== "active" || new Date(session.expires_at).getTime() <= Date.now()) {
     return null;
   }
 
-  const membership = await services.identity.getActiveMembershipForUserAccount(
-    session.user_id,
-    session.account_id,
-  );
+  const membership = await services.identity.getActiveMembershipForUserAccount(session.user_id, session.account_id);
 
   if (!membership) {
     return null;

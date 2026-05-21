@@ -17,10 +17,18 @@ function requireListingAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -28,7 +36,9 @@ function requireListingAccess(
     return {
       actor: null,
       response: new Response(
-        JSON.stringify({ error: { code: "authorization_forbidden", message: t("marketplace.features.listings.api.route.forbidden") } }),
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("marketplace.features.listings.api.route.forbidden") },
+        }),
         {
           status: 403,
           headers: { "Content-Type": "application/json" },
@@ -105,17 +115,15 @@ function parseSelectedOptions(value: unknown) {
 }
 
 function parseInventorySnapshot(body: Record<string, unknown>) {
-  const snapshot = typeof body.inventorySnapshot === "string"
-    ? parseJsonObject(body.inventorySnapshot)
-    : body.inventorySnapshot;
+  const snapshot =
+    typeof body.inventorySnapshot === "string" ? parseJsonObject(body.inventorySnapshot) : body.inventorySnapshot;
   if (!snapshot || typeof snapshot !== "object") {
     return null;
   }
 
   const source = snapshot as Record<string, unknown>;
-  const shipFromAddress = source.shipFromAddress && typeof source.shipFromAddress === "object"
-    ? source.shipFromAddress as never
-    : null;
+  const shipFromAddress =
+    source.shipFromAddress && typeof source.shipFromAddress === "object" ? (source.shipFromAddress as never) : null;
 
   if (!shipFromAddress) {
     return null;
@@ -126,19 +134,13 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     catalogItemId: String(source.catalogItemId ?? ""),
     productId: String(source.productId ?? ""),
     selectedOptions: parseSelectedOptions(source.selectedOptions),
-    gradedCard:
-      source.gradedCard && typeof source.gradedCard === "object"
-        ? source.gradedCard as never
-        : null,
+    gradedCard: source.gradedCard && typeof source.gradedCard === "object" ? (source.gradedCard as never) : null,
     storageLocationId: String(source.storageLocationId ?? ""),
     storageLocationName: String(source.storageLocationName ?? ""),
     shipFromCode: String(source.shipFromCode ?? ""),
     shipFromAddress,
     totalQuantity: Number(source.totalQuantity ?? 0),
-    acquisitionCostAmount:
-      source.acquisitionCostAmount == null
-        ? null
-        : String(source.acquisitionCostAmount),
+    acquisitionCostAmount: source.acquisitionCostAmount == null ? null : String(source.acquisitionCostAmount),
   };
 }
 
@@ -162,12 +164,7 @@ function parseSellerListingAvailabilityReason(value: unknown) {
     return null;
   }
 
-  if (
-    normalized === "travel" ||
-    normalized === "audit" ||
-    normalized === "operations" ||
-    normalized === "other"
-  ) {
+  if (normalized === "travel" || normalized === "audit" || normalized === "operations" || normalized === "other") {
     return normalized;
   }
 
@@ -183,10 +180,7 @@ function isMultipartRequest(c: { req: { header(name: string): string | undefined
   return (c.req.header("content-type") ?? "").includes("multipart/form-data");
 }
 
-async function fileToPhotoUpload(
-  file: File,
-  altText?: string | null,
-): Promise<MarketplaceListingPhotoUpload | null> {
+async function fileToPhotoUpload(file: File, altText?: string | null): Promise<MarketplaceListingPhotoUpload | null> {
   if (file.size <= 0) {
     return null;
   }
@@ -200,9 +194,7 @@ async function fileToPhotoUpload(
 }
 
 async function parseListingPhotoUploads(formData: FormData) {
-  const files = formData.getAll("listingPhotos").filter(
-    (entry): entry is File => entry instanceof File,
-  );
+  const files = formData.getAll("listingPhotos").filter((entry): entry is File => entry instanceof File);
   const altTexts = formData.getAll("listingPhotoAltText").map((entry) => String(entry ?? ""));
   const uploads: MarketplaceListingPhotoUpload[] = [];
 
@@ -273,9 +265,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       return access.response;
     }
 
-    return c.json(
-      await services.getSellerListingAvailability(access.actor.accountId),
-    );
+    return c.json(await services.getSellerListingAvailability(access.actor.accountId));
   });
 
   app.post("/listing-availability/disable", async (c) => {
@@ -286,7 +276,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -315,14 +313,19 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     try {
-      const result = await services.enableSellerListingAvailability(
-        { accountId: access.actor.accountId },
-        context,
-      );
+      const result = await services.enableSellerListingAvailability({ accountId: access.actor.accountId }, context);
 
       return c.json(result);
     } catch (error) {
@@ -377,13 +380,13 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       return access.response;
     }
 
-    const listing = await services.getSellerListing(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const listing = await services.getSellerListing(c.req.param("id"), access.actor.accountId);
 
     if (!listing) {
-      return c.json({ error: { code: "not_found", message: t("marketplace.features.listings.api.route.listing.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("marketplace.features.listings.api.route.listing.not.found") } },
+        404,
+      );
     }
 
     return c.json(listing);
@@ -419,7 +422,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const formData = isMultipartRequest(c) ? await c.req.formData() : null;
@@ -484,7 +495,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -515,7 +534,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -526,8 +553,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
           priceAmount: String(body.priceAmount ?? ""),
-          feeQuoteFingerprint:
-            typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
+          feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );
@@ -550,7 +576,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -562,11 +596,8 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           listingId: c.req.param("id"),
           quantityCap: Number(body.quantityCap ?? 0),
           purchaseLimits:
-            body.purchaseLimits && typeof body.purchaseLimits === "object"
-              ? parsePurchaseLimits(body)
-              : undefined,
-          feeQuoteFingerprint:
-            typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
+            body.purchaseLimits && typeof body.purchaseLimits === "object" ? parsePurchaseLimits(body) : undefined,
+          feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );
@@ -589,7 +620,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -618,7 +657,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.4") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing.4"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -628,8 +675,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
         {
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
-          feeQuoteFingerprint:
-            typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
+          feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );
@@ -652,7 +698,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.5") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing.5"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -678,7 +732,15 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing.6") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.listings.api.route.authentication.context.missing.6"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -703,16 +765,12 @@ export function createPublicListingRoutes(services: MarketplaceListingServices) 
   const app = new Hono<MarketplaceApiEnv>();
 
   app.get("/products/:productId/market-summary", async (c) => {
-    const summary = await services.getMarketSummaryForItem(
-      c.req.param("productId"),
-    );
+    const summary = await services.getMarketSummaryForItem(c.req.param("productId"));
     return c.json(summary);
   });
 
   app.get("/products/:productId/listings", async (c) => {
-    const items = await services.listItemListings(
-      c.req.param("productId"),
-    );
+    const items = await services.listItemListings(c.req.param("productId"));
     return c.json({
       items,
       total: items.length,

@@ -57,19 +57,21 @@ export type InventoryImportBatch = Readonly<{
   updated_at: string;
 }>;
 
-export type InventoryImportBatchDetail = InventoryImportBatch & Readonly<{
-  rows: readonly InventoryImportBatchRow[];
-}>;
+export type InventoryImportBatchDetail = InventoryImportBatch &
+  Readonly<{
+    rows: readonly InventoryImportBatchRow[];
+  }>;
 
 type RawImportBatchRow = Omit<
   InventoryImportBatchRow,
   "raw_row" | "external_reference" | "selected_options" | "validation_errors"
-> & Readonly<{
-  raw_row: unknown;
-  external_reference: unknown;
-  selected_options: unknown;
-  validation_errors: unknown;
-}>;
+> &
+  Readonly<{
+    raw_row: unknown;
+    external_reference: unknown;
+    selected_options: unknown;
+    validation_errors: unknown;
+  }>;
 
 function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
   return {

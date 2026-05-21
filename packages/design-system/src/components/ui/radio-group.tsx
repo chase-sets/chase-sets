@@ -14,7 +14,7 @@ export function RadioGroup({
   items,
   value,
   defaultValue,
-  onValueChange
+  onValueChange,
 }: {
   label: string;
   items: RadioItem[];
@@ -26,7 +26,9 @@ export function RadioGroup({
 
   return (
     <div className="grid gap-2">
-      <div id={groupLabelId} className="text-sm font-medium">{label}</div>
+      <div id={groupLabelId} className="text-sm font-medium">
+        {label}
+      </div>
       <RadioGroupPrimitive
         aria-labelledby={groupLabelId}
         value={value}
@@ -45,19 +47,25 @@ export function RadioGroup({
               nativeButton
               aria-labelledby={itemLabelId}
               aria-describedby={itemDescriptionId}
-              className={(state) => cn(
-                "ds-panel flex w-full cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--muted)] p-3 text-left transition-colors",
-                state.checked && "border-[var(--primary)] bg-[var(--secondary)]"
-              )}
+              className={(state) =>
+                cn(
+                  "ds-panel flex w-full cursor-pointer items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--muted)] p-3 text-left transition-colors",
+                  state.checked && "border-[var(--primary)] bg-[var(--secondary)]",
+                )
+              }
               render={<button type="button" />}
             >
               <span className="ds-focus mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)]">
                 <Radio.Indicator className="h-2.5 w-2.5 rounded-full bg-[var(--primary)]" />
               </span>
               <span className="grid gap-1">
-                <span id={itemLabelId} className="text-sm font-medium">{item.label}</span>
+                <span id={itemLabelId} className="text-sm font-medium">
+                  {item.label}
+                </span>
                 {item.description ? (
-                  <span id={itemDescriptionId} className="text-xs text-[var(--muted-foreground)]">{item.description}</span>
+                  <span id={itemDescriptionId} className="text-xs text-[var(--muted-foreground)]">
+                    {item.description}
+                  </span>
                 ) : null}
               </span>
             </Radio.Root>

@@ -39,7 +39,7 @@ export function PasswordInput({
           id={inputId}
           required={required}
           type={visible ? "text" : "password"}
-          aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+          aria-describedby={error || description ? fieldHintId(inputId) : undefined}
           aria-invalid={!!error || undefined}
           className={cx(controlClass, !!error && controlErrorClass, "pr-12")}
         />

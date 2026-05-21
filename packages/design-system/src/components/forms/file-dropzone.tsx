@@ -25,7 +25,7 @@ export function FileDropzone({
   multiple = false,
   onFilesChange,
   dropLabel = "Drop files here",
-  browseLabel = "or choose from your device"
+  browseLabel = "or choose from your device",
 }: FileDropzoneProps) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
@@ -71,7 +71,7 @@ export function FileDropzone({
         onDrop={handleDrop}
         className={cx(
           "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-tokenLg border border-dashed bg-background px-4 py-8 text-center transition",
-          dragging ? "border-accent bg-elevated" : "border-muted"
+          dragging ? "border-accent bg-elevated" : "border-muted",
         )}
       >
         <Icon name="package" size="lg" tone="accent" />

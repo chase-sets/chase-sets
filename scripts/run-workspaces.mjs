@@ -63,21 +63,13 @@ export function parseRunWorkspacesArgs(argv) {
   }
 
   const passthroughSeparatorIndex = rawArgs.indexOf("--");
-  const runnerArgs =
-    passthroughSeparatorIndex === -1 ? rawArgs : rawArgs.slice(0, passthroughSeparatorIndex);
-  const passthroughArgs =
-    passthroughSeparatorIndex === -1 ? [] : rawArgs.slice(passthroughSeparatorIndex + 1);
+  const runnerArgs = passthroughSeparatorIndex === -1 ? rawArgs : rawArgs.slice(0, passthroughSeparatorIndex);
+  const passthroughArgs = passthroughSeparatorIndex === -1 ? [] : rawArgs.slice(passthroughSeparatorIndex + 1);
 
   const concurrencyArg = runnerArgs.find((arg) => arg.startsWith("--concurrency="));
-  const concurrency = concurrencyArg
-    ? parsePositiveInteger(concurrencyArg.split("=")[1] ?? "", "--concurrency")
-    : 1;
-  const includeTestProfile = runnerArgs
-    .find((arg) => arg.startsWith("--test-profile="))
-    ?.split("=")[1];
-  const excludeTestProfile = runnerArgs
-    .find((arg) => arg.startsWith("--exclude-test-profile="))
-    ?.split("=")[1];
+  const concurrency = concurrencyArg ? parsePositiveInteger(concurrencyArg.split("=")[1] ?? "", "--concurrency") : 1;
+  const includeTestProfile = runnerArgs.find((arg) => arg.startsWith("--test-profile="))?.split("=")[1];
+  const excludeTestProfile = runnerArgs.find((arg) => arg.startsWith("--exclude-test-profile="))?.split("=")[1];
 
   return {
     scriptName,
@@ -121,9 +113,7 @@ async function runWorkspace(workspace, options) {
     ...(passthroughArgs.length > 0 ? ["--", ...passthroughArgs] : []),
   ]);
   await run(invocation.command, invocation.args, {
-    ...(usePrefixedLogs
-      ? { prefix: workspace.name }
-      : { stdio: "inherit" }),
+    ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
   });
 }
 
@@ -155,9 +145,7 @@ async function runConcurrent(workspaces, options) {
     console.error(`Failed workspaces: ${failedNames}`);
     for (const failure of failures) {
       console.error(
-        `[${failure.workspace.name}] ${
-          failure.error instanceof Error ? failure.error.message : String(failure.error)
-        }`,
+        `[${failure.workspace.name}] ${failure.error instanceof Error ? failure.error.message : String(failure.error)}`,
       );
     }
     throw new Error(`${failures.length} workspace script run(s) failed.`);

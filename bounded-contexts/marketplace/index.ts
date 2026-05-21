@@ -12,28 +12,18 @@ import {
   buildMarketplaceCatalogProjectionHandlers,
   buildMarketplaceInventoryProjectionHandlers,
 } from "./features/listings/integrations/supply/supply-projection";
-import type {
-  MarketplaceServiceOptions,
-  MarketplaceServices,
-} from "./support/runtime-support/services";
+import type { MarketplaceServiceOptions, MarketplaceServices } from "./support/runtime-support/services";
 import { buildMarketplaceApi } from "./api";
 import { createMarketplaceServices } from "./support/runtime-support/services";
 import { marketplaceSchemaSql } from "./support/runtime-support/schema";
 import { seedMarketplaceDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -45,11 +35,7 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<
-  MarketplaceServices,
-  PgTransactionalPool,
-  MarketplaceServiceOptions
-> = {
+export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions> = {
   contextName: "marketplace",
   routePrefix: "/api/marketplace",
   streamPrefix: "marketplace.",
@@ -64,22 +50,10 @@ export const module: BcApiModule<
   buildApis: (services) => [buildMarketplaceApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const catalogSubscription = getEventSubscription(
-      "catalog",
-      "marketplace-catalog-item-projection",
-    );
-    const identitySubscription = getEventSubscription(
-      "identity",
-      "marketplace-identity-account-projection",
-    );
-    const inventorySubscription = getEventSubscription(
-      "inventory",
-      "marketplace-inventory-supply-projection",
-    );
-    const reputationSubscription = getEventSubscription(
-      "reputation",
-      "marketplace-identity-account-projection",
-    );
+    const catalogSubscription = getEventSubscription("catalog", "marketplace-catalog-item-projection");
+    const identitySubscription = getEventSubscription("identity", "marketplace-identity-account-projection");
+    const inventorySubscription = getEventSubscription("inventory", "marketplace-inventory-supply-projection");
+    const reputationSubscription = getEventSubscription("reputation", "marketplace-identity-account-projection");
 
     return [
       {

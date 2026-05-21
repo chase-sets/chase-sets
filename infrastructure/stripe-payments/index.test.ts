@@ -3,9 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createStripePaymentProcessorGateway } from ".";
 
 function signature(rawBody: string, secret: string, timestamp: number) {
-  const digest = createHmac("sha256", secret)
-    .update(`${timestamp}.${rawBody}`)
-    .digest("hex");
+  const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
   return `t=${timestamp},v1=${digest}`;
 }
 
@@ -15,16 +13,17 @@ function formSnapshot(body: BodyInit | null | undefined) {
 
 describe("Stripe payment processor gateway", () => {
   it("creates Checkout Sessions through Stripe with API version, managed Elements, and metadata", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: "cs_123",
-          client_secret: "cs_123_secret",
-          status: "open",
-          payment_status: "unpaid",
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "cs_123",
+            client_secret: "cs_123_secret",
+            status: "open",
+            payment_status: "unpaid",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -55,14 +54,10 @@ describe("Stripe payment processor gateway", () => {
     );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Headers).get("Stripe-Version")).toBe("2026-02-25.clover");
-    expect((init.headers as Headers).get("Idempotency-Key")).toBe(
-      "payments:payment:pay_123:create",
-    );
+    expect((init.headers as Headers).get("Idempotency-Key")).toBe("payments:payment:pay_123:create");
     expect(String(init.body)).toContain("ui_mode=elements");
     expect(String(init.body)).toContain("mode=payment");
-    expect(String(init.body)).toContain(
-      "return_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_123",
-    );
+    expect(String(init.body)).toContain("return_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_123");
     expect(String(init.body)).toContain("metadata%5Bpayment_id%5D=pay_123");
     expect(String(init.body)).toContain(
       "payment_intent_data%5Bpayment_method_options%5D%5Bcard%5D%5Brequest_three_d_secure%5D=automatic",
@@ -73,8 +68,7 @@ describe("Stripe payment processor gateway", () => {
       return_url: "https://marketplace.test/account/payments/pay_123",
       client_reference_id: "pay_123",
       "metadata[funds_strategy]": "platform-held",
-      "payment_intent_data[payment_method_options][card][request_three_d_secure]":
-        "automatic",
+      "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
       "payment_intent_data[transfer_group]": "payment:pay_123",
     });
 
@@ -82,16 +76,17 @@ describe("Stripe payment processor gateway", () => {
   });
 
   it("can create a hosted Checkout Session fallback", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: "cs_hosted",
-          url: "https://checkout.stripe.com/c/pay/cs_hosted",
-          status: "open",
-          payment_status: "unpaid",
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "cs_hosted",
+            url: "https://checkout.stripe.com/c/pay/cs_hosted",
+            status: "open",
+            payment_status: "unpaid",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -113,21 +108,13 @@ describe("Stripe payment processor gateway", () => {
       returnUrl: "https://marketplace.test/account/payments/pay_hosted",
     });
 
-    expect(gateway.getPublicConfiguration().confirmationExperience).toBe(
-      "processor-hosted-page",
-    );
+    expect(gateway.getPublicConfiguration().confirmationExperience).toBe("processor-hosted-page");
     expect(payment.processorClientSecret).toBeNull();
-    expect(payment.processorRedirectUrl).toBe(
-      "https://checkout.stripe.com/c/pay/cs_hosted",
-    );
+    expect(payment.processorRedirectUrl).toBe("https://checkout.stripe.com/c/pay/cs_hosted");
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(String(init.body)).toContain("ui_mode=hosted");
-    expect(String(init.body)).toContain(
-      "success_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_hosted",
-    );
-    expect(String(init.body)).toContain(
-      "cancel_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_hosted",
-    );
+    expect(String(init.body)).toContain("success_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_hosted");
+    expect(String(init.body)).toContain("cancel_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_hosted");
     expect(String(init.body)).not.toContain("return_url=");
     expect(formSnapshot(init.body)).toMatchObject({
       mode: "payment",
@@ -142,15 +129,16 @@ describe("Stripe payment processor gateway", () => {
   });
 
   it("creates agentic PaymentIntents with a Stripe shared payment token", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: "pi_agentic",
-          client_secret: "pi_agentic_secret",
-          status: "succeeded",
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "pi_agentic",
+            client_secret: "pi_agentic_secret",
+            status: "succeeded",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 

@@ -13,10 +13,7 @@ function resolveActiveKey(pathname: string) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   return {
-    actor: await requireExperienceAdminActor(request, [
-      "platform-feedback.view",
-      "public-presence.view",
-    ]),
+    actor: await requireExperienceAdminActor(request, ["platform-feedback.view", "public-presence.view"]),
   };
 }
 

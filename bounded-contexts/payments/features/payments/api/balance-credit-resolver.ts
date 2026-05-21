@@ -8,10 +8,12 @@ export type BalanceCreditResolution = Readonly<{
 }>;
 
 export interface BalanceCreditResolver {
-  resolveBalanceCredit(input: Readonly<{
-    buyerAccountId: AccountId;
-    currencyCode: CurrencyCode;
-    requestedAmount: string;
-    orderTotalAmount: string;
-  }>): Promise<BalanceCreditResolution>;
+  resolveBalanceCredit(
+    input: Readonly<{
+      buyerAccountId: AccountId;
+      currencyCode: CurrencyCode;
+      requestedAmount: string;
+      orderTotalAmount: string;
+    }>,
+  ): Promise<BalanceCreditResolution>;
 }

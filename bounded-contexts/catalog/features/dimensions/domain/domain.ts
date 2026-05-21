@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "../../../../../contracts/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "../../../../../contracts/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -150,15 +146,9 @@ export type DimensionRevisedEvent = DomainEvent<
   }>
 >;
 
-export type OptionAddedEvent = DomainEvent<
-  "catalog.dimension.option-added",
-  OptionSnapshot
->;
+export type OptionAddedEvent = DomainEvent<"catalog.dimension.option-added", OptionSnapshot>;
 
-export type OptionRevisedEvent = DomainEvent<
-  "catalog.dimension.option-revised",
-  OptionSnapshot
->;
+export type OptionRevisedEvent = DomainEvent<"catalog.dimension.option-revised", OptionSnapshot>;
 
 export type OptionsReorderedEvent = DomainEvent<
   "catalog.dimension.options-reordered",
@@ -181,20 +171,11 @@ export type OptionReactivatedEvent = DomainEvent<
   }>
 >;
 
-export type DimensionActivatedEvent = DomainEvent<
-  "catalog.dimension.activated",
-  EmptyEventData
->;
+export type DimensionActivatedEvent = DomainEvent<"catalog.dimension.activated", EmptyEventData>;
 
-export type DimensionDeprecatedEvent = DomainEvent<
-  "catalog.dimension.deprecated",
-  EmptyEventData
->;
+export type DimensionDeprecatedEvent = DomainEvent<"catalog.dimension.deprecated", EmptyEventData>;
 
-export type DimensionArchivedEvent = DomainEvent<
-  "catalog.dimension.archived",
-  EmptyEventData
->;
+export type DimensionArchivedEvent = DomainEvent<"catalog.dimension.archived", EmptyEventData>;
 
 export type DimensionEvent =
   | DimensionCreatedEvent
@@ -208,11 +189,7 @@ export type DimensionEvent =
   | DimensionDeprecatedEvent
   | DimensionArchivedEvent;
 
-export const decideDimension: AggregateDecider<
-  DimensionState,
-  DimensionCommand,
-  DimensionEvent
-> = (state, command) => {
+export const decideDimension: AggregateDecider<DimensionState, DimensionCommand, DimensionEvent> = (state, command) => {
   switch (command.type) {
     case "CreateDimension":
       assert(state.id === null, "Dimension has already been created.");
@@ -246,9 +223,7 @@ export const decideDimension: AggregateDecider<
           data: {
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
             valueKind: command.valueKind ?? state.valueKind,
           },
         },
@@ -288,9 +263,7 @@ export const decideDimension: AggregateDecider<
 
       assert(
         !state.options.some(
-          (existingOption) =>
-            existingOption.id !== command.optionId &&
-            existingOption.code === command.code.trim(),
+          (existingOption) => existingOption.id !== command.optionId && existingOption.code === command.code.trim(),
         ),
         "Option codes must remain unique within a dimension.",
       );
@@ -312,10 +285,7 @@ export const decideDimension: AggregateDecider<
     }
     case "ReorderOptions":
       requireCreatedDimension(state);
-      assert(
-        state.status !== "archived",
-        "Archived dimensions cannot reorder options.",
-      );
+      assert(state.status !== "archived", "Archived dimensions cannot reorder options.");
       assert(
         hasSameMembers(
           state.options.map((option) => option.id),
@@ -348,10 +318,7 @@ export const decideDimension: AggregateDecider<
     case "ReactivateOption":
       requireCreatedDimension(state);
 
-      assertNumericValueIsPresentForNumericDimension(
-        state.valueKind,
-        findOption(state, command.optionId).numericValue,
-      );
+      assertNumericValueIsPresentForNumericDimension(state.valueKind, findOption(state, command.optionId).numericValue);
 
       return [
         {
@@ -373,10 +340,7 @@ export const decideDimension: AggregateDecider<
       ];
     case "DeprecateDimension":
       requireCreatedDimension(state);
-      assert(
-        state.status === "active",
-        "Only active dimensions can be deprecated.",
-      );
+      assert(state.status === "active", "Only active dimensions can be deprecated.");
 
       return [
         {
@@ -386,10 +350,7 @@ export const decideDimension: AggregateDecider<
       ];
     case "ArchiveDimension":
       requireCreatedDimension(state);
-      assert(
-        state.status === "deprecated",
-        "Only deprecated dimensions can be archived.",
-      );
+      assert(state.status === "deprecated", "Only deprecated dimensions can be archived.");
 
       return [
         {
@@ -402,10 +363,7 @@ export const decideDimension: AggregateDecider<
   }
 };
 
-export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> = (
-  state,
-  event,
-) => {
+export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.dimension.created":
       return {
@@ -428,20 +386,13 @@ export const evolveDimension: AggregateEvolver<DimensionState, DimensionEvent> =
     case "catalog.dimension.option-added":
       return {
         ...state,
-        options: sortOptions([
-          ...state.options,
-          fromOptionSnapshot(event.data),
-        ]),
+        options: sortOptions([...state.options, fromOptionSnapshot(event.data)]),
       };
     case "catalog.dimension.option-revised":
       return {
         ...state,
         options: sortOptions(
-          state.options.map((option) =>
-            option.id === event.data.optionId
-              ? fromOptionSnapshot(event.data)
-              : option,
-          ),
+          state.options.map((option) => (option.id === event.data.optionId ? fromOptionSnapshot(event.data) : option)),
         ),
       };
     case "catalog.dimension.options-reordered":
@@ -524,9 +475,7 @@ function findOption(state: DimensionState, optionId: OptionId): DimensionOption 
 }
 
 function sortOptions(options: readonly DimensionOption[]): DimensionOption[] {
-  return [...options].sort(
-    (left, right) => left.displayOrder - right.displayOrder,
-  );
+  return [...options].sort((left, right) => left.displayOrder - right.displayOrder);
 }
 
 function assertValueKind(valueKind: string): asserts valueKind is DimensionValueKind {
@@ -547,10 +496,7 @@ function assertNumericValueIsPresentForNumericDimension(
   assert(numericValue !== null, "Numeric dimensions require numeric values for options.");
 }
 
-function assertNumericDimensionHasValues(
-  valueKind: DimensionValueKind,
-  options: readonly DimensionOption[],
-): void {
+function assertNumericDimensionHasValues(valueKind: DimensionValueKind, options: readonly DimensionOption[]): void {
   if (valueKind !== "numeric") {
     return;
   }

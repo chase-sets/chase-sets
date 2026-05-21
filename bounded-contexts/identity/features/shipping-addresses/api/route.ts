@@ -54,11 +54,7 @@ function isTrue(value: unknown) {
   return value === true || value === "true";
 }
 
-function canAccessAccount(
-  actor: IdentityApiEnv["Variables"]["actor"],
-  accountId: string,
-  write: boolean,
-) {
+function canAccessAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string, write: boolean) {
   if (!actor) {
     return false;
   }
@@ -112,12 +108,15 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
     }
     const context = c.var.context;
     if (!context) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+          },
         },
-      }, 401);
+        401,
+      );
     }
     const body = await c.req.json<AddressBody>();
     const shippingAddressId = createId("adr") as ShippingAddressId;
@@ -135,11 +134,14 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
       context,
     });
     await drainShippingAddressProjectors(services);
-    return c.json({
-      id: shippingAddressId,
-      version: result.version,
-      status: "added",
-    }, 201);
+    return c.json(
+      {
+        id: shippingAddressId,
+        version: result.version,
+        status: "added",
+      },
+      201,
+    );
   });
 
   app.put("/:shippingAddressId", async (c) => {
@@ -149,12 +151,15 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
     }
     const context = c.var.context;
     if (!context) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+          },
         },
-      }, 401);
+        401,
+      );
     }
     const body = await c.req.json<AddressBody>();
     const shippingAddressId = c.req.param("shippingAddressId") as ShippingAddressId;
@@ -185,12 +190,15 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
     }
     const context = c.var.context;
     if (!context) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+          },
         },
-      }, 401);
+        401,
+      );
     }
     const shippingAddressId = c.req.param("shippingAddressId") as ShippingAddressId;
     const result = await services.commandHandler({
@@ -217,12 +225,15 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
     }
     const context = c.var.context;
     if (!context) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("identity.features.shippingAddresses.api.route.authentication.context.missing"),
+          },
         },
-      }, 401);
+        401,
+      );
     }
     const shippingAddressId = c.req.param("shippingAddressId") as ShippingAddressId;
     const result = await services.commandHandler({

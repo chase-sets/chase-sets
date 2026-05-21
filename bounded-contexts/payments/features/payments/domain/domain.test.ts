@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decidePayment,
-  evolvePayment,
-  initialPaymentState,
-} from "./domain";
+import { decidePayment, evolvePayment, initialPaymentState } from "./domain";
 
 const commercialAmounts = {
   marketplaceSalesFeeAmount: "2.00",

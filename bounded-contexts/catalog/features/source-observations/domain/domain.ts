@@ -1,45 +1,42 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import { assert, assertNever } from "../../../support/runtime-support/common";
 
 export type SourceObservationStatus = "observed" | "changed" | "promoted" | "rejected";
 
-export type SourceObservationNormalized = JsonObject & Readonly<{
-  kind: "pokemon-card";
-  tcg: "pokemon";
-  languageCode: string;
-  name: string;
-  cardNumber: string;
-  setId: string;
-  setName: string;
-  expansionId: string;
-  expansionName: string;
-  expansionAbbreviation: string | null;
-  expansionCardCount: number | null;
-  expansionParallelSetCardCount: number | null;
-  seriesId: string | null;
-  seriesName: string | null;
-  rarity: string | null;
-  illustrator: string | null;
-  releaseDate: string | null;
-  releaseYear: number | null;
-  category: string;
-  imageBaseUrl: string | null;
-  imageUrls: readonly string[];
-  productAssetSet: ProductAssetSet | null;
-  parallelSet: boolean;
-  cardVariantKey: string;
-  cardVariantLabel: string;
-  cardVariantSourceKey: string | null;
-  cardVariantIsPrimaryImage: boolean;
-  imageDisclaimer: string | null;
-  variants: JsonObject;
-}>;
+export type SourceObservationNormalized = JsonObject &
+  Readonly<{
+    kind: "pokemon-card";
+    tcg: "pokemon";
+    languageCode: string;
+    name: string;
+    cardNumber: string;
+    setId: string;
+    setName: string;
+    expansionId: string;
+    expansionName: string;
+    expansionAbbreviation: string | null;
+    expansionCardCount: number | null;
+    expansionParallelSetCardCount: number | null;
+    seriesId: string | null;
+    seriesName: string | null;
+    rarity: string | null;
+    illustrator: string | null;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    category: string;
+    imageBaseUrl: string | null;
+    imageUrls: readonly string[];
+    productAssetSet: ProductAssetSet | null;
+    parallelSet: boolean;
+    cardVariantKey: string;
+    cardVariantLabel: string;
+    cardVariantSourceKey: string | null;
+    cardVariantIsPrimaryImage: boolean;
+    imageDisclaimer: string | null;
+    variants: JsonObject;
+  }>;
 
 export type SourceObservationState = Readonly<{
   id: string | null;
@@ -161,9 +158,7 @@ export const decideSourceObservation: AggregateDecider<
         }
 
         assert(
-          state.status === "observed" ||
-            state.status === "changed" ||
-            state.status === "promoted",
+          state.status === "observed" || state.status === "changed" || state.status === "promoted",
           "Only observed, changed, or promoted source observations can be refreshed.",
         );
 
@@ -213,10 +208,10 @@ export const decideSourceObservation: AggregateDecider<
   }
 };
 
-export const evolveSourceObservation: AggregateEvolver<
-  SourceObservationState,
-  SourceObservationEvent
-> = (state, event) => {
+export const evolveSourceObservation: AggregateEvolver<SourceObservationState, SourceObservationEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "catalog.source-observation.recorded":
       return {
@@ -281,9 +276,7 @@ function requirePromotable(state: SourceObservationState): void {
   );
 }
 
-function recordEventData(
-  command: RecordSourceObservationCommand,
-): SourceObservationRecordedEvent["data"] {
+function recordEventData(command: RecordSourceObservationCommand): SourceObservationRecordedEvent["data"] {
   return {
     observationId: command.observationId,
     providerKey: normalizeKey(command.providerKey),

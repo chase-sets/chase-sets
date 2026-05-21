@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  fetchProtectedAppTags,
-  selectTagsForDeletion,
-} from "./digitalocean-registry-cleanup.mjs";
+import { fetchProtectedAppTags, selectTagsForDeletion } from "./digitalocean-registry-cleanup.mjs";
 
 describe("digitalocean-registry-cleanup", () => {
   it("selects only old unprotected registry tags for deletion", () => {

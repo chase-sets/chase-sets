@@ -117,11 +117,7 @@ function createProcessorGateway() {
       dynamicPaymentMethods: true,
       sensitivePaymentDetailsHandledByProcessor: true,
     })),
-    createPaymentSession: vi.fn(async (input: {
-      paymentId: string;
-      amount: string;
-      returnUrl?: string | null;
-    }) => ({
+    createPaymentSession: vi.fn(async (input: { paymentId: string; amount: string; returnUrl?: string | null }) => ({
       processorName: "stripe" as const,
       processorPaymentKind: "payment-intent" as const,
       processorPaymentReference: `pi_${input.paymentId}`,
@@ -266,8 +262,7 @@ describe("payment runtime", () => {
         orderIds: ["ord_1" as never],
         requestedBalanceCreditAmount: "10.00",
         paymentMethodCategory: "card",
-        marketplaceCheckoutFeeQuoteFingerprint:
-          status.marketplace_checkout_fee.quote_fingerprint,
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
         sourceContext: "checkout",
         sourceReferenceId: "chk_1",
       },
@@ -317,9 +312,7 @@ describe("payment runtime", () => {
         },
       ],
     });
-    expect(readAllEvents().map((event) => event.eventType)).toEqual([
-      "payments.payment-created",
-    ]);
+    expect(readAllEvents().map((event) => event.eventType)).toEqual(["payments.payment-created"]);
   });
 
   it("captures a payment immediately when balance credit covers the full amount", async () => {
@@ -351,8 +344,7 @@ describe("payment runtime", () => {
         orderIds: ["ord_1" as never],
         requestedBalanceCreditAmount: "24.99",
         paymentMethodCategory: "platform-credit",
-        marketplaceCheckoutFeeQuoteFingerprint:
-          status.marketplace_checkout_fee.quote_fingerprint,
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
       },
       context,
     );
@@ -402,8 +394,7 @@ describe("payment runtime", () => {
         accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
         paymentMethodCategory: "bank-account",
-        marketplaceCheckoutFeeQuoteFingerprint:
-          status.marketplace_checkout_fee.quote_fingerprint,
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
         returnUrlBase: "https://market.test",
         returnUrlPath: "/checkout/payments/:paymentId",
       },

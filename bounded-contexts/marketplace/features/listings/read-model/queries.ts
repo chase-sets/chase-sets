@@ -1,10 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
-import type {
-  MarketplaceGradedCardDetails,
-  MarketplaceListingPhoto,
-} from "../domain/domain";
+import type { MarketplaceGradedCardDetails, MarketplaceListingPhoto } from "../domain/domain";
 
 export type MarketplaceListingListRow = Readonly<{
   listing_id: string;
@@ -162,9 +159,7 @@ function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRo
       typeof row.graded_card === "object" && row.graded_card !== null
         ? (row.graded_card as MarketplaceGradedCardDetails)
         : null,
-    listing_photos: Array.isArray(row.listing_photos)
-      ? (row.listing_photos as MarketplaceListingPhoto[])
-      : [],
+    listing_photos: Array.isArray(row.listing_photos) ? (row.listing_photos as MarketplaceListingPhoto[]) : [],
   };
 }
 
@@ -471,10 +466,7 @@ export async function getActiveQuantityCapForInventoryItem(
   return Number(result.rows[0]?.quantity_cap ?? 0);
 }
 
-export async function listActiveListingsForInventoryItem(
-  db: PgQueryable,
-  inventoryItemId: string,
-) {
+export async function listActiveListingsForInventoryItem(db: PgQueryable, inventoryItemId: string) {
   const result = await db.query<MarketplaceListingPageRow>(
     `SELECT *
      FROM marketplace_listing_pages
@@ -535,15 +527,17 @@ export async function getSellerListingAvailability(
     [accountId],
   );
 
-  return result.rows[0] ?? {
-    account_id: accountId,
-    status: "available",
-    disabled_reason_category: null,
-    available_again_on: null,
-    disabled_at: null,
-    enabled_at: null,
-    updated_at: new Date(0).toISOString(),
-  };
+  return (
+    result.rows[0] ?? {
+      account_id: accountId,
+      status: "available",
+      disabled_reason_category: null,
+      available_again_on: null,
+      disabled_at: null,
+      enabled_at: null,
+      updated_at: new Date(0).toISOString(),
+    }
+  );
 }
 
 export async function listSellerListingFeeLockReport(
@@ -656,10 +650,7 @@ export async function getMarketSummaryForItem(
   };
 }
 
-export async function listItemListings(
-  db: PgQueryable,
-  productId: string,
-): Promise<MarketplaceItemListingRow[]> {
+export async function listItemListings(db: PgQueryable, productId: string): Promise<MarketplaceItemListingRow[]> {
   const result = await db.query<
     MarketplaceListingPageRow & {
       seller_display_name: string | null;

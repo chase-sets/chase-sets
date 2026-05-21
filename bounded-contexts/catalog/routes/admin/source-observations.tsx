@@ -10,10 +10,7 @@ import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/r
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
-  return loadCatalogListRouteData<SourceObservationListItem>(
-    request,
-    (query) => api.listSourceObservations(query),
-  );
+  return loadCatalogListRouteData<SourceObservationListItem>(request, (query) => api.listSourceObservations(query));
 }
 
 export const meta: MetaFunction = () => [
@@ -23,10 +20,5 @@ export const meta: MetaFunction = () => [
 export default function SourceObservationsRoute() {
   const routeData = useLoaderData<typeof loader>();
   useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.sourceObservations());
-  return (
-    <SourceObservationListPage
-      data={routeData.data}
-      query={routeData.query}
-    />
-  );
+  return <SourceObservationListPage data={routeData.data} query={routeData.query} />;
 }

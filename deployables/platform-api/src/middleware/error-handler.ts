@@ -1,9 +1,5 @@
 import type { Context } from "hono";
-import {
-  conflictResponse,
-  internalErrorResponse,
-  validationFailedResponse,
-} from "@chase-sets/http/responses";
+import { conflictResponse, internalErrorResponse, validationFailedResponse } from "@chase-sets/http/responses";
 
 type EventStoreErrorLike = Readonly<{
   code: string;
@@ -11,11 +7,7 @@ type EventStoreErrorLike = Readonly<{
 }>;
 
 function isDomainError(error: unknown): error is Error {
-  return (
-    error instanceof Error &&
-    typeof error.name === "string" &&
-    error.name.endsWith("DomainError")
-  );
+  return error instanceof Error && typeof error.name === "string" && error.name.endsWith("DomainError");
 }
 
 function isEventStoreError(error: unknown): error is EventStoreErrorLike {

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideWaitlistSignup,
-  evolveWaitlistSignup,
-  initialWaitlistSignupState,
-} from "./domain";
+import { decideWaitlistSignup, evolveWaitlistSignup, initialWaitlistSignupState } from "./domain";
 
 const source = {
   pagePath: "/",
@@ -29,10 +25,7 @@ describe("waitlist signup domain", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].data.email).toBe("todd@example.com");
-    expect(events[0].data.interests).toEqual([
-      "low-sales-fees",
-      "pricing-tools",
-    ]);
+    expect(events[0].data.interests).toEqual(["low-sales-fees", "pricing-tools"]);
   });
 
   it("updates an existing signup on duplicate email", async () => {

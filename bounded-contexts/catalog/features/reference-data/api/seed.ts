@@ -66,10 +66,8 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
   },
 ];
 
-const manufacturerId =
-  catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational;
-const productLineId =
-  catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame;
+const manufacturerId = catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational;
+const productLineId = catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame;
 const seriesIds = catalogSeedIds.referenceRecords.series;
 const expansionIds = catalogSeedIds.referenceRecords.expansions;
 
@@ -159,44 +157,24 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
       "tcgdex-set-id": "basep",
     },
   ),
-  expansion(
-    "prismatic-evolutions",
-    "Prismatic Evolutions",
-    expansionIds.prismaticEvolutions,
-    seriesIds.scarletViolet,
-    {
-      abbreviation: "PRE",
-      "release-date": "2025-01-17",
-      "tcgdex-set-id": "sv8.5",
-    },
-  ),
-  expansion(
-    "surging-sparks",
-    "Surging Sparks",
-    expansionIds.surgingSparks,
-    seriesIds.scarletViolet,
-    {
-      abbreviation: "SSP",
-      "release-date": "2024-11-08",
-      "tcgdex-set-id": "sv8",
-    },
-  ),
-  expansion(
-    "twilight-masquerade",
-    "Twilight Masquerade",
-    expansionIds.twilightMasquerade,
-    seriesIds.scarletViolet,
-    {
-      abbreviation: "TWM",
-      "release-date": "2024-05-24",
-      "tcgdex-set-id": "sv6",
-    },
-  ),
+  expansion("prismatic-evolutions", "Prismatic Evolutions", expansionIds.prismaticEvolutions, seriesIds.scarletViolet, {
+    abbreviation: "PRE",
+    "release-date": "2025-01-17",
+    "tcgdex-set-id": "sv8.5",
+  }),
+  expansion("surging-sparks", "Surging Sparks", expansionIds.surgingSparks, seriesIds.scarletViolet, {
+    abbreviation: "SSP",
+    "release-date": "2024-11-08",
+    "tcgdex-set-id": "sv8",
+  }),
+  expansion("twilight-masquerade", "Twilight Masquerade", expansionIds.twilightMasquerade, seriesIds.scarletViolet, {
+    abbreviation: "TWM",
+    "release-date": "2024-05-24",
+    "tcgdex-set-id": "sv6",
+  }),
 ];
 
-export async function seedReferenceData(
-  services: CatalogServices,
-): Promise<PokemonReferenceIds> {
+export async function seedReferenceData(services: CatalogServices): Promise<PokemonReferenceIds> {
   console.log("Seeding reference data...");
 
   for (const def of referenceTypes) {

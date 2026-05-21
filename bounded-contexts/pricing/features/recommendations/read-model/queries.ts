@@ -4,10 +4,7 @@ export type AccountRecommendationListItem = Readonly<{
   recommendation_id: string;
   catalog_catalog_item_id: string;
   seller_account_id: string;
-  action_type:
-    | "active-listing-price-update"
-    | "draft-listing-price-update"
-    | "draft-listing-create";
+  action_type: "active-listing-price-update" | "draft-listing-price-update" | "draft-listing-create";
   status: "proposed" | "applied" | "dismissed" | "failed";
   listing_id: string | null;
   inventory_item_id: string | null;

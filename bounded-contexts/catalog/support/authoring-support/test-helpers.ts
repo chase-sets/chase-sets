@@ -23,10 +23,7 @@ export function decide<State, Command, Event extends DomainEvent>(
   return result;
 }
 
-export function expectDomainError(
-  fn: () => unknown,
-  expectedMessage?: string,
-): void {
+export function expectDomainError(fn: () => unknown, expectedMessage?: string): void {
   try {
     fn();
     throw new Error("Expected CatalogDomainError to be thrown.");
@@ -36,11 +33,7 @@ export function expectDomainError(
     }
 
     if (expectedMessage && error.message !== expectedMessage) {
-      throw new Error(
-        `Expected error message "${expectedMessage}" but got "${error.message}".`,
-      );
+      throw new Error(`Expected error message "${expectedMessage}" but got "${error.message}".`);
     }
   }
 }
-
-

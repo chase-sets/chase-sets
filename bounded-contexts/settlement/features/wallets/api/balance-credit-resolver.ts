@@ -16,23 +16,21 @@ export type SettlementBalanceCreditResolution = Readonly<{
 }>;
 
 export type SettlementBalanceCreditResolver = Readonly<{
-  resolveBalanceCredit(input: Readonly<{
-    buyerAccountId: AccountId;
-    currencyCode: CurrencyCode | string;
-    requestedAmount: string;
-    orderTotalAmount: string;
-  }>): Promise<SettlementBalanceCreditResolution>;
+  resolveBalanceCredit(
+    input: Readonly<{
+      buyerAccountId: AccountId;
+      currencyCode: CurrencyCode | string;
+      requestedAmount: string;
+      orderTotalAmount: string;
+    }>,
+  ): Promise<SettlementBalanceCreditResolution>;
 }>;
 
 function minMoney(...values: readonly string[]) {
-  return values.reduce((minimum, value) =>
-    compareMoney(value, minimum) < 0 ? value : minimum
-  );
+  return values.reduce((minimum, value) => (compareMoney(value, minimum) < 0 ? value : minimum));
 }
 
-export function createSettlementBalanceCreditResolver(
-  db: PgQueryable,
-): SettlementBalanceCreditResolver {
+export function createSettlementBalanceCreditResolver(db: PgQueryable): SettlementBalanceCreditResolver {
   return {
     async resolveBalanceCredit(input) {
       normalizeCurrencyCode(String(input.currencyCode));
@@ -49,11 +47,7 @@ export function createSettlementBalanceCreditResolver(
         fieldName: "Available balance",
         allowZero: true,
       });
-      const appliedAmount = minMoney(
-        requestedAmount,
-        availableAmount,
-        orderTotalAmount,
-      );
+      const appliedAmount = minMoney(requestedAmount, availableAmount, orderTotalAmount);
 
       return {
         requestedAmount,

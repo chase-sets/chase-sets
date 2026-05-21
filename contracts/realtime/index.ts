@@ -19,10 +19,7 @@ export type RealtimeSyncRequired = Readonly<{
 
 export type RealtimeMessage = RealtimeProjectionPatch | RealtimeSyncRequired;
 
-export {
-  realtimeProjectionPatchExamples,
-  realtimeSyncRequiredExamples,
-} from "./examples";
+export { realtimeProjectionPatchExamples, realtimeSyncRequiredExamples } from "./examples";
 
 export function isRealtimeProjectionPatch(value: unknown): value is RealtimeProjectionPatch {
   if (!isRecord(value)) {

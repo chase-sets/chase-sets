@@ -26,11 +26,7 @@ const testImageProcessor = {
 describe("TCGdex client", () => {
   it("preloads supported language options from the Catalog-owned allowlist", () => {
     expect(listTcgdexLanguageOptions()).toEqual(
-      expect.arrayContaining([
-        { languageCode: "en" },
-        { languageCode: "ja" },
-        { languageCode: "zh-tw" },
-      ]),
+      expect.arrayContaining([{ languageCode: "en" }, { languageCode: "ja" }, { languageCode: "zh-tw" }]),
     );
   });
 
@@ -62,29 +58,25 @@ describe("TCGdex client", () => {
     ]);
     const fetcher: typeof globalThis.fetch = async (input) => {
       const response = responses.get(String(input));
-      return response
-        ? new Response(JSON.stringify(response), { status: 200 })
-        : new Response(null, { status: 404 });
+      return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
-    await expect(fetchTcgdexSeriesOptions({ languageCode: "EN", fetch: fetcher }))
-      .resolves.toEqual([
-        { seriesId: "me", name: "Mega Evolution", logoUrl: "https://assets.tcgdex.net/en/me/me01/logo" },
-        { seriesId: "sv", name: "Scarlet & Violet", logoUrl: null },
-      ]);
-    await expect(fetchTcgdexExpansionOptions({ languageCode: "en", seriesId: "me", fetch: fetcher }))
-      .resolves.toEqual([
-        {
-          expansionId: "me02.5",
-          name: "Ascended Heroes",
-          seriesId: "me",
-          seriesName: "Mega Evolution",
-          logoUrl: "https://assets.tcgdex.net/en/me/me02.5/logo",
-          symbolUrl: "https://assets.tcgdex.net/univ/me/me02.5/symbol",
-          cardCount: 295,
-          officialCardCount: 217,
-        },
-      ]);
+    await expect(fetchTcgdexSeriesOptions({ languageCode: "EN", fetch: fetcher })).resolves.toEqual([
+      { seriesId: "me", name: "Mega Evolution", logoUrl: "https://assets.tcgdex.net/en/me/me01/logo" },
+      { seriesId: "sv", name: "Scarlet & Violet", logoUrl: null },
+    ]);
+    await expect(fetchTcgdexExpansionOptions({ languageCode: "en", seriesId: "me", fetch: fetcher })).resolves.toEqual([
+      {
+        expansionId: "me02.5",
+        name: "Ascended Heroes",
+        seriesId: "me",
+        seriesName: "Mega Evolution",
+        logoUrl: "https://assets.tcgdex.net/en/me/me02.5/logo",
+        symbolUrl: "https://assets.tcgdex.net/univ/me/me02.5/symbol",
+        cardCount: 295,
+        officialCardCount: 217,
+      },
+    ]);
   });
 
   it("records provider image URLs for Source Observations without writing bucket assets", async () => {
@@ -162,9 +154,7 @@ describe("TCGdex client", () => {
         rarity: "Uncommon",
         illustrator: "tetsuya koizumi",
         releaseYear: 2020,
-        imageUrls: [
-          "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp",
-        ],
+        imageUrls: ["https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp"],
         productAssetSet: null,
         parallelSet: false,
         cardVariantKey: "standard",
@@ -187,9 +177,7 @@ describe("TCGdex client", () => {
           "TCGDex provides one image for this card number. This Catalog Item represents the Parallel Set - Reverse Foil variant, so the image may not show the exact foil or pattern.",
       },
     });
-    expect(requestedUrls).not.toContain(
-      "https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp",
-    );
+    expect(requestedUrls).not.toContain("https://assets.tcgdex.net/en/swsh/swsh3/136/high.webp");
     expect(observations[0]?.sourceRecordHash).toHaveLength(64);
     expect(observations[0]?.sourcePayload).not.toHaveProperty("pricing");
   });
@@ -225,9 +213,7 @@ describe("TCGdex client", () => {
     ]);
     const fetcher: typeof globalThis.fetch = async (input) => {
       const response = responses.get(String(input));
-      return response
-        ? new Response(JSON.stringify(response), { status: 200 })
-        : new Response(null, { status: 404 });
+      return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
     const observations = await fetchTcgdexSetObservations({
@@ -236,14 +222,13 @@ describe("TCGdex client", () => {
       fetch: fetcher,
     });
 
-    expect(observations.map((observation) => observation.normalized.cardVariantLabel))
-      .toEqual([
-        "Standard Set",
-        "Standard Set Foil",
-        "Premium Parallel Set - Poke Ball",
-        "Premium Parallel Set - Master Ball",
-        "Unclassified Variant - Confetti Foil",
-      ]);
+    expect(observations.map((observation) => observation.normalized.cardVariantLabel)).toEqual([
+      "Standard Set",
+      "Standard Set Foil",
+      "Premium Parallel Set - Poke Ball",
+      "Premium Parallel Set - Master Ball",
+      "Unclassified Variant - Confetti Foil",
+    ]);
     expect(observations.map((observation) => observation.normalized.parallelSet)).toEqual([
       false,
       false,
@@ -298,9 +283,7 @@ describe("TCGdex client", () => {
     const fetcher: typeof globalThis.fetch = async (input) => {
       const url = String(input);
       const response = responses.get(url);
-      return response
-        ? new Response(JSON.stringify(response), { status: 200 })
-        : new Response(null, { status: 404 });
+      return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
     const progress: unknown[] = [];
 
@@ -343,9 +326,7 @@ describe("TCGdex client", () => {
 
     const fetcher: typeof globalThis.fetch = async (input) => {
       const response = responses.get(String(input));
-      return response
-        ? new Response(JSON.stringify(response), { status: 200 })
-        : new Response(null, { status: 404 });
+      return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
     await expect(
@@ -406,17 +387,27 @@ describe("TCGdex client", () => {
       imageProcessor: testImageProcessor,
     });
 
-    expect(assetSet.sourceHash).toBe(
-      "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
-    );
+    expect(assetSet.sourceHash).toBe("039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
     expect(storedAssets.map((asset) => asset.key)).toEqual([
       "catalog/items/cat_test/product-image/source-039058c6f2c0.webp",
-      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/thumbnail-96w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
-      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/thumbnail-192w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
-      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/search-card-160w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
-      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/search-card-320w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
-      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/catalog-detail-480w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
-      expect.stringMatching(/^catalog\/items\/cat_test\/product-image\/catalog-detail-960w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
+      expect.stringMatching(
+        /^catalog\/items\/cat_test\/product-image\/thumbnail-96w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+      ),
+      expect.stringMatching(
+        /^catalog\/items\/cat_test\/product-image\/thumbnail-192w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+      ),
+      expect.stringMatching(
+        /^catalog\/items\/cat_test\/product-image\/search-card-160w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+      ),
+      expect.stringMatching(
+        /^catalog\/items\/cat_test\/product-image\/search-card-320w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+      ),
+      expect.stringMatching(
+        /^catalog\/items\/cat_test\/product-image\/catalog-detail-480w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+      ),
+      expect.stringMatching(
+        /^catalog\/items\/cat_test\/product-image\/catalog-detail-960w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+      ),
     ]);
     expect(storedAssets).toEqual(
       expect.arrayContaining([

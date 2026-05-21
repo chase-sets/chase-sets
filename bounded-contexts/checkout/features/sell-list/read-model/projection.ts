@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildCheckoutSellListProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "checkout.sell-list.line-added": async (event) => {
       const data = event.data as {

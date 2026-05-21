@@ -60,8 +60,7 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
   return {
-    loadCheckpoint: async (projectorName) =>
-      checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
     saveCheckpoint: async (projectorName, checkpoint) => {
       checkpoints.set(projectorName, checkpoint);
     },
@@ -80,10 +79,7 @@ describe("platform feedback runtime", () => {
   it("rejects duplicate feedback for the same account, workflow, and related entity", async () => {
     const db = {
       query: vi.fn(async (sql: string) => {
-        if (
-          sql.includes("FROM experience_platform_feedback_pages") &&
-          sql.includes("related_entity_key = $3")
-        ) {
+        if (sql.includes("FROM experience_platform_feedback_pages") && sql.includes("related_entity_key = $3")) {
           return { rows: [{ feedback_id: "pfb_existing" }] };
         }
 
@@ -97,18 +93,21 @@ describe("platform feedback runtime", () => {
       db: db as never,
     });
 
-    await expect(runtime.submitPlatformFeedback({
-      userId: "usr_test",
-      accountId: "acc_test",
-      rating: 5,
-      topic: "checkout-payment",
-      followUpConsent: false,
-      workflow: "checkout-payment",
-      sourceRoutePath: "/account/payments/pay_test",
-      relatedEntities: [{ type: "payment", id: "pay_test" }],
-    }, context)).rejects.toThrow(
-      "Platform feedback has already been submitted for this workflow.",
-    );
+    await expect(
+      runtime.submitPlatformFeedback(
+        {
+          userId: "usr_test",
+          accountId: "acc_test",
+          rating: 5,
+          topic: "checkout-payment",
+          followUpConsent: false,
+          workflow: "checkout-payment",
+          sourceRoutePath: "/account/payments/pay_test",
+          relatedEntities: [{ type: "payment", id: "pay_test" }],
+        },
+        context,
+      ),
+    ).rejects.toThrow("Platform feedback has already been submitted for this workflow.");
     expect(allEvents).toHaveLength(0);
   });
 
@@ -130,24 +129,23 @@ describe("platform feedback runtime", () => {
     });
 
     try {
-      await runtime.submitPlatformFeedback({
-        userId: "usr_test",
-        accountId: "acc_test",
-        rating: 4,
-        topic: "ease-of-use",
-        followUpConsent: true,
-        workflow: "listing-publish",
-        sourceRoutePath: "/account/listings",
-      }, context);
+      await runtime.submitPlatformFeedback(
+        {
+          userId: "usr_test",
+          accountId: "acc_test",
+          rating: 4,
+          topic: "ease-of-use",
+          followUpConsent: true,
+          workflow: "listing-publish",
+          sourceRoutePath: "/account/listings",
+        },
+        context,
+      );
     } finally {
       vi.useRealTimers();
     }
 
-    expect(queryParams[0]).toEqual([
-      "acc_test",
-      "listing-publish",
-      "2026-04-07T12:00:00.000Z",
-    ]);
+    expect(queryParams[0]).toEqual(["acc_test", "listing-publish", "2026-04-07T12:00:00.000Z"]);
     expect(allEvents[0]?.eventType).toBe("experience.platform-feedback.submitted");
   });
 
@@ -172,21 +170,26 @@ describe("platform feedback runtime", () => {
     });
 
     try {
-      const result = await runtime.dismissPrompt({
-        userId: "usr_test",
-        accountId: "acc_test",
-        workflow: "inventory-adjust",
-        sourceRoutePath: "/account/inventory/inv_test",
-        relatedEntities: [{ type: "inventoryItem", id: "inv_test" }],
-      }, context);
+      const result = await runtime.dismissPrompt(
+        {
+          userId: "usr_test",
+          accountId: "acc_test",
+          workflow: "inventory-adjust",
+          sourceRoutePath: "/account/inventory/inv_test",
+          relatedEntities: [{ type: "inventoryItem", id: "inv_test" }],
+        },
+        context,
+      );
       snoozed = true;
 
       expect(result.snoozedUntil).toBe("2026-05-14T12:00:00.000Z");
-      await expect(runtime.getPromptEligibility({
-        accountId: "acc_test",
-        workflow: "inventory-adjust",
-        relatedEntities: [{ type: "inventoryItem", id: "inv_test" }],
-      })).resolves.toEqual({ shouldPrompt: false, reason: "snoozed" });
+      await expect(
+        runtime.getPromptEligibility({
+          accountId: "acc_test",
+          workflow: "inventory-adjust",
+          relatedEntities: [{ type: "inventoryItem", id: "inv_test" }],
+        }),
+      ).resolves.toEqual({ shouldPrompt: false, reason: "snoozed" });
     } finally {
       vi.useRealTimers();
     }

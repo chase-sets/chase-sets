@@ -1,11 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { repoRoot } from "./repo.mjs";
 
@@ -127,9 +121,10 @@ function readImplementedContextNames(rootDir) {
   return readdirSync(contextsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .filter((contextName) =>
-      existsSync(path.join(contextsDir, contextName, "context.json")) &&
-      existsSync(path.join(contextsDir, contextName, "package.json")),
+    .filter(
+      (contextName) =>
+        existsSync(path.join(contextsDir, contextName, "context.json")) &&
+        existsSync(path.join(contextsDir, contextName, "package.json")),
     )
     .sort((left, right) => left.localeCompare(right, "en"));
 }
@@ -147,10 +142,7 @@ function createAdminDatabaseUrl(postgresPort) {
 }
 
 function resolvePortBase(rootDir, env) {
-  const explicitBase = optionalPositiveInteger(
-    env.CHASE_SETS_SANDBOX_BASE_PORT,
-    "CHASE_SETS_SANDBOX_BASE_PORT",
-  );
+  const explicitBase = optionalPositiveInteger(env.CHASE_SETS_SANDBOX_BASE_PORT, "CHASE_SETS_SANDBOX_BASE_PORT");
   if (explicitBase) {
     return explicitBase;
   }
@@ -163,9 +155,7 @@ function resolvePorts(rootDir, env) {
   const ports = {};
 
   for (const [key, definition] of Object.entries(portDefinitions)) {
-    ports[key] =
-      optionalPositiveInteger(env[definition.envName], definition.envName) ??
-      basePort + definition.offset;
+    ports[key] = optionalPositiveInteger(env[definition.envName], definition.envName) ?? basePort + definition.offset;
   }
 
   return { basePort, ports };
@@ -194,9 +184,7 @@ export function readSandboxEnvFile(filePath) {
       .filter((line) => line && !line.startsWith("#"))
       .map((line) => {
         const separatorIndex = line.indexOf("=");
-        return separatorIndex === -1
-          ? [line, ""]
-          : [line.slice(0, separatorIndex), line.slice(separatorIndex + 1)];
+        return separatorIndex === -1 ? [line, ""] : [line.slice(0, separatorIndex), line.slice(separatorIndex + 1)];
       }),
   );
 }
@@ -212,17 +200,13 @@ export function resolveWorktreeSandbox({
   const sandboxId = sanitizeIdentifier(explicitId || hash.slice(0, 8), "local");
   const composeProjectName = `chase-sets-${sandboxId}`;
   const envFilePath = path.resolve(
-    env.CHASE_SETS_SANDBOX_ENV_FILE ??
-      path.join(resolvedRoot, defaultSandboxEnvFileName),
+    env.CHASE_SETS_SANDBOX_ENV_FILE ?? path.join(resolvedRoot, defaultSandboxEnvFileName),
   );
   const { basePort, ports } = resolvePorts(resolvedRoot, env);
   const adminDatabaseUrl = createAdminDatabaseUrl(ports.postgres);
   const databasePrefix = normalizeDatabaseToken(`cs_${sandboxId}`);
   const controlDatabaseName = `${databasePrefix}_control`;
-  const controlDatabaseUrl = createDatabaseUrl(
-    adminDatabaseUrl,
-    controlDatabaseName,
-  );
+  const controlDatabaseUrl = createDatabaseUrl(adminDatabaseUrl, controlDatabaseName);
   const contextDatabaseUrls = Object.fromEntries(
     contextNames.map((contextName) => {
       const databaseName = `${databasePrefix}_${normalizeDatabaseToken(contextName)}`;
@@ -243,12 +227,7 @@ export function resolveWorktreeSandbox({
     otelHttp: `http://localhost:${ports.otelHttp}`,
     otelGrpc: `localhost:${ports.otelGrpc}`,
   };
-  const observabilityArtifactsPath = path.join(
-    resolvedRoot,
-    "artifacts",
-    "observability",
-    sandboxId,
-  );
+  const observabilityArtifactsPath = path.join(resolvedRoot, "artifacts", "observability", sandboxId);
 
   return {
     id: sandboxId,
@@ -326,9 +305,7 @@ export function buildSandboxEnv(sandbox) {
 export function writeSandboxEnvFile(sandbox, values = buildSandboxEnv(sandbox)) {
   mkdirSync(path.dirname(sandbox.envFilePath), { recursive: true });
   const nextContent = formatEnvFile(values);
-  const currentContent = existsSync(sandbox.envFilePath)
-    ? readFileSync(sandbox.envFilePath, "utf8")
-    : null;
+  const currentContent = existsSync(sandbox.envFilePath) ? readFileSync(sandbox.envFilePath, "utf8") : null;
 
   if (currentContent !== nextContent) {
     writeFileSync(sandbox.envFilePath, nextContent, "utf8");
@@ -352,10 +329,7 @@ export function applySandboxEnv(values, env = process.env) {
   }
 }
 
-export function mergeSandboxEnvFile(updates, {
-  rootDir = repoRoot,
-  env = process.env,
-} = {}) {
+export function mergeSandboxEnvFile(updates, { rootDir = repoRoot, env = process.env } = {}) {
   const sandbox = resolveWorktreeSandbox({ rootDir, env });
   const existing = readSandboxEnvFile(sandbox.envFilePath);
   const next = {

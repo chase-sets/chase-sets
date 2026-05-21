@@ -1,31 +1,17 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { randomInt } from "node:crypto";
-import {
-  AUTH_MAGIC_LINK_TTL_MS,
-  createExpiryTimestamp,
-} from "../../features/sessions/domain/auth-flow";
+import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { mapPhoneCodeRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
 import { normalizeAuthPhoneNumber } from "../auth-support/identity-projection";
-import {
-  consumePhoneCodeToken,
-  insertPhoneCodeToken,
-} from "../auth-support/store";
+import { consumePhoneCodeToken, insertPhoneCodeToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import {
-  createIdentityMutations,
-  createOwnedUserDisplayName,
-  getBootstrapContext,
-  type AuthApiApp,
-} from "./support";
+import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
 const PHONE_CODE_NOTIFICATION_PROJECTION = "auth-phone-code-notification-intent";
 
-export function registerPhoneCodeRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/phone-code/request", async (c) => {
     const body = await c.req.json();
     const phone = normalizeAuthPhoneNumber(String(body.phone ?? ""));
@@ -120,8 +106,7 @@ export function registerPhoneCodeRoutes(
 
     const authResult = await startInteractiveAuth(services, {
       userId: user.user_id,
-      accountId:
-        typeof body.accountId === "string" ? body.accountId : undefined,
+      accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "sms-code",
       context: getBootstrapContext(c),
     });

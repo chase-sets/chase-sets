@@ -46,11 +46,7 @@ export type SentTransactionalEmailReceipt = Readonly<{
   attemptCount: number;
 }>;
 
-export type TransactionalEmailOutboxStatus =
-  | "pending"
-  | "sending"
-  | "sent"
-  | "failed";
+export type TransactionalEmailOutboxStatus = "pending" | "sending" | "sent" | "failed";
 
 export type TransactionalEmailOutboxSource = Readonly<{
   sourceEventId: string;
@@ -80,9 +76,7 @@ export type ClaimedTransactionalEmail = Readonly<{
 }>;
 
 export interface TransactionalEmailGateway {
-  sendTransactionalEmail(
-    message: TransactionalEmailMessage,
-  ): Promise<SentTransactionalEmailReceipt>;
+  sendTransactionalEmail(message: TransactionalEmailMessage): Promise<SentTransactionalEmailReceipt>;
 }
 
 export interface TransactionalEmailOutbox {
@@ -110,9 +104,7 @@ export type MarkTransactionalEmailFailedInput = Readonly<{
 }>;
 
 export interface TransactionalEmailOutboxStore extends TransactionalEmailOutbox {
-  claimPendingTransactionalEmails(
-    input: ClaimTransactionalEmailsInput,
-  ): Promise<readonly ClaimedTransactionalEmail[]>;
+  claimPendingTransactionalEmails(input: ClaimTransactionalEmailsInput): Promise<readonly ClaimedTransactionalEmail[]>;
   markTransactionalEmailSent(input: MarkTransactionalEmailSentInput): Promise<void>;
   markTransactionalEmailFailed(input: MarkTransactionalEmailFailedInput): Promise<void>;
 }

@@ -1,14 +1,7 @@
 import type { Branded } from "../primitives/brand";
 import type { IsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
 import type { JsonObject } from "../primitives/json";
-import type {
-  AccountId,
-  EventId,
-  SpanId,
-  TenantId,
-  TraceId,
-  UserId,
-} from "../primitives/typed-ids";
+import type { AccountId, EventId, SpanId, TenantId, TraceId, UserId } from "../primitives/typed-ids";
 
 export type StreamId = string;
 
@@ -42,10 +35,7 @@ export function globalPositionToBigInt(value: GlobalPosition): bigint {
   return BigInt(value);
 }
 
-export function compareGlobalPosition(
-  left: GlobalPosition,
-  right: GlobalPosition,
-): -1 | 0 | 1 {
+export function compareGlobalPosition(left: GlobalPosition, right: GlobalPosition): -1 | 0 | 1 {
   const leftValue = globalPositionToBigInt(left);
   const rightValue = globalPositionToBigInt(right);
 

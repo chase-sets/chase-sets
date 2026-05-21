@@ -358,34 +358,32 @@ describe("platform api app", () => {
       total: 1,
       nextCursor: null,
     }));
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-          discovery: {
-            items: {
-              search: {
-                searchItems,
-                rebuildSearchIndex: vi.fn(),
-                projectors: [],
-              },
-              detail: {
-                getItemDetail: vi.fn(),
-                projectors: [],
-              },
-              market: {},
+    const app = buildPlatformApiApp({
+      mountedContexts: [],
+      mountedModules: [],
+      services: {
+        auth: {},
+        identity: {},
+        discovery: {
+          items: {
+            search: {
+              searchItems,
+              rebuildSearchIndex: vi.fn(),
               projectors: [],
             },
+            detail: {
+              getItemDetail: vi.fn(),
+              projectors: [],
+            },
+            market: {},
+            projectors: [],
           },
         },
-        projectors: [],
-        projectionGroups: [],
-        subscriptionRunners: [],
-      } as never,
-    );
+      },
+      projectors: [],
+      projectionGroups: [],
+      subscriptionRunners: [],
+    } as never);
 
     const response = await app.request("/ucp/v1/catalog/search", {
       method: "POST",
@@ -499,9 +497,7 @@ describe("platform api app", () => {
 
     const providerRouter = new Hono();
     providerRouter.post("/money-movement/webhooks", async (c) => {
-      observedActor = (c as unknown as { get(key: "actor"): unknown }).get(
-        "actor",
-      );
+      observedActor = (c as unknown as { get(key: "actor"): unknown }).get("actor");
       observedRawBody = await c.req.raw.text();
 
       return c.json({ received: true });
@@ -545,17 +541,14 @@ describe("platform api app", () => {
       },
     );
 
-    const response = await app.request(
-      "/api/settlement/provider/money-movement/webhooks",
-      {
-        method: "POST",
-        body: rawBody,
-        headers: {
-          Authorization: "Bearer not-used-for-provider-webhooks",
-          "Content-Type": "application/json",
-        },
+    const response = await app.request("/api/settlement/provider/money-movement/webhooks", {
+      method: "POST",
+      body: rawBody,
+      headers: {
+        Authorization: "Bearer not-used-for-provider-webhooks",
+        "Content-Type": "application/json",
       },
-    );
+    });
 
     expect(response.status).toBe(200);
     expect(resolveActor).not.toHaveBeenCalled();
@@ -567,10 +560,7 @@ describe("platform api app", () => {
     const writeRouter = new Hono();
     writeRouter.post("/cart", async (c) => c.json({ status: "added" }, 201));
 
-    const runOnce = vi
-      .fn()
-      .mockResolvedValueOnce({ processed: 1 })
-      .mockResolvedValueOnce({ processed: 0 });
+    const runOnce = vi.fn().mockResolvedValueOnce({ processed: 1 }).mockResolvedValueOnce({ processed: 0 });
     const module = {
       contextName: "checkout",
       apiMounts: [

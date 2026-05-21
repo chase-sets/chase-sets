@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -46,10 +42,12 @@ export const initialCheckoutSellListState: CheckoutSellListState = {
   lastCheckedOutAt: null,
 };
 
-export type AddSellListLineCommand = Readonly<Omit<CheckoutSellListLine, "lineId"> & {
-  type: "AddSellListLine";
-  lineId: SellListLineId;
-}>;
+export type AddSellListLineCommand = Readonly<
+  Omit<CheckoutSellListLine, "lineId"> & {
+    type: "AddSellListLine";
+    lineId: SellListLineId;
+  }
+>;
 
 export type RemoveSellListLineCommand = Readonly<{
   type: "RemoveSellListLine";
@@ -121,16 +119,10 @@ export const decideCheckoutSellList: AggregateDecider<
         state.sellerAccountId === null || state.sellerAccountId === command.sellerAccountId,
         "Sell list is owned by a different account.",
       );
-      assert(
-        !state.lines.some((line) => line.lineId === command.lineId),
-        "Sell list line has already been added.",
-      );
+      assert(!state.lines.some((line) => line.lineId === command.lineId), "Sell list line has already been added.");
       const lineType = normalizeLineType(command.lineType);
       const offerId = normalizeOptionalText(command.offerId);
-      assert(
-        lineType === "product" || Boolean(offerId),
-        "Selected offer sell-list lines must reference an offer.",
-      );
+      assert(lineType === "product" || Boolean(offerId), "Selected offer sell-list lines must reference an offer.");
 
       return [
         {
@@ -147,21 +139,12 @@ export const decideCheckoutSellList: AggregateDecider<
               command.catalogItemId,
               "Sell list lines must reference a catalog item.",
             ),
-            productId: normalizeRequiredText(
-              command.productId,
-              "Sell list lines must reference a product.",
-            ),
-            itemTitle: normalizeRequiredText(
-              command.itemTitle,
-              "Sell list lines must include an item title snapshot.",
-            ),
+            productId: normalizeRequiredText(command.productId, "Sell list lines must reference a product."),
+            itemTitle: normalizeRequiredText(command.itemTitle, "Sell list lines must include an item title snapshot."),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
             selectedOptions: normalizeVersionSelection(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
-            quantity: ensurePositiveInteger(
-              command.quantity,
-              "Sell list quantity must be a positive whole number.",
-            ),
+            quantity: ensurePositiveInteger(command.quantity, "Sell list quantity must be a positive whole number."),
             fallbackMode: normalizeFallbackMode(command.fallbackMode),
             minimumListingPriceAmount: normalizeOptionalText(command.minimumListingPriceAmount),
           },
@@ -175,10 +158,7 @@ export const decideCheckoutSellList: AggregateDecider<
           type: "checkout.sell-list.line-quantity-set",
           data: {
             lineId: command.lineId,
-            quantity: ensurePositiveInteger(
-              command.quantity,
-              "Sell list quantity must be a positive whole number.",
-            ),
+            quantity: ensurePositiveInteger(command.quantity, "Sell list quantity must be a positive whole number."),
           },
         },
       ];
@@ -198,10 +178,7 @@ export const decideCheckoutSellList: AggregateDecider<
           type: "checkout.sell-list.checked-out",
           data: {
             sellerAccountId: state.sellerAccountId,
-            checkedOutAt: normalizeRequiredText(
-              command.checkedOutAt,
-              "Sell list checkout must record a timestamp.",
-            ),
+            checkedOutAt: normalizeRequiredText(command.checkedOutAt, "Sell list checkout must record a timestamp."),
           },
         },
       ];
@@ -210,10 +187,10 @@ export const decideCheckoutSellList: AggregateDecider<
   }
 };
 
-export const evolveCheckoutSellList: AggregateEvolver<
-  CheckoutSellListState,
-  CheckoutSellListEvent
-> = (state, event) => {
+export const evolveCheckoutSellList: AggregateEvolver<CheckoutSellListState, CheckoutSellListEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "checkout.sell-list.line-added":
       return {
@@ -230,9 +207,7 @@ export const evolveCheckoutSellList: AggregateEvolver<
       return {
         ...state,
         lines: state.lines.map((line) =>
-          line.lineId === event.data.lineId
-            ? { ...line, quantity: event.data.quantity }
-            : line,
+          line.lineId === event.data.lineId ? { ...line, quantity: event.data.quantity } : line,
         ),
       };
     case "checkout.sell-list.checked-out":

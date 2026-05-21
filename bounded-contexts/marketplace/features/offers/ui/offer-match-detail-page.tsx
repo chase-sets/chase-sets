@@ -64,9 +64,7 @@ function formatPriceGap(amount: string) {
 }
 
 function termsSourceLabel(terms: MarketplaceListingTermsPreview) {
-  return terms.agreement_id
-    ? "Seller terms"
-    : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms");
+  return terms.agreement_id ? "Seller terms" : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms");
 }
 
 export function MarketplaceOfferMatchDetailPage({
@@ -87,33 +85,20 @@ export function MarketplaceOfferMatchDetailPage({
     ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
     : offer.seller_listing_availability_status === "unavailable"
       ? t("marketplace.features.offers.ui.offerMatchDetailPage.listings.unavailable")
-    : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply");
+      : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply");
   const acceptOfferAction = canAcceptSubmitted ? (
-      <form method="post">
-        <input
-          type="hidden"
-          name="feeQuoteFingerprint"
-          value={acceptanceTerms?.fee_quote_fingerprint ?? ""}
-        />
-        <Button
-          type="submit"
-          name="intent"
-          value="accept-offer"
-          disabled={!offer.can_fulfill}
-        >
-          {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}
-        </Button>
-      </form>
-    ) : null;
+    <form method="post">
+      <input type="hidden" name="feeQuoteFingerprint" value={acceptanceTerms?.fee_quote_fingerprint ?? ""} />
+      <Button type="submit" name="intent" value="accept-offer" disabled={!offer.can_fulfill}>
+        {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}
+      </Button>
+    </form>
+  ) : null;
   const addToSellListAction = canAcceptSubmitted ? (
     <form method="post" action="/account/sell-list">
       <input type="hidden" name="intent" value="add-selected-offer" />
       <input type="hidden" name="offerId" value={offer.offer_id} />
-      <Button
-        type="submit"
-        tone="secondary"
-        disabled={!offer.can_fulfill}
-      >
+      <Button type="submit" tone="secondary" disabled={!offer.can_fulfill}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.add.to.sell.list")}
       </Button>
     </form>
@@ -126,12 +111,17 @@ export function MarketplaceOfferMatchDetailPage({
         description={t("marketplace.features.offers.ui.offerMatchDetailPage.review.an.offer.match.that.matches")}
         actions={
           <LinkButton href="/account/offers/matches" tone="secondary">
-            {t("marketplace.features.offers.ui.offerMatchDetailPage.back.to.offer.matches")}</LinkButton>
+            {t("marketplace.features.offers.ui.offerMatchDetailPage.back.to.offer.matches")}
+          </LinkButton>
         }
       />
 
       {errorMessage ? (
-        <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")} description={errorMessage} />
+        <MarketplaceNotice
+          tone="error"
+          title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}
+          description={errorMessage}
+        />
       ) : null}
 
       {offer.seller_listing_availability_status === "unavailable" ? (
@@ -151,11 +141,11 @@ export function MarketplaceOfferMatchDetailPage({
               <Stack gap={2}>
                 <Inline>
                   <Badge tone={statusTone(offer.status)}>{offer.status}</Badge>
-                  <Badge tone={offer.can_fulfill ? "success" : "warning"}>
-                    {fulfillmentLabel}
-                  </Badge>
+                  <Badge tone={offer.can_fulfill ? "success" : "warning"}>{fulfillmentLabel}</Badge>
                 </Inline>
-                <Text size="lg" weight="semibold">{formatMoney(offer.price_amount)}</Text>
+                <Text size="lg" weight="semibold">
+                  {formatMoney(offer.price_amount)}
+                </Text>
                 <Text tone="secondary">
                   {t("marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask", {
                     percentage: formatAllowancePercentage(offer.offer_to_listing_price_bps),
@@ -249,9 +239,12 @@ export function MarketplaceOfferMatchDetailPage({
               {
                 title: t("marketplace.features.offers.ui.offerMatchDetailPage.seller.shipping.allowance"),
                 description: acceptanceTerms
-                  ? t("marketplace.features.offers.ui.offerMatchDetailPage.accepting.this.offer.earns.percentage.toward.shipping", {
-                      percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
-                    })
+                  ? t(
+                      "marketplace.features.offers.ui.offerMatchDetailPage.accepting.this.offer.earns.percentage.toward.shipping",
+                      {
+                        percentage: formatAllowancePercentage(acceptanceTerms.shipping_allowance_percentage_bps),
+                      },
+                    )
                   : t("marketplace.features.offers.ui.offerMatchDetailPage.standard.terms"),
               },
               {
@@ -273,23 +266,30 @@ export function MarketplaceOfferMatchDetailPage({
             steps={[
               {
                 label: offer.status,
-                description: t("marketplace.features.offers.ui.offerMatchDetailPage.review.an.offer.match.that.matches"),
+                description: t(
+                  "marketplace.features.offers.ui.offerMatchDetailPage.review.an.offer.match.that.matches",
+                ),
                 status: offer.status === "accepted" ? "complete" : "current",
               },
               {
                 label: offer.can_fulfill
                   ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
                   : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply"),
-                description: t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available") + offer.seller_available_quantity,
+                description:
+                  t("marketplace.features.offers.ui.offerMatchDetailPage.active.supply.available") +
+                  offer.seller_available_quantity,
                 status: offer.can_fulfill ? "complete" : "issue",
               },
               {
                 label: t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match"),
-                description: offer.status === "accepted"
-                  ? t("marketplace.features.offers.ui.offerMatchDetailPage.this.offer.match.has.already.been")
-                  : offer.can_fulfill
-                    ? t("marketplace.features.offers.ui.offerMatchDetailPage.accept.this.match.to.create.the.sale")
-                    : t("marketplace.features.offers.ui.offerMatchDetailPage.add.enough.available.supply.before.accepting"),
+                description:
+                  offer.status === "accepted"
+                    ? t("marketplace.features.offers.ui.offerMatchDetailPage.this.offer.match.has.already.been")
+                    : offer.can_fulfill
+                      ? t("marketplace.features.offers.ui.offerMatchDetailPage.accept.this.match.to.create.the.sale")
+                      : t(
+                          "marketplace.features.offers.ui.offerMatchDetailPage.add.enough.available.supply.before.accepting",
+                        ),
                 status: offer.status === "accepted" ? "complete" : "upcoming",
               },
             ]}
@@ -300,9 +300,11 @@ export function MarketplaceOfferMatchDetailPage({
       {acceptOfferAction ? (
         <StickyCtaBar
           price={formatMoney(offer.price_amount)}
-          context={offer.can_fulfill
-            ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
-            : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")}
+          context={
+            offer.can_fulfill
+              ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
+              : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply")
+          }
           primaryAction={acceptOfferAction}
           secondaryAction={addToSellListAction}
         />

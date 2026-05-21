@@ -3,10 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
-const {
-  mockUseLoaderData,
-  mockRequireActorFromAuthApi,
-} = vi.hoisted(() => ({
+const { mockUseLoaderData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
 }));

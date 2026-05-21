@@ -61,13 +61,15 @@ describe("account API route", () => {
       id: "acc_1",
       badges: ["founding-account"],
     });
-    expect(services.commandHandler).toHaveBeenCalledWith(expect.objectContaining({
-      command: {
-        type: "AssignAccountBadge",
-        badgeKey: "founding-account",
-      },
-      streamId: "identity.account-acc_1",
-    }));
+    expect(services.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: {
+          type: "AssignAccountBadge",
+          badgeKey: "founding-account",
+        },
+        streamId: "identity.account-acc_1",
+      }),
+    );
   });
 
   it("rejects unsupported account badge keys", async () => {
@@ -91,22 +93,21 @@ describe("account API route", () => {
       })),
     });
 
-    const response = await buildApp(services).request(
-      "/accounts/acc_1/badges/founding-account",
-      { method: "DELETE" },
-    );
+    const response = await buildApp(services).request("/accounts/acc_1/badges/founding-account", { method: "DELETE" });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       id: "acc_1",
       badges: [],
     });
-    expect(services.commandHandler).toHaveBeenCalledWith(expect.objectContaining({
-      command: {
-        type: "RemoveAccountBadge",
-        badgeKey: "founding-account",
-      },
-      streamId: "identity.account-acc_1",
-    }));
+    expect(services.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: {
+          type: "RemoveAccountBadge",
+          badgeKey: "founding-account",
+        },
+        streamId: "identity.account-acc_1",
+      }),
+    );
   });
 });

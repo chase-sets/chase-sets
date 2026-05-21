@@ -1,31 +1,12 @@
 {
   "contextName": "checkout",
   "packageName": "@chase-sets/checkout",
-  "ownedNouns": [
-    "cart",
-    "sell list",
-    "checkout session"
-  ],
+  "ownedNouns": ["cart", "sell list", "checkout session"],
   "streamPrefix": "checkout.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "cart",
-    "sell-list",
-    "sessions"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support",
-    "seed-support",
-    "ucp-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
+  "slices": ["cart", "sell-list", "sessions"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/identity",
@@ -33,20 +14,13 @@
     "@chase-sets/ordering",
     "@chase-sets/payments"
   ],
-  "seedRequirements": [
-    "catalog",
-    "identity",
-    "inventory",
-    "marketplace"
-  ],
+  "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
     {
       "sourceContextName": "catalog",
       "projectionName": "checkout-catalog-item-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "checkout.catalog-projection"
-      ],
+      "projectorNames": ["checkout.catalog-projection"],
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
@@ -70,9 +44,7 @@
   "projectionGroups": [
     {
       "projectionName": "checkout-catalog-item-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
+      "sourceContextNames": ["catalog"],
       "ownedTables": [
         "checkout_catalog_items",
         "checkout_catalog_blueprints",
@@ -82,12 +54,8 @@
       "requiredDuringBootstrap": true
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
-  "sourceRuntimeDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
+  "sourceRuntimeDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -182,34 +150,25 @@
       "classification": "slice",
       "purpose": "Own long-lived buy cart intent before an active checkout session starts.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal checkout module composition"
-      ]
+      "expectedConsumers": ["Internal checkout module composition"]
     },
     "sell-list": {
       "classification": "slice",
       "purpose": "Own seller checkout intent before selected offers or product-level Smart Match lines become sale commitments.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal checkout module composition",
-        "Discovery item detail sell actions"
-      ]
+      "expectedConsumers": ["Internal checkout module composition", "Discovery item detail sell actions"]
     },
     "sessions": {
       "classification": "slice",
       "purpose": "Own checkout session lifecycle, review state, selected shipping, and orchestration status.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal checkout module composition"
-      ]
+      "expectedConsumers": ["Internal checkout module composition"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide checkout request API clients and request-time Ordering/Payments orchestration adapters used by checkout sessions and external purchase-intent entry points.",
       "allowedWhen": "Allowed for route/server request adapters and cross-context server-surface orchestration that cannot live inside a feature folder.",
-      "expectedConsumers": [
-        "sessions"
-      ],
+      "expectedConsumers": ["sessions"],
       "justification": "request-support centralizes context-local request client composition and the Checkout-owned confirmation adapter into Ordering and Payments.",
       "createdFor": "checkout routes, Discovery purchase-intent forms, and checkout confirmation that need authenticated API calls.",
       "sunsetWhen": "Remove when route modules no longer share request client behavior.",
@@ -219,11 +178,7 @@
       "classification": "support",
       "purpose": "Provide checkout runtime composition and schema assembly.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "cart",
-        "sell-list",
-        "sessions"
-      ],
+      "expectedConsumers": ["cart", "sell-list", "sessions"],
       "justification": "runtime-support centralizes context-local service and schema composition.",
       "createdFor": "checkout runtime bootstrapping.",
       "sunsetWhen": "Remove when runtime composition can be generated."
@@ -232,9 +187,7 @@
       "classification": "support",
       "purpose": "Publish deterministic checkout seed ids for development/demo data.",
       "allowedWhen": "Allowed only for stable seed identifiers shared by tests and composition seed orchestration.",
-      "expectedConsumers": [
-        "Tests and development seed orchestration"
-      ],
+      "expectedConsumers": ["Tests and development seed orchestration"],
       "justification": "seed-support names deterministic checkout session ids without putting demo state in Ordering.",
       "createdFor": "checkout-owned cart and started-session development data.",
       "sunsetWhen": "Remove if seed ids become generated by a central lifecycle tool."
@@ -243,9 +196,7 @@
       "classification": "support",
       "purpose": "Provide Checkout-owned UCP adapters that translate custom AI-agent checkout operations into checkout session services.",
       "allowedWhen": "Allowed for protocol adapters where Checkout owns the behavior and deployables only compose handlers.",
-      "expectedConsumers": [
-        "platform-api UCP composition"
-      ],
+      "expectedConsumers": ["platform-api UCP composition"],
       "justification": "UCP checkout operations need buyer authorization and checkout session lifecycle behavior without moving those rules into a deployable.",
       "createdFor": "AI-agent commerce that creates and updates checkout session behavior through UCP.",
       "sunsetWhen": "Remove if UCP route generation can mount context-owned handlers directly."
@@ -254,13 +205,9 @@
       "classification": "routes",
       "purpose": "Expose checkout-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
   "hostPorts": [],
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

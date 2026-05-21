@@ -39,10 +39,8 @@ describe("admin PWA endpoints", () => {
       context: undefined,
     } as never);
 
-    expect(serviceWorker.headers.get("Content-Type")).toContain(
-      "application/javascript",
-    );
+    expect(serviceWorker.headers.get("Content-Type")).toContain("application/javascript");
     expect(serviceWorker.headers.get("Service-Worker-Allowed")).toBe("/");
-    await expect(serviceWorker.text()).resolves.toContain("addEventListener(\"fetch\"");
+    await expect(serviceWorker.text()).resolves.toContain('addEventListener("fetch"');
   });
 });

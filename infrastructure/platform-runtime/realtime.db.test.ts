@@ -1,11 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
@@ -28,11 +21,7 @@ maybeDescribe("realtime outbox Postgres integration", () => {
   let pools: Readonly<Record<"realtime", PgTransactionalPool>>;
 
   beforeAll(async () => {
-    const databaseUrls = createMultiContextTestDatabaseUrls(
-      adminDatabaseUrl!,
-      ["realtime"],
-      "platform_realtime",
-    );
+    const databaseUrls = createMultiContextTestDatabaseUrls(adminDatabaseUrl!, ["realtime"], "platform_realtime");
     await ensureMultiContextTestDatabases(adminDatabaseUrl!, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
   });
@@ -156,10 +145,7 @@ maybeDescribe("realtime outbox Postgres integration", () => {
        FROM realtime_projection_outbox_topics
        ORDER BY topic`,
     );
-    expect(topics.rows.map((row) => row.topic)).toEqual([
-      "listing:list_1",
-      "listing:list_2",
-    ]);
+    expect(topics.rows.map((row) => row.topic)).toEqual(["listing:list_1", "listing:list_2"]);
     const heads = await pools.realtime.query<{ topic: string; outbox_id: string }>(
       `SELECT topic, outbox_id::text
        FROM realtime_projection_topic_heads
@@ -181,10 +167,7 @@ maybeDescribe("realtime outbox Postgres integration", () => {
     expect(replay.expiredContexts).toEqual([]);
     expect(replay.messages.map((message) => message.outboxId)).toEqual(["1", "3"]);
     expect(replay.cursor).toEqual({ discovery: "3" });
-    expect(replay.messages.map((message) => message.payload.changes[0].op)).toEqual([
-      "summary",
-      "remove",
-    ]);
+    expect(replay.messages.map((message) => message.payload.changes[0].op)).toEqual(["summary", "remove"]);
   });
 
   it("prunes expired rows and cascades topic index rows", async () => {
@@ -210,9 +193,7 @@ maybeDescribe("realtime outbox Postgres integration", () => {
       },
     });
 
-    await expect(
-      pruneExpiredRealtimePatchesWithAdvisoryLock(pools.realtime, "433"),
-    ).resolves.toBe(1);
+    await expect(pruneExpiredRealtimePatchesWithAdvisoryLock(pools.realtime, "433")).resolves.toBe(1);
 
     const remaining = await pools.realtime.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count

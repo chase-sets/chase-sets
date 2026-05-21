@@ -33,13 +33,9 @@ function resolveWindowsPnpmCliPath({ env = process.env, exists = existsSync } = 
   const candidates = [
     activePackageManagerExecPath({ env, exists }),
     env.PNPM_HOME ? path.join(env.PNPM_HOME, "pnpm.cjs") : null,
-    env.PNPM_HOME
-      ? path.join(env.PNPM_HOME, "node_modules", "pnpm", "bin", "pnpm.cjs")
-      : null,
+    env.PNPM_HOME ? path.join(env.PNPM_HOME, "node_modules", "pnpm", "bin", "pnpm.cjs") : null,
     path.join(path.dirname(process.execPath), "node_modules", "pnpm", "bin", "pnpm.cjs"),
-    env.APPDATA
-      ? path.join(env.APPDATA, "npm", "node_modules", "pnpm", "bin", "pnpm.cjs")
-      : null,
+    env.APPDATA ? path.join(env.APPDATA, "npm", "node_modules", "pnpm", "bin", "pnpm.cjs") : null,
   ].filter(Boolean);
 
   return candidates.find((candidate) => exists(candidate)) ?? null;
@@ -121,11 +117,7 @@ export function runCommand(command, args, options = {}) {
         return;
       }
 
-      reject(
-        new Error(
-          `${command} ${args.join(" ")} exited with code ${code ?? "unknown"}.`,
-        ),
-      );
+      reject(new Error(`${command} ${args.join(" ")} exited with code ${code ?? "unknown"}.`));
     });
   });
 }

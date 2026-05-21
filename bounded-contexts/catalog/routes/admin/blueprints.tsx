@@ -1,9 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import {
-  type Blueprint,
-} from "../../client";
+import { type Blueprint } from "../../client";
 import { BlueprintListPage } from "../../features/blueprints/ui/blueprint-list-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
@@ -12,10 +10,7 @@ import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/r
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
-  return loadCatalogListRouteData<Blueprint>(
-    request,
-    (query) => api.listBlueprints(query),
-  );
+  return loadCatalogListRouteData<Blueprint>(request, (query) => api.listBlueprints(query));
 }
 
 export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.blueprints.blueprints.catalog.admin") }];

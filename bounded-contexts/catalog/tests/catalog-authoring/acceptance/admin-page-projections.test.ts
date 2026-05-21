@@ -124,7 +124,9 @@ describeWithDatabase("Admin page projections", () => {
       label: l10n("Near Mint"),
       numericValue: 5,
     });
-    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, { type: "ActivateDimension" });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
+      type: "ActivateDimension",
+    });
 
     await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, {
       type: "CreateField",
@@ -155,7 +157,9 @@ describeWithDatabase("Admin page projections", () => {
       required: true,
       allowedOptionIds: [optionId],
     });
-    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, { type: "ActivateComponent" });
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
+      type: "ActivateComponent",
+    });
 
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "CreateBlueprint",
@@ -180,7 +184,9 @@ describeWithDatabase("Admin page projections", () => {
       type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [dimensionId],
     });
-    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "PublishBlueprint",
+    });
 
     await sendCommand(services.categories.commandHandler, `catalog.category-${rootCategoryId}`, {
       type: "CreateCategory",
@@ -191,7 +197,9 @@ describeWithDatabase("Admin page projections", () => {
       parentCategoryId: undefined,
       displayOrder: 0,
     });
-    await sendCommand(services.categories.commandHandler, `catalog.category-${rootCategoryId}`, { type: "PublishCategory" });
+    await sendCommand(services.categories.commandHandler, `catalog.category-${rootCategoryId}`, {
+      type: "PublishCategory",
+    });
 
     await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, {
       type: "CreateCategory",
@@ -202,7 +210,9 @@ describeWithDatabase("Admin page projections", () => {
       parentCategoryId: rootCategoryId,
       displayOrder: 1,
     });
-    await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, { type: "PublishCategory" });
+    await sendCommand(services.categories.commandHandler, `catalog.category-${childCategoryId}`, {
+      type: "PublishCategory",
+    });
 
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "CreateCatalogItem",
@@ -286,9 +296,14 @@ describeWithDatabase("Admin page projections", () => {
       displayOrder: 0,
       numericValue: 5,
     });
-    expect(blueprintDetail.json.canonical_dimension_order[0]).toMatchObject({ dimensionId, dimensionName: "Condition" });
+    expect(blueprintDetail.json.canonical_dimension_order[0]).toMatchObject({
+      dimensionId,
+      dimensionName: "Condition",
+    });
 
-    const categoryList = await getJson(`/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}&limit=1&offset=0`);
+    const categoryList = await getJson(
+      `/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}&limit=1&offset=0`,
+    );
     expect(categoryList.response.status).toBe(200);
     expect(categoryList.json.total).toBe(1);
     expect(categoryList.json.items[0]).toMatchObject({
@@ -301,7 +316,9 @@ describeWithDatabase("Admin page projections", () => {
     expect(categoryDetail.response.status).toBe(200);
     expect(categoryDetail.json.parent_category).toMatchObject({ categoryId: rootCategoryId, name: "Pokemon TCG" });
 
-    const itemList = await getJson(`/api/catalog/items?status=active&blueprintId=${blueprintId}&tag=featured&limit=1&offset=0`);
+    const itemList = await getJson(
+      `/api/catalog/items?status=active&blueprintId=${blueprintId}&tag=featured&limit=1&offset=0`,
+    );
     expect(itemList.response.status).toBe(200);
     expect(itemList.json.total).toBe(1);
     expect(itemList.json.items[0]).toMatchObject({
@@ -345,13 +362,21 @@ describeWithDatabase("Admin page projections", () => {
       description: "A classic Charizard",
     });
     expect(itemDetail.json.blueprint).toMatchObject({ blueprintId, name: "Raw Pokemon Card" });
-    expect(itemDetail.json.field_values[0]).toMatchObject({ fieldId, fieldName: "Card Name", value: l10n("Charizard") });
+    expect(itemDetail.json.field_values[0]).toMatchObject({
+      fieldId,
+      fieldName: "Card Name",
+      value: l10n("Charizard"),
+    });
     expect(itemDetail.json.categories[0]).toMatchObject({ categoryId: childCategoryId, name: "Generation I" });
 
-    const missingBlueprintResolver = await app.fetch(new Request(`http://catalog.test/api/catalog/blueprints/${blueprintId}/resolve-names`, { headers }));
+    const missingBlueprintResolver = await app.fetch(
+      new Request(`http://catalog.test/api/catalog/blueprints/${blueprintId}/resolve-names`, { headers }),
+    );
     expect(missingBlueprintResolver.status).toBe(404);
 
-    const missingItemResolver = await app.fetch(new Request(`http://catalog.test/api/catalog/items/${itemId}/resolve-names`, { headers }));
+    const missingItemResolver = await app.fetch(
+      new Request(`http://catalog.test/api/catalog/items/${itemId}/resolve-names`, { headers }),
+    );
     expect(missingItemResolver.status).toBe(404);
 
     await sendCommand(services.fields.commandHandler, `catalog.field-${fieldId}`, {
@@ -421,7 +446,9 @@ describeWithDatabase("Admin page projections", () => {
     expect(updatedBlueprint.json.dimension_rules[0].dimensionName).toBe("Card Condition");
     expect(updatedBlueprint.json.dimension_rules[0].allowedOptions[0].code).toBe("mint");
 
-    const updatedCategoryList = await getJson(`/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}`);
+    const updatedCategoryList = await getJson(
+      `/api/catalog/categories?status=active&parentCategoryId=${rootCategoryId}`,
+    );
     expect(updatedCategoryList.json.items[0].name).toBe("Generation I Singles");
     expect(updatedCategoryList.json.items[0].parent_category.name).toBe("Pokemon Catalog");
 
@@ -462,36 +489,44 @@ describeWithDatabase("Admin page projections", () => {
       description: l10n("Product series"),
       attributeKeys: [],
     });
-    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${seriesReferenceId}`, {
-      type: "CreateReferenceRecord",
-      referenceRecordId: seriesReferenceId,
-      typeKey: "series",
-      key: "mega-evolution",
-      name: l10n("Mega Evolution"),
-      description: l10n("Mega Evolution series"),
-      attributes: {},
-      relationships: [],
-    });
-    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${setReferenceId}`, {
-      type: "CreateReferenceRecord",
-      referenceRecordId: setReferenceId,
-      typeKey: "set",
-      key: "ascended-heroes",
-      name: l10n("Ascended Heroes"),
-      description: l10n("Ascended Heroes set"),
-      attributes: {
-        "card-count": 217,
-        "release-date": "2026-01-30",
-        abbreviation: "ASC",
-        "source-id": "me02.5",
+    await sendCommand(
+      services.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${seriesReferenceId}`,
+      {
+        type: "CreateReferenceRecord",
+        referenceRecordId: seriesReferenceId,
+        typeKey: "series",
+        key: "mega-evolution",
+        name: l10n("Mega Evolution"),
+        description: l10n("Mega Evolution series"),
+        attributes: {},
+        relationships: [],
       },
-      relationships: [
-        {
-          relationshipType: "part-of-series",
-          referenceId: seriesReferenceId,
+    );
+    await sendCommand(
+      services.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${setReferenceId}`,
+      {
+        type: "CreateReferenceRecord",
+        referenceRecordId: setReferenceId,
+        typeKey: "set",
+        key: "ascended-heroes",
+        name: l10n("Ascended Heroes"),
+        description: l10n("Ascended Heroes set"),
+        attributes: {
+          "card-count": 217,
+          "release-date": "2026-01-30",
+          abbreviation: "ASC",
+          "source-id": "me02.5",
         },
-      ],
-    });
+        relationships: [
+          {
+            relationshipType: "part-of-series",
+            referenceId: seriesReferenceId,
+          },
+        ],
+      },
+    );
 
     await sendCommand(services.fields.commandHandler, `catalog.field-${setFieldId}`, {
       type: "CreateField",
@@ -549,45 +584,55 @@ describeWithDatabase("Admin page projections", () => {
       },
     });
 
-    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${setReferenceId}`, {
-      type: "ReviseReferenceRecord",
-      typeKey: "set",
-      key: "ascended-heroes",
-      name: l10n("Ascended Heroes"),
-      description: l10n("Ascended Heroes set"),
-      attributes: {
-        "card-count": 218,
-        "release-date": "2026-01-30",
-        abbreviation: "ASC",
-        "source-id": "me02.5",
-      },
-      relationships: [
-        {
-          relationshipType: "part-of-series",
-          referenceId: seriesReferenceId,
+    await sendCommand(
+      services.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${setReferenceId}`,
+      {
+        type: "ReviseReferenceRecord",
+        typeKey: "set",
+        key: "ascended-heroes",
+        name: l10n("Ascended Heroes"),
+        description: l10n("Ascended Heroes set"),
+        attributes: {
+          "card-count": 218,
+          "release-date": "2026-01-30",
+          abbreviation: "ASC",
+          "source-id": "me02.5",
         },
-      ],
-    });
+        relationships: [
+          {
+            relationshipType: "part-of-series",
+            referenceId: seriesReferenceId,
+          },
+        ],
+      },
+    );
 
     await drainProjectors();
 
     const updatedItemDetail = await getJson(`/api/catalog/items/${itemId}`);
     expect(updatedItemDetail.json.field_values[0].reference.attributes["card-count"]).toBe(218);
 
-    await sendCommand(services.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${seriesReferenceId}`, {
-      type: "ReviseReferenceRecord",
-      typeKey: "series",
-      key: "mega-evolution",
-      name: l10n("Mega Evolution Era"),
-      description: l10n("Mega Evolution series"),
-      attributes: {},
-      relationships: [],
-    });
+    await sendCommand(
+      services.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${seriesReferenceId}`,
+      {
+        type: "ReviseReferenceRecord",
+        typeKey: "series",
+        key: "mega-evolution",
+        name: l10n("Mega Evolution Era"),
+        description: l10n("Mega Evolution series"),
+        attributes: {},
+        relationships: [],
+      },
+    );
 
     await drainProjectors();
 
     const updatedSeriesRelationship = await getJson(`/api/catalog/items/${itemId}`);
-    expect(updatedSeriesRelationship.json.field_values[0].reference.relationships[0].reference.name).toBe("Mega Evolution Era");
+    expect(updatedSeriesRelationship.json.field_values[0].reference.relationships[0].reference.name).toBe(
+      "Mega Evolution Era",
+    );
   });
 
   it("includes conditional applicability in component and blueprint DTOs", async () => {
@@ -612,7 +657,9 @@ describeWithDatabase("Admin page projections", () => {
       label: l10n("Raw"),
       numericValue: null,
     });
-    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, { type: "ActivateDimension" });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${formDimensionId}`, {
+      type: "ActivateDimension",
+    });
 
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, {
       type: "CreateDimension",
@@ -628,7 +675,9 @@ describeWithDatabase("Admin page projections", () => {
       label: l10n("Near Mint"),
       numericValue: null,
     });
-    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, { type: "ActivateDimension" });
+    await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${conditionDimensionId}`, {
+      type: "ActivateDimension",
+    });
 
     await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
       type: "CreateComponent",
@@ -650,7 +699,9 @@ describeWithDatabase("Admin page projections", () => {
       allowedOptionIds: [conditionOptionId],
       appliesWhen: [{ dimensionId: formDimensionId, optionIds: [formRawOptionId] }],
     });
-    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, { type: "ActivateComponent" });
+    await sendCommand(services.components.commandHandler, `catalog.component-${componentId}`, {
+      type: "ActivateComponent",
+    });
 
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "CreateBlueprint",
@@ -679,7 +730,9 @@ describeWithDatabase("Admin page projections", () => {
       type: "SetBlueprintProductResolutionRules",
       canonicalDimensionOrder: [formDimensionId, conditionDimensionId],
     });
-    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "PublishBlueprint",
+    });
 
     await drainProjectors();
 
@@ -742,7 +795,9 @@ describeWithDatabase("Admin page projections", () => {
       type: "SetBlueprintFields",
       fieldRules: [{ fieldId, required: true }],
     });
-    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "PublishBlueprint",
+    });
 
     for (const itemId of [validItemId, invalidItemId]) {
       await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
@@ -772,16 +827,18 @@ describeWithDatabase("Admin page projections", () => {
 
     await drainProjectors();
 
-    const previewResponse = await app.fetch(new Request("http://catalog.test/api/catalog/items/bulk-publish/preview", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        selection: {
-          mode: "filter",
-          query: { status: "draft", source: "tcgplayer" },
-        },
+    const previewResponse = await app.fetch(
+      new Request("http://catalog.test/api/catalog/items/bulk-publish/preview", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          selection: {
+            mode: "filter",
+            query: { status: "draft", source: "tcgplayer" },
+          },
+        }),
       }),
-    }));
+    );
     const preview = await previewResponse.json();
 
     expect(previewResponse.status).toBe(200);
@@ -792,16 +849,20 @@ describeWithDatabase("Admin page projections", () => {
       blocked_count: 1,
     });
     expect(preview.item_ids).toEqual(expect.arrayContaining([validItemId, invalidItemId]));
-    expect(preview.candidates.find((candidate: { catalog_item_id: string }) => candidate.catalog_item_id === invalidItemId)).toMatchObject({
+    expect(
+      preview.candidates.find((candidate: { catalog_item_id: string }) => candidate.catalog_item_id === invalidItemId),
+    ).toMatchObject({
       outcome: "blocked",
       reason: `Missing required field values: ${fieldId}.`,
     });
 
-    const confirmResponse = await app.fetch(new Request("http://catalog.test/api/catalog/items/bulk-publish/confirm", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ itemIds: preview.item_ids }),
-    }));
+    const confirmResponse = await app.fetch(
+      new Request("http://catalog.test/api/catalog/items/bulk-publish/confirm", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ itemIds: preview.item_ids }),
+      }),
+    );
     const result = await confirmResponse.json();
 
     expect(confirmResponse.status).toBe(200);

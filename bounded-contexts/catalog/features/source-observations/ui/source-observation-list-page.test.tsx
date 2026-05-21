@@ -155,12 +155,7 @@ describe("SourceObservationListPage", () => {
       ],
     });
 
-    render(
-      <SourceObservationListPage
-        data={{ items: [observed, promoted], total: 2, count: 2 }}
-        query={query}
-      />,
-    );
+    render(<SourceObservationListPage data={{ items: [observed, promoted], total: 2, count: 2 }} query={query} />);
 
     fireEvent.click(screen.getByLabelText("Select all rows"));
     expect(screen.getByText("1 selected")).toBeTruthy();
@@ -168,10 +163,9 @@ describe("SourceObservationListPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Promote selected/i }));
 
     await waitFor(() =>
-      expect(mockBulkPromoteSourceObservations).toHaveBeenCalledWith(
-        ["obs_observed"],
-        { onProgress: expect.any(Function) },
-      ),
+      expect(mockBulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_observed"], {
+        onProgress: expect.any(Function),
+      }),
     );
     expect(mockRevalidate).toHaveBeenCalled();
   });
@@ -204,9 +198,7 @@ describe("SourceObservationListPage", () => {
       />,
     );
 
-    fireEvent.click(
-      within(container).getByRole("button", { name: /Promote all matching/i }),
-    );
+    fireEvent.click(within(container).getByRole("button", { name: /Promote all matching/i }));
 
     await waitFor(() =>
       expect(mockPreviewBulkPromoteSourceObservations).toHaveBeenCalledWith({
@@ -253,13 +245,7 @@ describe("SourceObservationListPage", () => {
       },
     });
     let resolveBulkPromotion:
-      | ((value: {
-          requested: number;
-          promoted: number;
-          skipped: number;
-          failed: number;
-          outcomes: never[];
-        }) => void)
+      | ((value: { requested: number; promoted: number; skipped: number; failed: number; outcomes: never[] }) => void)
       | null = null;
     mockBulkPromoteSourceObservationsByScope.mockImplementation(
       async (_scope, options?: { onProgress?: (progress: unknown) => void }) => {
@@ -284,9 +270,7 @@ describe("SourceObservationListPage", () => {
       />,
     );
 
-    fireEvent.click(
-      within(container).getByRole("button", { name: /Promote all matching/i }),
-    );
+    fireEvent.click(within(container).getByRole("button", { name: /Promote all matching/i }));
 
     await screen.findByText(/123 eligible observations will be promoted/i);
     const promoteAllButtons = screen.getAllByRole("button", {
@@ -295,9 +279,7 @@ describe("SourceObservationListPage", () => {
     fireEvent.click(promoteAllButtons[promoteAllButtons.length - 1]);
 
     expect(await screen.findByText("57 of 123 processed.")).toBeTruthy();
-    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
-      "46.34146341463415",
-    );
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("46.34146341463415");
 
     resolveBulkPromotion?.({
       requested: 123,
@@ -318,20 +300,13 @@ describe("SourceObservationListPage", () => {
       observationIds: [],
     });
 
-    render(
-      <SourceObservationListPage
-        data={{ items: [observed], total: 1, count: 1 }}
-        query={query}
-      />,
-    );
+    render(<SourceObservationListPage data={{ items: [observed], total: 1, count: 1 }} query={query} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Import TCGdex expansion/i }));
 
     expect(screen.queryByLabelText("Other TCGdex Expansion ID")).toBeNull();
     const importButton = screen.getByRole("button", { name: /^Import$/i });
-    await waitFor(() =>
-      expect((importButton as HTMLButtonElement).disabled).toBe(false),
-    );
+    await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(importButton);
 
     await waitFor(() =>
@@ -349,13 +324,7 @@ describe("SourceObservationListPage", () => {
   it("resumes progress for an active bulk review job after page refresh", async () => {
     const refreshActiveJobs = vi.fn();
     let resolveWatch:
-      | ((value: {
-          requested: number;
-          promoted: number;
-          skipped: number;
-          failed: number;
-          outcomes: never[];
-        }) => void)
+      | ((value: { requested: number; promoted: number; skipped: number; failed: number; outcomes: never[] }) => void)
       | null = null;
     mockUseActiveSourceObservationBulkJobs.mockReturnValue({
       data: {
@@ -440,11 +409,7 @@ describe("SourceObservationListPage", () => {
   });
 });
 
-function sourceObservation(input: {
-  observation_id: string;
-  status: string;
-  name: string;
-}): SourceObservationListItem {
+function sourceObservation(input: { observation_id: string; status: string; name: string }): SourceObservationListItem {
   return {
     observation_id: input.observation_id,
     provider_key: "tcgdex",

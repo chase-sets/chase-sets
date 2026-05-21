@@ -48,20 +48,13 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
           typeof row.product_measure_snapshot === "object" && row.product_measure_snapshot !== null
             ? row.product_measure_snapshot
             : null,
-        graded_card:
-          typeof row.graded_card === "object" && row.graded_card !== null
-            ? row.graded_card
-            : null,
+        graded_card: typeof row.graded_card === "object" && row.graded_card !== null ? row.graded_card : null,
         listing_photos: Array.isArray(row.listing_photos) ? row.listing_photos : [],
       }
     : null;
 }
 
-async function emitListingPatch(
-  db: PgQueryable,
-  event: Parameters<ProjectorHandlerMap[string]>[0],
-  listingId: string,
-) {
+async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], listingId: string) {
   const listing = await loadRealtimeListing(db, listingId);
   if (!listing) {
     return;
@@ -79,9 +72,7 @@ async function emitListingPatch(
   });
 }
 
-export function buildMarketplaceListingProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
@@ -193,13 +184,10 @@ export function buildMarketplaceListingProjectionHandlers(
           data.itemSubtitle,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
-          data.productMeasureSnapshot &&
-          typeof data.productMeasureSnapshot === "object"
+          data.productMeasureSnapshot && typeof data.productMeasureSnapshot === "object"
             ? JSON.stringify(data.productMeasureSnapshot)
             : null,
-          data.gradedCard === null || typeof data.gradedCard !== "object"
-            ? null
-            : JSON.stringify(data.gradedCard),
+          data.gradedCard === null || typeof data.gradedCard !== "object" ? null : JSON.stringify(data.gradedCard),
           data.storageLocationName,
           data.shipFromCode,
           JSON.stringify(data.shipFromAddress),
@@ -230,11 +218,7 @@ export function buildMarketplaceListingProjectionHandlers(
          SET listing_photos = $2,
              updated_at = $3
          WHERE listing_id = $1`,
-        [
-          listingId,
-          JSON.stringify(Array.isArray(listingPhotos) ? listingPhotos : []),
-          event.timing.recordedAt,
-        ],
+        [listingId, JSON.stringify(Array.isArray(listingPhotos) ? listingPhotos : []), event.timing.recordedAt],
       );
       await emitListingPatch(db, event, listingId);
     },
@@ -472,13 +456,7 @@ export function buildMarketplaceListingProjectionHandlers(
            disabled_at = EXCLUDED.disabled_at,
            enabled_at = EXCLUDED.enabled_at,
            updated_at = EXCLUDED.updated_at`,
-        [
-          data.accountId,
-          data.reasonCategory,
-          data.availableAgainOn,
-          data.disabledAt,
-          event.timing.recordedAt,
-        ],
+        [data.accountId, data.reasonCategory, data.availableAgainOn, data.disabledAt, event.timing.recordedAt],
       );
     },
     "marketplace.seller-listing-availability.enabled": async (event) => {

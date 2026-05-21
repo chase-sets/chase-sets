@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const REFERENCE_TYPE_STREAM_PREFIX = "catalog.reference-type-";
@@ -81,13 +77,28 @@ export function buildReferenceDataProjectionHandlers(db: PgQueryable): Projector
       );
     },
     "catalog.reference-type.published": async (event) => {
-      await setReferenceTypeStatus(db, extractIdFromStreamId(event.streamId, REFERENCE_TYPE_STREAM_PREFIX), "active", event.timing.recordedAt);
+      await setReferenceTypeStatus(
+        db,
+        extractIdFromStreamId(event.streamId, REFERENCE_TYPE_STREAM_PREFIX),
+        "active",
+        event.timing.recordedAt,
+      );
     },
     "catalog.reference-type.deprecated": async (event) => {
-      await setReferenceTypeStatus(db, extractIdFromStreamId(event.streamId, REFERENCE_TYPE_STREAM_PREFIX), "deprecated", event.timing.recordedAt);
+      await setReferenceTypeStatus(
+        db,
+        extractIdFromStreamId(event.streamId, REFERENCE_TYPE_STREAM_PREFIX),
+        "deprecated",
+        event.timing.recordedAt,
+      );
     },
     "catalog.reference-type.archived": async (event) => {
-      await setReferenceTypeStatus(db, extractIdFromStreamId(event.streamId, REFERENCE_TYPE_STREAM_PREFIX), "archived", event.timing.recordedAt);
+      await setReferenceTypeStatus(
+        db,
+        extractIdFromStreamId(event.streamId, REFERENCE_TYPE_STREAM_PREFIX),
+        "archived",
+        event.timing.recordedAt,
+      );
     },
 
     "catalog.reference-record.created": async (event) => {
@@ -181,13 +192,28 @@ export function buildReferenceDataProjectionHandlers(db: PgQueryable): Projector
       );
     },
     "catalog.reference-record.published": async (event) => {
-      await setReferenceRecordStatus(db, extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX), "active", event.timing.recordedAt);
+      await setReferenceRecordStatus(
+        db,
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        "active",
+        event.timing.recordedAt,
+      );
     },
     "catalog.reference-record.deprecated": async (event) => {
-      await setReferenceRecordStatus(db, extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX), "deprecated", event.timing.recordedAt);
+      await setReferenceRecordStatus(
+        db,
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        "deprecated",
+        event.timing.recordedAt,
+      );
     },
     "catalog.reference-record.archived": async (event) => {
-      await setReferenceRecordStatus(db, extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX), "archived", event.timing.recordedAt);
+      await setReferenceRecordStatus(
+        db,
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        "archived",
+        event.timing.recordedAt,
+      );
     },
   };
 }
@@ -198,10 +224,11 @@ async function setReferenceTypeStatus(
   status: string,
   updatedAt: string,
 ): Promise<void> {
-  await db.query(
-    `UPDATE catalog_reference_types SET status = $2, updated_at = $3 WHERE reference_type_id = $1`,
-    [referenceTypeId, status, updatedAt],
-  );
+  await db.query(`UPDATE catalog_reference_types SET status = $2, updated_at = $3 WHERE reference_type_id = $1`, [
+    referenceTypeId,
+    status,
+    updatedAt,
+  ]);
 }
 
 async function setReferenceRecordStatus(
@@ -210,10 +237,11 @@ async function setReferenceRecordStatus(
   status: string,
   updatedAt: string,
 ): Promise<void> {
-  await db.query(
-    `UPDATE catalog_reference_records SET status = $2, updated_at = $3 WHERE reference_record_id = $1`,
-    [referenceRecordId, status, updatedAt],
-  );
+  await db.query(`UPDATE catalog_reference_records SET status = $2, updated_at = $3 WHERE reference_record_id = $1`, [
+    referenceRecordId,
+    status,
+    updatedAt,
+  ]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -113,9 +113,7 @@ function normalizeCategoryRefs(value: unknown) {
 }
 
 function normalizeStringArray(value: unknown) {
-  return uniqueStrings(
-    asArray<unknown>(value).filter((entry): entry is string => typeof entry === "string"),
-  );
+  return uniqueStrings(asArray<unknown>(value).filter((entry): entry is string => typeof entry === "string"));
 }
 
 export async function getDiscoveryItemDetail(
@@ -227,15 +225,11 @@ export async function getDiscoveryItemDetail(
     market_summary: marketSummary,
     market_listings: listingsResult.rows.map((row) => ({
       ...row,
-      selected_options: Array.isArray(row.selected_options)
-        ? row.selected_options
-        : [],
+      selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
     })),
     offer_demand_matches: offersResult.rows.map((row) => ({
       ...row,
-      selected_options: Array.isArray(row.selected_options)
-        ? row.selected_options
-        : [],
+      selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
     })),
   };
 }

@@ -17,24 +17,13 @@ export {
   type LocalizedTextMap,
 };
 
-export type CatalogLifecycleStatus =
-  | "draft"
-  | "active"
-  | "deprecated"
-  | "archived";
+export type CatalogLifecycleStatus = "draft" | "active" | "deprecated" | "archived";
 
 export type CatalogItemStatus = "draft" | "active" | "archived" | "removed";
 
 export type OptionStatus = "active" | "deprecated";
 
-export type FieldValueType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "date"
-  | "json"
-  | "localized_text"
-  | "reference";
+export type FieldValueType = "string" | "number" | "boolean" | "date" | "json" | "localized_text" | "reference";
 
 export type LocalizedText = Readonly<{
   locale: string;
@@ -60,10 +49,7 @@ export class CatalogDomainError extends Error {
   }
 }
 
-export function assert(
-  condition: boolean,
-  message: string,
-): asserts condition {
+export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new CatalogDomainError(message);
   }
@@ -92,30 +78,18 @@ export function assertNever(value: never): never {
   throw new CatalogDomainError(`Unhandled variant: ${JSON.stringify(value)}`);
 }
 
-export function normalizeLocalizedText(
-  labels: readonly LocalizedText[],
-): LocalizedText[] {
+export function normalizeLocalizedText(labels: readonly LocalizedText[]): LocalizedText[] {
   const normalized = labels.map((label) => ({
     locale: label.locale.trim(),
     value: label.value.trim(),
   }));
 
-  ensureUniqueBy(
-    normalized,
-    (label) => label.locale,
-    "Localized labels must have unique locales.",
-  );
+  ensureUniqueBy(normalized, (label) => label.locale, "Localized labels must have unique locales.");
 
-  return normalized.sort((left, right) =>
-    left.locale.localeCompare(right.locale),
-  );
+  return normalized.sort((left, right) => left.locale.localeCompare(right.locale));
 }
 
-export function ensureUniqueBy<T>(
-  values: readonly T[],
-  selectKey: (value: T) => string,
-  message: string,
-): void {
+export function ensureUniqueBy<T>(values: readonly T[], selectKey: (value: T) => string, message: string): void {
   const keys = new Set<string>();
 
   for (const value of values) {
@@ -129,10 +103,7 @@ export function ensureUniqueBy<T>(
   }
 }
 
-export function hasSameMembers<T extends string>(
-  left: readonly T[],
-  right: readonly T[],
-): boolean {
+export function hasSameMembers<T extends string>(left: readonly T[], right: readonly T[]): boolean {
   if (left.length !== right.length) {
     return false;
   }
@@ -150,8 +121,6 @@ export function hasSameMembers<T extends string>(
   return remaining.size === 0;
 }
 
-export function toSortedUniqueList<T extends string>(
-  values: readonly T[],
-): T[] {
+export function toSortedUniqueList<T extends string>(values: readonly T[]): T[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }

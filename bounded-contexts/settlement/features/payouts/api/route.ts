@@ -8,30 +8,39 @@ function requirePayoutAccess(
   c: {
     get(key: "actor"): SettlementApiEnv["Variables"]["actor"];
   },
-  permission:
-    | "payouts.view"
-    | "payouts.request"
-    | "payouts.reconcile"
-    | "payouts.manage",
+  permission: "payouts.view" | "payouts.request" | "payouts.reconcile" | "payouts.manage",
 ) {
   const actor = c.get("actor");
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("settlement.features.payouts.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payouts.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("settlement.features.payouts.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("settlement.features.payouts.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -144,13 +153,12 @@ export function createPayoutRoutes(services: PayoutServices) {
       return access.response;
     }
 
-    const [payouts, reconciliationRuns, platformBalanceForecast, providerHealth] =
-      await Promise.all([
-        services.listPayoutsNeedingReconciliation({ limit: 25 }),
-        services.listReconciliationRuns({ limit: 10 }),
-        services.getPlatformBalanceForecast({ currencyCode: "usd" }),
-        services.getProviderHealth(),
-      ]);
+    const [payouts, reconciliationRuns, platformBalanceForecast, providerHealth] = await Promise.all([
+      services.listPayoutsNeedingReconciliation({ limit: 25 }),
+      services.listReconciliationRuns({ limit: 10 }),
+      services.getPlatformBalanceForecast({ currencyCode: "usd" }),
+      services.getProviderHealth(),
+    ]);
 
     return c.json({
       payouts_needing_attention: payouts,
@@ -177,15 +185,20 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.payouts.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payouts.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
     const limit = Number((body as { limit?: unknown }).limit ?? 100);
-    const result = await services.reconcilePayoutsNeedingAttention(
-      { limit },
-      context,
-    );
+    const result = await services.reconcilePayoutsNeedingAttention({ limit }, context);
 
     return c.json(result);
   });
@@ -196,12 +209,12 @@ export function createPayoutRoutes(services: PayoutServices) {
       return access.response;
     }
 
-    const payout = await services.getPayout(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const payout = await services.getPayout(c.req.param("id"), access.actor.accountId);
     if (!payout) {
-      return c.json({ error: { code: "not_found", message: t("settlement.features.payouts.api.route.payout.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("settlement.features.payouts.api.route.payout.not.found") } },
+        404,
+      );
     }
 
     return c.json(payout);
@@ -221,12 +234,15 @@ export function createPayoutRoutes(services: PayoutServices) {
         }),
       );
     } catch (error) {
-      return c.json({
-        error: {
-          code: "not_found",
-          message: errorMessage(error),
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: errorMessage(error),
+          },
         },
-      }, 404);
+        404,
+      );
     }
   });
 
@@ -238,7 +254,15 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.payouts.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payouts.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -247,17 +271,9 @@ export function createPayoutRoutes(services: PayoutServices) {
       const request = {
         accountId: access.actor.accountId as never,
         amount: String(body.amount ?? ""),
-        destinationReference:
-          typeof body.destinationReference === "string"
-            ? body.destinationReference
-            : null,
-        note:
-          typeof body.note === "string"
-            ? body.note
-            : null,
-        ...(typeof body.notificationEmail === "string"
-          ? { notificationEmail: body.notificationEmail }
-          : {}),
+        destinationReference: typeof body.destinationReference === "string" ? body.destinationReference : null,
+        note: typeof body.note === "string" ? body.note : null,
+        ...(typeof body.notificationEmail === "string" ? { notificationEmail: body.notificationEmail } : {}),
       };
       const result = await services.requestPayout(request, context);
 

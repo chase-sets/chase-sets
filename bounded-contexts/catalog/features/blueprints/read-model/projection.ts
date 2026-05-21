@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.blueprint-";
@@ -95,20 +91,22 @@ export function buildBlueprintProjectionHandlers(db: PgQueryable): ProjectorHand
       const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { fieldRules } = event.data as { fieldRules: unknown };
 
-      await db.query(
-        `UPDATE catalog_blueprints SET field_rules = $2, updated_at = $3 WHERE blueprint_id = $1`,
-        [blueprintId, JSON.stringify(fieldRules), event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_blueprints SET field_rules = $2, updated_at = $3 WHERE blueprint_id = $1`, [
+        blueprintId,
+        JSON.stringify(fieldRules),
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.blueprint.dimensions-set": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { dimensionRules } = event.data as { dimensionRules: unknown };
 
-      await db.query(
-        `UPDATE catalog_blueprints SET dimension_rules = $2, updated_at = $3 WHERE blueprint_id = $1`,
-        [blueprintId, JSON.stringify(dimensionRules), event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_blueprints SET dimension_rules = $2, updated_at = $3 WHERE blueprint_id = $1`, [
+        blueprintId,
+        JSON.stringify(dimensionRules),
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.blueprint.product-resolution-rules-set": async (event) => {
@@ -124,30 +122,28 @@ export function buildBlueprintProjectionHandlers(db: PgQueryable): ProjectorHand
     "catalog.blueprint.published": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_blueprints SET status = 'active', updated_at = $2 WHERE blueprint_id = $1`,
-        [blueprintId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_blueprints SET status = 'active', updated_at = $2 WHERE blueprint_id = $1`, [
+        blueprintId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.blueprint.deprecated": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_blueprints SET status = 'deprecated', updated_at = $2 WHERE blueprint_id = $1`,
-        [blueprintId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_blueprints SET status = 'deprecated', updated_at = $2 WHERE blueprint_id = $1`, [
+        blueprintId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.blueprint.archived": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_blueprints SET status = 'archived', updated_at = $2 WHERE blueprint_id = $1`,
-        [blueprintId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_blueprints SET status = 'archived', updated_at = $2 WHERE blueprint_id = $1`, [
+        blueprintId,
+        event.timing.recordedAt,
+      ]);
     },
   };
 }
-
-

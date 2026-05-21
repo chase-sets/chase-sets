@@ -171,4 +171,3 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
   console.log(`  ${Object.keys(result).length} categories created`);
   return result;
 }
-

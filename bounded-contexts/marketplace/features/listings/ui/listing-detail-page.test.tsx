@@ -2,10 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MarketplaceListingDetailPage } from "./listing-detail-page";
-import type {
-  MarketplaceListingDetail,
-  MarketplaceListingTermsPreview,
-} from "./contracts";
+import type { MarketplaceListingDetail, MarketplaceListingTermsPreview } from "./contracts";
 
 const listing: MarketplaceListingDetail = {
   listing_id: "lst_1",
@@ -68,16 +65,10 @@ describe("MarketplaceListingDetailPage", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Fee quote changed. Review the current preview and submit again."),
-    ).toBeTruthy();
+    expect(screen.getByText("Fee quote changed. Review the current preview and submit again.")).toBeTruthy();
     expect(screen.getAllByText("Buyer shipping credit").length).toBeGreaterThan(0);
     expect(screen.getByText("Japanese")).toBeTruthy();
     expect(screen.getByText(/Buyer shipping credit 7.5%/)).toBeTruthy();
-    expect(
-      container.querySelector(
-        'input[name="feeQuoteFingerprint"][value="current-fingerprint"]',
-      ),
-    ).toBeTruthy();
+    expect(container.querySelector('input[name="feeQuoteFingerprint"][value="current-fingerprint"]')).toBeTruthy();
   });
 });

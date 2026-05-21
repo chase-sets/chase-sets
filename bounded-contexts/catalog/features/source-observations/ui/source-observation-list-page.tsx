@@ -80,16 +80,9 @@ const statusOptions = [
 
 const ALL_LANGUAGES = "__all__";
 
-type RunningBulkAction =
-  | "selected-promote"
-  | "selected-reject"
-  | "matching-promote"
-  | "matching-reject";
+type RunningBulkAction = "selected-promote" | "selected-reject" | "matching-promote" | "matching-reject";
 
-export function SourceObservationListPage({
-  data,
-  query,
-}: CatalogListRouteData<SourceObservationListItem>) {
+export function SourceObservationListPage({ data, query }: CatalogListRouteData<SourceObservationListItem>) {
   const listControls = useCatalogListQueryControls(query);
   const columns = useMemo(() => buildColumns(), []);
   const revalidator = useRevalidator();
@@ -102,16 +95,12 @@ export function SourceObservationListPage({
   const [importProgress, setImportProgress] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkPromoting, setBulkPromoting] = useState(false);
-  const [bulkActionProgress, setBulkActionProgress] =
-    useState<CatalogBulkActionProgress | null>(null);
-  const [runningBulkAction, setRunningBulkAction] =
-    useState<RunningBulkAction | null>(null);
+  const [bulkActionProgress, setBulkActionProgress] = useState<CatalogBulkActionProgress | null>(null);
+  const [runningBulkAction, setRunningBulkAction] = useState<RunningBulkAction | null>(null);
   const [resumedBulkJobId, setResumedBulkJobId] = useState<string | null>(null);
   const watchedBulkJobIdRef = useRef<string | null>(null);
-  const [promoteAllScope, setPromoteAllScope] =
-    useState<SourceObservationPromotionScope>({});
-  const [promoteAllPreview, setPromoteAllPreview] =
-    useState<SourceObservationPromotionPreview | null>(null);
+  const [promoteAllScope, setPromoteAllScope] = useState<SourceObservationPromotionScope>({});
+  const [promoteAllPreview, setPromoteAllPreview] = useState<SourceObservationPromotionPreview | null>(null);
   const [previewingPromoteAll, setPreviewingPromoteAll] = useState(false);
   const [promoteAllRunning, setPromoteAllRunning] = useState(false);
   const [showPromoteAll, setShowPromoteAll] = useState(false);
@@ -140,10 +129,7 @@ export function SourceObservationListPage({
   const expansionOptions = useMemo(
     () =>
       (tcgdexExpansions.data?.items ?? []).map((item) => ({
-        label:
-          item.officialCardCount === null
-            ? item.name
-            : `${item.name} (${item.officialCardCount})`,
+        label: item.officialCardCount === null ? item.name : `${item.name} (${item.officialCardCount})`,
         value: item.expansionId,
       })),
     [tcgdexExpansions.data],
@@ -165,24 +151,16 @@ export function SourceObservationListPage({
     listControls.setId,
   ].filter(Boolean).length;
   const activeBulkJob = useMemo(
-    () =>
-      (activeBulkJobs.data?.items ?? []).find((job) =>
-        job.status === "queued" || job.status === "running",
-      ) ?? null,
+    () => (activeBulkJobs.data?.items ?? []).find((job) => job.status === "queued" || job.status === "running") ?? null,
     [activeBulkJobs.data],
   );
 
   useEffect(() => {
-    setSelectedKeys((current) =>
-      new Set(Array.from(current).filter((key) => eligibleIds.has(key))),
-    );
+    setSelectedKeys((current) => new Set(Array.from(current).filter((key) => eligibleIds.has(key))));
   }, [eligibleIds]);
 
   useEffect(() => {
-    if (
-      importLanguageOptions.length > 0 &&
-      !importLanguageOptions.some((item) => item.value === languageCode)
-    ) {
+    if (importLanguageOptions.length > 0 && !importLanguageOptions.some((item) => item.value === languageCode)) {
       setLanguageCode(importLanguageOptions[0].value);
     }
   }, [importLanguageOptions, languageCode]);
@@ -225,9 +203,7 @@ export function SourceObservationListPage({
     setBulkActionProgress(activeBulkJob.progress);
     setBulkPromoting(activeBulkJob.action === "promote");
     setBulkRejecting(activeBulkJob.action === "reject");
-    setPromoteAllRunning(
-      activeBulkJob.action === "promote" && activeBulkJob.selectionMode === "filter",
-    );
+    setPromoteAllRunning(activeBulkJob.action === "promote" && activeBulkJob.selectionMode === "filter");
 
     let cancelled = false;
     const controller = new AbortController();
@@ -259,9 +235,7 @@ export function SourceObservationListPage({
         }
 
         addToast(
-          error instanceof Error
-            ? error.message
-            : t("catalog.features.sourceObservations.ui.list.bulk.job.failed"),
+          error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.list.bulk.job.failed"),
           "danger",
         );
       })
@@ -286,9 +260,7 @@ export function SourceObservationListPage({
   }, [activeBulkJob?.jobId]);
 
   function handleSelectionChange(keys: Set<string>) {
-    setSelectedKeys(
-      new Set(Array.from(keys).filter((key) => eligibleIds.has(key))),
-    );
+    setSelectedKeys(new Set(Array.from(keys).filter((key) => eligibleIds.has(key))));
   }
 
   async function handleImport() {
@@ -319,9 +291,7 @@ export function SourceObservationListPage({
       revalidator.revalidate();
     } catch (error) {
       addToast(
-        error instanceof Error
-          ? error.message
-          : t("catalog.features.sourceObservations.ui.list.import.failed"),
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.list.import.failed"),
         "danger",
       );
     } finally {
@@ -352,9 +322,7 @@ export function SourceObservationListPage({
       revalidator.revalidate();
     } catch (error) {
       addToast(
-        error instanceof Error
-          ? error.message
-          : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
         "danger",
       );
     } finally {
@@ -450,9 +418,7 @@ export function SourceObservationListPage({
       setShowPromoteAll(true);
     } catch (error) {
       addToast(
-        error instanceof Error
-          ? error.message
-          : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
         "danger",
       );
     } finally {
@@ -483,9 +449,7 @@ export function SourceObservationListPage({
       revalidator.revalidate();
     } catch (error) {
       addToast(
-        error instanceof Error
-          ? error.message
-          : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
         "danger",
       );
     } finally {
@@ -552,8 +516,8 @@ export function SourceObservationListPage({
         onSelectionChange={handleSelectionChange}
         isRowSelectable={(row) => row.status === "observed" || row.status === "changed"}
         bulkActionBar={
-          renderResumedBulkJobProgress() ?? (
-          selectedKeys.size > 0 ? (
+          renderResumedBulkJobProgress() ??
+          (selectedKeys.size > 0 ? (
             <BulkActionBar
               count={selectedKeys.size}
               formatSelectedLabel={(count) =>
@@ -586,12 +550,7 @@ export function SourceObservationListPage({
                     value={rejectReason}
                     onChange={(event) => setRejectReason(event.target.value)}
                   />
-                  <Button
-                    tone="danger"
-                    size="sm"
-                    disabled={bulkPromoting || bulkRejecting}
-                    onClick={handleBulkReject}
-                  >
+                  <Button tone="danger" size="sm" disabled={bulkPromoting || bulkRejecting} onClick={handleBulkReject}>
                     {t("catalog.features.sourceObservations.ui.list.bulk.reject")}
                   </Button>
                   {renderBulkActionProgress("selected-promote")}
@@ -627,12 +586,7 @@ export function SourceObservationListPage({
                     value={rejectReason}
                     onChange={(event) => setRejectReason(event.target.value)}
                   />
-                  <Button
-                    tone="danger"
-                    size="sm"
-                    disabled={bulkRejecting}
-                    onClick={handleRejectAllMatching}
-                  >
+                  <Button tone="danger" size="sm" disabled={bulkRejecting} onClick={handleRejectAllMatching}>
                     {t("catalog.features.sourceObservations.ui.list.bulk.reject.all.matching")}
                   </Button>
                   {renderBulkActionProgress("matching-reject")}
@@ -646,9 +600,7 @@ export function SourceObservationListPage({
             <Select
               label={t("catalog.features.sourceObservations.ui.list.language")}
               value={listControls.language || ALL_LANGUAGES}
-              onValueChange={(value) =>
-                listControls.setLanguage(value === ALL_LANGUAGES ? "" : value)
-              }
+              onValueChange={(value) => listControls.setLanguage(value === ALL_LANGUAGES ? "" : value)}
               items={[
                 {
                   label: t("catalog.features.sourceObservations.ui.list.all.languages"),
@@ -737,20 +689,12 @@ export function SourceObservationListPage({
         title={t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm.title")}
         footer={
           <Inline gap={2} align="end">
-            <Button
-              tone="secondary"
-              onClick={() => setShowPromoteAll(false)}
-              disabled={promoteAllRunning}
-            >
+            <Button tone="secondary" onClick={() => setShowPromoteAll(false)} disabled={promoteAllRunning}>
               {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
               leadingIcon="badgeCheck"
-              disabled={
-                promoteAllRunning ||
-                !promoteAllPreview ||
-                promoteAllPreview.eligible === 0
-              }
+              disabled={promoteAllRunning || !promoteAllPreview || promoteAllPreview.eligible === 0}
               onClick={handlePromoteAllMatching}
             >
               {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm")}
@@ -780,11 +724,7 @@ export function SourceObservationListPage({
   );
 }
 
-function importProgressPercent(progress: {
-  phase: string;
-  completed: number;
-  total: number;
-}): number {
+function importProgressPercent(progress: { phase: string; completed: number; total: number }): number {
   if (progress.phase === "completed") {
     return 100;
   }
@@ -810,9 +750,7 @@ function bulkActionProgressPercent(progress: CatalogBulkActionProgress): number 
   return (progress.completed / progress.total) * 100;
 }
 
-function runningBulkActionFromJob(
-  job: CatalogBulkReviewJob<BulkSourceObservationPromotionResult>,
-): RunningBulkAction {
+function runningBulkActionFromJob(job: CatalogBulkReviewJob<BulkSourceObservationPromotionResult>): RunningBulkAction {
   if (job.action === "promote") {
     return job.selectionMode === "ids" ? "selected-promote" : "matching-promote";
   }

@@ -18,9 +18,7 @@ export class ProviderAdapterError extends Error {
   }
 }
 
-export function providerFailureCategoryFromHttpStatus(
-  status: number,
-): ProviderFailureCategory {
+export function providerFailureCategoryFromHttpStatus(status: number): ProviderFailureCategory {
   if (status === 401 || status === 403) {
     return "authentication";
   }

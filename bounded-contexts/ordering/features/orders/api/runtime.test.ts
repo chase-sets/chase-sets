@@ -64,8 +64,7 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
   return {
-    loadCheckpoint: async (projectorName) =>
-      checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
     saveCheckpoint: async (projectorName, checkpoint) => {
       checkpoints.set(projectorName, checkpoint);
     },
@@ -162,9 +161,7 @@ function productMeasureForCandidate(candidate: SupplyCandidate): ProductMeasureS
   };
 }
 
-function createSupplyDb(
-  resolver: (params: readonly unknown[] | undefined) => readonly SupplyCandidate[],
-) {
+function createSupplyDb(resolver: (params: readonly unknown[] | undefined) => readonly SupplyCandidate[]) {
   return {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
       if (sql.includes("FROM ordering_order_pages")) {
@@ -172,35 +169,34 @@ function createSupplyDb(
       }
 
       return {
-      rows: resolver(params).map((candidate) => ({
-        listing_id: candidate.listingId,
-        seller_account_id: candidate.sellerAccountId,
-        inventory_item_id: candidate.inventoryItemId,
-        catalog_catalog_item_id: candidate.catalogItemId,
-        product_id: candidate.productId,
-        item_title: candidate.itemTitle,
-        item_subtitle: candidate.itemSubtitle,
-        selected_options: candidate.selectedOptions,
-        product_summary: candidate.productSummary,
-        storage_location_name: candidate.storageLocationName,
-        ship_from_code: candidate.shipFromCode,
-        ship_from_address: candidate.shipFromAddress ?? shipFromAddress,
-        price_amount: candidate.priceAmount,
-        marketplace_sales_fee_unit_amount: candidate.marketplaceSalesFeeUnitAmount ?? "1.00",
-        seller_net_unit_amount: candidate.sellerNetUnitAmount ?? "19.00",
-        shipping_allowance_percentage_bps: candidate.shippingAllowancePercentageBps ?? 500,
-        terms_schedule_id: candidate.termsScheduleId ?? "cts_default",
-        terms_agreement_id: candidate.termsAgreementId ?? null,
-        terms_resolved_at: candidate.termsResolvedAt ?? "2026-03-31T00:00:00.000Z",
-        available_quantity: candidate.availableQuantity,
-        max_units_per_order: candidate.maxUnitsPerOrder ?? null,
-        max_units_per_day: candidate.maxUnitsPerDay ?? null,
-        max_units_per_customer_account: candidate.maxUnitsPerCustomerAccount ?? null,
-        product_measure_snapshot:
-          candidate.productMeasureSnapshot ?? productMeasureForCandidate(candidate),
-        updated_at: candidate.updatedAt,
-      })),
-    };
+        rows: resolver(params).map((candidate) => ({
+          listing_id: candidate.listingId,
+          seller_account_id: candidate.sellerAccountId,
+          inventory_item_id: candidate.inventoryItemId,
+          catalog_catalog_item_id: candidate.catalogItemId,
+          product_id: candidate.productId,
+          item_title: candidate.itemTitle,
+          item_subtitle: candidate.itemSubtitle,
+          selected_options: candidate.selectedOptions,
+          product_summary: candidate.productSummary,
+          storage_location_name: candidate.storageLocationName,
+          ship_from_code: candidate.shipFromCode,
+          ship_from_address: candidate.shipFromAddress ?? shipFromAddress,
+          price_amount: candidate.priceAmount,
+          marketplace_sales_fee_unit_amount: candidate.marketplaceSalesFeeUnitAmount ?? "1.00",
+          seller_net_unit_amount: candidate.sellerNetUnitAmount ?? "19.00",
+          shipping_allowance_percentage_bps: candidate.shippingAllowancePercentageBps ?? 500,
+          terms_schedule_id: candidate.termsScheduleId ?? "cts_default",
+          terms_agreement_id: candidate.termsAgreementId ?? null,
+          terms_resolved_at: candidate.termsResolvedAt ?? "2026-03-31T00:00:00.000Z",
+          available_quantity: candidate.availableQuantity,
+          max_units_per_order: candidate.maxUnitsPerOrder ?? null,
+          max_units_per_day: candidate.maxUnitsPerDay ?? null,
+          max_units_per_customer_account: candidate.maxUnitsPerCustomerAccount ?? null,
+          product_measure_snapshot: candidate.productMeasureSnapshot ?? productMeasureForCandidate(candidate),
+          updated_at: candidate.updatedAt,
+        })),
+      };
     }),
   };
 }
@@ -291,9 +287,9 @@ describe("ordering order runtime", () => {
         reason: "No active supply can fulfill this product.",
       }),
     ]);
-    await expect(
-      services.createOrdersFromCheckout(checkoutParams, context),
-    ).rejects.toThrow("No checkout lines are currently fulfillable.");
+    await expect(services.createOrdersFromCheckout(checkoutParams, context)).rejects.toThrow(
+      "No checkout lines are currently fulfillable.",
+    );
   });
 
   it("treats listing purchase limits as available supply for optimized checkout", async () => {
@@ -503,8 +499,7 @@ describe("ordering order runtime", () => {
           shippingOption: "standard",
           baseAmount: "4.99",
           discountAmount: "0.00",
-          chargeAmount:
-            Number(itemSubtotalAmount) >= 11 ? "4.99" : "7.99",
+          chargeAmount: Number(itemSubtotalAmount) >= 11 ? "4.99" : "7.99",
         }),
       },
     });
@@ -588,10 +583,9 @@ describe("ordering order runtime", () => {
     });
     const taxQuoteResolver = {
       quoteTax: vi.fn(async (input: { itemSubtotalAmount: string; shippingAmount: string }) => ({
-        taxableAmount: (
-          Number.parseFloat(input.itemSubtotalAmount) +
-          Number.parseFloat(input.shippingAmount)
-        ).toFixed(2),
+        taxableAmount: (Number.parseFloat(input.itemSubtotalAmount) + Number.parseFloat(input.shippingAmount)).toFixed(
+          2,
+        ),
         taxAmount: "1.57",
         jurisdictionCountry: "US",
         jurisdictionState: "IL",
@@ -1186,14 +1180,9 @@ describe("ordering order runtime", () => {
       context,
     });
 
-    await services.cancelPurchase(
-      { orderId: "ord_1", buyerAccountId: "acc_buyer" },
-      context,
-    );
+    await services.cancelPurchase({ orderId: "ord_1", buyerAccountId: "acc_buyer" }, context);
 
-    const cancellationEvent = readAllEvents().find(
-      (event) => event.eventType === "ordering.order.cancelled",
-    );
+    const cancellationEvent = readAllEvents().find((event) => event.eventType === "ordering.order.cancelled");
     expect(cancellationEvent?.payload).toMatchObject({
       reason: "buyer-cancelled",
       reservationRequests: [
@@ -1356,14 +1345,9 @@ describe("ordering order runtime", () => {
       context,
     });
 
-    await services.cancelPurchase(
-      { orderId: "ord_1", buyerAccountId: "acc_buyer" },
-      context,
-    );
+    await services.cancelPurchase({ orderId: "ord_1", buyerAccountId: "acc_buyer" }, context);
 
-    expect(
-      readAllEvents().some((event) => event.eventType === "ordering.order.cancelled"),
-    ).toBe(true);
+    expect(readAllEvents().some((event) => event.eventType === "ordering.order.cancelled")).toBe(true);
   });
 
   it("routes buyer cancellation to support after fulfillment packing starts", async () => {
@@ -1440,12 +1424,7 @@ describe("ordering order runtime", () => {
       },
     });
 
-    await expect(
-      services.cancelPurchase(
-        { orderId: "ord_1", buyerAccountId: "acc_buyer" },
-        context,
-      ),
-    ).rejects.toThrow(
+    await expect(services.cancelPurchase({ orderId: "ord_1", buyerAccountId: "acc_buyer" }, context)).rejects.toThrow(
       "Purchase cancellation is now handled through support because fulfillment has started.",
     );
   });

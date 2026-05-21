@@ -46,8 +46,7 @@ export function createInMemoryRealtimeStreamLimiter(): RealtimeStreamLimiter {
   return {
     activeConnectionCount: () => activeStreamCount,
     acquire: async (request) => {
-      const activeForConnectionKey =
-        activeStreamsByConnectionKey.get(request.connectionKey) ?? 0;
+      const activeForConnectionKey = activeStreamsByConnectionKey.get(request.connectionKey) ?? 0;
       if (
         activeStreamCount >= request.maxActiveStreams ||
         activeForConnectionKey >= request.maxActiveStreamsPerConnectionKey
@@ -82,11 +81,13 @@ export function createInMemoryRealtimeStreamLimiter(): RealtimeStreamLimiter {
   };
 }
 
-export function createPostgresRealtimeStreamLimiter(options: Readonly<{
-  pool: PostgresRealtimeStreamLimiterPool;
-  leaseTtlMs?: number;
-  renewIntervalMs?: number;
-}>): RealtimeStreamLimiter {
+export function createPostgresRealtimeStreamLimiter(
+  options: Readonly<{
+    pool: PostgresRealtimeStreamLimiterPool;
+    leaseTtlMs?: number;
+    renewIntervalMs?: number;
+  }>,
+): RealtimeStreamLimiter {
   const leaseTtlMs = options.leaseTtlMs ?? 30_000;
   const renewIntervalMs = options.renewIntervalMs ?? 10_000;
 
@@ -98,9 +99,7 @@ export function createPostgresRealtimeStreamLimiter(options: Readonly<{
 
       try {
         await client.query("BEGIN");
-        await client.query(
-          "DELETE FROM platform_realtime_stream_leases WHERE expires_at <= now()",
-        );
+        await client.query("DELETE FROM platform_realtime_stream_leases WHERE expires_at <= now()");
         const countResult = await client.query<{
           active_count: string;
           connection_count: string;
@@ -118,10 +117,7 @@ export function createPostgresRealtimeStreamLimiter(options: Readonly<{
         const activeCount = Number(counts.active_count ?? 0);
         const connectionCount = Number(counts.connection_count ?? 0);
 
-        if (
-          activeCount >= request.maxActiveStreams ||
-          connectionCount >= request.maxActiveStreamsPerConnectionKey
-        ) {
+        if (activeCount >= request.maxActiveStreams || connectionCount >= request.maxActiveStreamsPerConnectionKey) {
           await client.query("ROLLBACK");
           return null;
         }
@@ -172,10 +168,7 @@ export function createPostgresRealtimeStreamLimiter(options: Readonly<{
 
             released = true;
             clearInterval(renewalTimer);
-            await options.pool.query(
-              "DELETE FROM platform_realtime_stream_leases WHERE lease_id = $1",
-              [leaseId],
-            );
+            await options.pool.query("DELETE FROM platform_realtime_stream_leases WHERE lease_id = $1", [leaseId]);
           },
         };
       } catch (error) {
@@ -188,12 +181,14 @@ export function createPostgresRealtimeStreamLimiter(options: Readonly<{
   };
 }
 
-export function createRedisRealtimeStreamLimiter(options: Readonly<{
-  client: RedisRealtimeStreamLimiterClient;
-  namespace?: string;
-  leaseTtlSeconds?: number;
-  renewIntervalMs?: number;
-}>): RealtimeStreamLimiter {
+export function createRedisRealtimeStreamLimiter(
+  options: Readonly<{
+    client: RedisRealtimeStreamLimiterClient;
+    namespace?: string;
+    leaseTtlSeconds?: number;
+    renewIntervalMs?: number;
+  }>,
+): RealtimeStreamLimiter {
   const namespace = options.namespace ?? "chase_sets:realtime:streams";
   const leaseTtlSeconds = options.leaseTtlSeconds ?? 60;
   const renewIntervalMs = options.renewIntervalMs ?? Math.max(1_000, Math.floor(leaseTtlSeconds * 500));
@@ -204,14 +199,16 @@ export function createRedisRealtimeStreamLimiter(options: Readonly<{
       const globalKey = `${namespace}:active`;
       const connectionKey = `${namespace}:connection:${request.connectionKey}`;
       const leaseKey = `${namespace}:lease:${leaseId}`;
-      const result = Number(await options.client.eval(ACQUIRE_STREAM_LEASE_SCRIPT, {
-        keys: [globalKey, connectionKey, leaseKey],
-        arguments: [
-          String(request.maxActiveStreams),
-          String(request.maxActiveStreamsPerConnectionKey),
-          String(leaseTtlSeconds),
-        ],
-      }));
+      const result = Number(
+        await options.client.eval(ACQUIRE_STREAM_LEASE_SCRIPT, {
+          keys: [globalKey, connectionKey, leaseKey],
+          arguments: [
+            String(request.maxActiveStreams),
+            String(request.maxActiveStreamsPerConnectionKey),
+            String(leaseTtlSeconds),
+          ],
+        }),
+      );
       if (result < 0) {
         return null;
       }
@@ -222,10 +219,12 @@ export function createRedisRealtimeStreamLimiter(options: Readonly<{
           return false;
         }
 
-        const renewed = Number(await options.client.eval(RENEW_STREAM_LEASE_SCRIPT, {
-          keys: [globalKey, connectionKey, leaseKey],
-          arguments: [String(leaseTtlSeconds)],
-        }));
+        const renewed = Number(
+          await options.client.eval(RENEW_STREAM_LEASE_SCRIPT, {
+            keys: [globalKey, connectionKey, leaseKey],
+            arguments: [String(leaseTtlSeconds)],
+          }),
+        );
         return renewed > 0;
       };
       const renewalTimer = setInterval(() => {

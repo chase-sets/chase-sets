@@ -11,7 +11,7 @@ export function Stat({
   label,
   value,
   trend,
-  icon
+  icon,
 }: {
   label: ReactNode;
   value: ReactNode;
@@ -32,11 +32,7 @@ export function Stat({
   );
 }
 
-export function MetricStrip({
-  items
-}: {
-  items: Array<{ label: string; value: string; trend?: string }>;
-}) {
+export function MetricStrip({ items }: { items: Array<{ label: string; value: string; trend?: string }> }) {
   return (
     <div className="grid gap-3 md:grid-cols-5">
       {items.map((item) => (
@@ -52,7 +48,10 @@ export function Rating({ value, max = 5 }: { value: number; max?: number }) {
       {Array.from({ length: max }, (_, index) => (
         <Star
           key={index}
-          className={cn("h-4 w-4", index < value ? "fill-[var(--warning)] text-[var(--warning)]" : "text-[var(--muted)]")}
+          className={cn(
+            "h-4 w-4",
+            index < value ? "fill-[var(--warning)] text-[var(--warning)]" : "text-[var(--muted)]",
+          )}
           aria-hidden="true"
         />
       ))}
@@ -68,7 +67,7 @@ export function ProductCard({
   meta,
   imageSrc,
   imageAlt,
-  actions
+  actions,
 }: {
   title: string;
   subtitle?: string;
@@ -85,9 +84,7 @@ export function ProductCard({
         {imageSrc ? (
           <img src={imageSrc} alt={imageAlt ?? title} className="h-full w-full object-contain p-4" />
         ) : (
-          <span className="ds-display text-5xl text-[var(--muted-foreground)]">
-            {title.slice(0, 2).toUpperCase()}
-          </span>
+          <span className="ds-display text-5xl text-[var(--muted-foreground)]">{title.slice(0, 2).toUpperCase()}</span>
         )}
       </div>
       <CardHeader>
@@ -116,15 +113,7 @@ export function ProductCard({
   );
 }
 
-export function CategoryTile({
-  label,
-  detail,
-  icon
-}: {
-  label: string;
-  detail?: string;
-  icon?: ReactNode;
-}) {
+export function CategoryTile({ label, detail, icon }: { label: string; detail?: string; icon?: ReactNode }) {
   return (
     <Card className="p-4">
       <CardContent className="gap-2 p-0">
@@ -136,15 +125,7 @@ export function CategoryTile({
   );
 }
 
-export function FeatureCard({
-  icon,
-  title,
-  description
-}: {
-  icon?: ReactNode;
-  title: string;
-  description: string;
-}) {
+export function FeatureCard({ icon, title, description }: { icon?: ReactNode; title: string; description: string }) {
   return (
     <Card>
       <CardContent className="gap-3 p-0">
@@ -161,7 +142,7 @@ export function FeatureCard({
 export function OrderSummary({
   title = "Order Summary",
   lines,
-  total
+  total,
 }: {
   title?: string;
   lines: Array<{ label: string; value: ReactNode }>;
@@ -177,8 +158,12 @@ export function OrderSummary({
           <TableBody>
             {lines.map((line) => (
               <TableRow key={line.label}>
-                <TableCell data-label="Line" className="font-medium">{line.label}</TableCell>
-                <TableCell data-label="Amount" className="font-semibold md:text-right">{line.value}</TableCell>
+                <TableCell data-label="Line" className="font-medium">
+                  {line.label}
+                </TableCell>
+                <TableCell data-label="Amount" className="font-semibold md:text-right">
+                  {line.value}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

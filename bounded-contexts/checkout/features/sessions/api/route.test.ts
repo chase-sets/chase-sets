@@ -64,9 +64,7 @@ function buildApp(
   return app;
 }
 
-function createSession(
-  overrides: Partial<CheckoutSessionRow> = {},
-): CheckoutSessionRow {
+function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRow {
   return {
     session_id: "chk_1",
     buyer_account_id: "acc_buyer",
@@ -95,9 +93,7 @@ function createSession(
   };
 }
 
-function createServices(
-  overrides: Partial<CheckoutSessionServices> = {},
-): CheckoutSessionServices {
+function createServices(overrides: Partial<CheckoutSessionServices> = {}): CheckoutSessionServices {
   return {
     commandHandler: vi.fn() as never,
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
@@ -392,9 +388,7 @@ describe("checkout session routes", () => {
   it("retries payment recording without recreating orders", async () => {
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
     const services = createServices({
-      getSession: vi.fn(async () =>
-        createSession({ order_ids: ["ord_existing"], payment_id: null }),
-      ),
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_existing"], payment_id: null })),
     });
     const app = buildApp(services);
 
@@ -597,9 +591,7 @@ describe("checkout session routes", () => {
 
   it("returns an existing checkout payment without re-running confirmation", async () => {
     const services = createServices({
-      getSession: vi.fn(async () =>
-        createSession({ order_ids: ["ord_1"], payment_id: "pay_1" }),
-      ),
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"], payment_id: "pay_1" })),
     });
     const app = buildApp(services);
 

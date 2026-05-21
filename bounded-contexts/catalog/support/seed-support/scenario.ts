@@ -7,13 +7,10 @@ export const catalogScenarioItems = {
   lugiaNeoGenesis: catalogSeedIds.items.lugiaNeoGenesis,
   mewtwoBlackStarPromo: catalogSeedIds.items.mewtwoBlackStarPromo,
   bulbasaurBaseSet: catalogSeedIds.items.bulbasaurBaseSet,
-  pikachuPrismaticEvolutions:
-    catalogSeedIds.items.pikachuPrismaticEvolutions,
-  prismaticEvolutionsBoosterPack:
-    catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+  pikachuPrismaticEvolutions: catalogSeedIds.items.pikachuPrismaticEvolutions,
+  prismaticEvolutionsBoosterPack: catalogSeedIds.items.prismaticEvolutionsBoosterPack,
   surgingSparksBoosterBox: catalogSeedIds.items.surgingSparksBoosterBox,
-  twilightMasqueradeEliteTrainerBox:
-    catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+  twilightMasqueradeEliteTrainerBox: catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
 } as const;
 
 export type CatalogScenarioItemAlias = keyof typeof catalogScenarioItems;

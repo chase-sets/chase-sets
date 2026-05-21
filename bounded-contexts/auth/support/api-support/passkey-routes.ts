@@ -1,9 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import {
-  AUTH_CHALLENGE_TTL_MS,
-  createExpiryTimestamp,
-} from "../../features/sessions/domain/auth-flow";
+import { AUTH_CHALLENGE_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import {
   consumeChallenge,
   getPasskeyCredentialByExternalId,
@@ -11,30 +8,20 @@ import {
   upsertPasskeyCredential,
 } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import {
-  createIdentityMutations,
-  createOwnedUserDisplayName,
-  getBootstrapContext,
-  type AuthApiApp,
-} from "./support";
+import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
-export function passkeyMatchesChallengeUser(
-  challengeUserId: string | null,
-  passkeyUserId: string,
-) {
+export function passkeyMatchesChallengeUser(challengeUserId: string | null, passkeyUserId: string) {
   return challengeUserId === null || challengeUserId === passkeyUserId;
 }
 
-export function resolvePasskeyRegistrationUserId(params: Readonly<{
-  actorUserId: string | null;
-  bodyUserId: string | null;
-  challengeUserId: string | null;
-}>) {
-  if (
-    params.actorUserId &&
-    params.bodyUserId &&
-    params.bodyUserId !== params.actorUserId
-  ) {
+export function resolvePasskeyRegistrationUserId(
+  params: Readonly<{
+    actorUserId: string | null;
+    bodyUserId: string | null;
+    challengeUserId: string | null;
+  }>,
+) {
+  if (params.actorUserId && params.bodyUserId && params.bodyUserId !== params.actorUserId) {
     return { status: "forbidden" as const };
   }
 
@@ -44,18 +31,12 @@ export function resolvePasskeyRegistrationUserId(params: Readonly<{
   };
 }
 
-export function registerPasskeyRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/passkeys/challenge", async (c) => {
     const body = await c.req.json();
     const challengeId = createId("cmd");
     const challengeValue = services.auth.issueChallenge();
-    const email =
-      typeof body.email === "string"
-        ? services.identity.normalizeEmail(body.email)
-        : null;
+    const email = typeof body.email === "string" ? services.identity.normalizeEmail(body.email) : null;
     const user = email ? await services.identity.getUserByEmail(email) : null;
 
     await insertChallenge(services.db, {
@@ -84,10 +65,7 @@ export function registerPasskeyRoutes(
 
     const actor = c.var.actor;
     if (!actor && challenge.user_id) {
-      return c.json(
-        { error: t("auth.support.apiSupport.passkeyRoutes.sign.in.before.adding.a.passkey") },
-        409,
-      );
+      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.sign.in.before.adding.a.passkey") }, 409);
     }
 
     const resolvedUser = resolvePasskeyRegistrationUserId({
@@ -154,13 +132,13 @@ export function registerPasskeyRoutes(
       challengeValue: String(body.challenge ?? ""),
     });
     if (!challenge) {
-      return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired.2") }, 401);
+      return c.json(
+        { error: t("auth.support.apiSupport.passkeyRoutes.passkey.challenge.is.invalid.or.expired.2") },
+        401,
+      );
     }
 
-    const passkey = await getPasskeyCredentialByExternalId(
-      services.db,
-      String(body.externalCredentialId ?? ""),
-    );
+    const passkey = await getPasskeyCredentialByExternalId(services.db, String(body.externalCredentialId ?? ""));
     if (!passkey) {
       return c.json({ error: t("auth.support.apiSupport.passkeyRoutes.unknown.passkey.credential") }, 401);
     }
@@ -170,8 +148,7 @@ export function registerPasskeyRoutes(
 
     const authResult = await startInteractiveAuth(services, {
       userId: passkey.user_id,
-      accountId:
-        typeof body.accountId === "string" ? body.accountId : undefined,
+      accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "passkey",
       context: getBootstrapContext(c),
     });

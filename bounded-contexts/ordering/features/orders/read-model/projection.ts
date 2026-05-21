@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildOrderingOrderProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildOrderingOrderProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
@@ -174,15 +172,12 @@ export function buildOrderingOrderProjectionHandlers(
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceSalesFeeAmount,
           data.commercialTermsSnapshot.sellerNetAmount,
-          data.commercialTermsSnapshot.sellerItemNetAmount ??
-            data.commercialTermsSnapshot.sellerNetAmount,
+          data.commercialTermsSnapshot.sellerItemNetAmount ?? data.commercialTermsSnapshot.sellerNetAmount,
           data.commercialTermsSnapshot.sellerPayoutAmount ??
             (
               Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
               Number.parseFloat(
-                data.commercialTermsSnapshot.shippingAllowanceAmount ??
-                  data.shippingAllowanceAmount ??
-                  "0.00",
+                data.commercialTermsSnapshot.shippingAllowanceAmount ?? data.shippingAllowanceAmount ?? "0.00",
               )
             ).toFixed(2),
           data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
@@ -262,7 +257,6 @@ export function buildOrderingOrderProjectionHandlers(
           ],
         );
       }
-
     },
     "ordering.order.reservation-confirmed": async (event) => {
       const data = event.data as {
@@ -272,7 +266,7 @@ export function buildOrderingOrderProjectionHandlers(
         sellerAccountId: string;
         quantity: number;
         holdId: string;
-      }
+      };
 
       await db.query(
         `INSERT INTO ordering_order_hold_pages (
@@ -295,14 +289,7 @@ export function buildOrderingOrderProjectionHandlers(
              status = EXCLUDED.status,
              created_at = EXCLUDED.created_at,
              released_at = EXCLUDED.released_at`,
-        [
-          data.holdId,
-          data.orderId,
-          data.sellerAccountId,
-          data.inventoryItemId,
-          data.quantity,
-          event.timing.recordedAt,
-        ],
+        [data.holdId, data.orderId, data.sellerAccountId, data.inventoryItemId, data.quantity, event.timing.recordedAt],
       );
     },
     "ordering.order.pending-payment-recorded": async (event) => {

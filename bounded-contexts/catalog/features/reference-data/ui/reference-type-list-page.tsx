@@ -2,15 +2,7 @@ import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
-import {
-  Button,
-  Dialog,
-  Stack,
-  StatusPill,
-  TextInput,
-  Textarea,
-  type DataColumn,
-} from "@chase-sets/design-system";
+import { Button, Dialog, Stack, StatusPill, TextInput, Textarea, type DataColumn } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -18,7 +10,11 @@ import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import { confirmBulkReferenceTypeLifecycle, createReferenceType, previewBulkReferenceTypeLifecycle } from "./use-reference-data";
+import {
+  confirmBulkReferenceTypeLifecycle,
+  createReferenceType,
+  previewBulkReferenceTypeLifecycle,
+} from "./use-reference-data";
 import type { ReferenceType } from "./contracts";
 import { parseKeyList } from "./reference-data-form";
 
@@ -31,7 +27,11 @@ const columns: DataColumn<ReferenceType>[] = [
     cell: (row) => row.attribute_keys.length,
     align: "right",
   },
-  { key: "status", header: t("catalog.features.referenceData.ui.referenceTypeListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  {
+    key: "status",
+    header: t("catalog.features.referenceData.ui.referenceTypeListPage.status"),
+    cell: (row) => <StatusPill>{row.status}</StatusPill>,
+  },
 ];
 
 const statusOptions = [
@@ -127,12 +127,26 @@ export function ReferenceTypeListPage({ data, query }: CatalogListRouteData<Refe
         open={showCreate}
         onOpenChange={setShowCreate}
         title={t("catalog.features.referenceData.ui.referenceTypeListPage.create.reference.type")}
-        footer={<Button onClick={handleCreate}>{t("catalog.features.referenceData.ui.referenceTypeListPage.create")}</Button>}
+        footer={
+          <Button onClick={handleCreate}>{t("catalog.features.referenceData.ui.referenceTypeListPage.create")}</Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.referenceData.ui.referenceTypeListPage.key.2")} value={key} onChange={(event) => setKey(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceTypeListPage.name.2")} value={name} onChange={(event) => setName(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceTypeListPage.description")} value={description} onChange={(event) => setDescription(event.target.value)} />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceTypeListPage.key.2")}
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceTypeListPage.name.2")}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceTypeListPage.description")}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
           <Textarea
             label={t("catalog.features.referenceData.ui.referenceTypeListPage.attribute.keys")}
             description={t("catalog.features.referenceData.ui.referenceTypeListPage.attribute.keys.description")}

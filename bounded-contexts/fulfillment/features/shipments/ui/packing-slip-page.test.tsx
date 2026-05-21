@@ -89,12 +89,8 @@ const slip: FulfillmentPackingSlip = {
 
 describe("fulfillment packing slip UI", () => {
   it("renders letter and thermal print pages without prices or payment details", () => {
-    const letter = renderToString(
-      <FulfillmentPackingSlipPrintPage format="letter" slips={[slip]} />,
-    );
-    const thermal = renderToString(
-      <FulfillmentPackingSlipPrintPage format="thermal-4x6" slips={[slip]} />,
-    );
+    const letter = renderToString(<FulfillmentPackingSlipPrintPage format="letter" slips={[slip]} />);
+    const thermal = renderToString(<FulfillmentPackingSlipPrintPage format="thermal-4x6" slips={[slip]} />);
 
     expect(letter).toContain("fulfillment-packing-slip--letter");
     expect(letter).toContain("size: letter");
@@ -116,11 +112,7 @@ describe("fulfillment packing slip UI", () => {
 
   it("adds a seller detail print action for the current shipment", () => {
     const markup = renderToString(
-      <FulfillmentShipmentDetailPage
-        role="seller"
-        backHref="/account/sales/shipments"
-        shipment={slip}
-      />,
+      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={slip} />,
     );
 
     expect(markup).toContain("Print packing slip");

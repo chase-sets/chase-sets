@@ -65,8 +65,7 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
   return {
-    loadCheckpoint: async (projectorName) =>
-      checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
     saveCheckpoint: async (projectorName, checkpoint) => {
       checkpoints.set(projectorName, checkpoint);
     },
@@ -107,17 +106,19 @@ const parcelShippingPlan: PackagePlan = {
     eligible: false,
     reasons: ["declared-value-requires-parcel"],
   },
-  packages: [{
-    packageId: "pkg_1",
-    mailpieceClass: "parcel",
-    lengthInches: 8,
-    widthInches: 6,
-    heightInches: 2,
-    weightOunces: 5.25,
-    billableWeightOunces: 6,
-    serviceLevel: "standard-parcel",
-    productMeasureVersions: ["test-measure-v1"],
-  }],
+  packages: [
+    {
+      packageId: "pkg_1",
+      mailpieceClass: "parcel",
+      lengthInches: 8,
+      widthInches: 6,
+      heightInches: 2,
+      weightOunces: 5.25,
+      billableWeightOunces: 6,
+      serviceLevel: "standard-parcel",
+      productMeasureVersions: ["test-measure-v1"],
+    },
+  ],
 };
 
 describe("fulfillment shipment runtime", () => {
@@ -183,9 +184,7 @@ describe("fulfillment shipment runtime", () => {
       },
     });
 
-    const createdEvent = readAllEvents().find(
-      (event) => event.eventType === "fulfillment.shipment.created",
-    );
+    const createdEvent = readAllEvents().find((event) => event.eventType === "fulfillment.shipment.created");
 
     expect(createdEvent?.payload).toMatchObject({
       orderId: "ord_1",
@@ -326,9 +325,7 @@ describe("fulfillment shipment runtime", () => {
         },
       }),
     );
-    const attachedEvent = readAllEvents().find(
-      (event) => event.eventType === "fulfillment.shipment.label-attached",
-    );
+    const attachedEvent = readAllEvents().find((event) => event.eventType === "fulfillment.shipment.label-attached");
     expect(attachedEvent?.payload).toMatchObject({
       carrierName: "USPS",
       labelDocumentUrl: "https://sandbox.test/label.pdf",
@@ -409,9 +406,7 @@ describe("fulfillment shipment runtime", () => {
           },
         },
       ),
-    ).rejects.toThrow(
-      "Address override reason is required when label addresses differ from shipment snapshots.",
-    );
+    ).rejects.toThrow("Address override reason is required when label addresses differ from shipment snapshots.");
     expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
   });
 
@@ -539,9 +534,7 @@ describe("fulfillment shipment runtime", () => {
       context,
     );
 
-    const attachedEvent = readAllEvents().find(
-      (event) => event.eventType === "fulfillment.shipment.label-attached",
-    );
+    const attachedEvent = readAllEvents().find((event) => event.eventType === "fulfillment.shipment.label-attached");
     expect(attachedEvent?.payload).toMatchObject({
       addressOverrideAudit: {
         changedSide: "recipient",

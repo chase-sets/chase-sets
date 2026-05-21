@@ -1,10 +1,6 @@
 import { applyEvents, type AggregateDecider, type AggregateEvolver, type DomainEvent } from "./domain";
 import type { AggregateRepository } from "./aggregate-repository";
-import type {
-  EventStoreContext,
-  ExpectedStreamVersion,
-  StoredEvent,
-} from "./storage";
+import type { EventStoreContext, ExpectedStreamVersion, StoredEvent } from "./storage";
 import { recordCommittedEvents } from "./consistency";
 
 export type CommandHandlerInput<Command> = Readonly<{
@@ -14,10 +10,7 @@ export type CommandHandlerInput<Command> = Readonly<{
   expectedVersion?: ExpectedStreamVersion;
 }>;
 
-export type CommandExecutionResult<
-  State,
-  Event extends DomainEvent,
-> = Readonly<{
+export type CommandExecutionResult<State, Event extends DomainEvent> = Readonly<{
   state: State;
   version: number;
   newEvents: readonly Event[];
@@ -28,21 +21,13 @@ export type CommandHandler<Command, State, Event extends DomainEvent> = (
   input: CommandHandlerInput<Command>,
 ) => Promise<CommandExecutionResult<State, Event>>;
 
-export type CommandHandlerConfig<
-  State,
-  Command,
-  Event extends DomainEvent,
-> = Readonly<{
+export type CommandHandlerConfig<State, Command, Event extends DomainEvent> = Readonly<{
   repository: AggregateRepository<State, Event>;
   evolve: AggregateEvolver<State, Event>;
   decide: AggregateDecider<State, Command, Event>;
 }>;
 
-export function createCommandHandler<
-  State,
-  Command,
-  Event extends DomainEvent,
->(
+export function createCommandHandler<State, Command, Event extends DomainEvent>(
   config: CommandHandlerConfig<State, Command, Event>,
 ): CommandHandler<Command, State, Event> {
   return async (input) => {
@@ -67,10 +52,7 @@ export function createCommandHandler<
     });
     recordCommittedEvents(storedEvents);
     const state = applyEvents(loaded.state, config.evolve, newEvents);
-    const version =
-      storedEvents.length === 0
-        ? loaded.version
-        : storedEvents[storedEvents.length - 1].streamVersion;
+    const version = storedEvents.length === 0 ? loaded.version : storedEvents[storedEvents.length - 1].streamVersion;
 
     return {
       state,

@@ -10,10 +10,7 @@ import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/r
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
-  return loadCatalogListRouteData<Field>(
-    request,
-    (query) => api.listFields(query),
-  );
+  return loadCatalogListRouteData<Field>(request, (query) => api.listFields(query));
 }
 
 export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.fields.fields.catalog.admin") }];

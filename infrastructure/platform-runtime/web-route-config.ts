@@ -1,10 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes";
-import {
-  resolveWebHostRouteRecords,
-  type WebContextRegistry,
-  type WebHostName,
-  type WebHostRouteRecord,
-} from "./web";
+import { resolveWebHostRouteRecords, type WebContextRegistry, type WebHostName, type WebHostRouteRecord } from "./web";
 
 export type HostRouteConfigRecord = Readonly<
   WebHostRouteRecord & {
@@ -26,11 +21,7 @@ type RouteConfigRouteHelper = {
 };
 
 function toRouteConfigId(route: WebHostRouteRecord) {
-  return [
-    route.contextName,
-    route.section,
-    route.routeId,
-  ].filter(Boolean).join("/");
+  return [route.contextName, route.section, route.routeId].filter(Boolean).join("/");
 }
 
 function toRouteSourceFile(contextName: string, fileExport: string) {

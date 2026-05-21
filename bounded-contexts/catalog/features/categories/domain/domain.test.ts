@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  decideCategory,
-  evolveCategory,
-  initialCategoryState,
-  type CategoryEvent,
-} from "./domain";
+import { decideCategory, evolveCategory, initialCategoryState, type CategoryEvent } from "./domain";
 import type { CategoryId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
@@ -15,13 +10,33 @@ const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialCategoryState, evolveCategory, [
-    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: l10n("Singles"), description: l10n(""), parentCategoryId: null, displayOrder: 0 } },
+    {
+      type: "catalog.category.created",
+      data: {
+        categoryId: catId,
+        key: "singles",
+        name: l10n("Singles"),
+        description: l10n(""),
+        parentCategoryId: null,
+        displayOrder: 0,
+      },
+    },
   ] as CategoryEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialCategoryState, evolveCategory, [
-    { type: "catalog.category.created", data: { categoryId: catId, key: "singles", name: l10n("Singles"), description: l10n(""), parentCategoryId: null, displayOrder: 0 } },
+    {
+      type: "catalog.category.created",
+      data: {
+        categoryId: catId,
+        key: "singles",
+        name: l10n("Singles"),
+        description: l10n(""),
+        parentCategoryId: null,
+        displayOrder: 0,
+      },
+    },
     { type: "catalog.category.published", data: {} },
   ] as CategoryEvent[]);
 }
@@ -107,7 +122,14 @@ describe("Category aggregate", () => {
     it("evolves created event", () => {
       const state = evolveCategory(initialCategoryState, {
         type: "catalog.category.created",
-        data: { categoryId: catId, key: "singles", name: l10n("Singles"), description: l10n(""), parentCategoryId: parentId, displayOrder: 3 },
+        data: {
+          categoryId: catId,
+          key: "singles",
+          name: l10n("Singles"),
+          description: l10n(""),
+          parentCategoryId: parentId,
+          displayOrder: 3,
+        },
       });
 
       expect(state.id).toBe(catId);

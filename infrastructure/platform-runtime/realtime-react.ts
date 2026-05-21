@@ -18,9 +18,7 @@ export type RealtimePatchedSnapshotOptions<T> = Readonly<{
   reconnectPolicy?: RealtimeReconnectPolicy;
 }>;
 
-export function useRealtimePatchedSnapshot<T>(
-  options: RealtimePatchedSnapshotOptions<T>,
-): T {
+export function useRealtimePatchedSnapshot<T>(options: RealtimePatchedSnapshotOptions<T>): T {
   const resolvedSnapshotKey = options.snapshotKey ?? "";
   const [snapshotState, setSnapshotState] = useState(() => ({
     key: resolvedSnapshotKey,

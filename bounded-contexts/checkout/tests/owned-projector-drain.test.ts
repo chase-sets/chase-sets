@@ -20,8 +20,8 @@ describe("checkout owned projector drain", () => {
       lastGlobalPosition: "1" as const,
     }));
 
-    await expect(
-      drainOwnedProjector({ projectorName: "checkout.test", runOnce }),
-    ).rejects.toThrow("Checkout projector checkout.test did not catch up");
+    await expect(drainOwnedProjector({ projectorName: "checkout.test", runOnce })).rejects.toThrow(
+      "Checkout projector checkout.test did not catch up",
+    );
   });
 });

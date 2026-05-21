@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -54,11 +51,7 @@ export type CheckoutSellListRuntimeDeps = Readonly<{
 }>;
 
 export type CheckoutSellListServices = Readonly<{
-  commandHandler: CommandHandler<
-    CheckoutSellListCommand,
-    CheckoutSellListState,
-    CheckoutSellListEvent
-  >;
+  commandHandler: CommandHandler<CheckoutSellListCommand, CheckoutSellListState, CheckoutSellListEvent>;
   addLine: (
     params: AddCheckoutSellListLineInput,
     context: EventStoreContext,
@@ -71,9 +64,7 @@ export type CheckoutSellListServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createCheckoutSellListRuntime(
-  deps: CheckoutSellListRuntimeDeps,
-): CheckoutSellListServices {
+export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps): CheckoutSellListServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -113,25 +104,20 @@ export function createCheckoutSellListRuntime(
     }
 
     if (catalogItem.status !== "active") {
-      throw new CheckoutDomainError(
-        "Sell list lines may only reference active catalog items.",
-      );
+      throw new CheckoutDomainError("Sell list lines may only reference active catalog items.");
     }
 
     const product = createCheckoutProductDescriptor({
       catalogItemId: params.catalogItemId,
       productSchema:
-        typeof catalogItem.product_schema === "object" &&
-        catalogItem.product_schema !== null
+        typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
           ? (catalogItem.product_schema as CheckoutVersionSchema)
           : null,
       selection: params.selectedOptions,
     });
 
     if (params.productId.trim() !== product.productId) {
-      throw new CheckoutDomainError(
-        "Sell list product id does not match the selected options.",
-      );
+      throw new CheckoutDomainError("Sell list product id does not match the selected options.");
     }
 
     return {
@@ -151,15 +137,14 @@ export function createCheckoutSellListRuntime(
 
   const addLine: CheckoutSellListServices["addLine"] = async (params, context) => {
     const normalized = await normalizeInput(params);
-    const existingLine = (await listSellListLines(deps.db, params.sellerAccountId))
-      .find((line) =>
-        normalized.lineType === "selected-offer" && normalized.offerId
-          ? line.offer_id === normalized.offerId
-          : line.line_type === "product" &&
-            line.product_id === normalized.productId &&
-            line.fallback_mode === normalized.fallbackMode &&
-            (line.minimum_listing_price_amount ?? null) === normalized.minimumListingPriceAmount,
-      );
+    const existingLine = (await listSellListLines(deps.db, params.sellerAccountId)).find((line) =>
+      normalized.lineType === "selected-offer" && normalized.offerId
+        ? line.offer_id === normalized.offerId
+        : line.line_type === "product" &&
+          line.product_id === normalized.productId &&
+          line.fallback_mode === normalized.fallbackMode &&
+          (line.minimum_listing_price_amount ?? null) === normalized.minimumListingPriceAmount,
+    );
 
     if (existingLine) {
       if (existingLine.line_type === "product") {

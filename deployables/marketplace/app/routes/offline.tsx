@@ -20,11 +20,7 @@ export default function MarketplaceOfflineRoute() {
               />
             }
             recoveryActions={
-              <Button
-                type="button"
-                tone="primary"
-                onClick={() => window.location.reload()}
-              >
+              <Button type="button" tone="primary" onClick={() => window.location.reload()}>
                 {t("marketplace.app.routes.offline.retry")}
               </Button>
             }

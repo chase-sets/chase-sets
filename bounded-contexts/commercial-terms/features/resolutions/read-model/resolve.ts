@@ -20,16 +20,20 @@ export type ResolvedCommercialTerms = Readonly<{
 }>;
 
 export type CommercialTermsResolver = Readonly<{
-  resolveListingTerms: (params: Readonly<{
-    accountId: string;
-    amount: string;
-    effectiveAt?: string;
-  }>) => Promise<ResolvedCommercialTerms>;
-  resolveOrderTerms: (params: Readonly<{
-    accountId: string;
-    amount: string;
-    effectiveAt?: string;
-  }>) => Promise<ResolvedCommercialTerms>;
+  resolveListingTerms: (
+    params: Readonly<{
+      accountId: string;
+      amount: string;
+      effectiveAt?: string;
+    }>,
+  ) => Promise<ResolvedCommercialTerms>;
+  resolveOrderTerms: (
+    params: Readonly<{
+      accountId: string;
+      amount: string;
+      effectiveAt?: string;
+    }>,
+  ) => Promise<ResolvedCommercialTerms>;
 }>;
 
 type ProjectedAccount = Readonly<{
@@ -63,11 +67,7 @@ async function getProjectedAccount(db: PgQueryable, accountId: string) {
   return result.rows[0] ?? null;
 }
 
-async function getActiveSchedule(
-  db: PgQueryable,
-  accountType: CommercialAccountType,
-  effectiveAt: string,
-) {
+async function getActiveSchedule(db: PgQueryable, accountType: CommercialAccountType, effectiveAt: string) {
   const result = await db.query<ActiveSchedule>(
     `SELECT
        schedule_id,
@@ -87,11 +87,7 @@ async function getActiveSchedule(
   return result.rows[0] ?? null;
 }
 
-async function getActiveAgreement(
-  db: PgQueryable,
-  accountId: string,
-  effectiveAt: string,
-) {
+async function getActiveAgreement(db: PgQueryable, accountId: string, effectiveAt: string) {
   const result = await db.query<ActiveAgreement>(
     `SELECT
        agreement_id,
@@ -133,10 +129,7 @@ async function resolveTerms(
     getActiveAgreement(db, params.accountId, effectiveAt),
   ]);
 
-  assert(
-    schedule || agreement,
-    `No active commercial terms were found for account ${params.accountId}.`,
-  );
+  assert(schedule || agreement, `No active commercial terms were found for account ${params.accountId}.`);
 
   const marketplaceSalesFeeUnitAmount = applyFeeFormula(amount, {
     percentageBps:
@@ -152,18 +145,14 @@ async function resolveTerms(
     marketplaceSalesFeeUnitAmount,
     sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
     shippingAllowancePercentageBps:
-      agreement?.shipping_allowance_percentage_bps ??
-      schedule?.shipping_allowance_percentage_bps ??
-      500,
+      agreement?.shipping_allowance_percentage_bps ?? schedule?.shipping_allowance_percentage_bps ?? 500,
     scheduleId: schedule?.schedule_id ?? null,
     agreementId: agreement?.agreement_id ?? null,
     resolvedAt: effectiveAt,
   };
 }
 
-export function createCommercialTermsResolver(
-  deps: Readonly<{ db: PgQueryable }>,
-): CommercialTermsResolver {
+export function createCommercialTermsResolver(deps: Readonly<{ db: PgQueryable }>): CommercialTermsResolver {
   return {
     resolveListingTerms: (params) => resolveTerms(deps.db, params),
     resolveOrderTerms: (params) => resolveTerms(deps.db, params),

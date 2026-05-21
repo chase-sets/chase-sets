@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "../../../../../contracts/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "../../../../../contracts/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -96,25 +92,13 @@ export type FieldCreatedEvent = DomainEvent<
     FieldConfiguration
 >;
 
-export type FieldConfiguredEvent = DomainEvent<
-  "catalog.field.configured",
-  FieldConfiguration
->;
+export type FieldConfiguredEvent = DomainEvent<"catalog.field.configured", FieldConfiguration>;
 
-export type FieldActivatedEvent = DomainEvent<
-  "catalog.field.activated",
-  EmptyEventData
->;
+export type FieldActivatedEvent = DomainEvent<"catalog.field.activated", EmptyEventData>;
 
-export type FieldDeprecatedEvent = DomainEvent<
-  "catalog.field.deprecated",
-  EmptyEventData
->;
+export type FieldDeprecatedEvent = DomainEvent<"catalog.field.deprecated", EmptyEventData>;
 
-export type FieldArchivedEvent = DomainEvent<
-  "catalog.field.archived",
-  EmptyEventData
->;
+export type FieldArchivedEvent = DomainEvent<"catalog.field.archived", EmptyEventData>;
 
 export type FieldEvent =
   | FieldCreatedEvent
@@ -123,10 +107,7 @@ export type FieldEvent =
   | FieldDeprecatedEvent
   | FieldArchivedEvent;
 
-export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent> = (
-  state,
-  command,
-) => {
+export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent> = (state, command) => {
   switch (command.type) {
     case "CreateField":
       assert(state.id === null, "Field has already been created.");
@@ -156,9 +137,7 @@ export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent>
           data: {
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
             valueType: command.valueType,
             behavior: normalizeBehavior(command.behavior),
           },
@@ -199,10 +178,7 @@ export const decideField: AggregateDecider<FieldState, FieldCommand, FieldEvent>
   }
 };
 
-export const evolveField: AggregateEvolver<FieldState, FieldEvent> = (
-  state,
-  event,
-) => {
+export const evolveField: AggregateEvolver<FieldState, FieldEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.field.created":
       return {

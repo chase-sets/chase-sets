@@ -13,20 +13,36 @@ function requireSupportAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("support.features.support_requests.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authorization_forbidden",
+            message: t("support.features.support_requests.api.route.forbidden"),
+          },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -37,9 +53,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.features.support_requests.api.route.request.failed");
 }
 
-export function createAccountSupportRequestRoutes(
-  services: SupportRequestServices,
-) {
+export function createAccountSupportRequestRoutes(services: SupportRequestServices) {
   const app = new Hono<SupportApiEnv>();
 
   app.get("/flows", async (c) => {
@@ -101,7 +115,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -120,12 +142,17 @@ export function createAccountSupportRequestRoutes(
       return access.response;
     }
 
-    const supportRequest = await services.getAccountSupportRequest(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const supportRequest = await services.getAccountSupportRequest(c.req.param("id"), access.actor.accountId);
     if (!supportRequest) {
-      return c.json({ error: { code: "not_found", message: t("support.features.support_requests.api.route.support_request.not.found") } }, 404);
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("support.features.support_requests.api.route.support_request.not.found"),
+          },
+        },
+        404,
+      );
     }
 
     return c.json(supportRequest);
@@ -139,7 +166,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -167,7 +202,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -201,7 +244,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -230,7 +281,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.4") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.4"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -257,7 +316,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.5") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.5"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -286,7 +353,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.6") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.6"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -311,7 +386,15 @@ export function createAccountSupportRequestRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("support.features.support_requests.api.route.authentication.context.missing.7") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("support.features.support_requests.api.route.authentication.context.missing.7"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();

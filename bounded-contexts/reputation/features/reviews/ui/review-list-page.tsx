@@ -46,10 +46,7 @@ export function ReviewListPage({
       <PageSection title={t("reputation.features.reviews.ui.reviewListPage.reviews")}>
         <Stack gap={3}>
           {reviews.length === 0 ? (
-            <MarketplaceEmptyState
-              title={emptyTitle}
-              description={emptyDescription}
-            />
+            <MarketplaceEmptyState title={emptyTitle} description={emptyDescription} />
           ) : (
             reviews.map((review) => (
               <Stack key={review.review_id} gap={2}>
@@ -63,7 +60,8 @@ export function ReviewListPage({
                         {t("reputation.features.reviews.ui.reviewListPage.verified.order")}
                       </Text>
                       <Text size="sm" tone="secondary">
-                        {t("reputation.features.reviews.ui.reviewListPage.reviewed.account")}{review.subject_display_name ?? review.subject_account_id}
+                        {t("reputation.features.reviews.ui.reviewListPage.reviewed.account")}
+                        {review.subject_display_name ?? review.subject_account_id}
                       </Text>
                       <Badge tone={statusTone(review.status)}>{review.status}</Badge>
                     </Stack>

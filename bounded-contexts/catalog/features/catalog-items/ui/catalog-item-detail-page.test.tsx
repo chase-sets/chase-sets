@@ -31,9 +31,7 @@ const catalogItem: CatalogItemDetail = {
 
 describe("CatalogItemDetailPage", () => {
   it("renders catalog item language codes as localized labels", () => {
-    const html = renderToString(
-      <CatalogItemDetailPage id="cat_1" initialData={catalogItem} />,
-    );
+    const html = renderToString(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
 
     expect(html).toContain("Japanese");
     expect(html).not.toContain(">ja<");

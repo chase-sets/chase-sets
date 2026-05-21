@@ -1,36 +1,15 @@
 import type { ResponsiveValue } from "../theme/tokens";
 import { cx } from "./cx";
 
-export type SpaceToken =
-  | 0
-  | 1
-  | 2
-  | 3
-  | 4
-  | 5
-  | 6
-  | 7
-  | 8
-  | 9
-  | 10
-  | 11
-  | 12;
+export type SpaceToken = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 export type AlignValue = "start" | "center" | "end" | "stretch";
-export type JustifyValue =
-  | "start"
-  | "center"
-  | "end"
-  | "between"
-  | "around";
+export type JustifyValue = "start" | "center" | "end" | "between" | "around";
 export type TextAlignValue = "left" | "center" | "right";
 export type DirectionValue = "row" | "column";
 
 type BreakpointKey = "base" | "sm" | "md" | "lg" | "xl" | "2xl";
-type BreakpointClassMap<T extends string | number> = Record<
-  `${T}`,
-  Record<BreakpointKey, string>
->;
+type BreakpointClassMap<T extends string | number> = Record<`${T}`, Record<BreakpointKey, string>>;
 
 export interface SystemProps {
   padding?: SpaceToken;
@@ -45,7 +24,7 @@ const breakpoints: BreakpointKey[] = ["base", "sm", "md", "lg", "xl", "2xl"];
 const textAlignClasses: Record<TextAlignValue, string> = {
   left: "text-left",
   center: "text-center",
-  right: "text-right"
+  right: "text-right",
 };
 
 /* ------------------------------------------------------------------
@@ -61,7 +40,7 @@ const directionClasses: BreakpointClassMap<DirectionValue> = {
     md: "md:flex-row",
     lg: "lg:flex-row",
     xl: "xl:flex-row",
-    "2xl": "2xl:flex-row"
+    "2xl": "2xl:flex-row",
   },
   column: {
     base: "flex-col",
@@ -69,8 +48,8 @@ const directionClasses: BreakpointClassMap<DirectionValue> = {
     md: "md:flex-col",
     lg: "lg:flex-col",
     xl: "xl:flex-col",
-    "2xl": "2xl:flex-col"
-  }
+    "2xl": "2xl:flex-col",
+  },
 };
 
 const alignClasses: BreakpointClassMap<AlignValue> = {
@@ -80,7 +59,7 @@ const alignClasses: BreakpointClassMap<AlignValue> = {
     md: "md:items-start",
     lg: "lg:items-start",
     xl: "xl:items-start",
-    "2xl": "2xl:items-start"
+    "2xl": "2xl:items-start",
   },
   center: {
     base: "items-center",
@@ -88,7 +67,7 @@ const alignClasses: BreakpointClassMap<AlignValue> = {
     md: "md:items-center",
     lg: "lg:items-center",
     xl: "xl:items-center",
-    "2xl": "2xl:items-center"
+    "2xl": "2xl:items-center",
   },
   end: {
     base: "items-end",
@@ -96,7 +75,7 @@ const alignClasses: BreakpointClassMap<AlignValue> = {
     md: "md:items-end",
     lg: "lg:items-end",
     xl: "xl:items-end",
-    "2xl": "2xl:items-end"
+    "2xl": "2xl:items-end",
   },
   stretch: {
     base: "items-stretch",
@@ -104,8 +83,8 @@ const alignClasses: BreakpointClassMap<AlignValue> = {
     md: "md:items-stretch",
     lg: "lg:items-stretch",
     xl: "xl:items-stretch",
-    "2xl": "2xl:items-stretch"
-  }
+    "2xl": "2xl:items-stretch",
+  },
 };
 
 const justifyClasses: BreakpointClassMap<JustifyValue> = {
@@ -115,7 +94,7 @@ const justifyClasses: BreakpointClassMap<JustifyValue> = {
     md: "md:justify-start",
     lg: "lg:justify-start",
     xl: "xl:justify-start",
-    "2xl": "2xl:justify-start"
+    "2xl": "2xl:justify-start",
   },
   center: {
     base: "justify-center",
@@ -123,7 +102,7 @@ const justifyClasses: BreakpointClassMap<JustifyValue> = {
     md: "md:justify-center",
     lg: "lg:justify-center",
     xl: "xl:justify-center",
-    "2xl": "2xl:justify-center"
+    "2xl": "2xl:justify-center",
   },
   end: {
     base: "justify-end",
@@ -131,7 +110,7 @@ const justifyClasses: BreakpointClassMap<JustifyValue> = {
     md: "md:justify-end",
     lg: "lg:justify-end",
     xl: "xl:justify-end",
-    "2xl": "2xl:justify-end"
+    "2xl": "2xl:justify-end",
   },
   between: {
     base: "justify-between",
@@ -139,7 +118,7 @@ const justifyClasses: BreakpointClassMap<JustifyValue> = {
     md: "md:justify-between",
     lg: "lg:justify-between",
     xl: "xl:justify-between",
-    "2xl": "2xl:justify-between"
+    "2xl": "2xl:justify-between",
   },
   around: {
     base: "justify-around",
@@ -147,8 +126,8 @@ const justifyClasses: BreakpointClassMap<JustifyValue> = {
     md: "md:justify-around",
     lg: "lg:justify-around",
     xl: "xl:justify-around",
-    "2xl": "2xl:justify-around"
-  }
+    "2xl": "2xl:justify-around",
+  },
 };
 
 export type ColumnCount = 1 | 2 | 3 | 4 | 5;
@@ -160,7 +139,7 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
     md: "md:grid-cols-1",
     lg: "lg:grid-cols-1",
     xl: "xl:grid-cols-1",
-    "2xl": "2xl:grid-cols-1"
+    "2xl": "2xl:grid-cols-1",
   },
   2: {
     base: "grid-cols-2",
@@ -168,7 +147,7 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
     md: "md:grid-cols-2",
     lg: "lg:grid-cols-2",
     xl: "xl:grid-cols-2",
-    "2xl": "2xl:grid-cols-2"
+    "2xl": "2xl:grid-cols-2",
   },
   3: {
     base: "grid-cols-3",
@@ -176,7 +155,7 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
     md: "md:grid-cols-3",
     lg: "lg:grid-cols-3",
     xl: "xl:grid-cols-3",
-    "2xl": "2xl:grid-cols-3"
+    "2xl": "2xl:grid-cols-3",
   },
   4: {
     base: "grid-cols-4",
@@ -184,7 +163,7 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
     md: "md:grid-cols-4",
     lg: "lg:grid-cols-4",
     xl: "xl:grid-cols-4",
-    "2xl": "2xl:grid-cols-4"
+    "2xl": "2xl:grid-cols-4",
   },
   5: {
     base: "grid-cols-5",
@@ -192,8 +171,8 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
     md: "md:grid-cols-5",
     lg: "lg:grid-cols-5",
     xl: "xl:grid-cols-5",
-    "2xl": "2xl:grid-cols-5"
-  }
+    "2xl": "2xl:grid-cols-5",
+  },
 };
 
 type SpacePrefix = "p" | "px" | "py" | "m" | "mx" | "my" | "gap";
@@ -212,7 +191,7 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
     9: "p-9",
     10: "p-10",
     11: "p-11",
-    12: "p-12"
+    12: "p-12",
   },
   px: {
     0: "px-0",
@@ -227,7 +206,7 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
     9: "px-9",
     10: "px-10",
     11: "px-11",
-    12: "px-12"
+    12: "px-12",
   },
   py: {
     0: "py-0",
@@ -242,7 +221,7 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
     9: "py-9",
     10: "py-10",
     11: "py-11",
-    12: "py-12"
+    12: "py-12",
   },
   m: {
     0: "m-0",
@@ -257,7 +236,7 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
     9: "m-9",
     10: "m-10",
     11: "m-11",
-    12: "m-12"
+    12: "m-12",
   },
   mx: {
     0: "mx-0",
@@ -272,7 +251,7 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
     9: "mx-9",
     10: "mx-10",
     11: "mx-11",
-    12: "mx-12"
+    12: "mx-12",
   },
   my: {
     0: "my-0",
@@ -287,7 +266,7 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
     9: "my-9",
     10: "my-10",
     11: "my-11",
-    12: "my-12"
+    12: "my-12",
   },
   gap: {
     0: "gap-0",
@@ -302,14 +281,11 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
     9: "gap-9",
     10: "gap-10",
     11: "gap-11",
-    12: "gap-12"
-  }
+    12: "gap-12",
+  },
 };
 
-export function resolveSpaceClass(
-  prefix: SpacePrefix,
-  value?: SpaceToken
-): string {
+export function resolveSpaceClass(prefix: SpacePrefix, value?: SpaceToken): string {
   if (value === undefined) {
     return "";
   }
@@ -323,7 +299,7 @@ export function resolveTextAlignClass(value?: TextAlignValue): string {
 
 export function resolveResponsiveClass<T extends string | number>(
   value: ResponsiveValue<T> | undefined,
-  classes: BreakpointClassMap<T>
+  classes: BreakpointClassMap<T>,
 ): string {
   if (value === undefined) {
     return "";
@@ -346,27 +322,19 @@ export function resolveResponsiveClass<T extends string | number>(
   return output.join(" ");
 }
 
-export function resolveDirectionClass(
-  value?: ResponsiveValue<DirectionValue>
-): string {
+export function resolveDirectionClass(value?: ResponsiveValue<DirectionValue>): string {
   return resolveResponsiveClass(value, directionClasses);
 }
 
-export function resolveAlignClass(
-  value?: ResponsiveValue<AlignValue>
-): string {
+export function resolveAlignClass(value?: ResponsiveValue<AlignValue>): string {
   return resolveResponsiveClass(value, alignClasses);
 }
 
-export function resolveJustifyClass(
-  value?: ResponsiveValue<JustifyValue>
-): string {
+export function resolveJustifyClass(value?: ResponsiveValue<JustifyValue>): string {
   return resolveResponsiveClass(value, justifyClasses);
 }
 
-export function resolveColumnsClass(
-  value?: ResponsiveValue<ColumnCount>
-): string {
+export function resolveColumnsClass(value?: ResponsiveValue<ColumnCount>): string {
   return resolveResponsiveClass(value, columnsClasses);
 }
 
@@ -376,6 +344,6 @@ export function resolveSystemProps(props: SystemProps): string {
     resolveSpaceClass("px", props.paddingX),
     resolveSpaceClass("py", props.paddingY),
     resolveSpaceClass("gap", props.gap),
-    resolveTextAlignClass(props.textAlign)
+    resolveTextAlignClass(props.textAlign),
   );
 }

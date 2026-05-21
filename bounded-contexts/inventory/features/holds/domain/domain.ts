@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -51,9 +47,7 @@ export type ReleaseInventoryHoldCommand = Readonly<{
   releasedAt: string;
 }>;
 
-export type InventoryHoldCommand =
-  | PlaceInventoryHoldCommand
-  | ReleaseInventoryHoldCommand;
+export type InventoryHoldCommand = PlaceInventoryHoldCommand | ReleaseInventoryHoldCommand;
 
 export type InventoryHeldEvent = DomainEvent<
   "inventory.hold.placed",
@@ -77,11 +71,10 @@ export type InventoryReleasedEvent = DomainEvent<
 
 export type InventoryHoldEvent = InventoryHeldEvent | InventoryReleasedEvent;
 
-export const decideInventoryHold: AggregateDecider<
-  InventoryHoldState,
-  InventoryHoldCommand,
-  InventoryHoldEvent
-> = (state, command) => {
+export const decideInventoryHold: AggregateDecider<InventoryHoldState, InventoryHoldCommand, InventoryHoldEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "PlaceInventoryHold":
       assert(state.id === null, "Inventory hold has already been created.");
@@ -116,10 +109,7 @@ export const decideInventoryHold: AggregateDecider<
   }
 };
 
-export const evolveInventoryHold: AggregateEvolver<
-  InventoryHoldState,
-  InventoryHoldEvent
-> = (state, event) => {
+export const evolveInventoryHold: AggregateEvolver<InventoryHoldState, InventoryHoldEvent> = (state, event) => {
   switch (event.type) {
     case "inventory.hold.placed":
       return {

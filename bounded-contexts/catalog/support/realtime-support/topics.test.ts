@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import { authorizeRealtimeTopics } from "@chase-sets/platform-runtime/realtime";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createCatalogAdminInvalidationPatch } from "./projection-patches";
-import {
-  catalogRealtimeTopicPolicyManifest,
-  catalogRealtimeTopics,
-} from "./topics";
+import { catalogRealtimeTopicPolicyManifest, catalogRealtimeTopics } from "./topics";
 
 const actor = {
   sessionId: "ses_1",

@@ -3,7 +3,10 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { ReferenceRecord, ReferenceRelationship, ReferenceType } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
-import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import type {
+  BulkLifecyclePreview,
+  BulkLifecycleResult,
+} from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useReferenceTypeList(query: string, initialData?: ListResponse<ReferenceType> | null) {
   return useFetch(() => api.listReferenceTypes<ListResponse<ReferenceType>>(query), [query], initialData);
@@ -31,12 +34,15 @@ export function createReferenceType(body: {
   return api.createReferenceType<CommandResponse>(body);
 }
 
-export function reviseReferenceType(id: string, body: {
-  key: string;
-  name: LocalizedTextMap;
-  description?: LocalizedTextMap;
-  attributeKeys: string[];
-}) {
+export function reviseReferenceType(
+  id: string,
+  body: {
+    key: string;
+    name: LocalizedTextMap;
+    description?: LocalizedTextMap;
+    attributeKeys: string[];
+  },
+) {
   return api.reviseReferenceType<CommandResponse>(id, body);
 }
 
@@ -72,14 +78,17 @@ export function createReferenceRecord(body: {
   return api.createReferenceRecord<CommandResponse>(body);
 }
 
-export function reviseReferenceRecord(id: string, body: {
-  typeKey: string;
-  key: string;
-  name: LocalizedTextMap;
-  description?: LocalizedTextMap;
-  attributes: Record<string, unknown>;
-  relationships: ReferenceRelationship[];
-}) {
+export function reviseReferenceRecord(
+  id: string,
+  body: {
+    typeKey: string;
+    key: string;
+    name: LocalizedTextMap;
+    description?: LocalizedTextMap;
+    attributes: Record<string, unknown>;
+    relationships: ReferenceRelationship[];
+  },
+) {
   return api.reviseReferenceRecord<CommandResponse>(id, body);
 }
 

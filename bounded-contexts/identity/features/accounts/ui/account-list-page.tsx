@@ -16,15 +16,15 @@ const columns: DataColumn<Account>[] = [
     ),
   },
   { key: "name", header: t("identity.features.accounts.ui.accountListPage.legal.name"), cell: (row) => row.name },
-  { key: "account_type", header: t("identity.features.accounts.ui.accountListPage.type"), cell: (row) => row.account_type },
+  {
+    key: "account_type",
+    header: t("identity.features.accounts.ui.accountListPage.type"),
+    cell: (row) => row.account_type,
+  },
   { key: "status", header: t("identity.features.accounts.ui.accountListPage.status"), cell: (row) => row.status },
 ];
 
-export function AccountListPage({
-  initialData,
-}: {
-  initialData: { items: Account[] };
-}) {
+export function AccountListPage({ initialData }: { initialData: { items: Account[] } }) {
   return (
     <AdminListPage
       title={t("identity.features.accounts.ui.accountListPage.accounts")}

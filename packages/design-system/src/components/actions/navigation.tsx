@@ -25,20 +25,16 @@ function renderNavigationItem(
   orientation: "horizontal" | "vertical" | "rail",
   groupId?: string,
   onSelect?: (key: string) => void,
-  activeKey?: string
+  activeKey?: string,
 ) {
   const content = (
     <>
-      {item.avatar ? item.avatar : item.icon ? (
-        <Icon
-          name={item.icon}
-          size="sm"
-          tone={active ? "accent" : "secondary"}
-        />
+      {item.avatar ? (
+        item.avatar
+      ) : item.icon ? (
+        <Icon name={item.icon} size="sm" tone={active ? "accent" : "secondary"} />
       ) : null}
-      <span className={cx(orientation === "rail" && "text-xs")}>
-        {item.label}
-      </span>
+      <span className={cx(orientation === "rail" && "text-xs")}>{item.label}</span>
       {item.badge ? (
         <span className="rounded-full bg-accent px-2 py-0.5 text-[0.7rem] font-semibold text-accent-contrast">
           {item.badge}
@@ -51,9 +47,7 @@ function renderNavigationItem(
     "focus-ring relative inline-flex items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-medium transition",
     orientation === "vertical" && "w-full justify-between",
     orientation === "rail" && "w-full flex-col justify-center py-3",
-    active
-      ? "bg-surface-2 text-accent shadow-tokenSm"
-      : "text-secondary hover:bg-surface-2 hover:text-foreground"
+    active ? "bg-surface-2 text-accent shadow-tokenSm" : "text-secondary hover:bg-surface-2 hover:text-foreground",
   );
 
   if (orientation === "horizontal" && item.children?.length) {
@@ -81,12 +75,7 @@ function renderNavigationItem(
   }
 
   return (
-    <button
-      key={item.key}
-      type="button"
-      className={className}
-      onClick={() => onSelect?.(item.key)}
-    >
+    <button key={item.key} type="button" className={className} onClick={() => onSelect?.(item.key)}>
       {active && groupId ? renderActivePill(groupId) : null}
       <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
     </button>
@@ -144,7 +133,7 @@ function NavigationItemGroup({
         className={cx(
           className,
           "list-none [&::-webkit-details-marker]:hidden",
-          active && "bg-surface-2 text-accent shadow-tokenSm"
+          active && "bg-surface-2 text-accent shadow-tokenSm",
         )}
       >
         {active && groupId ? renderActivePill(groupId) : null}
@@ -155,7 +144,7 @@ function NavigationItemGroup({
       </summary>
       <div className="modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay">
         {item.children?.map((child) =>
-          renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey)
+          renderNavigationItem(child, child.key === activeKey, "vertical", undefined, onSelect, activeKey),
         )}
       </div>
     </details>
@@ -166,18 +155,12 @@ function renderBottomNavigationItem(
   item: NavigationItem,
   active: boolean,
   groupId?: string,
-  onSelect?: (key: string) => void
+  onSelect?: (key: string) => void,
 ) {
   const content = (
     <>
       <span className="relative inline-flex h-5 w-5 items-center justify-center">
-        {item.icon ? (
-          <Icon
-            name={item.icon}
-            size="sm"
-            tone={active ? "accent" : "secondary"}
-          />
-        ) : null}
+        {item.icon ? <Icon name={item.icon} size="sm" tone={active ? "accent" : "secondary"} /> : null}
         {item.badge ? (
           <span
             aria-hidden="true"
@@ -188,41 +171,28 @@ function renderBottomNavigationItem(
         ) : null}
       </span>
       <span className="text-xs">{item.label}</span>
-      {item.badge ? (
-        <span className="sr-only">{` ${item.badge}`}</span>
-      ) : null}
+      {item.badge ? <span className="sr-only">{` ${item.badge}`}</span> : null}
     </>
   );
 
   const className = cx(
     "focus-ring relative inline-flex w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-tokenMd px-3 py-3 text-sm font-medium transition",
-    active
-      ? "bg-surface-2 text-accent shadow-tokenSm"
-      : "text-secondary hover:bg-surface-2 hover:text-foreground"
+    active ? "bg-surface-2 text-accent shadow-tokenSm" : "text-secondary hover:bg-surface-2 hover:text-foreground",
   );
 
   if (item.href) {
     return (
       <a key={item.key} href={item.href} className={className}>
         {active && groupId ? renderActivePill(groupId) : null}
-        <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">
-          {content}
-        </span>
+        <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">{content}</span>
       </a>
     );
   }
 
   return (
-    <button
-      key={item.key}
-      type="button"
-      className={className}
-      onClick={() => onSelect?.(item.key)}
-    >
+    <button key={item.key} type="button" className={className} onClick={() => onSelect?.(item.key)}>
       {active && groupId ? renderActivePill(groupId) : null}
-      <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">
-        {content}
-      </span>
+      <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">{content}</span>
     </button>
   );
 }
@@ -231,8 +201,7 @@ function isNavigationItemActive(item: NavigationItem, activeKey?: string): boole
   return item.key === activeKey || Boolean(item.children?.some((child) => child.key === activeKey));
 }
 
-export interface TopNavProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
+export interface TopNavProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
   items: NavigationItem[];
   activeKey?: string;
   onSelect?: (key: string) => void;
@@ -242,13 +211,7 @@ export interface TopNavProps
   width?: LayoutWidth;
 }
 
-function TopNavActionsMenu({
-  actions,
-  label
-}: {
-  actions: ReactNode;
-  label: string;
-}) {
+function TopNavActionsMenu({ actions, label }: { actions: ReactNode; label: string }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
 
@@ -290,11 +253,7 @@ function TopNavActionsMenu({
   }, [open]);
 
   return (
-    <details
-      ref={detailsRef}
-      className="relative md:hidden"
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
+    <details ref={detailsRef} className="relative md:hidden" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary
         aria-label={label}
         className="focus-ring flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-tokenMd border border-muted bg-surface text-foreground shadow-tokenSm transition hover:border-accent hover:bg-surface-2 [&::-webkit-details-marker]:hidden"
@@ -342,12 +301,7 @@ export function TopNav({
       {...rest}
       className="sticky top-0 z-sticky border-b border-muted bg-background/88 px-4 py-3 shadow-tokenSm backdrop-blur-xl"
     >
-      <div
-        className={cx(
-          "mx-auto flex w-full items-center justify-between gap-4",
-          layoutWidthClasses[width]
-        )}
-      >
+      <div className={cx("mx-auto flex w-full items-center justify-between gap-4", layoutWidthClasses[width])}>
         <div className="flex items-center gap-4">
           {brand}
           <LayoutGroup id={groupId}>
@@ -359,8 +313,8 @@ export function TopNav({
                   "horizontal",
                   groupId,
                   onSelect,
-                  activeKey
-                )
+                  activeKey,
+                ),
               )}
             </div>
           </LayoutGroup>
@@ -371,7 +325,9 @@ export function TopNav({
               <div className="hidden items-center gap-2 md:flex">{actions}</div>
               <TopNavActionsMenu actions={actions} label={mobileActionsLabel} />
             </>
-          ) : actions}
+          ) : (
+            actions
+          )}
           {utilityItems.length > 0 ? (
             <LayoutGroup id={`${groupId}-utility`}>
               <div className="hidden items-center gap-1 md:flex">
@@ -382,8 +338,8 @@ export function TopNav({
                     "horizontal",
                     `${groupId}-utility`,
                     onSelect,
-                    activeKey
-                  )
+                    activeKey,
+                  ),
                 )}
               </div>
             </LayoutGroup>
@@ -412,19 +368,13 @@ export function BrandLink({ href = "/", label }: BrandLinkProps) {
   );
 }
 
-export interface SideNavProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
+export interface SideNavProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
   items: NavigationItem[];
   activeKey?: string;
   onSelect?: (key: string) => void;
 }
 
-export function SideNav({
-  items,
-  activeKey,
-  onSelect,
-  ...rest
-}: SideNavProps) {
+export function SideNav({ items, activeKey, onSelect, ...rest }: SideNavProps) {
   const groupId = useId();
 
   return (
@@ -434,42 +384,35 @@ export function SideNav({
     >
       <LayoutGroup id={groupId}>
         {items.map((item) =>
-          renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect, activeKey)
+          renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect, activeKey),
         )}
       </LayoutGroup>
     </nav>
   );
 }
 
-export interface BottomNavProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
+export interface BottomNavProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
   items: NavigationItem[];
   activeKey?: string;
   onSelect?: (key: string) => void;
   width?: LayoutWidth;
 }
 
-export function BottomNav({
-  items,
-  activeKey,
-  onSelect,
-  width = "full",
-  ...rest
-}: BottomNavProps) {
+export function BottomNav({ items, activeKey, onSelect, width = "full", ...rest }: BottomNavProps) {
   const groupId = useId();
   const visibleItems = items;
   const gridColumnsClass =
     visibleItems.length > 5
       ? "grid-flow-col auto-cols-[minmax(4.75rem,1fr)] overflow-x-auto"
       : visibleItems.length === 5
-      ? "grid-cols-5"
-      : visibleItems.length === 4
-        ? "grid-cols-4"
-        : visibleItems.length === 3
-          ? "grid-cols-3"
-          : visibleItems.length === 2
-            ? "grid-cols-2"
-            : "grid-cols-1";
+        ? "grid-cols-5"
+        : visibleItems.length === 4
+          ? "grid-cols-4"
+          : visibleItems.length === 3
+            ? "grid-cols-3"
+            : visibleItems.length === 2
+              ? "grid-cols-2"
+              : "grid-cols-1";
 
   return (
     <nav
@@ -479,7 +422,7 @@ export function BottomNav({
       <LayoutGroup id={groupId}>
         <div className={cx("mx-auto grid w-full gap-2", gridColumnsClass, layoutWidthClasses[width])}>
           {visibleItems.map((item) =>
-            renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect)
+            renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect),
           )}
         </div>
       </LayoutGroup>
@@ -487,19 +430,13 @@ export function BottomNav({
   );
 }
 
-export interface NavRailProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
+export interface NavRailProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
   items: NavigationItem[];
   activeKey?: string;
   onSelect?: (key: string) => void;
 }
 
-export function NavRail({
-  items,
-  activeKey,
-  onSelect,
-  ...rest
-}: NavRailProps) {
+export function NavRail({ items, activeKey, onSelect, ...rest }: NavRailProps) {
   const groupId = useId();
 
   return (
@@ -508,9 +445,7 @@ export function NavRail({
       className="glass-surface hidden h-full w-24 flex-col gap-2 rounded-tokenLg border border-muted p-2 md:flex"
     >
       <LayoutGroup id={groupId}>
-        {items.map((item) =>
-          renderNavigationItem(item, item.key === activeKey, "rail", groupId, onSelect, activeKey)
-        )}
+        {items.map((item) => renderNavigationItem(item, item.key === activeKey, "rail", groupId, onSelect, activeKey))}
       </LayoutGroup>
     </nav>
   );

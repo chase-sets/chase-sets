@@ -4,20 +4,15 @@ import { fileURLToPath } from "node:url";
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      { maxBuffer: 50 * 1024 * 1024, windowsHide: true },
-      (error, stdout, stderr) => {
-        if (error) {
-          const message = stderr.trim() || stdout.trim() || error.message;
-          reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
-          return;
-        }
+    execFile(command, args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        const message = stderr.trim() || stdout.trim() || error.message;
+        reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
+        return;
+      }
 
-        resolve(stdout);
-      },
-    );
+      resolve(stdout);
+    });
   });
 }
 
@@ -118,15 +113,9 @@ async function cleanup(argv) {
   const retentionDays = Number.parseInt(readOption(argv, "--retention-days", "30"), 10);
   const dryRun = argv.includes("--dry-run");
   const appNames = readRepeatedOption(argv, "--app-name");
-  const protectedTags = [
-    ...readRepeatedOption(argv, "--protect-tag"),
-    ...(await fetchProtectedAppTags(appNames)),
-  ];
+  const protectedTags = [...readRepeatedOption(argv, "--protect-tag"), ...(await fetchProtectedAppTags(appNames))];
 
-  const tags = await commandJson(
-    "doctl",
-    ["registry", "repository", "list-tags", repository, "--output", "json"],
-  );
+  const tags = await commandJson("doctl", ["registry", "repository", "list-tags", repository, "--output", "json"]);
   const deletions = selectTagsForDeletion(tags, { protectedTags, retentionDays });
 
   if (deletions.length === 0) {
@@ -141,14 +130,7 @@ async function cleanup(argv) {
     }
 
     console.log(`Deleting ${repository}:${tag}`);
-    await commandOutput("doctl", [
-      "registry",
-      "repository",
-      "delete-tag",
-      repository,
-      tag,
-      "--force",
-    ]);
+    await commandOutput("doctl", ["registry", "repository", "delete-tag", repository, tag, "--force"]);
   }
 
   if (dryRun) {

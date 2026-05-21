@@ -20,11 +20,13 @@ export {
 
 export interface NotificationPreferenceStore {
   listPreferences(accountId: string): Promise<readonly NotificationPreference[]>;
-  setPreference(input: Readonly<{
-    accountId: string;
-    key: NotificationPreferenceKey;
-    enabled: boolean;
-  }>): Promise<NotificationPreference>;
+  setPreference(
+    input: Readonly<{
+      accountId: string;
+      key: NotificationPreferenceKey;
+      enabled: boolean;
+    }>,
+  ): Promise<NotificationPreference>;
 }
 
 export type NotificationsServices = Readonly<{
@@ -40,9 +42,7 @@ export type NotificationsHostPorts = Readonly<{
 }>;
 
 export interface MobileMessageProviderEventStore {
-  recordProviderEvent(
-    event: MobileMessageProviderWebhookEvent,
-  ): Promise<Readonly<{ recorded: boolean }>>;
+  recordProviderEvent(event: MobileMessageProviderWebhookEvent): Promise<Readonly<{ recorded: boolean }>>;
 }
 
 export function createNotificationsServices(
@@ -52,16 +52,13 @@ export function createNotificationsServices(
   return {
     feed: createPostgresWebNotificationFeed({ db }),
     mobileMessages: createPostgresMobileMessageProviderEventStore(db),
-    mobileMessageWebhookGateway:
-      ports.mobileMessageWebhookGateway ?? createNoopMobileMessageWebhookGateway(),
+    mobileMessageWebhookGateway: ports.mobileMessageWebhookGateway ?? createNoopMobileMessageWebhookGateway(),
     notificationOutbox: createPostgresNotificationOutbox({ db }),
     preferences: createPostgresNotificationPreferenceStore(db),
   };
 }
 
-function createPostgresMobileMessageProviderEventStore(
-  db: PgQueryable,
-): MobileMessageProviderEventStore {
+function createPostgresMobileMessageProviderEventStore(db: PgQueryable): MobileMessageProviderEventStore {
   return {
     async recordProviderEvent(event) {
       const receivedAt = event.receivedAt ?? new Date().toISOString();
@@ -106,9 +103,7 @@ function createPostgresMobileMessageProviderEventStore(
   };
 }
 
-function createPostgresNotificationPreferenceStore(
-  db: PgQueryable,
-): NotificationPreferenceStore {
+function createPostgresNotificationPreferenceStore(db: PgQueryable): NotificationPreferenceStore {
   return {
     async listPreferences(accountId) {
       const result = await db.query<{
@@ -120,9 +115,7 @@ function createPostgresNotificationPreferenceStore(
          WHERE account_id = $1`,
         [accountId],
       );
-      const saved = new Map(
-        result.rows.map((row) => [row.preference_key, Boolean(row.enabled)]),
-      );
+      const saved = new Map(result.rows.map((row) => [row.preference_key, Boolean(row.enabled)]));
 
       return defaultNotificationPreferences.map((preference) => ({
         ...preference,
@@ -140,12 +133,7 @@ function createPostgresNotificationPreferenceStore(
          ) VALUES ($1, $2, $3, $4)
          ON CONFLICT (account_id, preference_key)
          DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = EXCLUDED.updated_at`,
-        [
-          input.accountId,
-          input.key,
-          input.enabled,
-          new Date().toISOString(),
-        ],
+        [input.accountId, input.key, input.enabled, new Date().toISOString()],
       );
 
       return {

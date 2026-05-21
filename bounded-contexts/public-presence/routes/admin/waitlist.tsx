@@ -27,10 +27,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
   }
 
-  const [signups, metrics] = await Promise.all([
-    api.listWaitlistSignups(query.toString()),
-    api.getWaitlistMetrics(),
-  ]);
+  const [signups, metrics] = await Promise.all([api.listWaitlistSignups(query.toString()), api.getWaitlistMetrics()]);
 
   return {
     signups,
@@ -40,9 +37,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction = () => [
-  { title: t("publicPresence.routes.admin.waitlist.meta.title") },
-];
+export const meta: MetaFunction = () => [{ title: t("publicPresence.routes.admin.waitlist.meta.title") }];
 
 export default function WaitlistAdminRoute() {
   const data = useLoaderData<typeof loader>();

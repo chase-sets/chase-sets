@@ -30,7 +30,10 @@ export function apiKeyRoutes(services: ApiKeyServices) {
   app.get("/:id", async (c) => {
     const apiKey = await services.getApiKey(c.req.param("id"));
     if (!apiKey) {
-      return c.json({ error: { code: "not_found", message: t("identity.features.apiKeys.api.route.api.key.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.apiKeys.api.route.api.key.not.found") } },
+        404,
+      );
     }
     return c.json(apiKey);
   });

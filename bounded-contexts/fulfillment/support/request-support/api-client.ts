@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createFulfillmentApiClient,
-  fulfillmentApi,
-  FulfillmentApiError,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createFulfillmentApiClient, fulfillmentApi, FulfillmentApiError } from "../../client";
 export type {
   FulfillmentApiClientOptions,
   FulfillmentPackingSlip,

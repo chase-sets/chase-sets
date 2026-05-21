@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  discoveryApi,
-  DiscoveryApiError,
-  createDiscoveryApiClient,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { discoveryApi, DiscoveryApiError, createDiscoveryApiClient } from "../../client";
 export type {
   CategoryListResponse,
   DiscoveryApiClientOptions,

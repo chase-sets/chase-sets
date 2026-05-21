@@ -1,16 +1,15 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { FulfillmentApiEnv } from "../../../api";
-import {
-  createAccountShipmentRoutes,
-  createAccountSaleShipmentRoutes,
-} from "./route";
+import { createAccountShipmentRoutes, createAccountSaleShipmentRoutes } from "./route";
 import type { FulfillmentShipmentServices } from "./runtime";
 
-function buildSellerApp(options: Readonly<{
-  actor: FulfillmentApiEnv["Variables"]["actor"];
-  services: FulfillmentShipmentServices;
-}>) {
+function buildSellerApp(
+  options: Readonly<{
+    actor: FulfillmentApiEnv["Variables"]["actor"];
+    services: FulfillmentShipmentServices;
+  }>,
+) {
   const app = new Hono<FulfillmentApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -164,9 +163,7 @@ describe("fulfillment shipment routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://fulfillment.test/account/sales/shipments"),
-    );
+    const response = await app.fetch(new Request("http://fulfillment.test/account/sales/shipments"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -267,9 +264,7 @@ describe("fulfillment shipment routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://fulfillment.test/account/sales/shipments/packing-slips"),
-    );
+    const response = await app.fetch(new Request("http://fulfillment.test/account/sales/shipments/packing-slips"));
 
     expect(response.status).toBe(400);
     expect(services.listSellerPackingSlips).not.toHaveBeenCalled();

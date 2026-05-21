@@ -4,9 +4,7 @@ import fs from "node:fs";
 
 const englishFilePath = "contracts/localization/locales/en.ts";
 const englishSource = fs.readFileSync(englishFilePath, "utf8");
-const englishKeys = new Set(
-  [...englishSource.matchAll(/^  "([^"]+)":/gm)].map((match) => match[1]),
-);
+const englishKeys = new Set([...englishSource.matchAll(/^  "([^"]+)":/gm)].map((match) => match[1]));
 
 const files = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
   encoding: "utf8",
@@ -140,11 +138,7 @@ function visit(sourceFile, node) {
     copyAttributes.has(propertyName(node.name)) &&
     looksLikeCopy(node.initializer.text)
   ) {
-    report(
-      sourceFile,
-      node.initializer,
-      `hardcoded ${propertyName(node.name)} attribute "${node.initializer.text}"`,
-    );
+    report(sourceFile, node.initializer, `hardcoded ${propertyName(node.name)} attribute "${node.initializer.text}"`);
   }
 
   if (
@@ -154,11 +148,7 @@ function visit(sourceFile, node) {
     copyProperties.has(propertyName(node.parent.name)) &&
     looksLikeCopy(node.text)
   ) {
-    report(
-      sourceFile,
-      node,
-      `hardcoded ${propertyName(node.parent.name)} property "${node.text}"`,
-    );
+    report(sourceFile, node, `hardcoded ${propertyName(node.parent.name)} property "${node.text}"`);
   }
 
   if (
@@ -167,11 +157,7 @@ function visit(sourceFile, node) {
     isCopyBearingTemplate(node) &&
     looksLikeCopy(templateStaticText(node))
   ) {
-    report(
-      sourceFile,
-      node,
-      `hardcoded template copy "${templateStaticText(node)}"`,
-    );
+    report(sourceFile, node, `hardcoded template copy "${templateStaticText(node)}"`);
   }
 
   ts.forEachChild(node, (child) => visit(sourceFile, child));
@@ -197,10 +183,7 @@ function propertyName(name) {
 }
 
 function isCopyBearingTemplate(node) {
-  if (
-    ts.isPropertyAssignment(node.parent) &&
-    copyProperties.has(propertyName(node.parent.name))
-  ) {
+  if (ts.isPropertyAssignment(node.parent) && copyProperties.has(propertyName(node.parent.name))) {
     return true;
   }
 
@@ -208,10 +191,7 @@ function isCopyBearingTemplate(node) {
   while (current) {
     if (ts.isJsxExpression(current)) {
       const parent = current.parent;
-      if (
-        ts.isJsxAttribute(parent) &&
-        copyAttributes.has(propertyName(parent.name))
-      ) {
+      if (ts.isJsxAttribute(parent) && copyAttributes.has(propertyName(parent.name))) {
         return true;
       }
       return ts.isJsxElement(parent) || ts.isJsxFragment(parent);
@@ -230,10 +210,7 @@ function templateStaticText(node) {
     return node.text;
   }
 
-  return [
-    node.head.text,
-    ...node.templateSpans.map((span) => span.literal.text),
-  ].join("{value}");
+  return [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join("{value}");
 }
 
 function looksLikeCopy(text) {
@@ -249,7 +226,5 @@ function looksLikeCopy(text) {
 
 function report(sourceFile, node, message) {
   const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-  violations.push(
-    `${sourceFile.fileName}:${position.line + 1}:${position.character + 1} ${message}`,
-  );
+  violations.push(`${sourceFile.fileName}:${position.line + 1}:${position.character + 1} ${message}`);
 }

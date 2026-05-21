@@ -116,8 +116,7 @@ export async function seedBlueprints(
   }
 
   {
-    const blueprintId =
-      catalogSeedIds.blueprints.pokemonSealedProduct as BlueprintId;
+    const blueprintId = catalogSeedIds.blueprints.pokemonSealedProduct as BlueprintId;
     const streamId = `catalog.blueprint-${blueprintId}`;
 
     await sendSeedCommand(services.blueprints.commandHandler, streamId, {

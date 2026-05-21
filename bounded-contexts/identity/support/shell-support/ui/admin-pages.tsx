@@ -37,7 +37,8 @@ export function AdminListPage<T>({
           header: "",
           cell: (row) => (
             <LinkButton href={getHref(row)} size="sm" tone="secondary">
-              {t("identity.support.shellSupport.ui.adminPages.view")}</LinkButton>
+              {t("identity.support.shellSupport.ui.adminPages.view")}
+            </LinkButton>
           ),
         },
       ]

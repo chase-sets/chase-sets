@@ -1,7 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  InventoryProductSchema,
-} from "./versioning";
+import type { InventoryProductSchema } from "./versioning";
 import { toInventoryItemProductSchema } from "./versioning";
 
 export type InventoryCatalogItemSnapshot = Readonly<{
@@ -34,12 +32,10 @@ type InventoryCatalogItemRow = Readonly<{
   updated_at: string;
 }>;
 
-type InventoryExternalProductReferenceRow = Omit<
-  InventoryExternalProductReference,
-  "selected_options"
-> & Readonly<{
-  selected_options: unknown;
-}>;
+type InventoryExternalProductReferenceRow = Omit<InventoryExternalProductReference, "selected_options"> &
+  Readonly<{
+    selected_options: unknown;
+  }>;
 
 async function hasInventoryCatalogItemsTable(db: PgQueryable) {
   const result = await db.query<{ table_name: string | null }>(

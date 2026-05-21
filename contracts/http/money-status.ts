@@ -7,16 +7,12 @@ export const moneyStatusLabels = {
   "provider-requirements-open": "Resolve the open payout setup requirements.",
   "no-available-wallet-balance": "Available balance is zero.",
   "recent-payout-failure": "A recent payout failure needs review.",
-  "payout-reconciliation-required":
-    "A previous payout request needs reconciliation.",
-  "platform-balance-insufficient":
-    "Funds are temporarily unavailable for payout.",
+  "payout-reconciliation-required": "A previous payout request needs reconciliation.",
+  "platform-balance-insufficient": "Funds are temporarily unavailable for payout.",
   "amount-below-minimum": "Enter an amount above the minimum payout.",
   "amount-above-maximum": "Enter an amount below the maximum payout.",
-  "amount-exceeds-available-balance":
-    "Enter an amount within the available wallet balance.",
-  "support-hold-active":
-    "Resolve open support requests before requesting these funds.",
+  "amount-exceeds-available-balance": "Enter an amount within the available wallet balance.",
+  "support-hold-active": "Resolve open support requests before requesting these funds.",
 } as const;
 
 export type MoneyStatusCode = keyof typeof moneyStatusLabels;
@@ -30,9 +26,7 @@ export function moneyStatusLabel(code: MoneyStatusCode | string) {
   return moneyStatusLabels[code as MoneyStatusCode] ?? code.replaceAll("-", " ");
 }
 
-export function moneyStatusDetails(
-  codes: readonly (MoneyStatusCode | string)[],
-): readonly MoneyStatusDetail[] {
+export function moneyStatusDetails(codes: readonly (MoneyStatusCode | string)[]): readonly MoneyStatusDetail[] {
   return codes.map((code) => ({
     code,
     message: moneyStatusLabel(code),

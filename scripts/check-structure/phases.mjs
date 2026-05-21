@@ -41,10 +41,7 @@ export async function runImportBoundaryValidation(options) {
 
 export function writeStructureMetricsReport(options) {
   const { repoRoot, outputPath, metrics } = options;
-  if (
-    outputPath === "artifacts/structure-metrics.json" &&
-    process.env.STRUCTURE_METRICS_WRITE !== "1"
-  ) {
+  if (outputPath === "artifacts/structure-metrics.json" && process.env.STRUCTURE_METRICS_WRITE !== "1") {
     return;
   }
 

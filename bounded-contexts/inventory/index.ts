@@ -7,10 +7,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type {
-  InventoryHostPorts,
-  InventoryServices,
-} from "./support/runtime-support/services";
+import type { InventoryHostPorts, InventoryServices } from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
 import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
@@ -18,19 +15,12 @@ import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaSql } from "./support/runtime-support/schema";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -47,16 +37,17 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, Invento
   routePrefix: "/api/inventory",
   streamPrefix: "inventory.",
   schemaSql: inventorySchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<
+    InventoryServices,
+    PgTransactionalPool,
+    InventoryHostPorts
+  >["apiMounts"],
   projectionGroups,
   createServices: (pool, ports) => createInventoryServices(pool, ports),
   buildApis: (services) => [buildInventoryApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const catalogSubscription = getEventSubscription(
-      "catalog",
-      "inventory-catalog-item-projection",
-    );
+    const catalogSubscription = getEventSubscription("catalog", "inventory-catalog-item-projection");
     const orderingReservationWorkflowSubscription = getEventSubscription(
       "ordering",
       "inventory-order-reservation-workflow",
@@ -91,9 +82,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, Invento
             };
 
             for (const request of data.reservationRequests ?? []) {
-              const existingState = await services.reservations.getReservationState(
-                request.reservationRequestId,
-              );
+              const existingState = await services.reservations.getReservationState(request.reservationRequestId);
               if (existingState.status !== null) {
                 continue;
               }
@@ -170,9 +159,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, Invento
                 continue;
               }
 
-              const reservationState = await services.reservations.getReservationState(
-                request.reservationRequestId,
-              );
+              const reservationState = await services.reservations.getReservationState(request.reservationRequestId);
               if (reservationState.status !== "confirmed") {
                 continue;
               }
@@ -186,10 +173,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, Invento
                   context,
                 );
               } catch (error) {
-                if (
-                  !(error instanceof InventoryDomainError) ||
-                  error.message !== "Inventory hold not found."
-                ) {
+                if (!(error instanceof InventoryDomainError) || error.message !== "Inventory hold not found.") {
                   throw error;
                 }
               }

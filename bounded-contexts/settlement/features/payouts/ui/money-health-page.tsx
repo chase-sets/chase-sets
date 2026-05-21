@@ -10,10 +10,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
-import type {
-  SettlementPayoutRow,
-  SettlementReconciliationRunRow,
-} from "../read-model/queries";
+import type { SettlementPayoutRow, SettlementReconciliationRunRow } from "../read-model/queries";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -46,10 +43,13 @@ export function SettlementMoneyHealthPage({
       <PageHeader
         eyebrow={t("settlement.features.payouts.ui.moneyHealthPage.operations")}
         title={t("settlement.features.payouts.ui.moneyHealthPage.money.health")}
-        description={t("settlement.features.payouts.ui.moneyHealthPage.review.payout.demand.reconciliation.history.and")}
+        description={t(
+          "settlement.features.payouts.ui.moneyHealthPage.review.payout.demand.reconciliation.history.and",
+        )}
         actions={
           <LinkButton href="/account/payout-operations" tone="secondary">
-            {t("settlement.features.payouts.ui.moneyHealthPage.payout.operations")}</LinkButton>
+            {t("settlement.features.payouts.ui.moneyHealthPage.payout.operations")}
+          </LinkButton>
         }
       />
 
@@ -60,20 +60,19 @@ export function SettlementMoneyHealthPage({
               <Badge tone="accent">{t("settlement.features.payouts.ui.moneyHealthPage.provider.balance")}</Badge>
               <Text weight="semibold">
                 {t("settlement.features.payouts.ui.moneyHealthPage.amount.available", {
-                  amount: formatMoney(
-                    platformBalanceForecast.available_amount,
-                    platformBalanceForecast.currency_code,
-                  ),
+                  amount: formatMoney(platformBalanceForecast.available_amount, platformBalanceForecast.currency_code),
                 })}
               </Text>
               <Text size="sm" tone="secondary">
-                {t("settlement.features.payouts.ui.moneyHealthPage.pending.payout.demand")}{formatMoney(
+                {t("settlement.features.payouts.ui.moneyHealthPage.pending.payout.demand")}
+                {formatMoney(
                   platformBalanceForecast.pending_payout_demand_amount,
                   platformBalanceForecast.currency_code,
                 )}
               </Text>
               <Text size="sm" tone="secondary">
-                {t("settlement.features.payouts.ui.moneyHealthPage.forecast.after.pending.demand")}{formatMoney(
+                {t("settlement.features.payouts.ui.moneyHealthPage.forecast.after.pending.demand")}
+                {formatMoney(
                   platformBalanceForecast.forecast_after_pending_demand_amount,
                   platformBalanceForecast.currency_code,
                 )}
@@ -143,7 +142,9 @@ export function SettlementMoneyHealthPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Text weight="semibold">{row.payout_id}</Text>
-                  <Text size="sm" tone="secondary">{row.status}</Text>
+                  <Text size="sm" tone="secondary">
+                    {row.status}
+                  </Text>
                 </Stack>
               ),
             },
@@ -162,12 +163,15 @@ export function SettlementMoneyHealthPage({
               header: t("settlement.features.payouts.ui.moneyHealthPage.action"),
               cell: (row) => (
                 <LinkButton href={`/account/payouts/${row.payout_id}`} tone="secondary" size="sm">
-                  {t("settlement.features.payouts.ui.moneyHealthPage.open")}</LinkButton>
+                  {t("settlement.features.payouts.ui.moneyHealthPage.open")}
+                </LinkButton>
               ),
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.moneyHealthPage.no.payout.issues")}
-          emptyDescription={t("settlement.features.payouts.ui.moneyHealthPage.payouts.that.need.reconciliation.or.review")}
+          emptyDescription={t(
+            "settlement.features.payouts.ui.moneyHealthPage.payouts.that.need.reconciliation.or.review",
+          )}
         />
       </PageSection>
 
@@ -198,7 +202,9 @@ export function SettlementMoneyHealthPage({
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.moneyHealthPage.no.reconciliation.runs")}
-          emptyDescription={t("settlement.features.payouts.ui.moneyHealthPage.scheduled.and.manual.reconciliation.outcomes.appear")}
+          emptyDescription={t(
+            "settlement.features.payouts.ui.moneyHealthPage.scheduled.and.manual.reconciliation.outcomes.appear",
+          )}
         />
       </PageSection>
     </Page>

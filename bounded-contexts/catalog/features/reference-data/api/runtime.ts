@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -41,34 +38,30 @@ import {
 import { buildReferenceDataProjectionHandlers } from "../read-model/projection";
 
 export type ReferenceDataServices = Readonly<{
-  referenceTypeCommandHandler: CommandHandler<
-    ReferenceTypeCommand,
-    ReferenceTypeState,
-    ReferenceTypeEvent
-  >;
-  referenceRecordCommandHandler: CommandHandler<
-    ReferenceRecordCommand,
-    ReferenceRecordState,
-    ReferenceRecordEvent
-  >;
-  listReferenceTypes: (
-    params?: Parameters<typeof listReferenceTypes>[1],
-  ) => ReturnType<typeof listReferenceTypes>;
+  referenceTypeCommandHandler: CommandHandler<ReferenceTypeCommand, ReferenceTypeState, ReferenceTypeEvent>;
+  referenceRecordCommandHandler: CommandHandler<ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>;
+  listReferenceTypes: (params?: Parameters<typeof listReferenceTypes>[1]) => ReturnType<typeof listReferenceTypes>;
   getReferenceType: (referenceTypeId: string) => ReturnType<typeof getReferenceType>;
   listReferenceRecords: (
     params?: Parameters<typeof listReferenceRecords>[1],
   ) => ReturnType<typeof listReferenceRecords>;
-  getReferenceRecord: (
-    referenceRecordId: string,
-  ) => ReturnType<typeof getReferenceRecord>;
-  referenceTypeBulkLifecycle: BulkLifecycleOperations<ReferenceTypeListParams, ReferenceTypeCommand, ReferenceTypeState, ReferenceTypeEvent>;
-  referenceRecordBulkLifecycle: BulkLifecycleOperations<ReferenceRecordListParams, ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>;
+  getReferenceRecord: (referenceRecordId: string) => ReturnType<typeof getReferenceRecord>;
+  referenceTypeBulkLifecycle: BulkLifecycleOperations<
+    ReferenceTypeListParams,
+    ReferenceTypeCommand,
+    ReferenceTypeState,
+    ReferenceTypeEvent
+  >;
+  referenceRecordBulkLifecycle: BulkLifecycleOperations<
+    ReferenceRecordListParams,
+    ReferenceRecordCommand,
+    ReferenceRecordState,
+    ReferenceRecordEvent
+  >;
   projectors: readonly Projector[];
 }>;
 
-export function createReferenceDataRuntime(
-  deps: CatalogRuntimeDeps,
-): ReferenceDataServices {
+export function createReferenceDataRuntime(deps: CatalogRuntimeDeps): ReferenceDataServices {
   const referenceTypeCommandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -122,7 +115,12 @@ export function createReferenceDataRuntime(
       },
     }),
   ];
-  const referenceTypeBulkLifecycle = createBulkLifecycleOperations<ReferenceTypeListParams, ReferenceTypeCommand, ReferenceTypeState, ReferenceTypeEvent>({
+  const referenceTypeBulkLifecycle = createBulkLifecycleOperations<
+    ReferenceTypeListParams,
+    ReferenceTypeCommand,
+    ReferenceTypeState,
+    ReferenceTypeEvent
+  >({
     actions: [
       {
         action: "publish",
@@ -152,7 +150,12 @@ export function createReferenceDataRuntime(
     loadRows: (ids) => listReferenceTypeBulkRows(deps.db, ids),
     projectors,
   });
-  const referenceRecordBulkLifecycle = createBulkLifecycleOperations<ReferenceRecordListParams, ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>({
+  const referenceRecordBulkLifecycle = createBulkLifecycleOperations<
+    ReferenceRecordListParams,
+    ReferenceRecordCommand,
+    ReferenceRecordState,
+    ReferenceRecordEvent
+  >({
     actions: [
       {
         action: "publish",

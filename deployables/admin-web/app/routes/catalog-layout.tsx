@@ -36,7 +36,8 @@ export default function CatalogAdminLayoutRoute() {
           </LinkButton>
           <form action="/catalog/sign-out" method="post">
             <Button type="submit" tone="secondary">
-              {t("adminWeb.app.routes.catalogLayout.sign.out")}</Button>
+              {t("adminWeb.app.routes.catalogLayout.sign.out")}
+            </Button>
           </form>
         </Inline>
       }

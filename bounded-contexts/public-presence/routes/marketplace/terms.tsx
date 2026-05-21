@@ -15,9 +15,18 @@ export default function TermsRoute() {
         title: t("publicPresence.info.terms.title"),
         description: t("publicPresence.info.terms.description"),
         sections: [
-          { title: t("publicPresence.info.terms.prelaunch.title"), body: [t("publicPresence.info.terms.prelaunch.body")] },
-          { title: t("publicPresence.info.terms.accounts.title"), body: [t("publicPresence.info.terms.accounts.body")] },
-          { title: t("publicPresence.info.terms.marketplace.title"), body: [t("publicPresence.info.terms.marketplace.body")] },
+          {
+            title: t("publicPresence.info.terms.prelaunch.title"),
+            body: [t("publicPresence.info.terms.prelaunch.body")],
+          },
+          {
+            title: t("publicPresence.info.terms.accounts.title"),
+            body: [t("publicPresence.info.terms.accounts.body")],
+          },
+          {
+            title: t("publicPresence.info.terms.marketplace.title"),
+            body: [t("publicPresence.info.terms.marketplace.body")],
+          },
           { title: t("publicPresence.info.terms.contact.title"), body: [t("publicPresence.info.terms.contact.body")] },
         ],
       }}

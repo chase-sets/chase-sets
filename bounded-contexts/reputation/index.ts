@@ -19,19 +19,12 @@ import {
   buildReputationSupportProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -54,22 +47,10 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
   buildApis: (services) => [buildReputationApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const identitySubscription = getEventSubscription(
-      "identity",
-      "reputation-account-projection",
-    );
-    const orderingSubscription = getEventSubscription(
-      "ordering",
-      "reputation-order-source-projection",
-    );
-    const fulfillmentSubscription = getEventSubscription(
-      "fulfillment",
-      "reputation-shipment-source-projection",
-    );
-    const supportSubscription = getEventSubscription(
-      "support",
-      "reputation-support-source-projection",
-    );
+    const identitySubscription = getEventSubscription("identity", "reputation-account-projection");
+    const orderingSubscription = getEventSubscription("ordering", "reputation-order-source-projection");
+    const fulfillmentSubscription = getEventSubscription("fulfillment", "reputation-shipment-source-projection");
+    const supportSubscription = getEventSubscription("support", "reputation-support-source-projection");
 
     return [
       {

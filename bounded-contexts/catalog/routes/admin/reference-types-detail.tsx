@@ -18,7 +18,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
-  { title: data?.data ? `${data.data.name} | Catalog Admin` : t("catalog.routes.admin.referenceTypesDetail.reference.type.catalog.admin") },
+  {
+    title: data?.data
+      ? `${data.data.name} | Catalog Admin`
+      : t("catalog.routes.admin.referenceTypesDetail.reference.type.catalog.admin"),
+  },
 ];
 
 export default function ReferenceTypeDetailRoute() {

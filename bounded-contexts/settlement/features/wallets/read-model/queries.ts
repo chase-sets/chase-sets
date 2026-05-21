@@ -42,10 +42,7 @@ const walletSelect = `
   FROM settlement_wallet_pages
 `;
 
-export async function getWallet(
-  db: PgQueryable,
-  accountId: string,
-): Promise<SettlementWalletRow> {
+export async function getWallet(db: PgQueryable, accountId: string): Promise<SettlementWalletRow> {
   const result = await db.query<SettlementWalletRow>(
     `${walletSelect}
      WHERE account_id = $1`,
@@ -230,10 +227,7 @@ export async function listPendingCreditEntriesMaturedBy(
   return result.rows;
 }
 
-export async function getAccountActiveSupportHoldAmount(
-  db: PgQueryable,
-  accountId: string,
-): Promise<string> {
+export async function getAccountActiveSupportHoldAmount(db: PgQueryable, accountId: string): Promise<string> {
   const result = await db.query<{ amount: string }>(
     `SELECT COALESCE(SUM(entry.amount), 0)::text AS amount
      FROM settlement_ledger_entry_pages entry

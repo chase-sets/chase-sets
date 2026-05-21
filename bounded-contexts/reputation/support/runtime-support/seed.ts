@@ -31,9 +31,7 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
   const services = createReputationServices(pool);
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM reputation_review_pages",
-    );
+    const existing = await services.db.query("SELECT COUNT(*) AS count FROM reputation_review_pages");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Reputation already contains data. Skipping seed.");
       return;

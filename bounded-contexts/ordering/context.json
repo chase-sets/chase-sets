@@ -1,45 +1,20 @@
 {
   "contextName": "ordering",
   "packageName": "@chase-sets/ordering",
-  "ownedNouns": [
-    "order"
-  ],
+  "ownedNouns": ["order"],
   "streamPrefix": "ordering.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "orders"
-  ],
-  "allowedSupportDirectories": [
-    "account-support",
-    "request-support",
-    "runtime-support",
-    "seed-support",
-    "ucp-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
-  "allowedContextDependencies": [
-    "@chase-sets/reputation"
-  ],
-  "seedRequirements": [
-    "catalog",
-    "identity",
-    "inventory",
-    "marketplace"
-  ],
+  "slices": ["orders"],
+  "allowedSupportDirectories": ["account-support", "request-support", "runtime-support", "seed-support", "ucp-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedContextDependencies": ["@chase-sets/reputation"],
+  "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
     {
       "sourceContextName": "identity",
       "projectionName": "ordering-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-account-projection"
-      ],
+      "projectorNames": ["ordering-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -53,9 +28,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-supply-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-marketplace-supply-input-projection"
-      ],
+      "projectorNames": ["ordering-marketplace-supply-input-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -73,9 +46,7 @@
       "sourceContextName": "inventory",
       "projectionName": "ordering-inventory-supply-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-inventory-supply-input-projection"
-      ],
+      "projectorNames": ["ordering-inventory-supply-input-projection"],
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
@@ -88,9 +59,7 @@
       "sourceContextName": "inventory",
       "projectionName": "ordering-inventory-reservation-outcomes",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-inventory-reservation-outcomes"
-      ],
+      "projectorNames": ["ordering-inventory-reservation-outcomes"],
       "eventTypes": [
         "inventory.reservation.confirmed",
         "inventory.reservation.rejected",
@@ -102,33 +71,23 @@
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-offer-acceptance",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-marketplace-offer-acceptance"
-      ],
-      "eventTypes": [
-        "marketplace.offer.accepted"
-      ],
+      "projectorNames": ["ordering-marketplace-offer-acceptance"],
+      "eventTypes": ["marketplace.offer.accepted"],
       "order": 50
     },
     {
       "sourceContextName": "payments",
       "projectionName": "ordering-payment-capture",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-payment-capture"
-      ],
-      "eventTypes": [
-        "payments.payment-captured"
-      ],
+      "projectorNames": ["ordering-payment-capture"],
+      "eventTypes": ["payments.payment-captured"],
       "order": 60
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "ordering-fulfillment-cancellation-inputs",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "ordering-fulfillment-cancellation-inputs"
-      ],
+      "projectorNames": ["ordering-fulfillment-cancellation-inputs"],
       "eventTypes": [
         "fulfillment.shipment.created",
         "fulfillment.shipment.package-prepared",
@@ -142,84 +101,50 @@
   "projectionGroups": [
     {
       "projectionName": "ordering-account-projection",
-      "sourceContextNames": [
-        "identity"
-      ],
-      "ownedTables": [
-        "ordering_account_pages"
-      ],
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["ordering_account_pages"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "ordering-marketplace-supply-input-projection",
-      "sourceContextNames": [
-        "marketplace"
-      ],
-      "ownedTables": [
-        "ordering_market_listing_inputs"
-      ],
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["ordering_market_listing_inputs"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "ordering-inventory-supply-input-projection",
-      "sourceContextNames": [
-        "inventory"
-      ],
-      "ownedTables": [
-        "ordering_inventory_item_inputs",
-        "ordering_inventory_hold_inputs"
-      ],
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["ordering_inventory_item_inputs", "ordering_inventory_hold_inputs"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "ordering-inventory-reservation-outcomes",
-      "sourceContextNames": [
-        "inventory"
-      ],
-      "ownedTables": [
-        "ordering_order_pages",
-        "ordering_order_hold_pages"
-      ],
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["ordering_order_pages", "ordering_order_hold_pages"],
       "requiredDuringBootstrap": false
     },
     {
       "projectionName": "ordering-marketplace-offer-acceptance",
-      "sourceContextNames": [
-        "marketplace"
-      ],
-      "ownedTables": [
-        "ordering_offer_acceptance_inputs"
-      ],
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["ordering_offer_acceptance_inputs"],
       "requiredDuringBootstrap": false
     },
     {
       "projectionName": "ordering-payment-capture",
-      "sourceContextNames": [
-        "payments"
-      ],
-      "ownedTables": [
-        "ordering_payment_capture_inputs"
-      ],
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["ordering_payment_capture_inputs"],
       "requiredDuringBootstrap": false
     },
     {
       "projectionName": "ordering-fulfillment-cancellation-inputs",
-      "sourceContextNames": [
-        "fulfillment"
-      ],
-      "ownedTables": [
-        "ordering_fulfillment_cancellation_inputs"
-      ],
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["ordering_fulfillment_cancellation_inputs"],
       "requiredDuringBootstrap": false
     }
   ],
   "hostPorts": [],
-  "apiDeployables": [
-    "platform-api"
-  ],
-  "sourceRuntimeDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
+  "sourceRuntimeDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -273,9 +198,7 @@
       "href": "/account/purchases",
       "order": 170,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.view"
-      ]
+      "requiredPermissions": ["orders.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -286,10 +209,7 @@
       "href": "/account/sales",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.view",
-        "listings.view"
-      ]
+      "requiredPermissions": ["orders.view", "listings.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -300,9 +220,7 @@
       "href": "/account/purchases",
       "order": 170,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.view"
-      ]
+      "requiredPermissions": ["orders.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -313,10 +231,7 @@
       "href": "/account/sales",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "orders.view",
-        "listings.view"
-      ]
+      "requiredPermissions": ["orders.view", "listings.view"]
     }
   ],
   "directoryIntent": {
@@ -324,17 +239,13 @@
       "classification": "slice",
       "purpose": "Own orders feature behavior, read models, and UI contracts for the ordering context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal ordering module composition"
-      ]
+      "expectedConsumers": ["Internal ordering module composition"]
     },
     "account-support": {
       "classification": "support",
       "purpose": "Provide reusable account-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "orders"
-      ],
+      "expectedConsumers": ["orders"],
       "justification": "account-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "ordering workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -343,9 +254,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "orders"
-      ],
+      "expectedConsumers": ["orders"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "ordering workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -355,9 +264,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "orders"
-      ],
+      "expectedConsumers": ["orders"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "ordering workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -366,10 +273,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple ordering slices",
-        "Deployable composition for ordering"
-      ],
+      "expectedConsumers": ["Multiple ordering slices", "Deployable composition for ordering"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "ordering workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -379,9 +283,7 @@
       "classification": "support",
       "purpose": "Provide Ordering-owned UCP order read adapters over purchase and sale projections.",
       "allowedWhen": "Allowed because UCP order reads are an external protocol entrypoint over Ordering-owned read models.",
-      "expectedConsumers": [
-        "Platform UCP route composition"
-      ],
+      "expectedConsumers": ["Platform UCP route composition"],
       "justification": "Ordering owns Order, Purchase, and Sale state; UCP remains only a protocol facade.",
       "createdFor": "UCP standalone order reads.",
       "sunsetWhen": "Remove if UCP order reads move into an Ordering feature-local API slice."
@@ -390,12 +292,8 @@
       "classification": "routes",
       "purpose": "Expose ordering-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

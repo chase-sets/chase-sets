@@ -1,21 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  PLATFORM_INTERNAL_AUTH_SECRET_ENV,
-} from "@chase-sets/platform-runtime/http";
-import {
-  getContextDatabaseEnvName,
-  loadBootstrapConfig,
-  loadConfig,
-} from "../src/config";
+import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/http";
+import { getContextDatabaseEnvName, loadBootstrapConfig, loadConfig } from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
-  ...platformApiContextNames().map((contextName) =>
-    getContextDatabaseEnvName(contextName),
-  ),
+  ...platformApiContextNames().map((contextName) => getContextDatabaseEnvName(contextName)),
 ];
 
 function platformApiContextNames() {
@@ -118,11 +110,7 @@ describe("platform api config", () => {
     expect(config.payoutReconciliationIntervalMs).toBe(300_000);
     expect(config.sellerFundsReleaseIntervalMs).toBe(300_000);
     expect(config.deploymentEnvironment).toBe("dev");
-    expect(config.dataProfiles).toEqual([
-      "critical-bootstrap",
-      "catalog-integration-bootstrap",
-      "scenario-seed",
-    ]);
+    expect(config.dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]);
     expect(config.realtime).toMatchObject({
       batchSize: 100,
       pollIntervalMs: 1_000,
@@ -148,9 +136,7 @@ describe("platform api config", () => {
     expect(config.controlDatabaseUrl).toBe("postgresql://localhost/control");
     expect(config.contextDatabaseUrls.auth).toBe("postgresql://localhost/auth");
     expect(config.contextDatabaseUrls.checkout).toBe("postgresql://localhost/checkout");
-    expect(config.contextDatabaseUrls["commercial-terms"]).toBe(
-      "postgresql://localhost/commercial_terms",
-    );
+    expect(config.contextDatabaseUrls["commercial-terms"]).toBe("postgresql://localhost/commercial_terms");
     expect(config.contextDatabaseUrls.settlement).toBe("postgresql://localhost/settlement");
   });
 
@@ -186,18 +172,12 @@ describe("platform api config", () => {
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
     process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
 
-    expect(loadBootstrapConfig().dataProfiles).toEqual([
-      "critical-bootstrap",
-      "catalog-integration-bootstrap",
-    ]);
+    expect(loadBootstrapConfig().dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
 
     process.env.DEPLOYMENT_ENVIRONMENT = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
 
-    expect(loadBootstrapConfig().dataProfiles).toEqual([
-      "critical-bootstrap",
-      "catalog-integration-bootstrap",
-    ]);
+    expect(loadBootstrapConfig().dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
   });
 
   it("allows explicit data profile overrides", () => {
@@ -208,9 +188,7 @@ describe("platform api config", () => {
 
     process.env.PLATFORM_DATA_PROFILES = "scenario-seed,unknown";
 
-    expect(() => loadBootstrapConfig()).toThrow(
-      "PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.",
-    );
+    expect(() => loadBootstrapConfig()).toThrow("PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.");
   });
 
   it("requires platform admin email and password together", () => {
@@ -296,9 +274,7 @@ describe("platform api config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.MOBILE_MESSAGING_PROVIDER = "twilio";
 
-    expect(() => loadConfig()).toThrow(
-      "TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.",
-    );
+    expect(() => loadConfig()).toThrow("TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.");
   });
 
   it("loads Stripe Connect money movement config from Stripe env vars", () => {
@@ -359,15 +335,9 @@ describe("platform api config", () => {
       fakeFallbackAllowed: true,
       liveSecretKeyLikely: true,
     });
-    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain(
-      "checkout.session.completed",
-    );
-    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain(
-      "payment_intent.succeeded",
-    );
-    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain(
-      "v2.core.account[requirements].updated",
-    );
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("checkout.session.completed");
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payment_intent.succeeded");
+    expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("v2.core.account[requirements].updated");
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payout.failed");
   });
 

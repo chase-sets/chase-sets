@@ -12,10 +12,7 @@ const context = {
   },
 };
 
-function createAuthenticatedApp(
-  services: Partial<PayoutServices>,
-  permissions: readonly string[] | null,
-) {
+function createAuthenticatedApp(services: Partial<PayoutServices>, permissions: readonly string[] | null) {
   const app = new Hono<SettlementApiEnv>();
   app.use("*", async (c, next) => {
     c.set(
@@ -99,10 +96,7 @@ describe("settlement payout routes", () => {
       unavailable_reasons: [],
       unavailable_reason_details: [],
     }));
-    const app = createAuthenticatedApp(
-      { previewPayoutRequest },
-      ["payouts.request"],
-    );
+    const app = createAuthenticatedApp({ previewPayoutRequest }, ["payouts.request"]);
 
     const response = await app.request("/payouts/preview", {
       method: "POST",
@@ -136,10 +130,7 @@ describe("settlement payout routes", () => {
         },
       ],
     }));
-    const app = createAuthenticatedApp(
-      { getPayoutMoneyTimeline },
-      ["payouts.view"],
-    );
+    const app = createAuthenticatedApp({ getPayoutMoneyTimeline }, ["payouts.view"]);
 
     const response = await app.request("/payouts/pyo_test/timeline");
 
@@ -162,10 +153,7 @@ describe("settlement payout routes", () => {
       platform_balance_supported: true,
       connected_account_payouts_supported: true,
     }));
-    const app = createAuthenticatedApp(
-      { getProviderHealth },
-      ["payouts.reconcile"],
-    );
+    const app = createAuthenticatedApp({ getProviderHealth }, ["payouts.reconcile"]);
 
     const response = await app.request("/provider-health");
 
@@ -189,10 +177,7 @@ describe("settlement payout routes", () => {
         created_at: "2026-04-01T00:00:00.000Z",
       },
     ]);
-    const app = createAuthenticatedApp(
-      { listProviderIdempotencyKeys },
-      ["payouts.reconcile"],
-    );
+    const app = createAuthenticatedApp({ listProviderIdempotencyKeys }, ["payouts.reconcile"]);
 
     const response = await app.request("/payouts/provider-idempotency?limit=5");
 
@@ -215,10 +200,7 @@ describe("settlement payout routes", () => {
       skipped: 0,
       errors: [],
     }));
-    const app = createAuthenticatedApp(
-      { reconcilePayoutsNeedingAttention },
-      ["payouts.reconcile"],
-    );
+    const app = createAuthenticatedApp({ reconcilePayoutsNeedingAttention }, ["payouts.reconcile"]);
 
     const response = await app.request("/payouts/reconciliation/run", {
       method: "POST",
@@ -234,10 +216,7 @@ describe("settlement payout routes", () => {
       skipped: 0,
       errors: [],
     });
-    expect(reconcilePayoutsNeedingAttention).toHaveBeenCalledWith(
-      { limit: 25 },
-      context,
-    );
+    expect(reconcilePayoutsNeedingAttention).toHaveBeenCalledWith({ limit: 25 }, context);
   });
 });
 
@@ -254,7 +233,7 @@ describe("settlement money movement webhook route", () => {
       } as unknown as PayoutServices),
     );
 
-    const rawBody = "{\"type\":\"payout.failed\",\"data\":{\"object\":{\"id\":\"po_123\"}}}";
+    const rawBody = '{"type":"payout.failed","data":{"object":{"id":"po_123"}}}';
     const response = await app.request("/provider/money-movement/webhooks", {
       method: "POST",
       body: rawBody,
@@ -316,7 +295,7 @@ describe("settlement money movement webhook route", () => {
 
     const response = await app.request("/provider/money-movement/webhooks", {
       method: "POST",
-      body: "{\"type\":\"unsupported\"}",
+      body: '{"type":"unsupported"}',
       headers: { "Stripe-Signature": "t=1,v1=abc" },
     });
 

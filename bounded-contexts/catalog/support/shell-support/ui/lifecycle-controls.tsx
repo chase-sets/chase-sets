@@ -1,11 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
-import {
-  AlertDialog,
-  Button,
-  Inline,
-  StatusPill,
-} from "@chase-sets/design-system";
+import { AlertDialog, Button, Inline, StatusPill } from "@chase-sets/design-system";
 
 export interface Transition {
   label: string;
@@ -55,8 +50,16 @@ export function LifecycleControls({ status, transitions, onAction, loading }: Li
             key={transition.action}
             open={confirming?.action === transition.action}
             onOpenChange={(open) => !open && setConfirming(null)}
-            title={transition.confirmTitle ?? t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.title", { action: transition.label })}
-            description={transition.confirmDescription ?? t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.description", { action: transition.label.toLowerCase() })}
+            title={
+              transition.confirmTitle ??
+              t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.title", { action: transition.label })
+            }
+            description={
+              transition.confirmDescription ??
+              t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.description", {
+                action: transition.label.toLowerCase(),
+              })
+            }
             confirmLabel={transition.label}
             cancelLabel={t("catalog.support.shellSupport.ui.lifecycleControls.cancel")}
             tone="danger"

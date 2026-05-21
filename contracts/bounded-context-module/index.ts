@@ -1,7 +1,4 @@
-import type {
-  Projector as EventProjector,
-  ProjectorHandlerMap,
-} from "@chase-sets/event-core/projector";
+import type { Projector as EventProjector, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 
 /**
  * Framework-agnostic contract for a bounded-context module.
@@ -92,10 +89,7 @@ export type BcProjectionGroup = BcProjectionGroupDeclaration &
     readonly reset?: () => Promise<void>;
   }>;
 
-export type EnvironmentDataProfile =
-  | "critical-bootstrap"
-  | "catalog-integration-bootstrap"
-  | "scenario-seed";
+export type EnvironmentDataProfile = "critical-bootstrap" | "catalog-integration-bootstrap" | "scenario-seed";
 
 export type BcSeedOptions = Readonly<{
   enabledDataProfiles: readonly EnvironmentDataProfile[];

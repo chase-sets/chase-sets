@@ -1,8 +1,4 @@
-import type {
-  WaitlistInterest,
-  WaitlistCommerceIntent,
-  WaitlistSource,
-} from "../domain/common";
+import type { WaitlistInterest, WaitlistCommerceIntent, WaitlistSource } from "../domain/common";
 
 export type SubmitWaitlistSignupRequest = Readonly<{
   email: string;

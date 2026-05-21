@@ -2,10 +2,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { SettlementServices } from "./support/runtime-support/services";
 import { createWalletRoutes } from "./features/wallets/api/route";
-import {
-  createMoneyMovementWebhookRoutes,
-  createPayoutRoutes,
-} from "./features/payouts/api/route";
+import { createMoneyMovementWebhookRoutes, createPayoutRoutes } from "./features/payouts/api/route";
 import { createPayoutReadinessRoutes } from "./features/payout-readiness/api/route";
 import { payoutUnavailableReasonLabel } from "./features/payouts/domain/reason-codes";
 import { buildPayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
@@ -18,20 +15,26 @@ export function buildSettlementApi(services: SettlementServices) {
   app.get("/account-status", async (c) => {
     const actor = c.get("actor");
     if (!actor) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: "Authentication required.",
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: "Authentication required.",
+          },
         },
-      }, 401);
+        401,
+      );
     }
     if (!actor.permissions.includes("payouts.view")) {
-      return c.json({
-        error: {
-          code: "authorization_forbidden",
-          message: "Forbidden.",
+      return c.json(
+        {
+          error: {
+            code: "authorization_forbidden",
+            message: "Forbidden.",
+          },
         },
-      }, 403);
+        403,
+      );
     }
 
     const [wallet, payoutReadiness] = await Promise.all([
@@ -40,14 +43,12 @@ export function buildSettlementApi(services: SettlementServices) {
     ]);
     const availableAmount = Number.parseFloat(wallet.available_balance_amount);
     const setupReady = payoutReadiness.status === "ready";
-    const setupStale = !payoutReadiness.updated_at ||
-      Date.now() - Date.parse(payoutReadiness.updated_at) > 24 * 60 * 60 * 1000;
+    const setupStale =
+      !payoutReadiness.updated_at || Date.now() - Date.parse(payoutReadiness.updated_at) > 24 * 60 * 60 * 1000;
     const restrictions = [
       ...(setupReady ? [] : ["payout-setup-incomplete"]),
       ...(setupReady && setupStale ? ["payout-setup-refresh-required"] : []),
-      ...(payoutReadiness.missing_requirements.length > 0
-        ? ["provider-requirements-open"]
-        : []),
+      ...(payoutReadiness.missing_requirements.length > 0 ? ["provider-requirements-open"] : []),
       ...(availableAmount > 0 ? [] : ["no-available-wallet-balance"]),
     ];
     const payoutSetupProgress = buildPayoutSetupProgress(payoutReadiness);
@@ -94,8 +95,6 @@ export function buildSettlementApi(services: SettlementServices) {
   return app;
 }
 
-export function buildSettlementMoneyMovementWebhookApi(
-  services: SettlementServices,
-) {
+export function buildSettlementMoneyMovementWebhookApi(services: SettlementServices) {
   return createMoneyMovementWebhookRoutes(services.payouts);
 }

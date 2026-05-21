@@ -4,10 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const bootstrapSource = readFileSync(
-  resolve(currentDir, "../src/bootstrap.ts"),
-  "utf8",
-);
+const bootstrapSource = readFileSync(resolve(currentDir, "../src/bootstrap.ts"), "utf8");
 
 describe("admin-support bootstrap profile", () => {
   it("uses production-safe seed orchestration only", () => {

@@ -1,16 +1,9 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
-import {
-  attachResponseMetadata,
-  readApiErrorMessage,
-  type ListResponse,
-} from "@chase-sets/http/responses";
+import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
-import type {
-  InventoryImportBatch,
-  InventoryImportBatchDetail,
-} from "./features/import-batches/read-model/queries";
+import type { InventoryImportBatch, InventoryImportBatchDetail } from "./features/import-batches/read-model/queries";
 import type { ImportCsvRow } from "./features/import-batches/domain/csv";
 
 export type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
@@ -94,17 +87,17 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async createImportBatch(body: Readonly<{
-      csvText?: string;
-      parsedRows?: readonly ImportCsvRow[];
-      sourceKey?: string;
-      quantityMode?: string;
-      defaultStorageLocationId?: string | null;
-      sourceFilename?: string | null;
-    }>): Promise<InventoryImportBatchDetail> {
-      return parseJsonResponse(
-        await client["import-batches"].$post({ json: body, header: headers }),
-      );
+    async createImportBatch(
+      body: Readonly<{
+        csvText?: string;
+        parsedRows?: readonly ImportCsvRow[];
+        sourceKey?: string;
+        quantityMode?: string;
+        defaultStorageLocationId?: string | null;
+        sourceFilename?: string | null;
+      }>,
+    ): Promise<InventoryImportBatchDetail> {
+      return parseJsonResponse(await client["import-batches"].$post({ json: body, header: headers }));
     },
     async getImportBatch(id: string): Promise<InventoryImportBatchDetail> {
       return parseJsonResponse(
@@ -131,9 +124,7 @@ export function createInventoryApiClient({
       );
     },
     async getItem(id: string): Promise<InventoryItemDetail> {
-      return parseJsonResponse(
-        await client.items[":id"].$get({ param: { id }, header: headers }),
-      );
+      return parseJsonResponse(await client.items[":id"].$get({ param: { id }, header: headers }));
     },
     async getCatalogItem(id: string): Promise<InventoryCatalogItemSnapshot> {
       return parseJsonResponse(
@@ -144,9 +135,7 @@ export function createInventoryApiClient({
       );
     },
     async createItem(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.items.$post({ json: body, header: headers }),
-      );
+      return parseJsonResponse(await client.items.$post({ json: body, header: headers }));
     },
     async ensureListingStock(body: Record<string, unknown>): Promise<InventoryEnsuredListingStock> {
       return parseJsonResponse(
@@ -183,9 +172,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async listStorageLocations(
-      query = "",
-    ): Promise<ListResponse<InventoryStorageLocation>> {
+    async listStorageLocations(query = ""): Promise<ListResponse<InventoryStorageLocation>> {
       return parseJsonResponse(
         await client["storage-locations"].$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -194,9 +181,7 @@ export function createInventoryApiClient({
       );
     },
     async createStorageLocation(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client["storage-locations"].$post({ json: body, header: headers }),
-      );
+      return parseJsonResponse(await client["storage-locations"].$post({ json: body, header: headers }));
     },
     async updateStorageLocation(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(

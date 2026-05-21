@@ -44,9 +44,7 @@ describe("admin root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain(
-      `href="${window.location.origin}/catalog-items?status=draft"`,
-    );
+    expect(html).toContain(`href="${window.location.origin}/catalog-items?status=draft"`);
     expect(html).toContain('name="theme-color" content="#1f6f68"');
     expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
     expect(html).toContain('rel="icon" href="/favicon.svg"');
@@ -65,8 +63,6 @@ describe("admin root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain(
-      'href="https://admin.example/catalog-items?status=draft"',
-    );
+    expect(html).toContain('href="https://admin.example/catalog-items?status=draft"');
   });
 });

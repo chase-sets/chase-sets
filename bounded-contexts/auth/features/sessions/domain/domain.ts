@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { AuthMethod } from "./auth-flow";
 
@@ -85,14 +81,8 @@ export type SessionAccountSwitchedEvent = DomainEvent<
   "auth.session.account-switched",
   Readonly<{ accountId: AccountId }>
 >;
-export type SessionRevokedEvent = DomainEvent<
-  "auth.session.revoked",
-  EmptyEventData
->;
-export type SessionExpiredEvent = DomainEvent<
-  "auth.session.expired",
-  EmptyEventData
->;
+export type SessionRevokedEvent = DomainEvent<"auth.session.revoked", EmptyEventData>;
+export type SessionExpiredEvent = DomainEvent<"auth.session.expired", EmptyEventData>;
 
 export type SessionEvent =
   | SessionStartedEvent
@@ -100,11 +90,7 @@ export type SessionEvent =
   | SessionRevokedEvent
   | SessionExpiredEvent;
 
-export const decideSession: AggregateDecider<
-  SessionState,
-  SessionCommand,
-  SessionEvent
-> = (state, command) => {
+export const decideSession: AggregateDecider<SessionState, SessionCommand, SessionEvent> = (state, command) => {
   switch (command.type) {
     case "StartSession":
       assert(state.id === null, "Session has already been started.");
@@ -123,10 +109,7 @@ export const decideSession: AggregateDecider<
       ];
     case "SwitchSessionAccount":
       requireActiveSession(state);
-      assert(
-        state.availableAccountIds.includes(command.accountId),
-        "Session cannot switch to an unavailable account.",
-      );
+      assert(state.availableAccountIds.includes(command.accountId), "Session cannot switch to an unavailable account.");
       assert(state.accountId !== command.accountId, "Session is already active for that account.");
       return [
         {
@@ -145,10 +128,7 @@ export const decideSession: AggregateDecider<
   }
 };
 
-export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (
-  state,
-  event,
-) => {
+export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (state, event) => {
   switch (event.type) {
     case "auth.session.started":
       return {

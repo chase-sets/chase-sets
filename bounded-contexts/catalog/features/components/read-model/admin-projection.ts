@@ -26,14 +26,10 @@ type BaseComponentRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function refreshCatalogAdminComponentDetailPage(
-  db: PgQueryable,
-  componentId: string,
-): Promise<void> {
-  const result = await db.query<BaseComponentRow>(
-    `SELECT * FROM catalog_components WHERE component_id = $1`,
-    [componentId],
-  );
+export async function refreshCatalogAdminComponentDetailPage(db: PgQueryable, componentId: string): Promise<void> {
+  const result = await db.query<BaseComponentRow>(`SELECT * FROM catalog_components WHERE component_id = $1`, [
+    componentId,
+  ]);
 
   const component = result.rows[0];
 
@@ -45,10 +41,12 @@ export async function refreshCatalogAdminComponentDetailPage(
   const fieldRules = asArray<FieldRule>(component.field_rules);
   const dimensionRules = asArray<DimensionRule>(component.dimension_rules);
   const fieldIds = fieldRules.map((rule) => rule.fieldId);
-  const dimensionIds = [...new Set([
-    ...dimensionRules.map((rule) => rule.dimensionId),
-    ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
-  ])];
+  const dimensionIds = [
+    ...new Set([
+      ...dimensionRules.map((rule) => rule.dimensionId),
+      ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
+    ]),
+  ];
   const optionIds = dimensionRules.flatMap((rule) => [
     ...(rule.allowedOptionIds ?? []),
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),

@@ -26,7 +26,11 @@ const columns: DataColumn<Field>[] = [
   { key: "key", header: t("catalog.features.fields.ui.fieldListPage.key"), cell: (row) => row.key },
   { key: "name", header: t("catalog.features.fields.ui.fieldListPage.name"), cell: (row) => row.name },
   { key: "value_type", header: t("catalog.features.fields.ui.fieldListPage.type"), cell: (row) => row.value_type },
-  { key: "status", header: t("catalog.features.fields.ui.fieldListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  {
+    key: "status",
+    header: t("catalog.features.fields.ui.fieldListPage.status"),
+    cell: (row) => <StatusPill>{row.status}</StatusPill>,
+  },
 ];
 
 const valueTypeOptions = [
@@ -171,13 +175,42 @@ export function FieldListPage({ data, query }: CatalogListRouteData<Field>) {
         footer={<Button onClick={handleCreate}>{t("catalog.features.fields.ui.fieldListPage.create")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.fields.ui.fieldListPage.key.2")} value={key} onChange={(e) => setKey(e.target.value)} />
-          <TextInput label={t("catalog.features.fields.ui.fieldListPage.name.2")} value={name} onChange={(e) => setName(e.target.value)} />
-          <TextInput label={t("catalog.features.fields.ui.fieldListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
-          <Select label={t("catalog.features.fields.ui.fieldListPage.value.type")} items={valueTypeOptions} value={valueType} onValueChange={setValueType} />
-          <Checkbox label={t("catalog.features.fields.ui.fieldListPage.filterable")} checked={filterable} onCheckedChange={(v) => setFilterable(v === true)} />
-          <Checkbox label={t("catalog.features.fields.ui.fieldListPage.searchable")} checked={searchable} onCheckedChange={(v) => setSearchable(v === true)} />
-          <Checkbox label={t("catalog.features.fields.ui.fieldListPage.sortable")} checked={sortable} onCheckedChange={(v) => setSortable(v === true)} />
+          <TextInput
+            label={t("catalog.features.fields.ui.fieldListPage.key.2")}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.fields.ui.fieldListPage.name.2")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.fields.ui.fieldListPage.description")}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          <Select
+            label={t("catalog.features.fields.ui.fieldListPage.value.type")}
+            items={valueTypeOptions}
+            value={valueType}
+            onValueChange={setValueType}
+          />
+          <Checkbox
+            label={t("catalog.features.fields.ui.fieldListPage.filterable")}
+            checked={filterable}
+            onCheckedChange={(v) => setFilterable(v === true)}
+          />
+          <Checkbox
+            label={t("catalog.features.fields.ui.fieldListPage.searchable")}
+            checked={searchable}
+            onCheckedChange={(v) => setSearchable(v === true)}
+          />
+          <Checkbox
+            label={t("catalog.features.fields.ui.fieldListPage.sortable")}
+            checked={sortable}
+            onCheckedChange={(v) => setSortable(v === true)}
+          />
         </Stack>
       </Dialog>
     </>

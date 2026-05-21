@@ -1,9 +1,6 @@
 import { expect, it } from "vitest";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import {
-  describeWithMarketplaceSeedDatabase,
-  useMarketplaceSeedRuntime,
-} from "@chase-sets/marketplace-seed-testing";
+import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "@chase-sets/marketplace-seed-testing";
 
 describeWithMarketplaceSeedDatabase("settlement seed", () => {
   const seedRuntime = useMarketplaceSeedRuntime("settlement");
@@ -29,9 +26,7 @@ describeWithMarketplaceSeedDatabase("settlement seed", () => {
     const payoutStatuses = await pools.settlement.query<{ status: string }>(
       "SELECT status FROM settlement_payout_pages ORDER BY payout_id ASC",
     );
-    expect(new Set(payoutStatuses.rows.map((row) => row.status))).toEqual(
-      new Set(["completed", "failed"]),
-    );
+    expect(new Set(payoutStatuses.rows.map((row) => row.status))).toEqual(new Set(["completed", "failed"]));
     const payoutEmails = await pools.settlement.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM transactional_email_outbox

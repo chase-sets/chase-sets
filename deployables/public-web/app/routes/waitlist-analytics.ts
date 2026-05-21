@@ -132,9 +132,7 @@ function readBoundedString(value: unknown) {
   }
 
   const text = value.trim();
-  return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text)
-    ? text
-    : null;
+  return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
 }
 
 function readOptionalBoundedString(value: unknown) {
@@ -147,9 +145,7 @@ function readOptionalBoundedString(value: unknown) {
   }
 
   const text = value.trim();
-  return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text)
-    ? text
-    : invalidAnalyticsLabel;
+  return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : invalidAnalyticsLabel;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

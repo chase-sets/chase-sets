@@ -1,24 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  createApiHost,
-  getApiHostContextNames,
-  getApiHostSeedOrder,
-  type ApiContextRegistry,
-} from "./api";
-import {
-  createWorkerRunnerLoop,
-  type WorkerRunner,
-} from "./worker";
-import {
-  getWebHostSections,
-  resolveWebHostNavItems,
-  resolveWebHostRouteRecords,
-  type WebContextRegistry,
-} from "./web";
-import {
-  resolveWebHostRouteConfigRecords,
-  toRouteConfigEntry,
-} from "./web-route-config";
+import { createApiHost, getApiHostContextNames, getApiHostSeedOrder, type ApiContextRegistry } from "./api";
+import { createWorkerRunnerLoop, type WorkerRunner } from "./worker";
+import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
+import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
 
 function createModule(contextName: string) {
   return {
@@ -189,17 +173,11 @@ const webRegistry = [
 
 describe("platform host api registry", () => {
   it("returns active contexts for a host", () => {
-    expect(getApiHostContextNames(apiRegistry, "platform-api")).toEqual([
-      "identity",
-      "auth",
-    ]);
+    expect(getApiHostContextNames(apiRegistry, "platform-api")).toEqual(["identity", "auth"]);
   });
 
   it("orders seeds by manifest dependencies", () => {
-    expect(getApiHostSeedOrder(apiRegistry, "platform-api")).toEqual([
-      "identity",
-      "auth",
-    ]);
+    expect(getApiHostSeedOrder(apiRegistry, "platform-api")).toEqual(["identity", "auth"]);
   });
 
   it("throws when a required pool is missing", () => {
@@ -216,13 +194,7 @@ describe("platform host api registry", () => {
 describe("platform host web registry", () => {
   it("prefixes admin routes and nav items by section", () => {
     const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
-    const navItems = resolveWebHostNavItems(
-      webRegistry,
-      "admin-web",
-      "primary-nav",
-      null,
-      { section: "catalog" },
-    );
+    const navItems = resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", null, { section: "catalog" });
 
     expect(routes).toContainEqual(
       expect.objectContaining({
@@ -236,11 +208,7 @@ describe("platform host web registry", () => {
         label: "Dimensions",
       }),
     ]);
-    expect(getWebHostSections("admin-web")).toEqual([
-      "catalog",
-      "identity",
-      "experience",
-    ]);
+    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity", "experience"]);
   });
 
   it("places public-presence waitlist review in the experience admin section", () => {
@@ -269,13 +237,12 @@ describe("platform host web registry", () => {
   });
 
   it("filters marketplace nav items by actor visibility and permissions", () => {
-    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", null))
-      .toEqual([
-        expect.objectContaining({
-          href: "/sign-in",
-          label: "Sign in",
-        }),
-      ]);
+    expect(resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", null)).toEqual([
+      expect.objectContaining({
+        href: "/sign-in",
+        label: "Sign in",
+      }),
+    ]);
     expect(
       resolveWebHostNavItems(webRegistry, "marketplace-web", "top-nav", {
         permissions: ["inventory.view"],
@@ -294,13 +261,12 @@ describe("platform host web registry", () => {
   });
 
   it("keeps route config ids unique when routes share a module file", () => {
-    const routeConfig = resolveWebHostRouteConfigRecords(webRegistry, "marketplace-web")
-      .map((routeRecord) =>
-        toRouteConfigEntry(routeRecord, {
-          index: (file, options) => ({ file, index: true, ...options }),
-          route: (path, file, options) => ({ path, file, ...options }),
-        }),
-      );
+    const routeConfig = resolveWebHostRouteConfigRecords(webRegistry, "marketplace-web").map((routeRecord) =>
+      toRouteConfigEntry(routeRecord, {
+        index: (file, options) => ({ file, index: true, ...options }),
+        route: (path, file, options) => ({ path, file, ...options }),
+      }),
+    );
 
     expect(routeConfig).toEqual([
       expect.objectContaining({

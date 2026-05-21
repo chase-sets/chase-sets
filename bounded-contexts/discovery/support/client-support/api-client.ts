@@ -2,10 +2,7 @@ import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { buildDiscoveryApi } from "../../api";
 import type { CategoryListResponse } from "../../features/categories/ui/contracts";
-import type {
-  DiscoveryItemDetail,
-  DiscoverySearchResponse,
-} from "./contracts";
+import type { DiscoveryItemDetail, DiscoverySearchResponse } from "./contracts";
 
 type DiscoveryApiApp = ReturnType<typeof buildDiscoveryApi>;
 

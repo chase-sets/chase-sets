@@ -1,10 +1,7 @@
 import { Hono } from "hono";
 import type { PaymentServices } from "./features/payments/api/runtime";
 import type { PaymentsServices } from "./support/runtime-support/services";
-import {
-  createAccountPaymentRoutes,
-  type PaymentsApiEnv,
-} from "./features/payments/api/route";
+import { createAccountPaymentRoutes, type PaymentsApiEnv } from "./features/payments/api/route";
 import { createRefundRoutes } from "./features/refunds/api/route";
 
 export function buildPaymentsApi(services: PaymentServices | PaymentsServices) {

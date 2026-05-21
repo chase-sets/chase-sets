@@ -9,10 +9,7 @@ export function createIdentityTestPool(connectionString: string): PgTransactiona
   return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
 }
 
-export function buildIdentityTestApp(
-  services: IdentityServices,
-  context: EventStoreContext,
-): Hono<IdentityApiEnv> {
+export function buildIdentityTestApp(services: IdentityServices, context: EventStoreContext): Hono<IdentityApiEnv> {
   const app = new Hono<IdentityApiEnv>();
   app.use("/api/identity/*", async (c, next) => {
     c.set("context", context);

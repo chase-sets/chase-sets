@@ -30,9 +30,7 @@ async function upsertApiKeyLookup(
   );
 }
 
-export function buildApiKeyProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildApiKeyProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.api-key.created": async (event) => {
       const { apiKeyId, userId, name, keyPrefix } = event.data as {
@@ -60,14 +58,7 @@ export function buildApiKeyProjectionHandlers(
              updated_at = $5`,
         [apiKeyId, userId, name, keyPrefix, event.timing.recordedAt],
       );
-      await upsertApiKeyLookup(
-        db,
-        keyPrefix,
-        apiKeyId,
-        userId,
-        "active",
-        event.timing.recordedAt,
-      );
+      await upsertApiKeyLookup(db, keyPrefix, apiKeyId, userId, "active", event.timing.recordedAt);
     },
     "identity.api-key.rotated": async (event) => {
       const apiKeyId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
@@ -85,14 +76,7 @@ export function buildApiKeyProjectionHandlers(
         [apiKeyId, keyPrefix, event.timing.recordedAt],
       );
       if (userId) {
-        await upsertApiKeyLookup(
-          db,
-          keyPrefix,
-          apiKeyId,
-          userId,
-          "active",
-          event.timing.recordedAt,
-        );
+        await upsertApiKeyLookup(db, keyPrefix, apiKeyId, userId, "active", event.timing.recordedAt);
       }
     },
     "identity.api-key.revoked": async (event) => {
@@ -110,14 +94,7 @@ export function buildApiKeyProjectionHandlers(
       );
       const row = existing.rows[0];
       if (row) {
-        await upsertApiKeyLookup(
-          db,
-          row.key_prefix,
-          apiKeyId,
-          row.user_id,
-          "revoked",
-          event.timing.recordedAt,
-        );
+        await upsertApiKeyLookup(db, row.key_prefix, apiKeyId, row.user_id, "revoked", event.timing.recordedAt);
       }
     },
     "identity.api-key.used": async (event) => {
@@ -127,11 +104,7 @@ export function buildApiKeyProjectionHandlers(
          SET last_used_at = $2,
              updated_at = $3
          WHERE api_key_id = $1`,
-        [
-          apiKeyId,
-          (event.data as { usedAt: string }).usedAt,
-          event.timing.recordedAt,
-        ],
+        [apiKeyId, (event.data as { usedAt: string }).usedAt, event.timing.recordedAt],
       );
     },
   };

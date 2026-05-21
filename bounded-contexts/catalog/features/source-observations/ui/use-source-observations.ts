@@ -20,10 +20,7 @@ import type {
   TcgdexSetImportResult,
 } from "./contracts";
 
-export function useSourceObservationList(
-  query: string,
-  initialData?: ListResponse<SourceObservationListItem> | null,
-) {
+export function useSourceObservationList(query: string, initialData?: ListResponse<SourceObservationListItem> | null) {
   return useFetch(
     () => api.listSourceObservations<ListResponse<SourceObservationListItem>>(query),
     [query],
@@ -74,15 +71,8 @@ export function useSourceObservationIntegrationOptions(input: {
   );
 }
 
-export function useSourceObservation(
-  id: string,
-  initialData?: SourceObservationDetail | null,
-) {
-  return useFetch(
-    () => api.getSourceObservation<SourceObservationDetail>(id),
-    [id],
-    initialData,
-  );
+export function useSourceObservation(id: string, initialData?: SourceObservationDetail | null) {
+  return useFetch(() => api.getSourceObservation<SourceObservationDetail>(id), [id], initialData);
 }
 
 export function importTcgdexSet(
@@ -93,24 +83,16 @@ export function importTcgdexSet(
 }
 
 export function useTcgdexLanguages() {
-  return useFetch(
-    () => api.listTcgdexLanguages<ListResponse<TcgdexLanguageOption>>(),
-    [],
-  );
+  return useFetch(() => api.listTcgdexLanguages<ListResponse<TcgdexLanguageOption>>(), []);
 }
 
 export function useTcgdexSeries(languageCode: string) {
   const query = new URLSearchParams({ languageCode }).toString();
-  return useFetch(
-    () => api.listTcgdexSeries<ListResponse<TcgdexSeriesOption>>(query),
-    [query],
-  );
+  return useFetch(() => api.listTcgdexSeries<ListResponse<TcgdexSeriesOption>>(query), [query]);
 }
 
 export function useTcgdexExpansions(languageCode: string, seriesId: string) {
-  const query = seriesId
-    ? new URLSearchParams({ languageCode, seriesId }).toString()
-    : "";
+  const query = seriesId ? new URLSearchParams({ languageCode, seriesId }).toString() : "";
   return useFetch(
     () =>
       query
@@ -124,28 +106,18 @@ export function bulkPromoteSourceObservations(
   observationIds: string[],
   options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
 ) {
-  return api.bulkPromoteSourceObservations<BulkSourceObservationPromotionResult>(
-    observationIds,
-    options,
-  );
+  return api.bulkPromoteSourceObservations<BulkSourceObservationPromotionResult>(observationIds, options);
 }
 
-export function previewBulkPromoteSourceObservations(
-  scope: SourceObservationPromotionScope,
-) {
-  return api.previewBulkPromoteSourceObservations<SourceObservationPromotionPreview>(
-    scope,
-  );
+export function previewBulkPromoteSourceObservations(scope: SourceObservationPromotionScope) {
+  return api.previewBulkPromoteSourceObservations<SourceObservationPromotionPreview>(scope);
 }
 
 export function bulkPromoteSourceObservationsByScope(
   scope: SourceObservationPromotionScope,
   options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
 ) {
-  return api.bulkPromoteSourceObservationsByScope<BulkSourceObservationPromotionResult>(
-    scope,
-    options,
-  );
+  return api.bulkPromoteSourceObservationsByScope<BulkSourceObservationPromotionResult>(scope, options);
 }
 
 export function bulkRejectSourceObservations(
@@ -153,11 +125,7 @@ export function bulkRejectSourceObservations(
   reason: string,
   options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
 ) {
-  return api.bulkRejectSourceObservations<BulkSourceObservationPromotionResult>(
-    observationIds,
-    reason,
-    options,
-  );
+  return api.bulkRejectSourceObservations<BulkSourceObservationPromotionResult>(observationIds, reason, options);
 }
 
 export function bulkRejectSourceObservationsByScope(
@@ -165,11 +133,7 @@ export function bulkRejectSourceObservationsByScope(
   reason: string,
   options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
 ) {
-  return api.bulkRejectSourceObservationsByScope<BulkSourceObservationPromotionResult>(
-    scope,
-    reason,
-    options,
-  );
+  return api.bulkRejectSourceObservationsByScope<BulkSourceObservationPromotionResult>(scope, reason, options);
 }
 
 export function useActiveSourceObservationBulkJobs() {
@@ -189,10 +153,7 @@ export function watchSourceObservationBulkJob(
     signal?: AbortSignal;
   } = {},
 ) {
-  return api.watchSourceObservationBulkJob<BulkSourceObservationPromotionResult>(
-    jobId,
-    options,
-  );
+  return api.watchSourceObservationBulkJob<BulkSourceObservationPromotionResult>(jobId, options);
 }
 
 export function promoteSourceObservation(id: string) {

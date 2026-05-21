@@ -37,17 +37,10 @@ function assertPublicKeyCredential(value: Credential | null) {
 }
 
 function isPasskeyAvailable() {
-  return Boolean(
-    typeof window !== "undefined" &&
-      "PublicKeyCredential" in window &&
-      navigator.credentials,
-  );
+  return Boolean(typeof window !== "undefined" && "PublicKeyCredential" in window && navigator.credentials);
 }
 
-async function requestChallenge(
-  purpose: "passkey-register" | "passkey-sign-in",
-  email: string,
-) {
+async function requestChallenge(purpose: "passkey-register" | "passkey-sign-in", email: string) {
   const response = await fetch("/api/auth/passkeys/challenge", {
     method: "POST",
     credentials: "include",
@@ -67,10 +60,12 @@ async function requestChallenge(
   return response.json() as Promise<PasskeyChallengeResponse>;
 }
 
-export async function createPasskeyCredential(params: Readonly<{
-  displayName: string;
-  email: string;
-}>): Promise<PasskeyCredentialPayload> {
+export async function createPasskeyCredential(
+  params: Readonly<{
+    displayName: string;
+    email: string;
+  }>,
+): Promise<PasskeyCredentialPayload> {
   if (!isPasskeyAvailable()) {
     throw new Error("Passkeys are not available in this browser.");
   }

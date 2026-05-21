@@ -7,28 +7,32 @@ describe("discovery public market queries", () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce({
-        rows: [{
-          account_id: "acc_seller",
-          seller_slug: "seller",
-          seller_display_name: "Seller",
-          status: "active",
-          average_rating: "4.50",
-          review_count: 2,
-          updated_at: "2026-05-13T00:00:00.000Z",
-        }],
+        rows: [
+          {
+            account_id: "acc_seller",
+            seller_slug: "seller",
+            seller_display_name: "Seller",
+            status: "active",
+            average_rating: "4.50",
+            review_count: 2,
+            updated_at: "2026-05-13T00:00:00.000Z",
+          },
+        ],
       })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
-        rows: [{
-          review_id: "rev_1",
-          author_account_id: "acc_buyer",
-          author_display_name: "Buyer One",
-          author_role: "buyer",
-          rating: 5,
-          feedback: "Packed well and shipped quickly.",
-          submitted_at: "2026-05-12T00:00:00.000Z",
-          updated_at: "2026-05-12T00:00:00.000Z",
-        }],
+        rows: [
+          {
+            review_id: "rev_1",
+            author_account_id: "acc_buyer",
+            author_display_name: "Buyer One",
+            author_role: "buyer",
+            rating: 5,
+            feedback: "Packed well and shipped quickly.",
+            submitted_at: "2026-05-12T00:00:00.000Z",
+            updated_at: "2026-05-12T00:00:00.000Z",
+          },
+        ],
       });
     const db = { query } as unknown as PgQueryable;
 
@@ -41,11 +45,7 @@ describe("discovery public market queries", () => {
         feedback: "Packed well and shipped quickly.",
       }),
     ]);
-    expect(query.mock.calls[1]?.[0]).toContain(
-      "account.seller_listing_availability_status = 'available'",
-    );
-    expect(query.mock.calls[2]?.[0]).toContain(
-      "FROM discovery_market_account_reviews AS review",
-    );
+    expect(query.mock.calls[1]?.[0]).toContain("account.seller_listing_availability_status = 'available'");
+    expect(query.mock.calls[2]?.[0]).toContain("FROM discovery_market_account_reviews AS review");
   });
 });

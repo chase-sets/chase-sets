@@ -4,8 +4,5 @@
     "rootDir": "../..",
     "types": ["node", "vitest"]
   },
-  "include": [
-    "*.ts",
-    "../../contracts/**/*.ts"
-  ]
+  "include": ["*.ts", "../../contracts/**/*.ts"]
 }

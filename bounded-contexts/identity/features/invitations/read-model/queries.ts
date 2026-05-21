@@ -1,10 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeEmail } from "../../../support/runtime-support/common";
-import {
-  buildFilteredQuery,
-  executeListQuery,
-  type ListParams,
-} from "../../../support/read-model-support/list-query";
+import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type InvitationRow = Readonly<{
   invitation_id: string;
@@ -17,10 +13,7 @@ export type InvitationRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listInvitations(
-  db: PgQueryable,
-  params: ListParams = {},
-) {
+export async function listInvitations(db: PgQueryable, params: ListParams = {}) {
   const query = buildFilteredQuery(
     "identity_invitations",
     params,
@@ -31,10 +24,9 @@ export async function listInvitations(
 }
 
 export async function getInvitation(db: PgQueryable, invitationId: string) {
-  const result = await db.query<InvitationRow>(
-    `SELECT * FROM identity_invitations WHERE invitation_id = $1`,
-    [invitationId],
-  );
+  const result = await db.query<InvitationRow>(`SELECT * FROM identity_invitations WHERE invitation_id = $1`, [
+    invitationId,
+  ]);
   return result.rows[0] ?? null;
 }
 

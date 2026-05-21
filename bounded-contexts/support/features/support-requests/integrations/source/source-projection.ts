@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildSupportOrderSourceProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
@@ -30,12 +28,7 @@ export function buildSupportOrderSourceProjectionHandlers(
              seller_account_id = EXCLUDED.seller_account_id,
              total_amount = EXCLUDED.total_amount,
              updated_at = now()`,
-        [
-          data.orderId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          data.totalAmount,
-        ],
+        [data.orderId, data.buyerAccountId, data.sellerAccountId, data.totalAmount],
       );
     },
     "ordering.order.cancelled": async (event) => {
@@ -71,9 +64,7 @@ export function buildSupportOrderSourceProjectionHandlers(
   };
 }
 
-export function buildSupportShipmentSourceProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildSupportShipmentSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "fulfillment.shipment.created": async (event) => {
       const data = event.data as {
@@ -105,13 +96,7 @@ export function buildSupportShipmentSourceProjectionHandlers(
              buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              updated_at = EXCLUDED.updated_at`,
-        [
-          data.shipmentId,
-          data.orderId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          data.createdAt,
-        ],
+        [data.shipmentId, data.orderId, data.buyerAccountId, data.sellerAccountId, data.createdAt],
       );
     },
     "fulfillment.shipment.dispatched": async (event) => {

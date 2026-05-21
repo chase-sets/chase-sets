@@ -1,43 +1,20 @@
 {
   "contextName": "reputation",
   "packageName": "@chase-sets/reputation",
-  "ownedNouns": [
-    "review",
-    "review-summary"
-  ],
+  "ownedNouns": ["review", "review-summary"],
   "streamPrefix": "reputation.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "reviews"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "route-support",
-    "runtime-support",
-    "seed-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
-  "allowedContextDependencies": [
-    "@chase-sets/identity"
-  ],
-  "seedRequirements": [
-    "identity",
-    "fulfillment"
-  ],
+  "slices": ["reviews"],
+  "allowedSupportDirectories": ["request-support", "route-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedContextDependencies": ["@chase-sets/identity"],
+  "seedRequirements": ["identity", "fulfillment"],
   "eventSubscriptions": [
     {
       "sourceContextName": "identity",
       "projectionName": "reputation-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "reputation-account-projection"
-      ],
+      "projectorNames": ["reputation-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -51,9 +28,7 @@
       "sourceContextName": "ordering",
       "projectionName": "reputation-order-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "reputation-order-source-projection"
-      ],
+      "projectorNames": ["reputation-order-source-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
@@ -66,9 +41,7 @@
       "sourceContextName": "fulfillment",
       "projectionName": "reputation-shipment-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "reputation-shipment-source-projection"
-      ],
+      "projectorNames": ["reputation-shipment-source-projection"],
       "eventTypes": [
         "fulfillment.shipment.created",
         "fulfillment.shipment.dispatched",
@@ -82,9 +55,7 @@
       "sourceContextName": "support",
       "projectionName": "reputation-support-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "reputation-support-source-projection"
-      ],
+      "projectorNames": ["reputation-support-source-projection"],
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
@@ -96,49 +67,31 @@
   "projectionGroups": [
     {
       "projectionName": "reputation-account-projection",
-      "sourceContextNames": [
-        "identity"
-      ],
-      "ownedTables": [
-        "reputation_account_pages"
-      ],
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["reputation_account_pages"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "reputation-order-source-projection",
-      "sourceContextNames": [
-        "ordering"
-      ],
-      "ownedTables": [
-        "reputation_order_sources"
-      ],
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["reputation_order_sources"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "reputation-shipment-source-projection",
-      "sourceContextNames": [
-        "fulfillment"
-      ],
-      "ownedTables": [
-        "reputation_shipment_sources"
-      ],
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["reputation_shipment_sources"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "reputation-support-source-projection",
-      "sourceContextNames": [
-        "support"
-      ],
-      "ownedTables": [
-        "reputation_review_eligibility_pages"
-      ],
+      "sourceContextNames": ["support"],
+      "ownedTables": ["reputation_review_eligibility_pages"],
       "requiredDuringBootstrap": false
     }
   ],
   "hostPorts": [],
-  "apiDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -206,9 +159,7 @@
       "href": "/account/reviews",
       "order": 160,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "reputation.view"
-      ]
+      "requiredPermissions": ["reputation.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -219,9 +170,7 @@
       "href": "/account/reviews",
       "order": 160,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "reputation.view"
-      ]
+      "requiredPermissions": ["reputation.view"]
     }
   ],
   "directoryIntent": {
@@ -229,18 +178,13 @@
       "classification": "slice",
       "purpose": "Own reviews feature behavior, read models, and UI contracts for the reputation context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal reputation module composition"
-      ]
+      "expectedConsumers": ["Internal reputation module composition"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by reputation-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple reputation slices",
-        "Deployable composition for reputation"
-      ],
+      "expectedConsumers": ["Multiple reputation slices", "Deployable composition for reputation"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "reputation workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -250,9 +194,7 @@
       "classification": "support",
       "purpose": "Provide reusable route-support assets shared by reputation-owned route modules.",
       "allowedWhen": "Allowed only when route-layer behavior is duplicated across reputation-owned deployable routes.",
-      "expectedConsumers": [
-        "routes"
-      ],
+      "expectedConsumers": ["routes"],
       "justification": "route-support centralizes route composition for the shared review-submission workflow.",
       "createdFor": "purchase and sale review submission routes that differ only by entry-point path and not-found copy.",
       "sunsetWhen": "Remove when the route modules no longer share meaningful request and rendering behavior."
@@ -261,9 +203,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by reputation-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "reviews"
-      ],
+      "expectedConsumers": ["reviews"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "reputation workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -272,10 +212,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by reputation-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple reputation slices",
-        "Deployable composition for reputation"
-      ],
+      "expectedConsumers": ["Multiple reputation slices", "Deployable composition for reputation"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "reputation workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -285,12 +222,8 @@
       "classification": "routes",
       "purpose": "Expose reputation-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

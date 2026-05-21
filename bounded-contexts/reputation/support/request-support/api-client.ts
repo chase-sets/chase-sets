@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createReputationApiClient,
-  ReputationApiError,
-  reputationApi,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createReputationApiClient, ReputationApiError, reputationApi } from "../../client";
 export type {
   ReviewSummary,
   ReputationApiClientOptions,

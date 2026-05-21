@@ -39,13 +39,9 @@ export function createSettlementServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const transactionalEmailOutbox =
-    ports.transactionalEmailOutbox ??
-    createPostgresTransactionalEmailOutbox({ db });
-  const moneyMovementGateway =
-    ports.moneyMovementGateway ?? createFakeMoneyMovementGateway();
-  const operationsRecorder =
-    ports.operationsRecorder ?? createNoopSettlementOperationsRecorder();
+  const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
+  const moneyMovementGateway = ports.moneyMovementGateway ?? createFakeMoneyMovementGateway();
+  const operationsRecorder = ports.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const wallets = createWalletRuntime({
     eventStore,
     checkpointStore,
@@ -72,11 +68,7 @@ export function createSettlementServices(
     wallets,
     payouts,
     payoutReadiness,
-    projectors: [
-      ...wallets.projectors,
-      ...payoutReadiness.projectors,
-      ...payouts.projectors,
-    ],
+    projectors: [...wallets.projectors, ...payoutReadiness.projectors, ...payouts.projectors],
     pool,
     db,
   };

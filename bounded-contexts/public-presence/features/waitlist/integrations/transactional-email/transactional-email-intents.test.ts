@@ -15,8 +15,6 @@ describe("waitlist transactional email intents", () => {
     expect(message.subject).toContain("officially joined");
     expect(message.templateId).toBe("waitlist_signup_confirmation");
     expect(message.templateData.status).toBe("joined");
-    expect(message.idempotencyKey).toBe(
-      "public-presence:waitlist-signup-confirmation:wls_collector",
-    );
+    expect(message.idempotencyKey).toBe("public-presence:waitlist-signup-confirmation:wls_collector");
   });
 });

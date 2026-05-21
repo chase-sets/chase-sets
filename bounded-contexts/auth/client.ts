@@ -81,136 +81,49 @@ export function createAuthApiClient({
       return postJson<T>(configuredFetch, buildUrl("register"), body, headers);
     },
     async signInWithPassword<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("password-sign-in"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("password-sign-in"), body, headers);
     },
     async requestMagicLink<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("magic-link/request"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("magic-link/request"), body, headers);
     },
     async consumeMagicLink<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("magic-link/consume"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("magic-link/consume"), body, headers);
     },
     async requestPhoneCode<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("phone-code/request"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("phone-code/request"), body, headers);
     },
     async consumePhoneCode<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("phone-code/consume"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("phone-code/consume"), body, headers);
     },
     async startGuestCheckout<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("guest-checkout/start"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("guest-checkout/start"), body, headers);
     },
-    async claimGuestCheckoutWithMagicLink<T>(
-      body: Record<string, unknown>,
-    ): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("guest-checkout/claim-with-magic-link"),
-        body,
-        headers,
-      );
+    async claimGuestCheckoutWithMagicLink<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-with-magic-link"), body, headers);
     },
-    async requestGuestCheckoutClaimLink<T>(
-      body: Record<string, unknown>,
-    ): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("guest-checkout/claim-link/request"),
-        body,
-        headers,
-      );
+    async requestGuestCheckoutClaimLink<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-link/request"), body, headers);
     },
-    async getGuestCheckoutClaimContext<T>(
-      body: Record<string, unknown>,
-    ): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("guest-checkout/claim-context"),
-        body,
-        headers,
-      );
+    async getGuestCheckoutClaimContext<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-context"), body, headers);
     },
-    async claimGuestCheckoutWithPasskey<T>(
-      body: Record<string, unknown>,
-    ): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("guest-checkout/claim-with-passkey"),
-        body,
-        headers,
-      );
+    async claimGuestCheckoutWithPasskey<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("guest-checkout/claim-with-passkey"), body, headers);
     },
     async createPasskeyChallenge<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("passkeys/challenge"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("passkeys/challenge"), body, headers);
     },
     async registerPasskey<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("passkeys/register"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("passkeys/register"), body, headers);
     },
     async signInWithPasskey<T>(body: Record<string, unknown>): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("passkeys/sign-in"),
-        body,
-        headers,
-      );
+      return postJson<T>(configuredFetch, buildUrl("passkeys/sign-in"), body, headers);
     },
-    async resolveAccountSelection<T>(
-      body: Record<string, unknown>,
-    ): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("account-selection/resolve"),
-        body,
-        headers,
-      );
+    async resolveAccountSelection<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("account-selection/resolve"), body, headers);
     },
-    async completeAccountSelection<T>(
-      body: Record<string, unknown>,
-    ): Promise<T> {
-      return postJson<T>(
-        configuredFetch,
-        buildUrl("account-selection/complete"),
-        body,
-        headers,
-      );
+    async completeAccountSelection<T>(body: Record<string, unknown>): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl("account-selection/complete"), body, headers);
     },
     async getCurrentActor<T>(): Promise<T> {
       return parseJsonResponse<T>(
@@ -222,12 +135,9 @@ export function createAuthApiClient({
     async listSessions<T>(query = ""): Promise<T> {
       const search = new URLSearchParams(query).toString();
       return parseJsonResponse<T>(
-        await configuredFetch(
-          search ? `${buildUrl("sessions")}?${search}` : buildUrl("sessions"),
-          {
-            headers,
-          },
-        ),
+        await configuredFetch(search ? `${buildUrl("sessions")}?${search}` : buildUrl("sessions"), {
+          headers,
+        }),
       );
     },
     async getSession<T>(id: string): Promise<T> {

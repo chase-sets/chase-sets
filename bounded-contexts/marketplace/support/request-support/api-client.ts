@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createMarketplaceApiClient,
-  marketplaceApi,
-  MarketplaceApiError,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createMarketplaceApiClient, marketplaceApi, MarketplaceApiError } from "../../client";
 export type {
   OfferMatchDetail,
   OfferMatchListItem,

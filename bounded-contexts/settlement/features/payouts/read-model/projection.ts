@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildPayoutProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "settlement.payout.requested": async (event) => {
       const data = event.data as {
@@ -127,12 +125,7 @@ export function buildPayoutProjectionHandlers(
              last_stream_version = $4
          WHERE payout_id = $1
            AND last_stream_version < $4`,
-        [
-          data.payoutId,
-          data.providerStatus ?? null,
-          data.completedAt,
-          event.streamVersion,
-        ],
+        [data.payoutId, data.providerStatus ?? null, data.completedAt, event.streamVersion],
       );
     },
     "settlement.payout.failed": async (event) => {

@@ -1,8 +1,4 @@
-import type {
-  DiscoveryProductAssetRole,
-  DiscoveryProductAssetSet,
-  DiscoveryProductAssetVariant,
-} from "./contracts";
+import type { DiscoveryProductAssetRole, DiscoveryProductAssetSet, DiscoveryProductAssetVariant } from "./contracts";
 
 export function selectDiscoveryProductAssetVariant(
   assetSet: DiscoveryProductAssetSet | null | undefined,
@@ -11,10 +7,12 @@ export function selectDiscoveryProductAssetVariant(
 ): DiscoveryProductAssetVariant | null {
   const variants = assetSet?.variants.filter((variant) => variant.role === role) ?? [];
 
-  return variants.find((variant) => variant.density === density) ??
+  return (
+    variants.find((variant) => variant.density === density) ??
     variants.find((variant) => variant.density === 1) ??
     variants[0] ??
-    null;
+    null
+  );
 }
 
 export function selectDiscoveryProductAssetUrl(
@@ -38,15 +36,12 @@ export function buildDiscoveryProductAssetSrcSet(
   role: DiscoveryProductAssetRole,
 ): string | undefined {
   const assetSet = assetSets?.[0];
-  const variants = assetSet?.variants
-    .filter((variant) => variant.role === role)
-    .sort((left, right) => left.width - right.width) ?? [];
+  const variants =
+    assetSet?.variants.filter((variant) => variant.role === role).sort((left, right) => left.width - right.width) ?? [];
 
   if (variants.length === 0) {
     return undefined;
   }
 
-  return variants
-    .map((variant) => `${variant.publicUrl} ${variant.width}w`)
-    .join(", ");
+  return variants.map((variant) => `${variant.publicUrl} ${variant.width}w`).join(", ");
 }

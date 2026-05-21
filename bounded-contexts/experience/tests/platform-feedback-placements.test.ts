@@ -8,18 +8,16 @@ async function routeSource(path: string) {
 
 describe("platform feedback prompt placements", () => {
   it("places checkout feedback after completed payment outcomes", async () => {
-    const source = await routeSource(
-      "bounded-contexts/payments/routes/marketplace/account-payment.tsx",
-    );
+    const source = await routeSource("bounded-contexts/payments/routes/marketplace/account-payment.tsx");
 
     expect(source).toContain("PlatformFeedbackPrompt");
     expect(source).toContain('workflow="checkout-payment"');
-    expect(source).toContain("payment.status === \"captured\"");
+    expect(source).toContain('payment.status === "captured"');
     expect(source).toContain("zeroDollarBalanceCovered");
-    expect(source).toContain("payment.processor_amount === \"0.00\"");
-    expect(source).toContain("payment.status !== \"pending-confirmation\"");
-    expect(source).toContain("payment.status !== \"failed\"");
-    expect(source).toContain("payment.status !== \"cancelled\"");
+    expect(source).toContain('payment.processor_amount === "0.00"');
+    expect(source).toContain('payment.status !== "pending-confirmation"');
+    expect(source).toContain('payment.status !== "failed"');
+    expect(source).toContain('payment.status !== "cancelled"');
   });
 
   it("places listing, offer, and inventory feedback prompts with workflow context", async () => {

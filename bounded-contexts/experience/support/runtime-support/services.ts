@@ -14,9 +14,7 @@ export type ExperienceServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createExperienceServices(
-  pool: PgTransactionalPool,
-): ExperienceServices {
+export function createExperienceServices(pool: PgTransactionalPool): ExperienceServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideCommercialAgreement,
-  evolveCommercialAgreement,
-  initialCommercialAgreementState,
-} from "./domain";
+import { decideCommercialAgreement, evolveCommercialAgreement, initialCommercialAgreementState } from "./domain";
 
 describe("commercial terms agreements", () => {
   it("normalizes account-specific agreement fees and effective windows", () => {

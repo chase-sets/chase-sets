@@ -5,7 +5,6 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { BlueprintId, ComponentId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
-
 export function blueprintRoutes(services: BlueprintServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -193,7 +192,15 @@ export function blueprintRoutes(services: BlueprintServices) {
 
   app.get("/", async (c) => {
     const { search, status, limit, offset, hasComponents, hasFieldRules, hasDimensionRules } = c.req.query();
-    const result = await services.listBlueprints({ search, status, hasComponents, hasFieldRules, hasDimensionRules, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listBlueprints({
+      search,
+      status,
+      hasComponents,
+      hasFieldRules,
+      hasDimensionRules,
+      limit: Number(limit) || undefined,
+      offset: Number(offset) || undefined,
+    });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -202,7 +209,10 @@ export function blueprintRoutes(services: BlueprintServices) {
     const blueprint = await services.getBlueprintDetail(c.req.param("id"));
 
     if (!blueprint) {
-      return c.json({ error: { code: "not_found", message: t("catalog.features.blueprints.api.route.blueprint.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("catalog.features.blueprints.api.route.blueprint.not.found") } },
+        404,
+      );
     }
 
     return c.json(blueprint);
@@ -220,6 +230,3 @@ function blueprintListQueryFromRecord(record: Record<string, unknown>) {
     hasDimensionRules: toOptionalString(record.hasDimensionRules),
   };
 }
-
-
-

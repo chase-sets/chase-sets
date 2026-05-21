@@ -82,9 +82,7 @@ describe("sign-in page magic link recovery", () => {
     expect(screen.getByText("Magic link sent")).toBeTruthy();
     expect(screen.getByText("Magic link ready. Check your email to continue.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Continue With Token" })).toBeNull();
-    expect(
-      document.querySelector('input[name="intent"][value="magic-link-consume"]'),
-    ).toBeNull();
+    expect(document.querySelector('input[name="intent"][value="magic-link-consume"]')).toBeNull();
   });
 
   it("does not render manual token entry when host config disables it", () => {
@@ -96,9 +94,7 @@ describe("sign-in page magic link recovery", () => {
     expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
     expect(screen.queryByLabelText("Magic Link Token")).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue With Token" })).toBeNull();
-    expect(
-      document.querySelector('input[name="intent"][value="magic-link-consume"]'),
-    ).toBeNull();
+    expect(document.querySelector('input[name="intent"][value="magic-link-consume"]')).toBeNull();
   });
 
   it("rejects crafted manual magic-link consumes when host config disables token entry", async () => {

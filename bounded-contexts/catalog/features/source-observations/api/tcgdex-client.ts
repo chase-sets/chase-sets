@@ -2,10 +2,7 @@ import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { CatalogAssetStorage } from "./asset-storage";
-import {
-  normalizeProductAssetSet,
-  type CatalogImageProcessor,
-} from "./product-asset-normalization";
+import { normalizeProductAssetSet, type CatalogImageProcessor } from "./product-asset-normalization";
 
 const TCGDEX_BASE_URL = "https://api.tcgdex.net/v2";
 const PROVIDER_KEY = "tcgdex";
@@ -262,9 +259,7 @@ async function toObservations(input: {
 }): Promise<readonly TcgdexObservationInput[]> {
   const releaseYear = releaseYearFromDate(input.set.releaseDate);
   const sourcePayload = toJsonValue(sanitizeTcgdexCardPayload(input.card));
-  const sourceImageUrls = input.card.image
-    ? [`${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`]
-    : [];
+  const sourceImageUrls = input.card.image ? [`${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`] : [];
   const variants = normalizeVariants(input.card.variants);
   const cardVariants = normalizeCardVariants(input.card.variants);
 
@@ -297,10 +292,7 @@ async function toObservations(input: {
       cardVariantLabel: variant.displayName,
       cardVariantSourceKey: variant.sourceKey,
       cardVariantIsPrimaryImage: variant.isPrimaryImage,
-      imageDisclaimer:
-        input.card.image && !variant.isPrimaryImage
-          ? buildImageDisclaimer(variant.displayName)
-          : null,
+      imageDisclaimer: input.card.image && !variant.isPrimaryImage ? buildImageDisclaimer(variant.displayName) : null,
       variants,
     };
     const providerNormalizedForHash: SourceObservationNormalized = {
@@ -310,11 +302,7 @@ async function toObservations(input: {
     };
 
     return {
-      observationId: buildObservationId(
-        input.languageCode,
-        input.card.id,
-        variant.isPrimaryImage ? null : variant.key,
-      ),
+      observationId: buildObservationId(input.languageCode, input.card.id, variant.isPrimaryImage ? null : variant.key),
       providerKey: PROVIDER_KEY,
       externalKey: variant.isPrimaryImage ? input.card.id : `${input.card.id}:${variant.key}`,
       sourceUrl: input.sourceUrl,
@@ -346,8 +334,7 @@ export async function normalizeTcgdexImageAsset(input: {
   }
 
   const body = new Uint8Array(await response.arrayBuffer());
-  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim() ||
-    "image/webp";
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim() || "image/webp";
 
   if (contentType !== "image/webp") {
     throw new Error(`TCGdex high quality asset must be image/webp for ${assetUrl}.`);
@@ -382,9 +369,7 @@ function normalizeVariants(variants: Readonly<Record<string, boolean>> | undefin
   );
 }
 
-function normalizeCardVariants(
-  variants: Readonly<Record<string, boolean>> | undefined,
-): readonly PokemonCardVariant[] {
+function normalizeCardVariants(variants: Readonly<Record<string, boolean>> | undefined): readonly PokemonCardVariant[] {
   const sourceKeysByVariantKey = new Map<string, string>();
   Object.entries(variants ?? {})
     .filter(([, value]) => value === true)
@@ -410,9 +395,7 @@ function normalizeCardVariants(
     ];
   }
 
-  const primaryKey = sourceKeys.find((key) => normalizeVariantKey(key) === "standard") ??
-    sourceKeys[0] ??
-    null;
+  const primaryKey = sourceKeys.find((key) => normalizeVariantKey(key) === "standard") ?? sourceKeys[0] ?? null;
 
   return sourceKeys.map((sourceKey) => {
     const key = normalizeVariantKey(sourceKey);
@@ -430,9 +413,7 @@ function compareVariantSourceKeys(left: string, right: string): number {
   const leftOrder = variantSortOrder(left);
   const rightOrder = variantSortOrder(right);
 
-  return leftOrder === rightOrder
-    ? left.localeCompare(right)
-    : leftOrder - rightOrder;
+  return leftOrder === rightOrder ? left.localeCompare(right) : leftOrder - rightOrder;
 }
 
 function variantSortOrder(sourceKey: string): number {
@@ -531,17 +512,8 @@ function buildImageDisclaimer(variantLabel: string): string {
   return `TCGDex provides one image for this card number. This Catalog Item represents the ${variantLabel} variant, so the image may not show the exact foil or pattern.`;
 }
 
-function buildObservationId(
-  languageCode: string,
-  cardId: string,
-  variantKey: string | null,
-): string {
-  return [
-    "tcgdex",
-    normalizeKey(languageCode),
-    cardId.trim().toLowerCase(),
-    variantKey,
-  ]
+function buildObservationId(languageCode: string, cardId: string, variantKey: string | null): string {
+  return ["tcgdex", normalizeKey(languageCode), cardId.trim().toLowerCase(), variantKey]
     .filter((part): part is string => Boolean(part))
     .join("_")
     .replace(/[^a-z0-9]+/g, "_")
@@ -586,11 +558,7 @@ function toJsonValue(value: unknown): JsonValue {
     return null;
   }
 
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return value;
   }
 

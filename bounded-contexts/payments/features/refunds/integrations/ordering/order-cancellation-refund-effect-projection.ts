@@ -2,10 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { RefundServices } from "../../api/runtime";
-import {
-  getCapturedPaymentByOrderId,
-  getOrderPaymentInput,
-} from "../../../payments/read-model/queries";
+import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
 
 function moneyToCents(value: string) {
   return Math.round(Number.parseFloat(value) * 100);
@@ -15,10 +12,7 @@ function centsToMoney(cents: number) {
   return (cents / 100).toFixed(2);
 }
 
-async function loadOrderTotals(
-  db: PgQueryable,
-  orderIds: readonly string[],
-): Promise<Map<string, number>> {
+async function loadOrderTotals(db: PgQueryable, orderIds: readonly string[]): Promise<Map<string, number>> {
   if (orderIds.length === 0) {
     return new Map();
   }
@@ -32,9 +26,7 @@ async function loadOrderTotals(
     [orderIds],
   );
 
-  return new Map(
-    result.rows.map((row) => [row.order_id, Number.parseInt(row.total_cents, 10)]),
-  );
+  return new Map(result.rows.map((row) => [row.order_id, Number.parseInt(row.total_cents, 10)]));
 }
 
 function allocateCheckoutFeeCents(
@@ -49,13 +41,8 @@ function allocateCheckoutFeeCents(
     return 0;
   }
 
-  const orderedIds = params.paymentOrderIds.filter((orderId) =>
-    params.orderTotals.has(orderId),
-  );
-  const totalCents = orderedIds.reduce(
-    (sum, orderId) => sum + (params.orderTotals.get(orderId) ?? 0),
-    0,
-  );
+  const orderedIds = params.paymentOrderIds.filter((orderId) => params.orderTotals.has(orderId));
+  const totalCents = orderedIds.reduce((sum, orderId) => sum + (params.orderTotals.get(orderId) ?? 0), 0);
   if (orderedIds.length === 0 || totalCents <= 0) {
     return 0;
   }
@@ -98,14 +85,7 @@ async function claimCancellationRefundEffect(
      ) VALUES ($1, $2, $3, $4, $5, $6, $6)
      ON CONFLICT (order_id) DO NOTHING
      RETURNING order_id`,
-    [
-      params.orderId,
-      params.paymentId,
-      params.amount,
-      params.status,
-      params.failureMessage ?? null,
-      params.now,
-    ],
+    [params.orderId, params.paymentId, params.amount, params.status, params.failureMessage ?? null, params.now],
   );
 
   return (result.rowCount ?? 0) > 0;
@@ -146,9 +126,7 @@ export function buildPaymentsOrderCancellationRefundEffectHandlers(
         orderTotals,
         checkoutFeeCents,
       });
-      const amount = centsToMoney(
-        moneyToCents(orderInput.total_amount) + allocatedCheckoutFeeCents,
-      );
+      const amount = centsToMoney(moneyToCents(orderInput.total_amount) + allocatedCheckoutFeeCents);
 
       const claimed = await claimCancellationRefundEffect(db, {
         orderId: data.orderId,

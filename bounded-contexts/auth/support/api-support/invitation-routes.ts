@@ -2,23 +2,13 @@ import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import {
-  createIdentityMutations,
-  createOwnedUserDisplayName,
-  getBootstrapContext,
-  type AuthApiApp,
-} from "./support";
+import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
-export function registerInvitationRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/invitations/accept", async (c) => {
     const body = await c.req.json();
     const identityMutations = createIdentityMutations(c);
-    const invitation = await services.identity.getInvitation(
-      String(body.invitationId ?? ""),
-    );
+    const invitation = await services.identity.getInvitation(String(body.invitationId ?? ""));
     if (!invitation || invitation.status !== "pending") {
       return c.json({ error: t("auth.support.apiSupport.invitationRoutes.invitation.is.unavailable") }, 404);
     }

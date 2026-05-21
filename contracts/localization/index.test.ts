@@ -13,9 +13,7 @@ import {
 } from "./index";
 
 function interpolationTokens(value: string) {
-  return [...value.matchAll(/\{([A-Za-z0-9_.-]+)\}/g)]
-    .map((match) => match[1])
-    .sort();
+  return [...value.matchAll(/\{([A-Za-z0-9_.-]+)\}/g)].map((match) => match[1]).sort();
 }
 
 describe("localization", () => {
@@ -28,9 +26,7 @@ describe("localization", () => {
   it("interpolates named values", () => {
     const translator = createTranslator();
 
-    expect(
-      translator.t("localization.testGreeting", { name: "Ada" }),
-    ).toBe("Hello, Ada.");
+    expect(translator.t("localization.testGreeting", { name: "Ada" })).toBe("Hello, Ada.");
   });
 
   it("reports missing translations", () => {
@@ -93,9 +89,7 @@ describe("localization", () => {
     const englishKeys = Object.keys(translationCatalogs.en).sort();
 
     for (const locale of supportedLocales) {
-      expect(Object.keys(translationCatalogs[locale]).sort()).toEqual(
-        englishKeys,
-      );
+      expect(Object.keys(translationCatalogs[locale]).sort()).toEqual(englishKeys);
     }
   });
 
@@ -106,9 +100,7 @@ describe("localization", () => {
       const catalog = translationCatalogs[locale];
 
       for (const key of Object.keys(englishCatalog)) {
-        expect(interpolationTokens(catalog[key]), `${locale}:${key}`).toEqual(
-          interpolationTokens(englishCatalog[key]),
-        );
+        expect(interpolationTokens(catalog[key]), `${locale}:${key}`).toEqual(interpolationTokens(englishCatalog[key]));
       }
     }
   });

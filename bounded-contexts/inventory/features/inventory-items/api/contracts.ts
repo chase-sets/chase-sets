@@ -1,8 +1,4 @@
-export type {
-  InventoryHold,
-  InventoryItemDetail,
-  InventoryItemListItem,
-} from "../ui/contracts";
+export type { InventoryHold, InventoryItemDetail, InventoryItemListItem } from "../ui/contracts";
 
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { GradedCardDetails } from "../domain/domain";

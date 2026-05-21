@@ -9,7 +9,7 @@ export const toneClasses: Record<Tone, string> = {
   success: "border-success bg-success text-inverse",
   warning: "border-warning bg-warning text-inverse",
   danger: "border-danger bg-danger text-inverse",
-  info: "border-info bg-info text-inverse"
+  info: "border-info bg-info text-inverse",
 };
 
 export const softToneClasses: Record<Tone, string> = {
@@ -18,7 +18,7 @@ export const softToneClasses: Record<Tone, string> = {
   success: "border-success/40 bg-success/8 text-success",
   warning: "border-warning/40 bg-warning/8 text-warning",
   danger: "border-danger/40 bg-danger/8 text-danger",
-  info: "border-info/40 bg-info/8 text-info"
+  info: "border-info/40 bg-info/8 text-info",
 };
 
 export function toneIcon(tone: Tone): IconName {
@@ -45,7 +45,7 @@ export function toneToIconTone(tone: Tone) {
 export function useControllableOpen(
   open: boolean | undefined,
   defaultOpen: boolean | undefined,
-  onOpenChange?: (open: boolean) => void
+  onOpenChange?: (open: boolean) => void,
 ) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
   const resolvedOpen = open ?? internalOpen;

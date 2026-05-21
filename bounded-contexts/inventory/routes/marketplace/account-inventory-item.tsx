@@ -1,17 +1,10 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
-import {
-  InventoryApiError,
-  type InventoryItemDetail,
-} from "../../support/request-support/api-client";
+import { InventoryApiError, type InventoryItemDetail } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";
 
@@ -28,7 +21,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     };
   } catch (error) {
     if (error instanceof InventoryApiError && error.status === 404) {
-      throw new Response(t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"), { status: 404 });
+      throw new Response(t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"), {
+        status: 404,
+      });
     }
 
     throw error;

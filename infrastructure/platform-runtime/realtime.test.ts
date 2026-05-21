@@ -62,47 +62,32 @@ async function readSseTextUntil(
 describe("realtime topic authorization", () => {
   it("allows anonymous public marketplace topics", () => {
     expect(
-      authorizeRealtimeTopics(
-        ["public:market", "item:item_1", "listing:listing_1", "public-account:account_1"],
-        null,
-      ),
+      authorizeRealtimeTopics(["public:market", "item:item_1", "listing:listing_1", "public-account:account_1"], null),
     ).toEqual(["item:item_1", "listing:listing_1", "public-account:account_1", "public:market"]);
   });
 
   it("allows signed-in account topics for the current account and permissions", () => {
-    expect(
-      authorizeRealtimeTopics(
-        ["account:account_1:listings", "account:account_1:offers"],
-        actor,
-      ),
-    ).toEqual(["account:account_1:listings", "account:account_1:offers"]);
+    expect(authorizeRealtimeTopics(["account:account_1:listings", "account:account_1:offers"], actor)).toEqual([
+      "account:account_1:listings",
+      "account:account_1:offers",
+    ]);
   });
 
   it("rejects anonymous account topics", () => {
-    expect(
-      authorizeRealtimeTopics(["account:account_1:listings"], null),
-    ).toBeNull();
+    expect(authorizeRealtimeTopics(["account:account_1:listings"], null)).toBeNull();
   });
 
   it("rejects signed-in account topics without matching permissions", () => {
     expect(
-      authorizeRealtimeTopics(
-        ["account:account_1:offers"],
-        {
-          ...actor,
-          permissions: ["listings.view"],
-        },
-      ),
+      authorizeRealtimeTopics(["account:account_1:offers"], {
+        ...actor,
+        permissions: ["listings.view"],
+      }),
     ).toBeNull();
   });
 
   it("rejects mixed unauthorized topics", () => {
-    expect(
-      authorizeRealtimeTopics(
-        ["public:market", "account:other_account:listings"],
-        actor,
-      ),
-    ).toBeNull();
+    expect(authorizeRealtimeTopics(["public:market", "account:other_account:listings"], actor)).toBeNull();
   });
 
   it("rejects malformed and oversized topic requests before authorization", () => {
@@ -147,9 +132,7 @@ describe("realtime SSE routes", () => {
       resolveActor: async () => null,
     });
 
-    const response = await app.request(
-      "/public/events?topic=public%3Amarket&topic=account%3Aaccount_1%3Aoffers",
-    );
+    const response = await app.request("/public/events?topic=public%3Amarket&topic=account%3Aaccount_1%3Aoffers");
 
     expect(response.status).toBe(403);
   });
@@ -160,10 +143,11 @@ describe("realtime SSE routes", () => {
       resolveActor: async () => actor,
     });
 
-    await expect(app.request("/public/events?topic=account%3Aaccount_1%3Aoffers"))
-      .resolves.toHaveProperty("status", 403);
-    await expect(app.request("/account/events?topic=public%3Amarket"))
-      .resolves.toHaveProperty("status", 403);
+    await expect(app.request("/public/events?topic=account%3Aaccount_1%3Aoffers")).resolves.toHaveProperty(
+      "status",
+      403,
+    );
+    await expect(app.request("/account/events?topic=public%3Amarket")).resolves.toHaveProperty("status", 403);
   });
 
   it("reports topic normalization diagnostics before authorization", async () => {
@@ -262,10 +246,7 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    const text = await readSseTextUntil(
-      reader!,
-      (value) => value.includes("event: projection.patch"),
-    );
+    const text = await readSseTextUntil(reader!, (value) => value.includes("event: projection.patch"));
     abort.abort();
     await reader!.cancel();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -274,7 +255,7 @@ describe("realtime SSE routes", () => {
     expect(queryParams).toContainEqual(["1", ["public:market"], 100]);
     expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "2" })}`);
     expect(text).toContain("event: projection.patch");
-    expect(text).toContain("\"entity\":\"discovery.marketSummary\"");
+    expect(text).toContain('"entity":"discovery.marketSummary"');
     expect(sentMessages).toEqual([
       expect.objectContaining({
         contextName: "discovery",
@@ -323,11 +304,8 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    await readSseTextUntil(
-      reader!,
-      () => queryParams.some((params) =>
-        JSON.stringify(params) === JSON.stringify(["0", ["public:market"], 100])
-      ),
+    await readSseTextUntil(reader!, () =>
+      queryParams.some((params) => JSON.stringify(params) === JSON.stringify(["0", ["public:market"], 100])),
     );
     abort.abort();
     await reader!.cancel();
@@ -373,11 +351,8 @@ describe("realtime SSE routes", () => {
     });
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
-    await readSseTextUntil(
-      reader!,
-      () => queryParams.some((params) =>
-        JSON.stringify(params) === JSON.stringify(["0", ["public:market"], 7])
-      ),
+    await readSseTextUntil(reader!, () =>
+      queryParams.some((params) => JSON.stringify(params) === JSON.stringify(["0", ["public:market"], 7])),
     );
     abort.abort();
     void reader!.cancel();
@@ -418,10 +393,7 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    const text = await readSseTextUntil(
-      reader!,
-      (value) => value.includes("event: sync.required"),
-    );
+    const text = await readSseTextUntil(reader!, (value) => value.includes("event: sync.required"));
     abort.abort();
     void reader!.cancel();
 
@@ -528,16 +500,13 @@ describe("realtime SSE routes", () => {
     const reader = response.body?.getReader();
     expect(reader).toBeDefined();
 
-    const text = await readSseTextUntil(
-      reader!,
-      (value) => value.includes("event: sync.required"),
-    );
+    const text = await readSseTextUntil(reader!, (value) => value.includes("event: sync.required"));
     await reader!.cancel();
     abort.abort();
 
     expect(response.status).toBe(200);
     expect(text).toContain("event: sync.required");
-    expect(text).toContain("\"reason\":\"replay-backpressure\"");
+    expect(text).toContain('"reason":"replay-backpressure"');
     expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "9" })}`);
     expect(text).not.toContain("event: projection.patch");
   });
@@ -584,21 +553,13 @@ describe("realtime cursors", () => {
 
 describe("realtime topic parsing", () => {
   it("accepts repeated and comma-separated topic query parameters", () => {
-    const params = new URLSearchParams(
-      "topic=public%3Amarket&topics=item%3Aone,item%3Atwo&topic=item%3Aone",
-    );
+    const params = new URLSearchParams("topic=public%3Amarket&topics=item%3Aone,item%3Atwo&topic=item%3Aone");
 
-    expect(parseRealtimeTopics(params)).toEqual([
-      "item:one",
-      "item:two",
-      "public:market",
-    ]);
+    expect(parseRealtimeTopics(params)).toEqual(["item:one", "item:two", "public:market"]);
   });
 
   it("inspects normalization changes without authorizing topics", () => {
-    expect(
-      inspectRealtimeTopicNormalization([" public:market ", "public:market", "", "item:item_1"]),
-    ).toMatchObject({
+    expect(inspectRealtimeTopicNormalization([" public:market ", "public:market", "", "item:item_1"])).toMatchObject({
       requestedCount: 4,
       normalizedCount: 2,
       duplicateCount: 1,
@@ -630,16 +591,14 @@ describe("realtime store topic ownership", () => {
     };
 
     expect(
-      selectRealtimeStoresForTopics(
-        [discoveryStore, marketplaceStore],
-        ["public:market", "item:item_1"],
-      ).map((store) => store.contextName),
+      selectRealtimeStoresForTopics([discoveryStore, marketplaceStore], ["public:market", "item:item_1"]).map(
+        (store) => store.contextName,
+      ),
     ).toEqual(["discovery"]);
     expect(
-      selectRealtimeStoresForTopics(
-        [discoveryStore, marketplaceStore],
-        ["account:account_1:offers"],
-      ).map((store) => store.contextName),
+      selectRealtimeStoresForTopics([discoveryStore, marketplaceStore], ["account:account_1:offers"]).map(
+        (store) => store.contextName,
+      ),
     ).toEqual(["marketplace"]);
   });
 });
@@ -659,11 +618,8 @@ describe("realtime outbox", () => {
   });
 
   it("exposes partition maintenance metadata for time-bucketed outbox retention", () => {
-    expect(realtimeOutboxPartitionMaintenanceSql).toContain(
-      "realtime_projection_outbox_partitions",
-    );
-    expect(createRealtimeOutboxPartitionName("2026_05_02"))
-      .toBe("realtime_projection_outbox_2026_05_02");
+    expect(realtimeOutboxPartitionMaintenanceSql).toContain("realtime_projection_outbox_partitions");
+    expect(createRealtimeOutboxPartitionName("2026_05_02")).toBe("realtime_projection_outbox_2026_05_02");
     expect(() => createRealtimeOutboxPartitionName("2026-05-02")).toThrow("YYYY_MM_DD");
   });
 
@@ -789,11 +745,7 @@ describe("realtime outbox", () => {
     expect(calls[3].sql).toContain("INSERT INTO realtime_projection_outbox_topics");
     expect(calls[3].params).toEqual(["42", ["listing:list_1", "public:market"]]);
     expect(calls[4].sql).toContain("INSERT INTO realtime_projection_topic_heads");
-    expect(calls[4].params).toEqual([
-      "42",
-      ["listing:list_1", "public:market"],
-      "2026-04-28T00:00:00.000Z",
-    ]);
+    expect(calls[4].params).toEqual(["42", ["listing:list_1", "public:market"], "2026-04-28T00:00:00.000Z"]);
     expect(calls[5].sql).toContain("pg_notify");
     expect(calls[5].params).toEqual([
       realtimeProjectionNotifyChannel,
@@ -1004,11 +956,7 @@ describe("realtime outbox", () => {
       },
     };
 
-    const result = await readRealtimePatches(
-      [{ contextName: "discovery", db }],
-      ["item:item_1"],
-      { discovery: "4" },
-    );
+    const result = await readRealtimePatches([{ contextName: "discovery", db }], ["item:item_1"], { discovery: "4" });
 
     expect(result.expiredContexts).toEqual([]);
     expect(result.cursor).toEqual({ discovery: "6" });
@@ -1045,9 +993,7 @@ describe("realtime outbox", () => {
     );
 
     expect(result.messages).toEqual([]);
-    expect(result.topicLags).toEqual([
-      { contextName: "discovery", topic: "public:market", lag: 0 },
-    ]);
+    expect(result.topicLags).toEqual([{ contextName: "discovery", topic: "public:market", lag: 0 }]);
     expect(outboxReadCount).toBe(0);
   });
 
@@ -1105,11 +1051,9 @@ describe("realtime outbox", () => {
       },
     };
 
-    const result = await readRealtimePatches(
-      [{ contextName: "marketplace", db }],
-      ["account:account_1:offers"],
-      { marketplace: "3" },
-    );
+    const result = await readRealtimePatches([{ contextName: "marketplace", db }], ["account:account_1:offers"], {
+      marketplace: "3",
+    });
 
     expect(result).toEqual({
       cursor: { marketplace: "14" },
@@ -1147,9 +1091,7 @@ describe("realtime outbox", () => {
           const after = Number(params?.[0] ?? 0);
           const limit = Number(params?.[2] ?? 100);
           return {
-            rows: outboxRows
-              .filter((row) => Number(row.outbox_id) > after)
-              .slice(0, limit),
+            rows: outboxRows.filter((row) => Number(row.outbox_id) > after).slice(0, limit),
           };
         }
 
@@ -1164,19 +1106,13 @@ describe("realtime outbox", () => {
       },
     };
 
-    const result = await readRealtimePatches(
-      [{ contextName: "discovery", db }],
-      ["public:market"],
-      {},
-      100,
-      { includeTopicLag: true },
-    );
+    const result = await readRealtimePatches([{ contextName: "discovery", db }], ["public:market"], {}, 100, {
+      includeTopicLag: true,
+    });
 
     expect(result.messages).toHaveLength(100);
     expect(result.cursor).toEqual({ discovery: "100" });
-    expect(result.topicLags).toEqual([
-      { contextName: "discovery", topic: "public:market", lag: 4_900 },
-    ]);
+    expect(result.topicLags).toEqual([{ contextName: "discovery", topic: "public:market", lag: 4_900 }]);
   });
 
   it("coalesces concurrent identical replay reads through the process-local read hub", async () => {
@@ -1315,16 +1251,14 @@ describe("realtime outbox", () => {
   });
 
   it("validates formal realtime route config values", () => {
-    expect(resolveRealtimeRouteConfig({ routeTuning: { batchSize: 25 } }))
-      .toMatchObject({
-        batchSize: 25,
-        resourceLimits: {
-          maxTopicsPerStream: 16,
-          maxActiveStreams: 1_000,
-        },
-      });
-    expect(() => resolveRealtimeRouteConfig({ routeTuning: { batchSize: 0 } }))
-      .toThrow("batchSize");
+    expect(resolveRealtimeRouteConfig({ routeTuning: { batchSize: 25 } })).toMatchObject({
+      batchSize: 25,
+      resourceLimits: {
+        maxTopicsPerStream: 16,
+        maxActiveStreams: 1_000,
+      },
+    });
+    expect(() => resolveRealtimeRouteConfig({ routeTuning: { batchSize: 0 } })).toThrow("batchSize");
   });
 
   it("acquires and releases distributed stream leases through Redis eval", async () => {
@@ -1452,7 +1386,9 @@ describe("realtime outbox", () => {
     expect(lease).toMatchObject({ activeConnectionCount: 2 });
     expect(statements).toContain("BEGIN");
     expect(statements.some((sql) => sql.includes("INSERT INTO platform_realtime_stream_leases"))).toBe(true);
-    expect(statements.some((sql) => sql.includes("DELETE FROM platform_realtime_stream_leases WHERE lease_id"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("DELETE FROM platform_realtime_stream_leases WHERE lease_id"))).toBe(
+      true,
+    );
   });
 
   it("exercises a synthetic multi-instance stream-limit load harness", async () => {
@@ -1463,10 +1399,7 @@ describe("realtime outbox", () => {
         const connectionKey = options.keys[1] ?? "";
         if (options.arguments.length === 0) {
           active = Math.max(0, active - 1);
-          activeByConnectionKey.set(
-            connectionKey,
-            Math.max(0, (activeByConnectionKey.get(connectionKey) ?? 1) - 1),
-          );
+          activeByConnectionKey.set(connectionKey, Math.max(0, (activeByConnectionKey.get(connectionKey) ?? 1) - 1));
           return 1;
         }
 
@@ -1510,8 +1443,7 @@ describe("realtime outbox", () => {
       },
     };
 
-    await expect(pruneExpiredRealtimePatchesWithAdvisoryLock(db, "42"))
-      .resolves.toBe(3);
+    await expect(pruneExpiredRealtimePatchesWithAdvisoryLock(db, "42")).resolves.toBe(3);
     expect(calls[0].sql).toContain("pg_try_advisory_lock");
     expect(calls[0].sql).toContain("pg_advisory_unlock");
     expect(calls[0].params).toEqual(["42"]);
@@ -1566,13 +1498,7 @@ describe("realtime outbox", () => {
       await tx.query("INSERT realtime_outbox");
     });
 
-    expect(statements).toEqual([
-      "BEGIN",
-      "UPDATE read_model",
-      "INSERT realtime_outbox",
-      "COMMIT",
-      "release",
-    ]);
+    expect(statements).toEqual(["BEGIN", "UPDATE read_model", "INSERT realtime_outbox", "COMMIT", "release"]);
   });
 
   it("records a batch of projection patches through one transaction boundary", async () => {
@@ -1645,8 +1571,7 @@ describe("realtime outbox", () => {
     ]);
 
     expect(statements[0]).toBe("BEGIN");
-    expect(statements.filter((sql) => sql.includes("INSERT INTO realtime_projection_outbox (")))
-      .toHaveLength(2);
+    expect(statements.filter((sql) => sql.includes("INSERT INTO realtime_projection_outbox ("))).toHaveLength(2);
     expect(statements.at(-2)).toBe("COMMIT");
     expect(statements.at(-1)).toBe("release");
   });

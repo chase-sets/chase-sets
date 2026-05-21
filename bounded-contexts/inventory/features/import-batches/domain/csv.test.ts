@@ -27,11 +27,9 @@ describe("parseImportCsv", () => {
 
   it("keeps quoted commas inside row notes and skips blank rows", () => {
     const rows = parseImportCsv(
-      [
-        "catalogItemId,storageLocationId,totalQuantity,rowNote",
-        "cat_1,loc_1,1,\"front clean, back whitening\"",
-        "",
-      ].join("\r\n"),
+      ["catalogItemId,storageLocationId,totalQuantity,rowNote", 'cat_1,loc_1,1,"front clean, back whitening"', ""].join(
+        "\r\n",
+      ),
     );
 
     expect(rows).toHaveLength(1);

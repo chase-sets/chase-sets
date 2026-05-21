@@ -1,19 +1,15 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
-import {
-  createAccountOfferMatchRoutes,
-  createAccountSubmittedOfferRoutes,
-} from "./route";
-import {
-  MarketplaceOfferFeeQuoteStaleError,
-  type MarketplaceOfferServices,
-} from "./runtime";
+import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./route";
+import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
 
-function buildApp(options: Readonly<{
-  actor: MarketplaceApiEnv["Variables"]["actor"];
-  services: MarketplaceOfferServices;
-}>) {
+function buildApp(
+  options: Readonly<{
+    actor: MarketplaceApiEnv["Variables"]["actor"];
+    services: MarketplaceOfferServices;
+  }>,
+) {
   const app = new Hono<MarketplaceApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -177,9 +173,7 @@ describe("marketplace offer routes", () => {
       services: createServices(),
     });
 
-    const response = await app.fetch(
-      new Request("http://marketplace.test/account/offers/submitted"),
-    );
+    const response = await app.fetch(new Request("http://marketplace.test/account/offers/submitted"));
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
@@ -234,9 +228,7 @@ describe("marketplace offer routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://marketplace.test/account/offers/matches/off_1"),
-    );
+    const response = await app.fetch(new Request("http://marketplace.test/account/offers/matches/off_1"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({

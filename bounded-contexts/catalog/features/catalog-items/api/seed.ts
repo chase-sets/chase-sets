@@ -19,16 +19,8 @@ export async function seedCatalogItems(
   console.log("Seeding catalog items...");
 
   const requiredFieldIdsByBlueprint: Record<string, readonly FieldId[]> = {
-    "pokemon-card-single": [
-      fields["card-number"],
-      fields["card-name"],
-      fields.expansion,
-      fields.rarity,
-    ],
-    "pokemon-sealed-product": [
-      fields.expansion,
-      fields["pack-count"],
-    ],
+    "pokemon-card-single": [fields["card-number"], fields["card-name"], fields.expansion, fields.rarity],
+    "pokemon-sealed-product": [fields.expansion, fields["pack-count"]],
   };
 
   type ItemDef = {
@@ -159,9 +151,7 @@ export async function seedCatalogItems(
       languageCode: "en",
       title: l10n("Lugia"),
       subtitle: l10n("Neo Genesis 9/111 Holo Rare"),
-      description: l10n(
-        "A Neo Genesis Lugia single whose raw and graded variants resolve from the same catalog item.",
-      ),
+      description: l10n("A Neo Genesis Lugia single whose raw and graded variants resolve from the same catalog item."),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "9/111"],
@@ -180,9 +170,7 @@ export async function seedCatalogItems(
       languageCode: "en",
       title: l10n("Mewtwo"),
       subtitle: l10n("Black Star Promo 3"),
-      description: l10n(
-        "A Black Star Promo Mewtwo used by the marketplace seed as a listings-only market case.",
-      ),
+      description: l10n("A Black Star Promo Mewtwo used by the marketplace seed as a listings-only market case."),
       blueprintKey: "pokemon-card-single",
       fieldValues: [
         ["card-number", "3"],
@@ -243,9 +231,7 @@ export async function seedCatalogItems(
       languageCode: "en",
       title: l10n("Prismatic Evolutions Booster Pack"),
       subtitle: l10n("Sealed booster pack"),
-      description: l10n(
-        "A single sealed booster pack from the Prismatic Evolutions set.",
-      ),
+      description: l10n("A single sealed booster pack from the Prismatic Evolutions set."),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
         ["expansion", expansionReference("prismatic-evolutions")],
@@ -261,9 +247,7 @@ export async function seedCatalogItems(
       languageCode: "en",
       title: l10n("Surging Sparks Booster Box"),
       subtitle: l10n("Sealed booster box"),
-      description: l10n(
-        "A factory sealed Surging Sparks booster box containing 36 packs.",
-      ),
+      description: l10n("A factory sealed Surging Sparks booster box containing 36 packs."),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
         ["expansion", expansionReference("surging-sparks")],
@@ -279,9 +263,7 @@ export async function seedCatalogItems(
       languageCode: "en",
       title: l10n("Twilight Masquerade Elite Trainer Box"),
       subtitle: l10n("Sealed Elite Trainer Box"),
-      description: l10n(
-        "A sealed Twilight Masquerade Elite Trainer Box with nine booster packs and accessories.",
-      ),
+      description: l10n("A sealed Twilight Masquerade Elite Trainer Box with nine booster packs and accessories."),
       blueprintKey: "pokemon-sealed-product",
       fieldValues: [
         ["expansion", expansionReference("twilight-masquerade")],
@@ -366,14 +348,14 @@ function pokemonJapaneseCardBack(): CatalogItemImageFallback {
 }
 
 function pokemonSealedFallback(): CatalogItemImageFallback {
-  return imageFallback("/fake-cdn/assets/pokemon-card-back.png", "Pokemon sealed product loading image", "loading-only");
+  return imageFallback(
+    "/fake-cdn/assets/pokemon-card-back.png",
+    "Pokemon sealed product loading image",
+    "loading-only",
+  );
 }
 
-function imageFallback(
-  url: string,
-  alt: string,
-  usage: CatalogItemImageFallback["usage"],
-): CatalogItemImageFallback {
+function imageFallback(url: string, alt: string, usage: CatalogItemImageFallback["usage"]): CatalogItemImageFallback {
   return {
     url,
     alt,

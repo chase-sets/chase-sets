@@ -16,9 +16,9 @@ function errorMessage(error: unknown) {
 }
 
 function requestKey(request: Request) {
-  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || request.headers.get("cf-connecting-ip")
-    || "local";
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("cf-connecting-ip") || "local"
+  );
 }
 
 function isRateLimited(request: Request) {
@@ -54,20 +54,28 @@ function requireActor(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("publicPresence.api.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authentication_required", message: t("publicPresence.api.authentication.required") },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("publicPresence.api.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({ error: { code: "authorization_forbidden", message: t("publicPresence.api.forbidden") } }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -76,7 +84,7 @@ function requireActor(
 
 function csvCell(value: unknown) {
   const text = Array.isArray(value) ? value.join("; ") : String(value ?? "");
-  return `"${text.replace(/"/g, "\"\"")}"`;
+  return `"${text.replace(/"/g, '""')}"`;
 }
 
 export function createPublicWaitlistRoutes(services: WaitlistServices) {
@@ -93,21 +101,24 @@ export function createPublicWaitlistRoutes(services: WaitlistServices) {
     }
 
     try {
-      const result = await services.submitWaitlistSignup({
-        email: String(body.email ?? ""),
-        role: String(body.role ?? ""),
-        interests: Array.isArray(body.interests) ? body.interests.map(String) : [],
-        emailConsent: Boolean(body.emailConsent),
-        source: {
-          pagePath: String(body.source?.pagePath ?? "/"),
-          referrer: typeof body.source?.referrer === "string" ? body.source.referrer : null,
-          utmSource: typeof body.source?.utmSource === "string" ? body.source.utmSource : null,
-          utmMedium: typeof body.source?.utmMedium === "string" ? body.source.utmMedium : null,
-          utmCampaign: typeof body.source?.utmCampaign === "string" ? body.source.utmCampaign : null,
-          utmContent: typeof body.source?.utmContent === "string" ? body.source.utmContent : null,
-          utmTerm: typeof body.source?.utmTerm === "string" ? body.source.utmTerm : null,
+      const result = await services.submitWaitlistSignup(
+        {
+          email: String(body.email ?? ""),
+          role: String(body.role ?? ""),
+          interests: Array.isArray(body.interests) ? body.interests.map(String) : [],
+          emailConsent: Boolean(body.emailConsent),
+          source: {
+            pagePath: String(body.source?.pagePath ?? "/"),
+            referrer: typeof body.source?.referrer === "string" ? body.source.referrer : null,
+            utmSource: typeof body.source?.utmSource === "string" ? body.source.utmSource : null,
+            utmMedium: typeof body.source?.utmMedium === "string" ? body.source.utmMedium : null,
+            utmCampaign: typeof body.source?.utmCampaign === "string" ? body.source.utmCampaign : null,
+            utmContent: typeof body.source?.utmContent === "string" ? body.source.utmContent : null,
+            utmTerm: typeof body.source?.utmTerm === "string" ? body.source.utmTerm : null,
+          },
         },
-      }, publicEventStoreContext());
+        publicEventStoreContext(),
+      );
 
       return c.json({ id: result.signupId, version: result.version, status: "joined" }, 201);
     } catch (error) {
@@ -197,7 +208,7 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
     return new Response(body, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": "attachment; filename=\"chase-sets-waitlist.csv\"",
+        "Content-Disposition": 'attachment; filename="chase-sets-waitlist.csv"',
       },
     });
   });

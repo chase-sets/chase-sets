@@ -1,8 +1,5 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
-import type {
-  PgQueryable,
-  PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
 import { createInventoryHoldRuntime } from "../../features/holds/api/runtime";
@@ -30,10 +27,7 @@ export type InventoryHostPorts = Readonly<{
   draftListingCreator?: InventoryDraftListingCreator;
 }>;
 
-export function createInventoryServices(
-  pool: PgTransactionalPool,
-  ports: InventoryHostPorts = {},
-): InventoryServices {
+export function createInventoryServices(pool: PgTransactionalPool, ports: InventoryHostPorts = {}): InventoryServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;

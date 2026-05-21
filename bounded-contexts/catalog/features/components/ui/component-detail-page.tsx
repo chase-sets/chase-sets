@@ -50,10 +50,7 @@ function formatApplicability(
     .join(", ");
 }
 
-
-function parseApplicabilityClauses(
-  value: string,
-): Array<{ dimensionId: string; optionIds: string[] }> {
+function parseApplicabilityClauses(value: string): Array<{ dimensionId: string; optionIds: string[] }> {
   return value
     .split(",")
     .map((entry) => entry.trim())
@@ -74,11 +71,31 @@ function parseApplicabilityClauses(
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: t("catalog.features.components.ui.componentDetailPage.activate"), action: "activate", tone: "primary" }];
+      return [
+        {
+          label: t("catalog.features.components.ui.componentDetailPage.activate"),
+          action: "activate",
+          tone: "primary",
+        },
+      ];
     case "active":
-      return [{ label: t("catalog.features.components.ui.componentDetailPage.deprecate"), action: "deprecate", confirm: true, tone: "danger" }];
+      return [
+        {
+          label: t("catalog.features.components.ui.componentDetailPage.deprecate"),
+          action: "deprecate",
+          confirm: true,
+          tone: "danger",
+        },
+      ];
     case "deprecated":
-      return [{ label: t("catalog.features.components.ui.componentDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
+      return [
+        {
+          label: t("catalog.features.components.ui.componentDetailPage.archive"),
+          action: "archive",
+          confirm: true,
+          tone: "danger",
+        },
+      ];
     default:
       return [];
   }
@@ -116,7 +133,13 @@ interface DimensionRule {
   }>;
 }
 
-export function ComponentDetailPage({ id, initialData }: { id: string; initialData?: Parameters<typeof useComponent>[1] }) {
+export function ComponentDetailPage({
+  id,
+  initialData,
+}: {
+  id: string;
+  initialData?: Parameters<typeof useComponent>[1];
+}) {
   const { data, loading, error, refresh } = useComponent(id, initialData);
   const { addToast } = useToasts();
 
@@ -145,9 +168,12 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
       archive: () => archiveComponent(id),
     };
     await actions[action]?.();
-    addToast(t("catalog.features.components.ui.componentDetailPage.lifecycle.completed", {
-      action: lifecycleActionLabel(action),
-    }), "success");
+    addToast(
+      t("catalog.features.components.ui.componentDetailPage.lifecycle.completed", {
+        action: lifecycleActionLabel(action),
+      }),
+      "success",
+    );
     refresh();
   }
 
@@ -200,7 +226,10 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
   }
 
   async function handleAddDimensionRule() {
-    const allowedOptionIds = dimAllowedOptionIds.split(",").map((s) => s.trim()).filter(Boolean);
+    const allowedOptionIds = dimAllowedOptionIds
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     await addDimensionRule(id, {
       dimensionId,
       required: dimRequired,
@@ -226,24 +255,52 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
   const dimensionRules = (data?.dimension_rules ?? []) as DimensionRule[];
 
   const fieldRuleColumns: DataColumn<FieldRule>[] = [
-    { key: "fieldId", header: t("catalog.features.components.ui.componentDetailPage.field"), cell: (row) => row.fieldName },
-    { key: "required", header: t("catalog.features.components.ui.componentDetailPage.required"), cell: (row) => row.required ? t("catalog.features.components.ui.componentDetailPage.yes") : t("catalog.features.components.ui.componentDetailPage.no") },
+    {
+      key: "fieldId",
+      header: t("catalog.features.components.ui.componentDetailPage.field"),
+      cell: (row) => row.fieldName,
+    },
+    {
+      key: "required",
+      header: t("catalog.features.components.ui.componentDetailPage.required"),
+      cell: (row) =>
+        row.required
+          ? t("catalog.features.components.ui.componentDetailPage.yes")
+          : t("catalog.features.components.ui.componentDetailPage.no"),
+    },
     {
       key: "actions",
       header: "",
-      cell: (row) => data?.status !== "archived" ? (
-        <Button size="sm" tone="danger" onClick={() => handleRemoveFieldRule(row.fieldId)}>{t("catalog.features.components.ui.componentDetailPage.remove")}</Button>
-      ) : null,
+      cell: (row) =>
+        data?.status !== "archived" ? (
+          <Button size="sm" tone="danger" onClick={() => handleRemoveFieldRule(row.fieldId)}>
+            {t("catalog.features.components.ui.componentDetailPage.remove")}
+          </Button>
+        ) : null,
     },
   ];
 
   const dimensionRuleColumns: DataColumn<DimensionRule>[] = [
-    { key: "dimensionId", header: t("catalog.features.components.ui.componentDetailPage.dimension"), cell: (row) => row.dimensionName },
-    { key: "required", header: t("catalog.features.components.ui.componentDetailPage.required.2"), cell: (row) => row.required ? t("catalog.features.components.ui.componentDetailPage.yes.2") : t("catalog.features.components.ui.componentDetailPage.no.2") },
+    {
+      key: "dimensionId",
+      header: t("catalog.features.components.ui.componentDetailPage.dimension"),
+      cell: (row) => row.dimensionName,
+    },
+    {
+      key: "required",
+      header: t("catalog.features.components.ui.componentDetailPage.required.2"),
+      cell: (row) =>
+        row.required
+          ? t("catalog.features.components.ui.componentDetailPage.yes.2")
+          : t("catalog.features.components.ui.componentDetailPage.no.2"),
+    },
     {
       key: "allowedOptions",
       header: t("catalog.features.components.ui.componentDetailPage.allowed.options"),
-      cell: (row) => row.allowedOptions.length > 0 ? row.allowedOptions.map((option) => option.code).join(", ") : t("catalog.features.components.ui.componentDetailPage.all"),
+      cell: (row) =>
+        row.allowedOptions.length > 0
+          ? row.allowedOptions.map((option) => option.code).join(", ")
+          : t("catalog.features.components.ui.componentDetailPage.all"),
     },
     {
       key: "appliesWhen",
@@ -253,9 +310,12 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
     {
       key: "actions",
       header: "",
-      cell: (row) => data?.status !== "archived" ? (
-        <Button size="sm" tone="danger" onClick={() => handleRemoveDimensionRule(row.dimensionId)}>{t("catalog.features.components.ui.componentDetailPage.remove.2")}</Button>
-      ) : null,
+      cell: (row) =>
+        data?.status !== "archived" ? (
+          <Button size="sm" tone="danger" onClick={() => handleRemoveDimensionRule(row.dimensionId)}>
+            {t("catalog.features.components.ui.componentDetailPage.remove.2")}
+          </Button>
+        ) : null,
     },
   ];
 
@@ -277,7 +337,8 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditing}>
-                  {t("catalog.features.components.ui.componentDetailPage.edit")}</Button>
+                  {t("catalog.features.components.ui.componentDetailPage.edit")}
+                </Button>
               )}
             </Inline>
           ) : undefined
@@ -292,7 +353,10 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
               items={[
                 { key: t("catalog.features.components.ui.componentDetailPage.key"), value: data.key },
                 { key: t("catalog.features.components.ui.componentDetailPage.name"), value: data.name },
-                { key: t("catalog.features.components.ui.componentDetailPage.description"), value: data.description ?? "—" },
+                {
+                  key: t("catalog.features.components.ui.componentDetailPage.description"),
+                  value: data.description ?? "—",
+                },
                 { key: t("catalog.features.components.ui.componentDetailPage.status"), value: data.status },
                 { key: t("catalog.features.components.ui.componentDetailPage.updated"), value: data.updated_at },
               ]}
@@ -302,7 +366,9 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={() => setShowAddField(true)}>{t("catalog.features.components.ui.componentDetailPage.add.field.rule")}</Button>
+                    <Button size="sm" onClick={() => setShowAddField(true)}>
+                      {t("catalog.features.components.ui.componentDetailPage.add.field.rule")}
+                    </Button>
                   </Inline>
                 )}
                 <DataTable
@@ -318,7 +384,9 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
               <Stack gap={3}>
                 {data.status !== "archived" && (
                   <Inline>
-                    <Button size="sm" onClick={() => setShowAddDimension(true)}>{t("catalog.features.components.ui.componentDetailPage.add.dimension.rule")}</Button>
+                    <Button size="sm" onClick={() => setShowAddDimension(true)}>
+                      {t("catalog.features.components.ui.componentDetailPage.add.dimension.rule")}
+                    </Button>
                   </Inline>
                 )}
                 <DataTable
@@ -337,12 +405,26 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
         open={editing}
         onOpenChange={setEditing}
         title={t("catalog.features.components.ui.componentDetailPage.edit.component")}
-        footer={<Button onClick={handleConfigure}>{t("catalog.features.components.ui.componentDetailPage.save")}</Button>}
+        footer={
+          <Button onClick={handleConfigure}>{t("catalog.features.components.ui.componentDetailPage.save")}</Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.components.ui.componentDetailPage.key")} value={editKey} onChange={(e) => setEditKey(e.target.value)} />
-          <TextInput label={t("catalog.features.components.ui.componentDetailPage.name")} value={editName} onChange={(e) => setEditName(e.target.value)} />
-          <TextInput label={t("catalog.features.components.ui.componentDetailPage.description")} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          <TextInput
+            label={t("catalog.features.components.ui.componentDetailPage.key")}
+            value={editKey}
+            onChange={(e) => setEditKey(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.components.ui.componentDetailPage.name")}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.components.ui.componentDetailPage.description")}
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+          />
         </Stack>
       </Dialog>
 
@@ -350,11 +432,21 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
         open={showAddField}
         onOpenChange={setShowAddField}
         title={t("catalog.features.components.ui.componentDetailPage.add.field.rule.2")}
-        footer={<Button onClick={handleAddFieldRule}>{t("catalog.features.components.ui.componentDetailPage.add")}</Button>}
+        footer={
+          <Button onClick={handleAddFieldRule}>{t("catalog.features.components.ui.componentDetailPage.add")}</Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.components.ui.componentDetailPage.field.id")} value={fieldId} onChange={(e) => setFieldId(e.target.value)} />
-          <Checkbox label={t("catalog.features.components.ui.componentDetailPage.required.3")} checked={fieldRequired} onCheckedChange={(v) => setFieldRequired(v === true)} />
+          <TextInput
+            label={t("catalog.features.components.ui.componentDetailPage.field.id")}
+            value={fieldId}
+            onChange={(e) => setFieldId(e.target.value)}
+          />
+          <Checkbox
+            label={t("catalog.features.components.ui.componentDetailPage.required.3")}
+            checked={fieldRequired}
+            onCheckedChange={(v) => setFieldRequired(v === true)}
+          />
         </Stack>
       </Dialog>
 
@@ -362,18 +454,32 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
         open={showAddDimension}
         onOpenChange={setShowAddDimension}
         title={t("catalog.features.components.ui.componentDetailPage.add.dimension.rule.2")}
-        footer={<Button onClick={handleAddDimensionRule}>{t("catalog.features.components.ui.componentDetailPage.add.2")}</Button>}
+        footer={
+          <Button onClick={handleAddDimensionRule}>
+            {t("catalog.features.components.ui.componentDetailPage.add.2")}
+          </Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.components.ui.componentDetailPage.dimension.id")} value={dimensionId} onChange={(e) => setDimensionId(e.target.value)} />
-          <Checkbox label={t("catalog.features.components.ui.componentDetailPage.required.4")} checked={dimRequired} onCheckedChange={(v) => setDimRequired(v === true)} />
+          <TextInput
+            label={t("catalog.features.components.ui.componentDetailPage.dimension.id")}
+            value={dimensionId}
+            onChange={(e) => setDimensionId(e.target.value)}
+          />
+          <Checkbox
+            label={t("catalog.features.components.ui.componentDetailPage.required.4")}
+            checked={dimRequired}
+            onCheckedChange={(v) => setDimRequired(v === true)}
+          />
           <TextInput
             label={t("catalog.features.components.ui.componentDetailPage.allowed.option.ids.comma.separated.leave")}
             value={dimAllowedOptionIds}
             onChange={(e) => setDimAllowedOptionIds(e.target.value)}
           />
           <TextInput
-            label={t("catalog.features.components.ui.componentDetailPage.applies.when.dimensionid.optionid.optionid.comma")}
+            label={t(
+              "catalog.features.components.ui.componentDetailPage.applies.when.dimensionid.optionid.optionid.comma",
+            )}
             value={dimAppliesWhen}
             onChange={(e) => setDimAppliesWhen(e.target.value)}
           />
@@ -382,6 +488,3 @@ export function ComponentDetailPage({ id, initialData }: { id: string; initialDa
     </>
   );
 }
-
-
-

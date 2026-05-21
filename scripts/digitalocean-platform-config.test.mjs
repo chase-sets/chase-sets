@@ -2,26 +2,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const platformMain = readFileSync(
-  resolve("infrastructure/digitalocean/platform/main.tf"),
-  "utf8",
-);
-const platformLocals = readFileSync(
-  resolve("infrastructure/digitalocean/platform/locals.tf"),
-  "utf8",
-);
-const platformVariables = readFileSync(
-  resolve("infrastructure/digitalocean/platform/variables.tf"),
-  "utf8",
-);
-const catalogAssetsMain = readFileSync(
-  resolve("infrastructure/digitalocean/catalog-assets/main.tf"),
-  "utf8",
-);
-const catalogAssetsLocals = readFileSync(
-  resolve("infrastructure/digitalocean/catalog-assets/locals.tf"),
-  "utf8",
-);
+const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
+const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
+const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
+const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
+const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
@@ -29,15 +14,9 @@ function occurrenceCount(source, needle) {
 
 describe("DigitalOcean platform configuration", () => {
   it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
-    expect(platformLocals).toContain(
-      'local.is_staging ? "www.${var.environment}.${var.root_domain}"',
-    );
-    expect(platformLocals).not.toContain(
-      'local.is_staging ? "${var.environment}.${var.root_domain}"',
-    );
-    expect(platformLocals).toContain(
-      '"landing-${var.environment}.${var.root_domain}"     = local.landing_domain',
-    );
+    expect(platformLocals).toContain('local.is_staging ? "www.${var.environment}.${var.root_domain}"');
+    expect(platformLocals).not.toContain('local.is_staging ? "${var.environment}.${var.root_domain}"');
+    expect(platformLocals).toContain('"landing-${var.environment}.${var.root_domain}"     = local.landing_domain');
   });
 
   it("wires Catalog asset storage into production and non-production API/bootstrap components", () => {
@@ -68,26 +47,14 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
-    expect(catalogAssetsMain).toContain(
-      'resource "digitalocean_spaces_bucket" "catalog_assets"',
-    );
+    expect(catalogAssetsMain).toContain('resource "digitalocean_spaces_bucket" "catalog_assets"');
     expect(catalogAssetsMain).toContain('acl           = "public-read"');
-    expect(catalogAssetsMain).toContain(
-      'resource "digitalocean_cdn" "catalog_assets"',
-    );
-    expect(catalogAssetsMain).toContain(
-      'resource "digitalocean_certificate" "catalog_assets_cdn"',
-    );
+    expect(catalogAssetsMain).toContain('resource "digitalocean_cdn" "catalog_assets"');
+    expect(catalogAssetsMain).toContain('resource "digitalocean_certificate" "catalog_assets_cdn"');
     expect(catalogAssetsMain).not.toContain("digitalocean_record");
-    expect(catalogAssetsLocals).toContain(
-      'preview    = "chase-sets-preview-catalog-assets"',
-    );
-    expect(catalogAssetsLocals).toContain(
-      'staging    = "assets.staging.${var.root_domain}"',
-    );
-    expect(catalogAssetsLocals).toContain(
-      'production = "assets.${var.root_domain}"',
-    );
+    expect(catalogAssetsLocals).toContain('preview    = "chase-sets-preview-catalog-assets"');
+    expect(catalogAssetsLocals).toContain('staging    = "assets.staging.${var.root_domain}"');
+    expect(catalogAssetsLocals).toContain('production = "assets.${var.root_domain}"');
   });
 
   it("routes non-production UCP agent discovery and transport paths to platform-api", () => {
@@ -101,8 +68,12 @@ describe("DigitalOcean platform configuration", () => {
   it("routes staging root as a self-managed marketplace host", () => {
     expect(platformLocals).toContain("staging_root_marketplace_domains = local.is_staging");
     expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');
-    expect(platformLocals).toContain("all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)");
-    expect(platformLocals).toContain("concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains)");
+    expect(platformLocals).toContain(
+      "all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)",
+    );
+    expect(platformLocals).toContain(
+      "concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains)",
+    );
     expect(platformMain).toContain("for_each = local.staging_root_marketplace_domains");
     expect(platformMain).toContain("for_each = local.all_marketplace_domains");
     expect(platformMain).toContain('name                 = "marketplace"');

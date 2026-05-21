@@ -3,10 +3,7 @@ import { cn } from "../../lib/utils";
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div
-      {...props}
-      className={cn("ds-panel rounded-[var(--radius-lg)] border border-[var(--muted)] p-6", className)}
-    />
+    <div {...props} className={cn("ds-panel rounded-[var(--radius-lg)] border border-[var(--muted)] p-6", className)} />
   );
 }
 
@@ -15,12 +12,7 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
 }
 
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return (
-    <h3
-      {...props}
-      className={cn("ds-display text-balance text-xl leading-tight", className)}
-    />
-  );
+  return <h3 {...props} className={cn("ds-display text-balance text-xl leading-tight", className)} />;
 }
 
 export function CardDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {

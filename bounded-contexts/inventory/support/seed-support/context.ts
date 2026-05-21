@@ -12,21 +12,14 @@ export const seedContext: EventStoreContext = {
 };
 
 export async function sendSeedCommand<Command>(
-  handler: (input: {
-    streamId: string;
-    command: Command;
-    context: EventStoreContext;
-  }) => Promise<unknown>,
+  handler: (input: { streamId: string; command: Command; context: EventStoreContext }) => Promise<unknown>,
   streamId: string,
   command: Command,
 ) {
   return handler({ streamId, command, context: seedContext });
 }
 
-export async function drainProjectors(
-  label: string,
-  projectors: readonly Projector[],
-): Promise<void> {
+export async function drainProjectors(label: string, projectors: readonly Projector[]): Promise<void> {
   console.log(`Running ${label} projectors...`);
   let totalProcessed = 0;
 

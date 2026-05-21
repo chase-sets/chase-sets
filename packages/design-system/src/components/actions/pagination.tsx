@@ -2,8 +2,7 @@ import type { HTMLAttributes } from "react";
 import { cx } from "../../utils/cx";
 import { IconButton } from "./button";
 
-export interface PaginationProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style"> {
+export interface PaginationProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style"> {
   page: number;
   totalPages: number;
   onPageChange?: (page: number) => void;
@@ -72,7 +71,7 @@ export function Pagination({
                 "focus-ring inline-flex min-h-10 min-w-10 items-center justify-center rounded-tokenMd border px-3 text-sm font-semibold transition",
                 value === page
                   ? "border-accent bg-accent text-accent-contrast"
-                  : "border-muted bg-elevated text-secondary hover:text-foreground"
+                  : "border-muted bg-elevated text-secondary hover:text-foreground",
               )}
               onClick={() => onPageChange?.(value)}
             >

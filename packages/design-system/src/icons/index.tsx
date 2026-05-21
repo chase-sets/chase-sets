@@ -59,7 +59,7 @@ import {
   Users,
   WalletCards,
   X,
-  type LucideIcon
+  type LucideIcon,
 } from "lucide-react";
 import { cx } from "../utils/cx";
 
@@ -200,13 +200,13 @@ const iconMap: Record<IconName, LucideIcon> = {
   circle: Circle,
   wallet: WalletCards,
   bag: BriefcaseBusiness,
-  store: Store
+  store: Store,
 };
 
 const sizeClasses: Record<IconSize, string> = {
   sm: "h-4 w-4",
   md: "h-5 w-5",
-  lg: "h-6 w-6"
+  lg: "h-6 w-6",
 };
 
 const toneClasses: Record<IconTone, string> = {
@@ -219,33 +219,23 @@ const toneClasses: Record<IconTone, string> = {
   warning: "text-warning",
   danger: "text-danger",
   info: "text-info",
-  inverse: "text-inverse"
+  inverse: "text-inverse",
 };
 
-export interface IconProps
-  extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+export interface IconProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   name: IconName;
   size?: IconSize;
   tone?: IconTone;
   label?: string;
 }
 
-export function Icon({
-  name,
-  size = "md",
-  tone = "primary",
-  label,
-  ...rest
-}: IconProps) {
+export function Icon({ name, size = "md", tone = "primary", label, ...rest }: IconProps) {
   const Glyph = iconMap[name];
   const decorative = !label;
   const filled = name === "star" || name === "starHalf" || name === "heartFilled";
 
   return (
-    <span
-      {...rest}
-      className={cx("inline-flex shrink-0 items-center", toneClasses[tone])}
-    >
+    <span {...rest} className={cx("inline-flex shrink-0 items-center", toneClasses[tone])}>
       <Glyph
         aria-hidden={decorative}
         aria-label={label}

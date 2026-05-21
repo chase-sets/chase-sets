@@ -3,7 +3,10 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Blueprint, BlueprintDetail } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
-import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import type {
+  BulkLifecyclePreview,
+  BulkLifecycleResult,
+} from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useBlueprintList(query: string, initialData?: ListResponse<Blueprint> | null) {
   return useFetch(() => api.listBlueprints<ListResponse<Blueprint>>(query), [query], initialData);
@@ -13,11 +16,19 @@ export function useBlueprint(id: string, initialData?: BlueprintDetail | null) {
   return useFetch(() => api.getBlueprint<BlueprintDetail>(id), [id], initialData);
 }
 
-export function createBlueprint(body: { blueprintId: string; key: string; name: LocalizedTextMap; description?: LocalizedTextMap }) {
+export function createBlueprint(body: {
+  blueprintId: string;
+  key: string;
+  name: LocalizedTextMap;
+  description?: LocalizedTextMap;
+}) {
   return api.createBlueprint<CommandResponse>(body);
 }
 
-export function reviseBlueprint(id: string, body: { key: string; name: LocalizedTextMap; description?: LocalizedTextMap }) {
+export function reviseBlueprint(
+  id: string,
+  body: { key: string; name: LocalizedTextMap; description?: LocalizedTextMap },
+) {
   return api.reviseBlueprint<CommandResponse>(id, body);
 }
 
@@ -33,7 +44,15 @@ export function setBlueprintFields(id: string, fieldRules: { fieldId: string; re
   return api.setBlueprintFields<CommandResponse>(id, fieldRules);
 }
 
-export function setBlueprintDimensions(id: string, dimensionRules: { dimensionId: string; required: boolean; allowedOptionIds: string[]; appliesWhen: Array<{ dimensionId: string; optionIds: string[] }> }[]) {
+export function setBlueprintDimensions(
+  id: string,
+  dimensionRules: {
+    dimensionId: string;
+    required: boolean;
+    allowedOptionIds: string[];
+    appliesWhen: Array<{ dimensionId: string; optionIds: string[] }>;
+  }[],
+) {
   return api.setBlueprintDimensions<CommandResponse>(id, dimensionRules);
 }
 
@@ -60,8 +79,3 @@ export function previewBulkBlueprintLifecycle(action: string, selection: unknown
 export function confirmBulkBlueprintLifecycle(action: string, selection: unknown) {
   return api.confirmBulkBlueprintLifecycle<BulkLifecycleResult>(action, selection);
 }
-
-
-
-
-

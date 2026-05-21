@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.component-";
@@ -126,30 +122,28 @@ export function buildComponentProjectionHandlers(db: PgQueryable): ProjectorHand
     "catalog.component.activated": async (event) => {
       const componentId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_components SET status = 'active', updated_at = $2 WHERE component_id = $1`,
-        [componentId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_components SET status = 'active', updated_at = $2 WHERE component_id = $1`, [
+        componentId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.component.deprecated": async (event) => {
       const componentId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_components SET status = 'deprecated', updated_at = $2 WHERE component_id = $1`,
-        [componentId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_components SET status = 'deprecated', updated_at = $2 WHERE component_id = $1`, [
+        componentId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.component.archived": async (event) => {
       const componentId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_components SET status = 'archived', updated_at = $2 WHERE component_id = $1`,
-        [componentId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_components SET status = 'archived', updated_at = $2 WHERE component_id = $1`, [
+        componentId,
+        event.timing.recordedAt,
+      ]);
     },
   };
 }
-
-

@@ -2,11 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  createFilesystemObjectStorage,
-  createS3ObjectStorage,
-  readFilesystemObject,
-} from "./index";
+import { createFilesystemObjectStorage, createS3ObjectStorage, readFilesystemObject } from "./index";
 
 let tempDirs: string[] = [];
 
@@ -32,15 +28,9 @@ describe("object storage adapters", () => {
 
     expect(result).toEqual({
       key: "catalog/items/cat_test/product-image/high.webp",
-      publicUrl:
-        "http://assets.test/catalog-assets/catalog/items/cat_test/product-image/high.webp",
+      publicUrl: "http://assets.test/catalog-assets/catalog/items/cat_test/product-image/high.webp",
     });
-    await expect(
-      readFilesystemObject(
-        rootDir,
-        "catalog/items/cat_test/product-image/high.webp",
-      ),
-    ).resolves.toEqual({
+    await expect(readFilesystemObject(rootDir, "catalog/items/cat_test/product-image/high.webp")).resolves.toEqual({
       body: Buffer.from([1, 2, 3]),
       contentType: "image/webp",
     });
@@ -87,8 +77,7 @@ describe("object storage adapters", () => {
       }),
     ).resolves.toEqual({
       key: "catalog/items/cat_test/product-image/high.webp",
-      publicUrl:
-        "https://cdn.chasesets.test/catalog/items/cat_test/product-image/high.webp",
+      publicUrl: "https://cdn.chasesets.test/catalog/items/cat_test/product-image/high.webp",
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({

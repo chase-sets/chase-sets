@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import {
-  createUcpOAuthMetadataRoutes,
-  createUcpOAuthRoutes,
-} from "./oauth";
+import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes } from "./oauth";
 
 const actor = {
   sessionId: "sess_1",
@@ -70,7 +67,7 @@ describe("UCP OAuth routes", () => {
       }),
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
-    const tokenBody = await token.json() as {
+    const tokenBody = (await token.json()) as {
       access_token: string;
       refresh_token: string;
       scope: string;
@@ -99,7 +96,7 @@ describe("UCP OAuth routes", () => {
       }),
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
-    const refreshBody = await refresh.json() as { refresh_token: string };
+    const refreshBody = (await refresh.json()) as { refresh_token: string };
     expect(refresh.status).toBe(200);
     expect(refreshBody.refresh_token).not.toBe(tokenBody.refresh_token);
 
@@ -194,10 +191,11 @@ function createAuthorizationCodeDb() {
       }
 
       if (text.includes("SELECT code_id")) {
-        const row = [...codes.values()].find((entry) =>
-          entry.code_hash === values[0] &&
-          entry.consumed_at === null &&
-          (values[1] === null || entry.redirect_uri === values[1])
+        const row = [...codes.values()].find(
+          (entry) =>
+            entry.code_hash === values[0] &&
+            entry.consumed_at === null &&
+            (values[1] === null || entry.redirect_uri === values[1]),
         );
         return { rows: row ? [row as Row] : [], rowCount: row ? 1 : 0 };
       }
@@ -255,9 +253,9 @@ function createLinkedStore() {
       return row;
     },
     resolveToken: async (tokenHash: string) =>
-      [...rows.values()].find((row) =>
-        row.status === "active" &&
-        (row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash)
+      [...rows.values()].find(
+        (row) =>
+          row.status === "active" && (row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash),
       ) ?? null,
     rotateRefreshToken: async (params: {
       refreshTokenHash: string;
@@ -267,8 +265,8 @@ function createLinkedStore() {
       refreshTokenExpiresAt: string;
       refreshedAt: string;
     }) => {
-      const row = [...rows.values()].find((entry) =>
-        entry.status === "active" && entry.refresh_token_hash === params.refreshTokenHash
+      const row = [...rows.values()].find(
+        (entry) => entry.status === "active" && entry.refresh_token_hash === params.refreshTokenHash,
       );
       if (!row) {
         return null;
@@ -283,9 +281,10 @@ function createLinkedStore() {
       return row;
     },
     revokeToken: async (tokenHash: string, revokedAt: string) => {
-      const row = [...rows.values()].find((entry) =>
-        entry.status === "active" &&
-        (entry.access_token_hash === tokenHash || entry.refresh_token_hash === tokenHash)
+      const row = [...rows.values()].find(
+        (entry) =>
+          entry.status === "active" &&
+          (entry.access_token_hash === tokenHash || entry.refresh_token_hash === tokenHash),
       );
       if (!row) {
         return false;
@@ -305,13 +304,10 @@ function createLinkedStore() {
       row.revocation_reason = "account_consent_revoked";
       return true;
     },
-    listForAccount: async (accountId: string) =>
-      [...rows.values()].filter((row) => row.account_id === accountId),
+    listForAccount: async (accountId: string) => [...rows.values()].filter((row) => row.account_id === accountId),
   };
 }
 
 function pkceChallenge(verifier: string) {
-  return createHash("sha256")
-    .update(verifier)
-    .digest("base64url");
+  return createHash("sha256").update(verifier).digest("base64url");
 }

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  passkeyMatchesChallengeUser,
-  resolvePasskeyRegistrationUserId,
-} from "./passkey-routes";
+import { passkeyMatchesChallengeUser, resolvePasskeyRegistrationUserId } from "./passkey-routes";
 
 describe("passkey route security", () => {
   it("allows discoverable credentials only when they match the challenged user", () => {

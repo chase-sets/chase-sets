@@ -17,10 +17,7 @@ import {
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
-import {
-  sellerFundsAvailableAt,
-  sellerFundsHoldPolicy,
-} from "../domain/funds-hold-policy";
+import { sellerFundsAvailableAt, sellerFundsHoldPolicy } from "../domain/funds-hold-policy";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -69,33 +66,34 @@ export function SettlementWalletPage({
   const availableBalance = Number.parseFloat(wallet.available_balance_amount);
   const pendingBalance = Number.parseFloat(wallet.pending_balance_amount);
   const setupReady = payoutReadiness?.status === "ready";
-  const payoutAvailability: Readonly<{ tone: Tone; label: string; detail: string }> = setupReady && availableBalance > 0
-    ? {
-        tone: "success",
-        label: t("settlement.features.wallets.ui.walletPage.payout.available.now"),
-        detail: t("settlement.features.wallets.ui.walletPage.amount.can.be.requested.for.payout", {
-          amount: formatMoney(wallet.available_balance_amount, wallet.currency_code),
-        }),
-      }
-    : !setupReady
+  const payoutAvailability: Readonly<{ tone: Tone; label: string; detail: string }> =
+    setupReady && availableBalance > 0
       ? {
-          tone: "warning",
-          label: t("settlement.features.wallets.ui.walletPage.setup.is.the.blocker"),
-          detail: t("settlement.features.wallets.ui.walletPage.finish.payout.setup.before.requesting.available"),
+          tone: "success",
+          label: t("settlement.features.wallets.ui.walletPage.payout.available.now"),
+          detail: t("settlement.features.wallets.ui.walletPage.amount.can.be.requested.for.payout", {
+            amount: formatMoney(wallet.available_balance_amount, wallet.currency_code),
+          }),
         }
-      : pendingBalance > 0
+      : !setupReady
         ? {
             tone: "warning",
-            label: t("settlement.features.wallets.ui.walletPage.funds.are.still.pending"),
-            detail: t("settlement.features.wallets.ui.walletPage.amount.is.pending", {
-              amount: formatMoney(wallet.pending_balance_amount, wallet.currency_code),
-            }),
+            label: t("settlement.features.wallets.ui.walletPage.setup.is.the.blocker"),
+            detail: t("settlement.features.wallets.ui.walletPage.finish.payout.setup.before.requesting.available"),
           }
-        : {
-            tone: "neutral",
-            label: t("settlement.features.wallets.ui.walletPage.no.payoutable.funds"),
-            detail: t("settlement.features.wallets.ui.walletPage.available.funds.appear.here.after.sales"),
-          };
+        : pendingBalance > 0
+          ? {
+              tone: "warning",
+              label: t("settlement.features.wallets.ui.walletPage.funds.are.still.pending"),
+              detail: t("settlement.features.wallets.ui.walletPage.amount.is.pending", {
+                amount: formatMoney(wallet.pending_balance_amount, wallet.currency_code),
+              }),
+            }
+          : {
+              tone: "neutral",
+              label: t("settlement.features.wallets.ui.walletPage.no.payoutable.funds"),
+              detail: t("settlement.features.wallets.ui.walletPage.available.funds.appear.here.after.sales"),
+            };
   const hasLedgerActivity = entries.length > 0;
   const setupChecklist = [
     {
@@ -117,18 +115,20 @@ export function SettlementWalletPage({
     {
       label: t("settlement.features.wallets.ui.walletPage.add.payout.destination"),
       complete: payoutReadiness?.payout_destination_status === "ready",
-      detail: payoutReadiness?.payout_destination_status === "ready"
-        ? t("settlement.features.wallets.ui.walletPage.destination.is.ready")
-        : t("settlement.features.wallets.ui.walletPage.add.or.verify.a.payout.destination"),
+      detail:
+        payoutReadiness?.payout_destination_status === "ready"
+          ? t("settlement.features.wallets.ui.walletPage.destination.is.ready")
+          : t("settlement.features.wallets.ui.walletPage.add.or.verify.a.payout.destination"),
     },
     {
       label: t("settlement.features.wallets.ui.walletPage.earn.available.funds"),
       complete: hasLedgerActivity && availableBalance > 0,
-      detail: availableBalance > 0
-        ? t("settlement.features.wallets.ui.walletPage.amount.available", {
-            amount: formatMoney(wallet.available_balance_amount, wallet.currency_code),
-          })
-        : t("settlement.features.wallets.ui.walletPage.available.funds.appear.here.after.sales.2"),
+      detail:
+        availableBalance > 0
+          ? t("settlement.features.wallets.ui.walletPage.amount.available", {
+              amount: formatMoney(wallet.available_balance_amount, wallet.currency_code),
+            })
+          : t("settlement.features.wallets.ui.walletPage.available.funds.appear.here.after.sales.2"),
     },
   ];
 
@@ -140,7 +140,8 @@ export function SettlementWalletPage({
         description={t("settlement.features.wallets.ui.walletPage.track.your.pending.and.available.balances")}
         actions={
           <LinkButton href="/account/payouts" tone="secondary">
-            {t("settlement.features.wallets.ui.walletPage.view.payouts")}</LinkButton>
+            {t("settlement.features.wallets.ui.walletPage.view.payouts")}
+          </LinkButton>
         }
       />
 
@@ -180,26 +181,34 @@ export function SettlementWalletPage({
               <Text weight="semibold">{t("settlement.features.wallets.ui.walletPage.pending.2")}</Text>
               <Text size="lg">{formatMoney(wallet.pending_balance_amount, wallet.currency_code)}</Text>
               <Text size="sm" tone="secondary">
-                {t("settlement.features.wallets.ui.walletPage.sale.funds.are.held.for")}{sellerFundsHoldPolicy.holdDays} {t("settlement.features.wallets.ui.walletPage.days.before.they.become.available")}</Text>
+                {t("settlement.features.wallets.ui.walletPage.sale.funds.are.held.for")}
+                {sellerFundsHoldPolicy.holdDays}{" "}
+                {t("settlement.features.wallets.ui.walletPage.days.before.they.become.available")}
+              </Text>
             </Stack>
           </Card>
           <Card>
             <Stack gap={2}>
               <Text weight="semibold">{t("settlement.features.wallets.ui.walletPage.available")}</Text>
               <Text size="lg">{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</Text>
-              <Text size="sm" tone="secondary">{t("settlement.features.wallets.ui.walletPage.funds.ready.for.platform.purchases.and")}</Text>
+              <Text size="sm" tone="secondary">
+                {t("settlement.features.wallets.ui.walletPage.funds.ready.for.platform.purchases.and")}
+              </Text>
             </Stack>
           </Card>
         </Grid>
         <Stack gap={1}>
           <Text size="sm" tone="secondary">
-            {t("settlement.features.wallets.ui.walletPage.lifetime.credits")}{formatMoney(wallet.total_credited_amount, wallet.currency_code)}
+            {t("settlement.features.wallets.ui.walletPage.lifetime.credits")}
+            {formatMoney(wallet.total_credited_amount, wallet.currency_code)}
           </Text>
           <Text size="sm" tone="secondary">
-            {t("settlement.features.wallets.ui.walletPage.lifetime.debits")}{formatMoney(wallet.total_debited_amount, wallet.currency_code)}
+            {t("settlement.features.wallets.ui.walletPage.lifetime.debits")}
+            {formatMoney(wallet.total_debited_amount, wallet.currency_code)}
           </Text>
           <Text size="sm" tone="secondary">
-            {t("settlement.features.wallets.ui.walletPage.available.balance.can.be.used.for")}</Text>
+            {t("settlement.features.wallets.ui.walletPage.available.balance.can.be.used.for")}
+          </Text>
         </Stack>
       </PageSection>
 
@@ -213,7 +222,13 @@ export function SettlementWalletPage({
 
       <PageSection title={t("settlement.features.wallets.ui.walletPage.payout.availability")}>
         <MarketplaceNotice
-          tone={payoutAvailability.tone === "danger" ? "error" : payoutAvailability.tone === "accent" ? "info" : payoutAvailability.tone}
+          tone={
+            payoutAvailability.tone === "danger"
+              ? "error"
+              : payoutAvailability.tone === "accent"
+                ? "info"
+                : payoutAvailability.tone
+          }
           title={payoutAvailability.label}
           description={
             <>
@@ -231,10 +246,14 @@ export function SettlementWalletPage({
             <Card key={item.label}>
               <Stack gap={2}>
                 <Badge tone={checklistTone(item.complete)}>
-                  {item.complete ? t("settlement.features.wallets.ui.walletPage.done") : t("settlement.features.wallets.ui.walletPage.next")}
+                  {item.complete
+                    ? t("settlement.features.wallets.ui.walletPage.done")
+                    : t("settlement.features.wallets.ui.walletPage.next")}
                 </Badge>
                 <Text weight="semibold">{item.label}</Text>
-                <Text size="sm" tone="secondary">{item.detail}</Text>
+                <Text size="sm" tone="secondary">
+                  {item.detail}
+                </Text>
               </Stack>
             </Card>
           ))}
@@ -253,7 +272,9 @@ export function SettlementWalletPage({
                 <Stack gap={1}>
                   <Text weight="semibold">{row.kind}</Text>
                   {row.description ? (
-                    <Text size="sm" tone="secondary">{row.description}</Text>
+                    <Text size="sm" tone="secondary">
+                      {row.description}
+                    </Text>
                   ) : null}
                 </Stack>
               ),
@@ -261,9 +282,7 @@ export function SettlementWalletPage({
             {
               key: "direction",
               header: t("settlement.features.wallets.ui.walletPage.direction"),
-              cell: (row) => (
-                <Badge tone={directionTone(row.direction)}>{row.direction}</Badge>
-              ),
+              cell: (row) => <Badge tone={directionTone(row.direction)}>{row.direction}</Badge>,
             },
             {
               key: "amount",
@@ -278,7 +297,9 @@ export function SettlementWalletPage({
                 row.direction === "credit" ? (
                   <Stack gap={1}>
                     <Badge tone={fundsStatusTone(row.funds_status)}>{row.funds_status}</Badge>
-                    <Text size="sm" tone="secondary">{fundsAvailabilityLabel(row)}</Text>
+                    <Text size="sm" tone="secondary">
+                      {fundsAvailabilityLabel(row)}
+                    </Text>
                   </Stack>
                 ) : null,
             },

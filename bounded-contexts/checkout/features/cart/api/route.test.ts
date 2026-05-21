@@ -4,10 +4,12 @@ import type { CheckoutApiEnv } from "../../../api";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./route";
 import type { CheckoutCartServices } from "./runtime";
 
-function buildApp(options: Readonly<{
-  actor: CheckoutApiEnv["Variables"]["actor"];
-  services: CheckoutCartServices;
-}>) {
+function buildApp(
+  options: Readonly<{
+    actor: CheckoutApiEnv["Variables"]["actor"];
+    services: CheckoutCartServices;
+  }>,
+) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -87,9 +89,7 @@ describe("checkout cart routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://checkout.test/account/cart"),
-    );
+    const response = await app.fetch(new Request("http://checkout.test/account/cart"));
 
     await expect(response.json()).resolves.toMatchObject({
       count: 5,

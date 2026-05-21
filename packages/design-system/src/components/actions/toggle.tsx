@@ -27,7 +27,7 @@ export function Toggle({
   disabled = false,
   size = "md",
   icon,
-  "aria-label": ariaLabel
+  "aria-label": ariaLabel,
 }: ToggleProps) {
   return (
     <TogglePrimitive
@@ -38,22 +38,18 @@ export function Toggle({
       onPressedChange={(nextPressed) => onPressedChange?.(nextPressed)}
       disabled={disabled}
       aria-label={ariaLabel}
-      className={(state) => cx(
-        buttonBaseClass,
-        buttonSizeClasses[size],
-        state.pressed
-          ? "border-accent bg-accent text-accent-contrast"
-          : "border-border bg-surface-2 text-secondary hover:border-accent hover:text-accent",
-        state.disabled && "cursor-not-allowed opacity-50 shadow-none"
-      )}
+      className={(state) =>
+        cx(
+          buttonBaseClass,
+          buttonSizeClasses[size],
+          state.pressed
+            ? "border-accent bg-accent text-accent-contrast"
+            : "border-border bg-surface-2 text-secondary hover:border-accent hover:text-accent",
+          state.disabled && "cursor-not-allowed opacity-50 shadow-none",
+        )
+      }
     >
-      {icon ? (
-        <Icon
-          name={icon}
-          size="sm"
-          tone={pressed ? "inverse" : "secondary"}
-        />
-      ) : null}
+      {icon ? <Icon name={icon} size="sm" tone={pressed ? "inverse" : "secondary"} /> : null}
       {children ? <span>{children}</span> : null}
     </TogglePrimitive>
   );
@@ -87,7 +83,7 @@ export function ToggleGroup({
   orientation = "horizontal",
   disabled = false,
   label,
-  size = "sm"
+  size = "sm",
 }: ToggleGroupProps) {
   return (
     <ToggleGroupPrimitive
@@ -98,10 +94,7 @@ export function ToggleGroup({
       orientation={orientation}
       disabled={disabled}
       aria-label={label}
-      className={cx(
-        "inline-flex gap-2 rounded-tokenLg bg-surface-2 p-1",
-        orientation === "vertical" && "flex-col"
-      )}
+      className={cx("inline-flex gap-2 rounded-tokenLg bg-surface-2 p-1", orientation === "vertical" && "flex-col")}
     >
       {items.map((item) => (
         <TogglePrimitive
@@ -109,14 +102,16 @@ export function ToggleGroup({
           type="button"
           value={item.value}
           disabled={item.disabled}
-          className={(state) => cx(
-            buttonBaseClass,
-            buttonCompactSizeClasses[size],
-            state.pressed
-              ? "border-accent bg-elevated text-accent shadow-tokenSm"
-              : "border-transparent bg-transparent text-secondary shadow-none hover:bg-elevated hover:text-foreground",
-            state.disabled && "cursor-not-allowed opacity-50"
-          )}
+          className={(state) =>
+            cx(
+              buttonBaseClass,
+              buttonCompactSizeClasses[size],
+              state.pressed
+                ? "border-accent bg-elevated text-accent shadow-tokenSm"
+                : "border-transparent bg-transparent text-secondary shadow-none hover:bg-elevated hover:text-foreground",
+              state.disabled && "cursor-not-allowed opacity-50",
+            )
+          }
         >
           {item.icon ? <Icon name={item.icon} size="sm" tone={item.disabled ? "secondary" : "accent"} /> : null}
           <span>{item.label}</span>

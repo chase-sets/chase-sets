@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createIdentityApiClient,
-  identityApi,
-  IdentityApiError,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createIdentityApiClient, identityApi, IdentityApiError } from "../../client";
 export type {
   Account,
   ApiKey,

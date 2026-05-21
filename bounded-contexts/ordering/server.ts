@@ -1,10 +1,3 @@
-export {
-  createOrderingRequestApiClient,
-  OrderingApiError,
-} from "./support/request-support/api-client";
-export type {
-  CheckoutFulfillmentPreview,
-  PurchaseDetail,
-  SaleDetail,
-} from "./support/request-support/api-client";
+export { createOrderingRequestApiClient, OrderingApiError } from "./support/request-support/api-client";
+export type { CheckoutFulfillmentPreview, PurchaseDetail, SaleDetail } from "./support/request-support/api-client";
 export { createOrderingUcpHandlers } from "./support/ucp-support/orders";

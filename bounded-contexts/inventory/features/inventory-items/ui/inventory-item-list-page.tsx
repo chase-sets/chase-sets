@@ -34,7 +34,9 @@ function displayItemLabel(item: InventoryItemListItem) {
 }
 
 function displayCost(item: InventoryItemListItem) {
-  return item.acquisition_cost_amount ? `$${item.acquisition_cost_amount}` : t("inventory.features.inventoryItems.ui.inventoryItemListPage.not.set");
+  return item.acquisition_cost_amount
+    ? `$${item.acquisition_cost_amount}`
+    : t("inventory.features.inventoryItems.ui.inventoryItemListPage.not.set");
 }
 
 function listingHref(item: InventoryItemListItem) {
@@ -43,9 +45,7 @@ function listingHref(item: InventoryItemListItem) {
 
 function getOrderedDimensions(schema: InventoryProductSchema) {
   return schema.canonicalDimensionOrder
-    .map((entry) =>
-      schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId),
-    )
+    .map((entry) => schema.dimensions.find((dimension) => dimension.dimensionId === entry.dimensionId))
     .filter((dimension): dimension is InventoryProductSchema["dimensions"][number] => dimension !== undefined);
 }
 
@@ -81,19 +81,16 @@ export function InventoryItemListPage({
     const controller = new AbortController();
     setCatalogLookupPending(true);
 
-    void fetch(
-      `${catalogItemApiBaseUrl}/${encodeURIComponent(trimmedCatalogItemId)}`,
-      {
-        credentials: "include",
-        signal: controller.signal,
-      },
-    )
+    void fetch(`${catalogItemApiBaseUrl}/${encodeURIComponent(trimmedCatalogItemId)}`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
       .then(async (response) => {
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as
-            | { error?: string }
-            | null;
-          throw new Error(body?.error ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"));
+          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(
+            body?.error ?? t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+          );
         }
 
         return response.json() as Promise<InventoryCatalogItemSnapshot>;
@@ -101,11 +98,7 @@ export function InventoryItemListPage({
       .then((item) => {
         setCatalogItem(item);
         setCatalogLookupError(null);
-        setVersionSelections(
-          item.product_schema
-            ? normalizeSelectedOptionssForSchema(item.product_schema, {})
-            : {},
-        );
+        setVersionSelections(item.product_schema ? normalizeSelectedOptionssForSchema(item.product_schema, {}) : {});
       })
       .catch((error) => {
         if (controller.signal.aborted) {
@@ -115,7 +108,9 @@ export function InventoryItemListPage({
         setCatalogItem(null);
         setVersionSelections({});
         setCatalogLookupError(
-          error instanceof Error ? error.message : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
+          error instanceof Error
+            ? error.message
+            : t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed"),
         );
       })
       .finally(() => {
@@ -127,34 +122,36 @@ export function InventoryItemListPage({
     return () => controller.abort();
   }, [catalogItemApiBaseUrl, catalogItemId]);
 
-  const serializedVersionSelection =
-    catalogItem?.product_schema
-      ? JSON.stringify(
-          getOrderedDimensions(catalogItem.product_schema)
-            .map((dimension) => {
-              const optionId = selectedOptionss[dimension.dimensionId];
-              if (!optionId) {
-                return null;
-              }
+  const serializedVersionSelection = catalogItem?.product_schema
+    ? JSON.stringify(
+        getOrderedDimensions(catalogItem.product_schema)
+          .map((dimension) => {
+            const optionId = selectedOptionss[dimension.dimensionId];
+            if (!optionId) {
+              return null;
+            }
 
-              return {
-                dimensionId: dimension.dimensionId,
-                optionId,
-              };
-            })
-            .filter((entry): entry is { dimensionId: string; optionId: string } => entry !== null),
-        )
-      : "[]";
+            return {
+              dimensionId: dimension.dimensionId,
+              optionId,
+            };
+          })
+          .filter((entry): entry is { dimensionId: string; optionId: string } => entry !== null),
+      )
+    : "[]";
 
   return (
     <Page>
       <PageHeader
         eyebrow={t("inventory.features.inventoryItems.ui.inventoryItemListPage.seller")}
         title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.inventory")}
-        description={t("inventory.features.inventoryItems.ui.inventoryItemListPage.manage.private.seller.stock.availability.and")}
+        description={t(
+          "inventory.features.inventoryItems.ui.inventoryItemListPage.manage.private.seller.stock.availability.and",
+        )}
         actions={
           <LinkButton href="/account/inventory/locations" tone="secondary">
-            {t("inventory.features.inventoryItems.ui.inventoryItemListPage.manage.locations")}</LinkButton>
+            {t("inventory.features.inventoryItems.ui.inventoryItemListPage.manage.locations")}
+          </LinkButton>
         }
       />
 
@@ -175,7 +172,9 @@ export function InventoryItemListPage({
                 label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
                 name="catalogItemId"
                 required
-                placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item")}
+                placeholder={t(
+                  "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item",
+                )}
                 value={catalogItemId}
                 onChange={(event) => setCatalogItemId(event.target.value)}
                 description={t("inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to")}
@@ -183,7 +182,8 @@ export function InventoryItemListPage({
               <input type="hidden" name="selectedOptions" value={serializedVersionSelection} />
               {catalogLookupPending ? (
                 <Text size="sm" tone="secondary">
-                  {t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item")}</Text>
+                  {t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item")}
+                </Text>
               ) : null}
               {catalogItem ? (
                 <Card>
@@ -194,8 +194,7 @@ export function InventoryItemListPage({
                         {catalogItem.subtitle}
                       </Text>
                     ) : null}
-                    {catalogItem.product_schema &&
-                    catalogItem.product_schema.dimensions.length > 0 ? (
+                    {catalogItem.product_schema && catalogItem.product_schema.dimensions.length > 0 ? (
                       getOrderedDimensions(catalogItem.product_schema).map((dimension) => {
                         const active = isDimensionActive(dimension, selectedOptionss);
                         if (!active) {
@@ -210,13 +209,10 @@ export function InventoryItemListPage({
                             value={selectedOptionss[dimension.dimensionId] ?? ""}
                             onChange={(event) =>
                               setVersionSelections((current) =>
-                                normalizeSelectedOptionssForSchema(
-                                  catalogItem.product_schema!,
-                                  {
-                                    ...current,
-                                    [dimension.dimensionId]: event.target.value,
-                                  },
-                                ),
+                                normalizeSelectedOptionssForSchema(catalogItem.product_schema!, {
+                                  ...current,
+                                  [dimension.dimensionId]: event.target.value,
+                                }),
                               )
                             }
                             items={dimension.allowedOptions.map((option) => ({
@@ -228,16 +224,15 @@ export function InventoryItemListPage({
                       })
                     ) : (
                       <Text size="sm" tone="secondary">
-                        {t("inventory.features.inventoryItems.ui.inventoryItemListPage.this.catalog.item.does.not.require")}</Text>
+                        {t(
+                          "inventory.features.inventoryItems.ui.inventoryItemListPage.this.catalog.item.does.not.require",
+                        )}
+                      </Text>
                     )}
                   </Stack>
                 </Card>
               ) : null}
-              {catalogLookupError ? (
-                <Text size="sm">
-                  {catalogLookupError}
-                </Text>
-              ) : null}
+              {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
               <NativeSelect
                 label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
                 name="storageLocationId"
@@ -249,16 +244,24 @@ export function InventoryItemListPage({
                   label: location.name,
                 }))}
               />
-              <NumberInput label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")} name="totalQuantity" required min="1" />
+              <NumberInput
+                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")}
+                name="totalQuantity"
+                required
+                min="1"
+              />
               <TextInput
                 label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost")}
                 name="acquisitionCostAmount"
                 placeholder="4.25"
                 inputMode="decimal"
               />
-              <Button type="submit">{t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item.2")}</Button>
+              <Button type="submit">
+                {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item.2")}
+              </Button>
               <LinkButton href="/account/inventory/locations" tone="ghost">
-                {t("inventory.features.inventoryItems.ui.inventoryItemListPage.need.a.location.first")}</LinkButton>
+                {t("inventory.features.inventoryItems.ui.inventoryItemListPage.need.a.location.first")}
+              </LinkButton>
             </Stack>
           </form>
         </Card>
@@ -272,23 +275,23 @@ export function InventoryItemListPage({
             {
               key: "item",
               header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.inventory.item"),
-                  cell: (row) => (
-                    <Stack gap={1}>
-                      <Text weight="semibold">{displayItemLabel(row)}</Text>
-                      {row.language_code ? (
-                        <Badge tone="neutral">{formatLanguageCodeLabel(row.language_code)}</Badge>
-                      ) : null}
-                      {row.item_subtitle ? (
-                        <Text tone="secondary" size="sm">
-                          {row.item_subtitle}
-                        </Text>
-                      ) : null}
-                      {row.product_summary ? (
-                        <ProductOptions options={productOptionsFromSummary(row.product_summary)} variant="chips" />
-                      ) : null}
-                    </Stack>
-                  ),
-                },
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{displayItemLabel(row)}</Text>
+                  {row.language_code ? (
+                    <Badge tone="neutral">{formatLanguageCodeLabel(row.language_code)}</Badge>
+                  ) : null}
+                  {row.item_subtitle ? (
+                    <Text tone="secondary" size="sm">
+                      {row.item_subtitle}
+                    </Text>
+                  ) : null}
+                  {row.product_summary ? (
+                    <ProductOptions options={productOptionsFromSummary(row.product_summary)} variant="chips" />
+                  ) : null}
+                </Stack>
+              ),
+            },
             {
               key: "location",
               header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.location"),
@@ -326,26 +329,22 @@ export function InventoryItemListPage({
               header: t("inventory.features.inventoryItems.ui.inventoryItemListPage.actions"),
               cell: (row) => (
                 <Stack gap={2}>
-                  <LinkButton
-                    href={`/account/inventory/items/${row.item_id}`}
-                    tone="secondary"
-                    size="sm"
-                  >
-                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.open")}</LinkButton>
+                  <LinkButton href={`/account/inventory/items/${row.item_id}`} tone="secondary" size="sm">
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.open")}
+                  </LinkButton>
                   {row.available_quantity > 0 ? (
-                    <LinkButton
-                      href={listingHref(row)}
-                      tone="ghost"
-                      size="sm"
-                    >
-                      {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing")}</LinkButton>
+                    <LinkButton href={listingHref(row)} tone="ghost" size="sm">
+                      {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing")}
+                    </LinkButton>
                   ) : null}
                 </Stack>
               ),
             },
           ]}
           emptyTitle={t("inventory.features.inventoryItems.ui.inventoryItemListPage.no.inventory.items.yet")}
-          emptyDescription={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.your.first.inventory.item.to")}
+          emptyDescription={t(
+            "inventory.features.inventoryItems.ui.inventoryItemListPage.create.your.first.inventory.item.to",
+          )}
         />
       </PageSection>
     </Page>

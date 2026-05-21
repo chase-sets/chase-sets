@@ -246,7 +246,17 @@ export function referenceDataRoutes(services: ReferenceDataServices) {
   });
 
   app.get("/reference-records", async (c) => {
-    const { search, status, limit, offset, typeKey, relationshipType, relatedReferenceId, attributeKey, attributeValue } = c.req.query();
+    const {
+      search,
+      status,
+      limit,
+      offset,
+      typeKey,
+      relationshipType,
+      relatedReferenceId,
+      attributeKey,
+      attributeValue,
+    } = c.req.query();
     const result = await services.listReferenceRecords({
       search,
       status,

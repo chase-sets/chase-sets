@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -82,20 +78,11 @@ export type ProductAlertCreatedEvent = DomainEvent<
   }>
 >;
 
-export type ProductAlertPausedEvent = DomainEvent<
-  "discovery.product-alert.paused",
-  Readonly<Record<string, never>>
->;
+export type ProductAlertPausedEvent = DomainEvent<"discovery.product-alert.paused", Readonly<Record<string, never>>>;
 
-export type ProductAlertResumedEvent = DomainEvent<
-  "discovery.product-alert.resumed",
-  Readonly<Record<string, never>>
->;
+export type ProductAlertResumedEvent = DomainEvent<"discovery.product-alert.resumed", Readonly<Record<string, never>>>;
 
-export type ProductAlertDeletedEvent = DomainEvent<
-  "discovery.product-alert.deleted",
-  Readonly<Record<string, never>>
->;
+export type ProductAlertDeletedEvent = DomainEvent<"discovery.product-alert.deleted", Readonly<Record<string, never>>>;
 
 export type ProductAlertEvent =
   | ProductAlertCreatedEvent
@@ -103,11 +90,10 @@ export type ProductAlertEvent =
   | ProductAlertResumedEvent
   | ProductAlertDeletedEvent;
 
-export const decideProductAlert: AggregateDecider<
-  ProductAlertState,
-  ProductAlertCommand,
-  ProductAlertEvent
-> = (state, command) => {
+export const decideProductAlert: AggregateDecider<ProductAlertState, ProductAlertCommand, ProductAlertEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "CreateProductAlert":
       assert(state.alertId === null, "Product Alert already exists.");
@@ -118,14 +104,8 @@ export const decideProductAlert: AggregateDecider<
             alertId: normalizeRequiredText(command.alertId, "Product Alert requires an id."),
             accountId: normalizeRequiredText(command.accountId, "Product Alert requires an account."),
             marketSide: normalizeMarketSide(command.marketSide),
-            catalogItemId: normalizeRequiredText(
-              command.catalogItemId,
-              "Product Alert requires a Catalog Item.",
-            ),
-            productId: normalizeRequiredText(
-              command.productId,
-              "Product Alert requires a Product.",
-            ),
+            catalogItemId: normalizeRequiredText(command.catalogItemId, "Product Alert requires a Catalog Item."),
+            productId: normalizeRequiredText(command.productId, "Product Alert requires a Product."),
             selectedOptions: normalizeSelectedOptions(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
             thresholdAmount: normalizeOptionalMoney(command.thresholdAmount),
@@ -155,10 +135,7 @@ export const decideProductAlert: AggregateDecider<
   }
 };
 
-export const evolveProductAlert: AggregateEvolver<
-  ProductAlertState,
-  ProductAlertEvent
-> = (state, event) => {
+export const evolveProductAlert: AggregateEvolver<ProductAlertState, ProductAlertEvent> = (state, event) => {
   switch (event.type) {
     case "discovery.product-alert.created":
       return {
@@ -217,18 +194,13 @@ function normalizeOptionalMoney(value: string | null | undefined) {
   return Number.parseFloat(normalized).toFixed(2);
 }
 
-function normalizeSelectedOptions(
-  selectedOptions: readonly ProductAlertSelectedOption[],
-) {
+function normalizeSelectedOptions(selectedOptions: readonly ProductAlertSelectedOption[]) {
   return [...selectedOptions]
     .map((selection) => ({
       dimensionId: selection.dimensionId.trim(),
       optionId: selection.optionId.trim(),
     }))
-    .filter(
-      (selection) =>
-        selection.dimensionId.length > 0 && selection.optionId.length > 0,
-    )
+    .filter((selection) => selection.dimensionId.length > 0 && selection.optionId.length > 0)
     .sort((left, right) =>
       left.dimensionId === right.dimensionId
         ? left.optionId.localeCompare(right.optionId)

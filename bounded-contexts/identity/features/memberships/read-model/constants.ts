@@ -6,13 +6,7 @@ export const IDENTITY_BOOTSTRAP_ACCOUNT_ID = "acc_identity_system" as const;
 
 export const PERMISSION_PRESETS = {
   paymentsOperator: ["orders.manage", "orders.view"],
-  payoutsOperator: [
-    "payouts.manage",
-    "payouts.reconcile",
-    "payouts.request",
-    "payouts.setup",
-    "payouts.view",
-  ],
+  payoutsOperator: ["payouts.manage", "payouts.reconcile", "payouts.request", "payouts.setup", "payouts.view"],
   payoutsViewer: ["payouts.view"],
 } satisfies Readonly<Record<string, readonly PermissionKey[]>>;
 

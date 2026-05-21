@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -19,8 +15,7 @@ import {
 } from "../support/request-support/api-client";
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
-const MARKETPLACE_DESCRIPTION =
-  t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
+const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
 
 function staleQuoteFromError(error: MarketplaceApiError) {
   if (error.status !== 409) {
@@ -65,8 +60,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     return await loadFreshlyWrittenResource({
       request,
-      isNotFound: (error) =>
-        error instanceof MarketplaceApiError && error.status === 404,
+      isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
       load: async () => ({
         listing: await api.getSellerListing(params.listingId!),
         feeHistory: await api.getSellerListingFeeHistory(params.listingId!),
@@ -144,9 +138,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return {
         priceDraftAmount,
         pricePreview: currentQuote,
-        error: currentQuote
-          ? t("marketplace.routes.accountListing.fee.quote.stale")
-          : error.message,
+        error: currentQuote ? t("marketplace.routes.accountListing.fee.quote.stale") : error.message,
       };
     }
 
@@ -166,9 +158,7 @@ export default function MarketplaceAccountListingRoute() {
   const [searchParams] = useSearchParams();
   const feedbackWorkflow = searchParams.get("feedbackWorkflow");
   const listingFeedbackWorkflow: PlatformFeedbackWorkflow | null =
-    feedbackWorkflow === "listing-publish" || feedbackWorkflow === "listing-update"
-      ? feedbackWorkflow
-      : null;
+    feedbackWorkflow === "listing-publish" || feedbackWorkflow === "listing-update" ? feedbackWorkflow : null;
 
   return (
     <MarketplaceListingDetailPage

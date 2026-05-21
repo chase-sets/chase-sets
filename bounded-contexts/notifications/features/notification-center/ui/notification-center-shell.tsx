@@ -32,10 +32,13 @@ export interface NotificationCenterShellProps {
   onViewChange?: (view: NotificationCenterView) => void;
 }
 
-const preferenceCopyKeys: Record<NotificationPreference["key"], {
-  labelKey: string;
-  descriptionKey: string;
-}> = {
+const preferenceCopyKeys: Record<
+  NotificationPreference["key"],
+  {
+    labelKey: string;
+    descriptionKey: string;
+  }
+> = {
   web: {
     labelKey: "notifications.features.notificationCenter.ui.shell.preference.web.label",
     descriptionKey: "notifications.features.notificationCenter.ui.shell.preference.web.description",
@@ -82,11 +85,7 @@ export function NotificationCenterShell({
     const [nextPreferences, nextProductAlerts] = await Promise.all([
       notificationsApi.listPreferences().catch(() => ({ items: [] })),
       fetch("/api/marketplace/account/product-alerts", { credentials: "include" })
-        .then((response) =>
-          response.ok
-            ? response.json() as Promise<ProductAlertResponse>
-            : { items: [] },
-        )
+        .then((response) => (response.ok ? (response.json() as Promise<ProductAlertResponse>) : { items: [] }))
         .catch(() => ({ items: [] })),
     ]);
 
@@ -145,18 +144,18 @@ export function NotificationCenterShell({
     [productAlerts.items],
   );
 
-  const reloadAfterProductAlertAction = useCallback(async (
-    id: string,
-    action: "pause" | "resume" | "delete",
-  ) => {
-    await fetch(`/api/marketplace/account/product-alerts/${encodeURIComponent(id)}/${action}`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    }).catch(() => undefined);
-    await loadSettings();
-  }, [loadSettings]);
+  const reloadAfterProductAlertAction = useCallback(
+    async (id: string, action: "pause" | "resume" | "delete") => {
+      await fetch(`/api/marketplace/account/product-alerts/${encodeURIComponent(id)}/${action}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }).catch(() => undefined);
+      await loadSettings();
+    },
+    [loadSettings],
+  );
 
   return (
     <NotificationCenterSheet
@@ -183,8 +182,7 @@ export function NotificationCenterShell({
         await loadFeed();
       }}
       onPreferenceChange={async (key, enabled) => {
-        await notificationsApi.setPreference(key as NotificationPreference["key"], enabled)
-          .catch(() => undefined);
+        await notificationsApi.setPreference(key as NotificationPreference["key"], enabled).catch(() => undefined);
         await loadSettings();
       }}
       onProductAlertPause={(id) => void reloadAfterProductAlertAction(id, "pause")}
@@ -223,12 +221,10 @@ function productAlertDetail(alert: ProductAlertResponse["items"][number]) {
   }
 
   return alert.market_side === "listing"
-    ? t(
-        "notifications.features.notificationCenter.ui.shell.productAlerts.listings.atOrBelow",
-        { amount: alert.threshold_amount },
-      )
-    : t(
-        "notifications.features.notificationCenter.ui.shell.productAlerts.offers.atOrAbove",
-        { amount: alert.threshold_amount },
-      );
+    ? t("notifications.features.notificationCenter.ui.shell.productAlerts.listings.atOrBelow", {
+        amount: alert.threshold_amount,
+      })
+    : t("notifications.features.notificationCenter.ui.shell.productAlerts.offers.atOrAbove", {
+        amount: alert.threshold_amount,
+      });
 }

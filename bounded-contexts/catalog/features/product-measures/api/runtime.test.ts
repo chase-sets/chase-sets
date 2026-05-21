@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type {
-  AppendToStreamInput,
-  ReadAllInput,
-  ReadStreamInput,
-  StoredEvent,
-} from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -42,7 +37,7 @@ type ResolvedMeasureRow = Readonly<{
 }>;
 
 function parseJson(value: unknown) {
-  return typeof value === "string" ? JSON.parse(value) as unknown : value;
+  return typeof value === "string" ? (JSON.parse(value) as unknown) : value;
 }
 
 function createMeasureDb(item: CatalogItemRow) {
@@ -57,8 +52,7 @@ function createMeasureDb(item: CatalogItemRow) {
           key: String(params?.[1] ?? ""),
           name: String(params?.[2] ?? ""),
           status: "active",
-          match_blueprint_id:
-            typeof params?.[3] === "string" ? String(params[3]) : null,
+          match_blueprint_id: typeof params?.[3] === "string" ? String(params[3]) : null,
           match_category_ids: parseJson(params?.[4]),
           match_selected_options: parseJson(params?.[5]),
           measure_snapshot: parseJson(params?.[6]),
@@ -74,8 +68,8 @@ function createMeasureDb(item: CatalogItemRow) {
 
       if (sql.includes("FROM catalog_product_measure_profiles")) {
         return {
-          rows: [...profiles].sort((left, right) =>
-            left.precedence - right.precedence || left.key.localeCompare(right.key),
+          rows: [...profiles].sort(
+            (left, right) => left.precedence - right.precedence || left.key.localeCompare(right.key),
           ) as T[],
         };
       }
@@ -95,8 +89,7 @@ function createMeasureDb(item: CatalogItemRow) {
           catalog_item_id: String(params?.[1] ?? ""),
           selected_options: parseJson(params?.[2]),
           measure_snapshot: parseJson(params?.[3]),
-          missing_reason:
-            typeof params?.[4] === "string" ? String(params[4]) : null,
+          missing_reason: typeof params?.[4] === "string" ? String(params[4]) : null,
           updated_at: "2026-05-21T00:00:00.000Z",
         };
         resolved.set(row.product_id, row);
@@ -105,9 +98,7 @@ function createMeasureDb(item: CatalogItemRow) {
 
       if (sql.includes("FROM catalog_resolved_product_measures")) {
         return {
-          rows: [...resolved.values()].sort((left, right) =>
-            left.product_id.localeCompare(right.product_id),
-          ) as T[],
+          rows: [...resolved.values()].sort((left, right) => left.product_id.localeCompare(right.product_id)) as T[],
         };
       }
 
@@ -145,11 +136,13 @@ describe("product measure runtime", () => {
       blueprint_id: "bp_card",
       category_ids: ["cat_pokemon"],
       canonical_dimension_order: ["form"],
-      dimension_rules: [{
+      dimension_rules: [
+        {
           dimensionId: "form",
           required: true,
           allowedOptions: [{ optionId: "raw" }, { optionId: "graded-psa" }],
-      }],
+        },
+      ],
     });
     const { eventStore, appended } = createEventStore();
     const services = createProductMeasureRuntime({
@@ -205,9 +198,7 @@ describe("product measure runtime", () => {
       unitWeightOunces: 2.1,
     });
     expect(eventStore.appendToStream).toHaveBeenCalledTimes(1);
-    expect(appended[0]?.events[0]?.eventType).toBe(
-      "catalog.catalog-item.product-measures-resolved",
-    );
+    expect(appended[0]?.events[0]?.eventType).toBe("catalog.catalog-item.product-measures-resolved");
     expect(appended[0]?.events[0]?.payload).toMatchObject({
       catalogItemId: "cat_1",
     });

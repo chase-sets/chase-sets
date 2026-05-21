@@ -36,10 +36,7 @@ const agreementSelect = `
     ON account.account_id = agreement.account_id
 `;
 
-export async function listAgreements(
-  db: PgQueryable,
-  params: Readonly<{ limit?: number; offset?: number }> = {},
-) {
+export async function listAgreements(db: PgQueryable, params: Readonly<{ limit?: number; offset?: number }> = {}) {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
   const [countResult, itemsResult] = await Promise.all([

@@ -83,10 +83,7 @@ describe("current actor display", () => {
       },
     });
     expect(services.accounts.getAccount).toHaveBeenCalledWith("acc_1");
-    expect(services.memberships.getActiveMembershipForUserAccount).toHaveBeenCalledWith(
-      "usr_1",
-      "acc_1",
-    );
+    expect(services.memberships.getActiveMembershipForUserAccount).toHaveBeenCalledWith("usr_1", "acc_1");
     expect(services.users.getUser).toHaveBeenCalledWith("usr_1");
   });
 

@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildPricingRecommendationProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPricingRecommendationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "pricing.market-price-snapshot.recorded": async (event) => {
       const data = event.data as {
@@ -61,12 +59,7 @@ export function buildPricingRecommendationProjectionHandlers(
              recommendation_published_at = $4,
              updated_at = $4
          WHERE recommendation_id = $1`,
-        [
-          data.recommendationId,
-          data.recommendedListAmount,
-          data.reason,
-          data.publishedAt,
-        ],
+        [data.recommendationId, data.recommendedListAmount, data.reason, data.publishedAt],
       );
     },
     "pricing.recommendation.proposed": async (event) => {

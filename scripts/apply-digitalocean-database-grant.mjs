@@ -21,10 +21,7 @@ async function applyGrant({ database, user }) {
     database,
     user: requireEnv("PGUSER"),
     password: requireEnv("PGPASSWORD"),
-    ssl:
-      process.env.PGSSLMODE === "require"
-        ? { rejectUnauthorized: false }
-        : undefined,
+    ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
   });
 
   await client.connect();
@@ -33,12 +30,8 @@ async function applyGrant({ database, user }) {
   const userIdentifier = quoteIdentifier(user);
 
   try {
-    await client.query(
-      `GRANT CONNECT, CREATE, TEMPORARY ON DATABASE ${databaseIdentifier} TO ${userIdentifier}`,
-    );
-    await client.query(
-      `GRANT USAGE, CREATE ON SCHEMA public TO ${userIdentifier}`,
-    );
+    await client.query(`GRANT CONNECT, CREATE, TEMPORARY ON DATABASE ${databaseIdentifier} TO ${userIdentifier}`);
+    await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${userIdentifier}`);
   } finally {
     await client.end();
   }
@@ -58,9 +51,7 @@ function readGrants() {
         typeof grant?.user !== "string" ||
         grant.user.length === 0
       ) {
-        throw new Error(
-          `DATABASE_GRANTS_JSON[${index}] must include database and user strings.`,
-        );
+        throw new Error(`DATABASE_GRANTS_JSON[${index}] must include database and user strings.`);
       }
 
       return { database: grant.database, user: grant.user };

@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -50,9 +47,7 @@ export type RefundServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createRefundRuntime(
-  deps: RefundRuntimeDeps,
-): RefundServices {
+export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,

@@ -115,20 +115,13 @@ export async function seedFields(services: CatalogServices): Promise<FieldIds> {
     }
 
     result[def.key] = def.fieldId;
-    console.log(
-      existing
-        ? `  Field "${def.name.values.en}" reconciled`
-        : `  Field "${def.name.values.en}" created`,
-    );
+    console.log(existing ? `  Field "${def.name.values.en}" reconciled` : `  Field "${def.name.values.en}" created`);
   }
 
   return result;
 }
 
-async function findSeedField(
-  services: CatalogServices,
-  def: FieldDef,
-): Promise<{ status: string } | null> {
+async function findSeedField(services: CatalogServices, def: FieldDef): Promise<{ status: string } | null> {
   const existing = await services.db.query<{
     field_id: string;
     key: string;
@@ -139,18 +132,14 @@ async function findSeedField(
      WHERE field_id = $1 OR key = $2`,
     [def.fieldId, def.key],
   );
-  const row = existing.rows.find(
-    (field) => field.field_id === def.fieldId && field.key === def.key,
-  );
+  const row = existing.rows.find((field) => field.field_id === def.fieldId && field.key === def.key);
 
   if (existing.rows.length === 0) {
     return null;
   }
 
   if (!row || existing.rows.length > 1) {
-    throw new Error(
-      `Catalog integration bootstrap field '${def.key}' conflicts with existing field metadata.`,
-    );
+    throw new Error(`Catalog integration bootstrap field '${def.key}' conflicts with existing field metadata.`);
   }
 
   return { status: row.status };

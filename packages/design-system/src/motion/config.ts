@@ -77,7 +77,7 @@ function buildPreset(
   initial: TargetAndTransition,
   animate: TargetAndTransition,
   exit: TargetAndTransition,
-  transition: Transition
+  transition: Transition,
 ): MotionPresetDefinition {
   return { initial, animate, exit, transition };
 }
@@ -85,24 +85,19 @@ function buildPreset(
 export function resolveChaseMotion(
   theme?: ThemeOverrides,
   reducedMotionSetting: ReducedMotionSetting = "user",
-  reducedMotion = false
+  reducedMotion = false,
 ): ChaseMotionSettings {
   const resolvedTheme = resolveTheme(theme, chaseTheme);
   const durations: MotionDurations = {
     fast: parseDurationSeconds(resolvedTheme.motion.fast, 120),
     base: parseDurationSeconds(resolvedTheme.motion.base, 180),
-    slow: parseDurationSeconds(resolvedTheme.motion.slow, 260)
+    slow: parseDurationSeconds(resolvedTheme.motion.slow, 260),
   };
   const easing = parseEase(resolvedTheme.motion.ease);
   const inertTransition: Transition = { duration: 0.01, ease: "linear" };
 
   if (reducedMotion) {
-    const subtle = buildPreset(
-      { opacity: 0 },
-      { opacity: 1 },
-      { opacity: 0 },
-      inertTransition
-    );
+    const subtle = buildPreset({ opacity: 0 }, { opacity: 1 }, { opacity: 0 }, inertTransition);
 
     return {
       reducedMotion,
@@ -116,12 +111,12 @@ export function resolveChaseMotion(
         lift: subtle,
         scale: subtle,
         slideUp: subtle,
-        slideRight: subtle
+        slideRight: subtle,
       },
       viewPresets: {
         page: subtle,
-        panel: subtle
-      }
+        panel: subtle,
+      },
     };
   }
 
@@ -142,40 +137,15 @@ export function resolveChaseMotion(
         { opacity: 0, y: 14, scale: 0.985 },
         { opacity: 1, y: 0, scale: 1 },
         { opacity: 0, y: 10, scale: 0.99 },
-        baseTween
+        baseTween,
       ),
-      scale: buildPreset(
-        { opacity: 0, scale: 0.96 },
-        { opacity: 1, scale: 1 },
-        { opacity: 0, scale: 0.98 },
-        baseTween
-      ),
-      slideUp: buildPreset(
-        { opacity: 0, y: 22 },
-        { opacity: 1, y: 0 },
-        { opacity: 0, y: 18 },
-        baseTween
-      ),
-      slideRight: buildPreset(
-        { opacity: 0, x: 26 },
-        { opacity: 1, x: 0 },
-        { opacity: 0, x: 20 },
-        slowTween
-      )
+      scale: buildPreset({ opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1 }, { opacity: 0, scale: 0.98 }, baseTween),
+      slideUp: buildPreset({ opacity: 0, y: 22 }, { opacity: 1, y: 0 }, { opacity: 0, y: 18 }, baseTween),
+      slideRight: buildPreset({ opacity: 0, x: 26 }, { opacity: 1, x: 0 }, { opacity: 0, x: 20 }, slowTween),
     },
     viewPresets: {
-      page: buildPreset(
-        { opacity: 0, y: 24 },
-        { opacity: 1, y: 0 },
-        { opacity: 0, y: 16 },
-        slowTween
-      ),
-      panel: buildPreset(
-        { opacity: 0, x: 20 },
-        { opacity: 1, x: 0 },
-        { opacity: 0, x: 12 },
-        baseTween
-      )
-    }
+      page: buildPreset({ opacity: 0, y: 24 }, { opacity: 1, y: 0 }, { opacity: 0, y: 16 }, slowTween),
+      panel: buildPreset({ opacity: 0, x: 20 }, { opacity: 1, x: 0 }, { opacity: 0, x: 12 }, baseTween),
+    },
   };
 }

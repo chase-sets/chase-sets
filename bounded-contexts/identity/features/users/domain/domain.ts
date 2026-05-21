@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import {
   EMPTY_EVENT_DATA,
@@ -136,10 +132,7 @@ type UserProfile = Readonly<{
   primaryContactMethod: ContactMethod;
 }>;
 
-export type UserCreatedEvent = DomainEvent<
-  "identity.user.created",
-  Readonly<{ userId: UserId }> & UserProfile
->;
+export type UserCreatedEvent = DomainEvent<"identity.user.created", Readonly<{ userId: UserId }> & UserProfile>;
 
 export type UserProfileUpdatedEvent = DomainEvent<
   "identity.user.profile-updated",
@@ -188,16 +181,10 @@ export type PasskeyCredentialRegisteredEvent = DomainEvent<
   }>
 >;
 
-export type SocialLoginLinkedEvent = DomainEvent<
-  "identity.user.social-login-linked",
-  SocialLoginLink
->;
+export type SocialLoginLinkedEvent = DomainEvent<"identity.user.social-login-linked", SocialLoginLink>;
 
 export type UserSuspendedEvent = DomainEvent<"identity.user.suspended", EmptyEventData>;
-export type UserReactivatedEvent = DomainEvent<
-  "identity.user.reactivated",
-  EmptyEventData
->;
+export type UserReactivatedEvent = DomainEvent<"identity.user.reactivated", EmptyEventData>;
 
 export type UserEvent =
   | UserCreatedEvent
@@ -211,10 +198,7 @@ export type UserEvent =
   | UserSuspendedEvent
   | UserReactivatedEvent;
 
-export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
-  state,
-  command,
-) => {
+export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (state, command) => {
   switch (command.type) {
     case "CreateUser":
       assert(state.id === null, "User has already been created.");
@@ -227,10 +211,7 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
             displayName: normalizeLabel(command.displayName),
             givenName: normalizeLabel(command.givenName ?? ""),
             familyName: normalizeLabel(command.familyName ?? ""),
-            primaryEmail:
-              primaryContactMethod.type === "email"
-                ? primaryContactMethod.value
-                : null,
+            primaryEmail: primaryContactMethod.type === "email" ? primaryContactMethod.value : null,
             primaryContactMethod,
           },
         },
@@ -253,10 +234,7 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
         !state.contactMethods.some(
           (method) =>
             method.type === command.contactMethodType &&
-            method.value === normalizeContactValue(
-              command.contactMethodType,
-              command.value,
-            ),
+            method.value === normalizeContactValue(command.contactMethodType, command.value),
         ),
         "Contact method already exists.",
       );
@@ -273,9 +251,7 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
     case "VerifyContactMethod":
       requireCreatedUser(state);
       assert(
-        state.contactMethods.some(
-          (method) => method.contactMethodId === command.contactMethodId,
-        ),
+        state.contactMethods.some((method) => method.contactMethodId === command.contactMethodId),
         "Contact method does not exist.",
       );
       return [
@@ -306,10 +282,7 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       ];
     case "RegisterPasskeyCredential":
       requireCreatedUser(state);
-      assert(
-        !state.passkeyCredentialIds.includes(command.credentialId),
-        "Passkey has already been registered.",
-      );
+      assert(!state.passkeyCredentialIds.includes(command.credentialId), "Passkey has already been registered.");
       return [
         {
           type: "identity.user.passkey-registered",
@@ -322,9 +295,7 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       assert(providerSubject.length > 0, "Social login subject is required.");
       assert(
         !state.socialLoginLinks.some(
-          (link) =>
-            link.providerName === command.providerName &&
-            link.providerSubject === providerSubject,
+          (link) => link.providerName === command.providerName && link.providerSubject === providerSubject,
         ),
         "Social login is already linked.",
       );
@@ -346,20 +317,14 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       return [{ type: "identity.user.suspended", data: EMPTY_EVENT_DATA }];
     case "ReactivateUser":
       requireCreatedUser(state);
-      assert(
-        state.status === "suspended",
-        "Only suspended users can be reactivated.",
-      );
+      assert(state.status === "suspended", "Only suspended users can be reactivated.");
       return [{ type: "identity.user.reactivated", data: EMPTY_EVENT_DATA }];
     default:
       return assertNever(command);
   }
 };
 
-export const evolveUser: AggregateEvolver<UserState, UserEvent> = (
-  state,
-  event,
-) => {
+export const evolveUser: AggregateEvolver<UserState, UserEvent> = (state, event) => {
   switch (event.type) {
     case "identity.user.created":
       const primaryContactMethod = event.data.primaryContactMethod ?? {
@@ -423,10 +388,7 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (
     case "identity.user.passkey-registered":
       return {
         ...state,
-        passkeyCredentialIds: toSortedUniqueList([
-          ...state.passkeyCredentialIds,
-          event.data.credentialId,
-        ]),
+        passkeyCredentialIds: toSortedUniqueList([...state.passkeyCredentialIds, event.data.credentialId]),
       };
     case "identity.user.social-login-linked":
       return {
@@ -454,10 +416,7 @@ export const evolveUser: AggregateEvolver<UserState, UserEvent> = (
   }
 };
 
-function normalizeContactValue(
-  contactMethodType: ContactMethodType,
-  value: string,
-): string {
+function normalizeContactValue(contactMethodType: ContactMethodType, value: string): string {
   if (contactMethodType === "email") {
     return normalizeEmail(value);
   }
@@ -467,9 +426,7 @@ function normalizeContactValue(
   return normalizeLabel(value);
 }
 
-function normalizePrimaryContactMethod(
-  command: CreateUserCommand,
-): ContactMethod {
+function normalizePrimaryContactMethod(command: CreateUserCommand): ContactMethod {
   const method = command.primaryContactMethod ?? {
     contactMethodId: `${command.userId}-primary-email`,
     type: "email" as const,
@@ -480,9 +437,7 @@ function normalizePrimaryContactMethod(
   assert(value.length > 0, "Primary contact method is required.");
 
   return {
-    contactMethodId:
-      method.contactMethodId ??
-      `${command.userId}-primary-${method.type}`,
+    contactMethodId: method.contactMethodId ?? `${command.userId}-primary-${method.type}`,
     type: method.type,
     value,
     verifiedAt: method.verifiedAt ?? null,

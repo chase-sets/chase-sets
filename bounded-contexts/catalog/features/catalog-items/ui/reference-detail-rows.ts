@@ -20,9 +20,7 @@ const ACRONYM_LABELS: Record<string, string> = {
   tcg: "TCG",
 };
 
-export function buildReferenceDetailRows(
-  fieldValues: readonly CatalogFieldValueWithReference[],
-): ReferenceDetailRow[] {
+export function buildReferenceDetailRows(fieldValues: readonly CatalogFieldValueWithReference[]): ReferenceDetailRow[] {
   const rows: ReferenceDetailRow[] = [];
   const directReferenceIds = new Set<string>();
   const inheritedReferenceIds = new Set<string>();
@@ -81,10 +79,7 @@ function appendInheritedReferenceRows(input: {
       continue;
     }
 
-    if (
-      !input.directReferenceIds.has(related.referenceId) &&
-      !input.inheritedReferenceIds.has(related.referenceId)
-    ) {
+    if (!input.directReferenceIds.has(related.referenceId) && !input.inheritedReferenceIds.has(related.referenceId)) {
       input.rows.push({
         id: `reference:${related.referenceId}`,
         label: resolveInheritedReferenceLabel(
@@ -108,18 +103,12 @@ function appendInheritedReferenceRows(input: {
   }
 }
 
-function resolveInheritedReferenceLabel(
-  typeKey: string,
-  relationshipType: string,
-  labelCounts: Map<string, number>,
-) {
+function resolveInheritedReferenceLabel(typeKey: string, relationshipType: string, labelCounts: Map<string, number>) {
   const baseLabel = formatReferenceTypeLabel(typeKey);
   const count = labelCounts.get(baseLabel) ?? 0;
   labelCounts.set(baseLabel, count + 1);
 
-  return count === 0
-    ? baseLabel
-    : `${baseLabel} (${formatRelationshipLabel(relationshipType)})`;
+  return count === 0 ? baseLabel : `${baseLabel} (${formatRelationshipLabel(relationshipType)})`;
 }
 
 export function formatReferenceTypeLabel(typeKey: string): string {
@@ -131,11 +120,7 @@ export function formatReferenceTypeLabel(typeKey: string): string {
 }
 
 function formatRelationshipLabel(relationshipType: string): string {
-  return relationshipType
-    .split(/[-_]/g)
-    .filter(Boolean)
-    .map(capitalize)
-    .join(" ");
+  return relationshipType.split(/[-_]/g).filter(Boolean).map(capitalize).join(" ");
 }
 
 function capitalize(value: string): string {

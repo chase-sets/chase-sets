@@ -1,17 +1,11 @@
 import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { bootstrapCatalogDatabase } from "@chase-sets/catalog/server";
 import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
-import {
-  bootstrapContextDatabase,
-  syncContextProjectionGroups,
-} from "@chase-sets/bounded-context-runtime";
+import { bootstrapContextDatabase, syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createAdminSupportApiHost } from "./app";
 import { loadConfig } from "./config";
-import {
-  closeAdminSupportApiPools,
-  createAdminSupportApiPools,
-} from "./database-pools";
+import { closeAdminSupportApiPools, createAdminSupportApiPools } from "./database-pools";
 
 async function bootstrap() {
   const config = loadConfig();
@@ -25,9 +19,7 @@ async function bootstrap() {
       await bootstrapContextDatabase(context.module, context.pool);
     }
 
-    const catalogContext = runtime.mountedContexts.find(
-      (entry) => entry.contextName === "catalog",
-    );
+    const catalogContext = runtime.mountedContexts.find((entry) => entry.contextName === "catalog");
     if (catalogContext) {
       await bootstrapCatalogDatabase(catalogContext.pool, undefined, {
         enabledDataProfiles: config.dataProfiles,
@@ -36,12 +28,8 @@ async function bootstrap() {
     }
 
     if (config.platformAdmin) {
-      const identityServices = runtime.services.identity as Parameters<
-        typeof bootstrapPlatformAdminIdentity
-      >[0];
-      const authServices = runtime.services.auth as Parameters<
-        typeof bootstrapPlatformAdminPassword
-      >[0];
+      const identityServices = runtime.services.identity as Parameters<typeof bootstrapPlatformAdminIdentity>[0];
+      const authServices = runtime.services.auth as Parameters<typeof bootstrapPlatformAdminPassword>[0];
       const admin = await bootstrapPlatformAdminIdentity(identityServices, {
         email: config.platformAdmin.email,
         displayName: config.platformAdmin.displayName,

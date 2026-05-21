@@ -1,40 +1,18 @@
 {
   "contextName": "experience",
   "packageName": "@chase-sets/experience",
-  "ownedNouns": [
-    "platform-feedback",
-    "platform-feedback-prompt"
-  ],
+  "ownedNouns": ["platform-feedback", "platform-feedback-prompt"],
   "streamPrefix": "experience.",
   "apiBasePath": "/api/experience",
-  "slices": [
-    "platform-feedback"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support",
-    "seed-support",
-    "shell-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server",
-    "./web"
-  ],
+  "slices": ["platform-feedback"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "shell-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [],
-  "seedRequirements": [
-    "identity"
-  ],
+  "seedRequirements": ["identity"],
   "eventSubscriptions": [],
   "projectionGroups": [],
   "hostPorts": [],
-  "apiDeployables": [
-    "admin-support-api",
-    "platform-api"
-  ],
+  "apiDeployables": ["admin-support-api", "platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/experience",
@@ -74,9 +52,7 @@
       "href": "/platform-feedback",
       "order": 10,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "platform-feedback.view"
-      ]
+      "requiredPermissions": ["platform-feedback.view"]
     }
   ],
   "directoryIntent": {
@@ -84,18 +60,13 @@
       "classification": "slice",
       "purpose": "Own platform-feedback behavior, read models, UI contracts, and admin review surfaces.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal experience module composition",
-        "Marketplace contextual feedback prompts"
-      ]
+      "expectedConsumers": ["Internal experience module composition", "Marketplace contextual feedback prompts"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide request API clients shared by experience-owned route modules and prompt UI.",
       "allowedWhen": "Allowed only for context-local request composition.",
-      "expectedConsumers": [
-        "platform-feedback"
-      ],
+      "expectedConsumers": ["platform-feedback"],
       "justification": "request-support centralizes the Experience API client for route modules and browser prompt UI.",
       "createdFor": "platform-feedback routes and contextual prompt submissions.",
       "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
@@ -105,9 +76,7 @@
       "classification": "support",
       "purpose": "Provide Experience admin shell composition for deployable layout routes.",
       "allowedWhen": "Allowed only for admin-web shell composition.",
-      "expectedConsumers": [
-        "admin-web"
-      ],
+      "expectedConsumers": ["admin-web"],
       "justification": "shell-support keeps admin shell composition outside feature modules.",
       "createdFor": "Experience admin section layout.",
       "sunsetWhen": "Remove if Experience no longer contributes admin-web routes."
@@ -116,9 +85,7 @@
       "classification": "support",
       "purpose": "Provide event-store, schema, and projector composition for the Experience context.",
       "allowedWhen": "Allowed only for context runtime composition.",
-      "expectedConsumers": [
-        "platform-feedback"
-      ],
+      "expectedConsumers": ["platform-feedback"],
       "justification": "runtime-support centralizes event-store composition for the platform-feedback slice.",
       "createdFor": "Experience API and worker runtime.",
       "sunsetWhen": "Remove when platform feedback no longer needs runtime composition."
@@ -127,10 +94,7 @@
       "classification": "support",
       "purpose": "Provide deterministic platform-feedback seed identifiers.",
       "allowedWhen": "Allowed for bootstrap and test data.",
-      "expectedConsumers": [
-        "platform-feedback",
-        "Deployable composition for experience"
-      ],
+      "expectedConsumers": ["platform-feedback", "Deployable composition for experience"],
       "justification": "seed-support centralizes deterministic identifiers for sample platform feedback.",
       "createdFor": "Experience bootstrap and test flows.",
       "sunsetWhen": "Remove when sample platform feedback is no longer seeded.",
@@ -140,13 +104,8 @@
       "classification": "routes",
       "purpose": "Expose experience-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "admin-support-worker",
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["admin-support-worker", "platform-worker"]
 }

@@ -30,8 +30,10 @@ export const chaseSetsLogoSvg = `<?xml version="1.0" encoding="UTF-8"?>
   </g>
 </svg>`;
 
-export interface ChaseSetsLogoProps
-  extends Omit<SVGAttributes<SVGSVGElement>, "children" | "color" | "height" | "width"> {
+export interface ChaseSetsLogoProps extends Omit<
+  SVGAttributes<SVGSVGElement>,
+  "children" | "color" | "height" | "width"
+> {
   colorMode?: "auto" | "light" | "dark";
   decorative?: boolean;
   size?: number | string;
@@ -50,12 +52,12 @@ export function ChaseSetsLogo({
   const lightPalette = {
     start: "#0f766e",
     mid: "#1d5fd6",
-    end: "#174db0"
+    end: "#174db0",
   };
   const darkPalette = {
     start: "#2dd4bf",
     mid: "#5b8ef4",
-    end: "#93c5fd"
+    end: "#93c5fd",
   };
   const forcedPalette = colorMode === "dark" ? darkPalette : lightPalette;
 
@@ -73,15 +75,11 @@ export function ChaseSetsLogo({
       focusable="false"
     >
       <defs>
-        <linearGradient
-          id={gradientId}
-          gradientUnits="userSpaceOnUse"
-          x1="248"
-          y1="420"
-          x2="1012"
-          y2="842"
-        >
-          <stop offset="0" stopColor={colorMode === "auto" ? "var(--chase-logo-start, #0f766e)" : forcedPalette.start} />
+        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="248" y1="420" x2="1012" y2="842">
+          <stop
+            offset="0"
+            stopColor={colorMode === "auto" ? "var(--chase-logo-start, #0f766e)" : forcedPalette.start}
+          />
           <stop offset="0.52" stopColor={colorMode === "auto" ? "var(--chase-logo-mid, #1d5fd6)" : forcedPalette.mid} />
           <stop offset="1" stopColor={colorMode === "auto" ? "var(--chase-logo-end, #174db0)" : forcedPalette.end} />
         </linearGradient>

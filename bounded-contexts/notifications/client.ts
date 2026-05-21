@@ -48,9 +48,7 @@ export function createNotificationCenterApiClient({
   return {
     async listCenterFeed(query = "limit=25&includeRead=true") {
       const suffix = query ? `?${query.replace(/^\?/, "")}` : "";
-      return parseJsonResponse<NotificationCenterFeedResponse>(
-        await request(`${baseUrl}/center${suffix}`),
-      );
+      return parseJsonResponse<NotificationCenterFeedResponse>(await request(`${baseUrl}/center${suffix}`));
     },
     async markRead(deliveryId: string) {
       return parseJsonResponse<{ status: string }>(
@@ -71,9 +69,7 @@ export function createNotificationCenterApiClient({
       );
     },
     async listPreferences() {
-      return parseJsonResponse<{ items: readonly NotificationPreference[] }>(
-        await request(`${baseUrl}/preferences`),
-      );
+      return parseJsonResponse<{ items: readonly NotificationPreference[] }>(await request(`${baseUrl}/preferences`));
     },
     async setPreference(key: NotificationPreference["key"], enabled: boolean) {
       return parseJsonResponse<{ item: NotificationPreference }>(

@@ -1,22 +1,15 @@
 import { describe, expect, it } from "vitest";
-import {
-  normalizePgPoolConnectionString,
-  resolvePgPoolSslConfig,
-} from "./pool";
+import { normalizePgPoolConnectionString, resolvePgPoolSslConfig } from "./pool";
 
 describe("resolvePgPoolSslConfig", () => {
   it("uses libpq-compatible TLS behavior for sslmode=require", () => {
-    expect(
-      resolvePgPoolSslConfig(
-        "postgresql://user:pass@example.com:25060/defaultdb?sslmode=require",
-      ),
-    ).toEqual({ rejectUnauthorized: false });
+    expect(resolvePgPoolSslConfig("postgresql://user:pass@example.com:25060/defaultdb?sslmode=require")).toEqual({
+      rejectUnauthorized: false,
+    });
   });
 
   it("leaves non-TLS local connection strings untouched", () => {
-    expect(
-      resolvePgPoolSslConfig("postgresql://postgres:postgres@localhost:5432/chase_sets"),
-    ).toBeUndefined();
+    expect(resolvePgPoolSslConfig("postgresql://postgres:postgres@localhost:5432/chase_sets")).toBeUndefined();
   });
 
   it("ignores malformed connection strings so pg can report the connection error", () => {
@@ -34,8 +27,7 @@ describe("normalizePgPoolConnectionString", () => {
   });
 
   it("preserves existing uselibpqcompat choices", () => {
-    const connectionString =
-      "postgresql://user:pass@example.com/defaultdb?sslmode=require&uselibpqcompat=false";
+    const connectionString = "postgresql://user:pass@example.com/defaultdb?sslmode=require&uselibpqcompat=false";
 
     expect(normalizePgPoolConnectionString(connectionString)).toBe(connectionString);
   });

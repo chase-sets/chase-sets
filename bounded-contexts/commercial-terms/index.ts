@@ -14,19 +14,12 @@ import { seedCommercialTermsDatabase } from "./support/runtime-support/seed";
 import type { CommercialTermsServices } from "./support/runtime-support/services";
 import { createCommercialTermsServices } from "./support/runtime-support/services";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -43,20 +36,13 @@ export const module: BcApiModule<CommercialTermsServices, PgTransactionalPool, v
   routePrefix: "/api/commercial-terms",
   streamPrefix: "commercial-terms.",
   schemaSql: commercialTermsSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    CommercialTermsServices,
-    PgTransactionalPool,
-    void
-  >["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<CommercialTermsServices, PgTransactionalPool, void>["apiMounts"],
   projectionGroups,
   createServices: (pool) => createCommercialTermsServices(pool),
   buildApis: (services) => [buildCommercialTermsApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const identitySubscription = getEventSubscription(
-      "identity",
-      "commercial-terms-account-projection",
-    );
+    const identitySubscription = getEventSubscription("identity", "commercial-terms-account-projection");
 
     return [
       {

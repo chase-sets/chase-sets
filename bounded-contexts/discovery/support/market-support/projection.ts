@@ -1,9 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  recordRealtimeProjectionPatch,
-  type RealtimeProjectionPatch,
-} from "@chase-sets/platform-runtime/realtime";
+import { recordRealtimeProjectionPatch, type RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import {
   createDiscoveryAccountRemovePatch,
   createDiscoveryAccountUpsertPatch,
@@ -11,10 +8,7 @@ import {
   createDiscoveryOfferPatch,
 } from "../realtime-support/patches";
 import { discoveryRealtimeTopics } from "../realtime-support/topics";
-import {
-  createMarketplaceSlug,
-  rememberSlugRedirect,
-} from "../runtime-support/slugs";
+import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/slugs";
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
@@ -83,9 +77,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   return row
     ? {
         ...row,
-        selected_options: Array.isArray(row.selected_options)
-          ? row.selected_options
-          : [],
+        selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
       }
     : null;
 }
@@ -129,9 +121,7 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
   return row
     ? {
         ...row,
-        selected_options: Array.isArray(row.selected_options)
-          ? row.selected_options
-          : [],
+        selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
       }
     : null;
 }
@@ -193,17 +183,9 @@ async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHand
     discoveryRealtimeTopics.listing(listing.listing_id),
     discoveryRealtimeTopics.account(listing.account_id),
   ];
-  const summary = await loadRealtimeMarketSummary(
-    db,
-    listing.catalog_catalog_item_id,
-  );
+  const summary = await loadRealtimeMarketSummary(db, listing.catalog_catalog_item_id);
 
-  await emitRealtimeChanges(
-    db,
-    event,
-    `listing:${listingId}`,
-    createDiscoveryListingPatch(topics, listing, summary),
-  );
+  await emitRealtimeChanges(db, event, `listing:${listingId}`, createDiscoveryListingPatch(topics, listing, summary));
 }
 
 async function emitSellerListingPatches(
@@ -219,16 +201,10 @@ async function emitSellerListingPatches(
     [accountId],
   );
 
-  await Promise.all(
-    result.rows.map((row) => emitListingPatch(db, event, row.listing_id)),
-  );
+  await Promise.all(result.rows.map((row) => emitListingPatch(db, event, row.listing_id)));
 }
 
-async function emitOfferPatch(
-  db: PgQueryable,
-  event: Parameters<ProjectorHandlerMap[string]>[0],
-  offerId: string,
-) {
+async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
   const offer = await loadRealtimeOffer(db, offerId);
   if (!offer) {
     return;
@@ -239,18 +215,13 @@ async function emitOfferPatch(
     event,
     `offer:${offerId}`,
     createDiscoveryOfferPatch(
-      [
-        discoveryRealtimeTopics.publicMarket(),
-        discoveryRealtimeTopics.item(offer.catalog_catalog_item_id),
-      ],
+      [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.item(offer.catalog_catalog_item_id)],
       offer,
     ),
   );
 }
 
-export function buildDiscoveryMarketProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -281,10 +252,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         event,
         `account:${accountId}`,
         createDiscoveryAccountUpsertPatch(
-          [
-            discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.account(accountId),
-          ],
+          [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.account(accountId)],
           {
             account_id: accountId,
             seller_slug: sellerSlug,
@@ -332,10 +300,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         event,
         `account:${accountId}`,
         createDiscoveryAccountUpsertPatch(
-          [
-            discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.account(accountId),
-          ],
+          [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.account(accountId)],
           {
             account_id: accountId,
             seller_slug: sellerSlug,
@@ -361,10 +326,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         event,
         `account:${accountId}`,
         createDiscoveryAccountRemovePatch(
-          [
-            discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.account(accountId),
-          ],
+          [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.account(accountId)],
           accountId,
         ),
       );
@@ -383,10 +345,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         event,
         `account:${accountId}`,
         createDiscoveryAccountUpsertPatch(
-          [
-            discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.account(accountId),
-          ],
+          [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.account(accountId)],
           {
             account_id: accountId,
             status: "active",
@@ -410,10 +369,7 @@ export function buildDiscoveryMarketProjectionHandlers(
         event,
         `account:${accountId}`,
         createDiscoveryAccountRemovePatch(
-          [
-            discoveryRealtimeTopics.publicMarket(),
-            discoveryRealtimeTopics.account(accountId),
-          ],
+          [discoveryRealtimeTopics.publicMarket(), discoveryRealtimeTopics.account(accountId)],
           accountId,
         ),
       );
@@ -561,13 +517,15 @@ export function buildDiscoveryMarketProjectionHandlers(
       await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
-      const purchaseLimits = (event.data as {
-        purchaseLimits?: {
-          maxUnitsPerOrder: number | null;
-          maxUnitsPerDay: number | null;
-          maxUnitsPerCustomerAccount: number | null;
-        };
-      }).purchaseLimits;
+      const purchaseLimits = (
+        event.data as {
+          purchaseLimits?: {
+            maxUnitsPerOrder: number | null;
+            maxUnitsPerDay: number | null;
+            maxUnitsPerCustomerAccount: number | null;
+          };
+        }
+      ).purchaseLimits;
       const hasPurchaseLimits = purchaseLimits !== undefined;
       await db.query(
         `UPDATE discovery_market_listings
@@ -666,12 +624,7 @@ export function buildDiscoveryMarketProjectionHandlers(
            seller_listing_availability_reason_category = EXCLUDED.seller_listing_availability_reason_category,
            seller_listing_available_again_on = EXCLUDED.seller_listing_available_again_on,
            updated_at = EXCLUDED.updated_at`,
-        [
-          data.accountId,
-          data.reasonCategory,
-          data.availableAgainOn,
-          event.timing.recordedAt,
-        ],
+        [data.accountId, data.reasonCategory, data.availableAgainOn, event.timing.recordedAt],
       );
       await emitSellerListingPatches(db, event, data.accountId);
     },
@@ -870,11 +823,7 @@ export function buildDiscoveryMarketProjectionHandlers(
   };
 }
 
-async function refreshAccountReputation(
-  db: PgQueryable,
-  accountId: string,
-  updatedAt: string,
-) {
+async function refreshAccountReputation(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(
     `INSERT INTO discovery_market_accounts (
        account_id,
@@ -931,7 +880,5 @@ async function emitAccountReputationPatches(
     [accountId],
   );
 
-  await Promise.all(
-    offers.rows.map((row) => emitOfferPatch(db, event, row.offer_id)),
-  );
+  await Promise.all(offers.rows.map((row) => emitOfferPatch(db, event, row.offer_id)));
 }

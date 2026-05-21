@@ -13,8 +13,6 @@ export default defineConfig({
     setupFiles: "./app/test-support/setup.ts",
     include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
     exclude: ["dist/**", "node_modules/**"],
-    css: true
-  }
+    css: true,
+  },
 });
-
-

@@ -7,29 +7,20 @@ import {
 
 describe("seller listing availability", () => {
   it("turns account listing availability off and back on without listing state", () => {
-    const disabledEvents = decideSellerListingAvailability(
-      initialSellerListingAvailabilityState,
-      {
-        type: "DisableSellerListingAvailability",
-        accountId: "acc_seller",
-        reasonCategory: "audit",
-        availableAgainOn: "2026-06-01",
-        disabledAt: "2026-05-13T12:00:00.000Z",
-      },
-    );
-    const disabledState = disabledEvents.reduce(
-      evolveSellerListingAvailability,
-      initialSellerListingAvailabilityState,
-    );
+    const disabledEvents = decideSellerListingAvailability(initialSellerListingAvailabilityState, {
+      type: "DisableSellerListingAvailability",
+      accountId: "acc_seller",
+      reasonCategory: "audit",
+      availableAgainOn: "2026-06-01",
+      disabledAt: "2026-05-13T12:00:00.000Z",
+    });
+    const disabledState = disabledEvents.reduce(evolveSellerListingAvailability, initialSellerListingAvailabilityState);
     const enabledEvents = decideSellerListingAvailability(disabledState, {
       type: "EnableSellerListingAvailability",
       accountId: "acc_seller",
       enabledAt: "2026-05-14T12:00:00.000Z",
     });
-    const enabledState = enabledEvents.reduce(
-      evolveSellerListingAvailability,
-      disabledState,
-    );
+    const enabledState = enabledEvents.reduce(evolveSellerListingAvailability, disabledState);
 
     expect(disabledEvents).toEqual([
       {

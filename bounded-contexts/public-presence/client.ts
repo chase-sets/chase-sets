@@ -69,14 +69,10 @@ export function createPublicPresenceApiClient({
       );
     },
     async listWaitlistSignups(query = ""): Promise<ListResponse<WaitlistSignupListItem>> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/waitlist${query ? `?${query}` : ""}`),
-      );
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/admin/waitlist${query ? `?${query}` : ""}`));
     },
     async getWaitlistMetrics(): Promise<WaitlistMetrics> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/admin/waitlist/metrics`),
-      );
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/admin/waitlist/metrics`));
     },
   };
 }

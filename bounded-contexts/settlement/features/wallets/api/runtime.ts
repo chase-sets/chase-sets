@@ -1,21 +1,12 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  AccountId,
-  LedgerEntryId,
-  OrderId,
-  PaymentId,
-  PayoutId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import {
   getWallet,
   listPendingCreditEntriesMaturedBy,
@@ -101,9 +92,7 @@ export type WalletServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createWalletRuntime(
-  deps: WalletRuntimeDeps,
-): WalletServices {
+export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -219,10 +208,7 @@ export function createWalletRuntime(
           });
           released += 1;
         } catch (error) {
-          if (
-            error instanceof Error &&
-            error.message === "Ledger entry is already available."
-          ) {
+          if (error instanceof Error && error.message === "Ledger entry is already available.") {
             skipped += 1;
             continue;
           }

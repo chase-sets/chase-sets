@@ -6,9 +6,7 @@ import type { CheckoutSessionRow } from "../../features/sessions/read-model/quer
 export { normalizeRequestedBalanceCreditAmount } from "./balance-credit";
 
 function parseOrderIds(value: unknown) {
-  return Array.isArray(value)
-    ? value.map(String).filter(Boolean)
-    : [];
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
 export async function createCheckoutOrdersThroughOrdering(
@@ -103,10 +101,7 @@ function isAlreadySubmittedOfferError(error: unknown) {
   return message.includes("Offer has already been submitted.");
 }
 
-export async function submitPurchaseIntentThroughMarketplace(
-  request: Request,
-  session: CheckoutSessionRow,
-) {
+export async function submitPurchaseIntentThroughMarketplace(request: Request, session: CheckoutSessionRow) {
   if (!session.shipping_address) {
     throw new Error("Shipping destination is required before checkout can place purchase intent.");
   }
@@ -129,7 +124,7 @@ export async function submitPurchaseIntentThroughMarketplace(
   const offerId = offerIdForCheckoutSession(session.session_id);
 
   try {
-    const offer = await marketplaceApi.createSubmittedOffer({
+    const offer = (await marketplaceApi.createSubmittedOffer({
       offerId,
       catalogItemId: line.catalogItemId,
       productId: line.productId,
@@ -140,7 +135,7 @@ export async function submitPurchaseIntentThroughMarketplace(
       shippingDestinationSnapshot: session.shipping_address,
       priceAmount: offerPriceAmount,
       quantityRequested: line.quantity,
-    }) as { id?: string; offer_id?: string };
+    })) as { id?: string; offer_id?: string };
 
     return offer.id ?? offer.offer_id ?? offerId;
   } catch (error) {

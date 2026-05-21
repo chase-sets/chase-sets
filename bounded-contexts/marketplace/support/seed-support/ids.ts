@@ -4,38 +4,27 @@ export const marketplaceReservedSeedIds = {
   listings: {
     charizardBaseSetNearMint: "lst_seed_charizard_base_set_nm" as ListingId,
     charizardBaseSetPsa8: "lst_seed_charizard_base_set_psa_8" as ListingId,
-    cardVaultCharizardNearMint:
-      "lst_seed_card_vault_charizard_nm" as ListingId,
-    cardVaultCharizardPsa8:
-      "lst_seed_card_vault_charizard_psa_8" as ListingId,
-    cardVaultCharizardMarketMaker:
-      "lst_seed_card_vault_charizard_market_maker" as ListingId,
+    cardVaultCharizardNearMint: "lst_seed_card_vault_charizard_nm" as ListingId,
+    cardVaultCharizardPsa8: "lst_seed_card_vault_charizard_psa_8" as ListingId,
+    cardVaultCharizardMarketMaker: "lst_seed_card_vault_charizard_market_maker" as ListingId,
     pikachuJungleLightlyPlayed: "lst_seed_pikachu_jungle_lp" as ListingId,
     pikachuJungleValueCopy: "lst_seed_pikachu_jungle_value_copy" as ListingId,
     pikachuJunglePremiumCopy: "lst_seed_pikachu_jungle_premium_copy" as ListingId,
     cardVaultPikachuStack: "lst_seed_card_vault_pikachu_stack" as ListingId,
-    cardVaultPikachuLowMargin:
-      "lst_seed_card_vault_pikachu_low_margin" as ListingId,
+    cardVaultPikachuLowMargin: "lst_seed_card_vault_pikachu_low_margin" as ListingId,
     lugiaNeoGenesisDraft: "lst_seed_lugia_neo_genesis_draft" as ListingId,
     lugiaNeoGenesisBgs95: "lst_seed_lugia_neo_genesis_bgs_95" as ListingId,
     mewtwoBlackStarPromoActive: "lst_seed_mewtwo_black_star_promo_active" as ListingId,
-    mewtwoBlackStarPromoPremium:
-      "lst_seed_mewtwo_black_star_promo_premium" as ListingId,
+    mewtwoBlackStarPromoPremium: "lst_seed_mewtwo_black_star_promo_premium" as ListingId,
     cardVaultMewtwoBudget: "lst_seed_card_vault_mewtwo_budget" as ListingId,
     prismaticEvolutionsPaused: "lst_seed_prismatic_evolutions_paused" as ListingId,
-    pikachuPrismaticEvolutionsPsa10:
-      "lst_seed_pikachu_prismatic_psa_10" as ListingId,
+    pikachuPrismaticEvolutionsPsa10: "lst_seed_pikachu_prismatic_psa_10" as ListingId,
     surgingSparksWithdrawn: "lst_seed_surging_sparks_withdrawn" as ListingId,
-    sealedStockroomSurgingSparksActive:
-      "lst_seed_sealed_seller_surging_sparks_active" as ListingId,
-    sealedStockroomSurgingSparksPremium:
-      "lst_seed_sealed_seller_surging_sparks_premium" as ListingId,
-    twilightMasqueradeEliteTrainerActive:
-      "lst_seed_twilight_masquerade_etb_active" as ListingId,
-    cardVaultTwilightMasqueradeEliteTrainer:
-      "lst_seed_card_vault_twilight_masquerade_etb" as ListingId,
-    sealedStockroomTwilightMasqueradeEliteTrainer:
-      "lst_seed_sealed_seller_twilight_masquerade_etb" as ListingId,
+    sealedStockroomSurgingSparksActive: "lst_seed_sealed_seller_surging_sparks_active" as ListingId,
+    sealedStockroomSurgingSparksPremium: "lst_seed_sealed_seller_surging_sparks_premium" as ListingId,
+    twilightMasqueradeEliteTrainerActive: "lst_seed_twilight_masquerade_etb_active" as ListingId,
+    cardVaultTwilightMasqueradeEliteTrainer: "lst_seed_card_vault_twilight_masquerade_etb" as ListingId,
+    sealedStockroomTwilightMasqueradeEliteTrainer: "lst_seed_sealed_seller_twilight_masquerade_etb" as ListingId,
   },
   offers: {
     charizardBaseSetNearMint: "off_seed_charizard_base_set_nm" as OfferId,
@@ -46,31 +35,22 @@ export const marketplaceReservedSeedIds = {
     pikachuJungleQuickSale: "off_seed_pikachu_jungle_quick_sale" as OfferId,
     pikachuJungleBinderFill: "off_seed_pikachu_jungle_binder_fill" as OfferId,
     pikachuJungleBulkRestock: "off_seed_pikachu_jungle_bulk_restock" as OfferId,
-    pikachuJungleHighVelocityLot:
-      "off_seed_pikachu_jungle_high_velocity_lot" as OfferId,
+    pikachuJungleHighVelocityLot: "off_seed_pikachu_jungle_high_velocity_lot" as OfferId,
     pikachuJungleFloorBid: "off_seed_pikachu_jungle_floor_bid" as OfferId,
     lugiaNeoGenesisCollector: "off_seed_lugia_neo_genesis_collector" as OfferId,
     lugiaNeoGenesisHighRoller: "off_seed_lugia_neo_genesis_high_roller" as OfferId,
     lugiaNeoGenesisValueTrader: "off_seed_lugia_neo_genesis_value_trader" as OfferId,
     pikachuPrismaticEvolutionsModern: "off_seed_pikachu_prismatic_modern" as OfferId,
-    pikachuPrismaticEvolutionsBinder:
-      "off_seed_pikachu_prismatic_binder" as OfferId,
+    pikachuPrismaticEvolutionsBinder: "off_seed_pikachu_prismatic_binder" as OfferId,
     prismaticEvolutionsBoosterPackLot: "off_seed_prismatic_pack_lot" as OfferId,
-    prismaticEvolutionsBoosterPackCaseBreak:
-      "off_seed_prismatic_pack_case_break" as OfferId,
-    prismaticEvolutionsBoosterPackMicroLot:
-      "off_seed_prismatic_pack_micro_lot" as OfferId,
-    prismaticEvolutionsBoosterPackFloor:
-      "off_seed_prismatic_pack_floor" as OfferId,
+    prismaticEvolutionsBoosterPackCaseBreak: "off_seed_prismatic_pack_case_break" as OfferId,
+    prismaticEvolutionsBoosterPackMicroLot: "off_seed_prismatic_pack_micro_lot" as OfferId,
+    prismaticEvolutionsBoosterPackFloor: "off_seed_prismatic_pack_floor" as OfferId,
     surgingSparksBoosterBoxRestock: "off_seed_surging_sparks_restock" as OfferId,
-    surgingSparksBoosterBoxCaseBid:
-      "off_seed_surging_sparks_case_bid" as OfferId,
-    surgingSparksBoosterBoxValueBid:
-      "off_seed_surging_sparks_value_bid" as OfferId,
+    surgingSparksBoosterBoxCaseBid: "off_seed_surging_sparks_case_bid" as OfferId,
+    surgingSparksBoosterBoxValueBid: "off_seed_surging_sparks_value_bid" as OfferId,
     twilightMasqueradeEliteTrainerSubmitted: "off_seed_twilight_masquerade_etb" as OfferId,
-    twilightMasqueradeEliteTrainerBundle:
-      "off_seed_twilight_masquerade_etb_bundle" as OfferId,
-    twilightMasqueradeEliteTrainerFloor:
-      "off_seed_twilight_masquerade_etb_floor" as OfferId,
+    twilightMasqueradeEliteTrainerBundle: "off_seed_twilight_masquerade_etb_bundle" as OfferId,
+    twilightMasqueradeEliteTrainerFloor: "off_seed_twilight_masquerade_etb_floor" as OfferId,
   },
 } as const;

@@ -5,16 +5,20 @@ import type { Invitation } from "./contracts";
 
 const columns: DataColumn<Invitation>[] = [
   { key: "email", header: t("identity.features.invitations.ui.invitationListPage.email"), cell: (row) => row.email },
-  { key: "account_id", header: t("identity.features.invitations.ui.invitationListPage.account"), cell: (row) => row.account_id },
-  { key: "role_key", header: t("identity.features.invitations.ui.invitationListPage.role"), cell: (row) => row.role_key },
+  {
+    key: "account_id",
+    header: t("identity.features.invitations.ui.invitationListPage.account"),
+    cell: (row) => row.account_id,
+  },
+  {
+    key: "role_key",
+    header: t("identity.features.invitations.ui.invitationListPage.role"),
+    cell: (row) => row.role_key,
+  },
   { key: "status", header: t("identity.features.invitations.ui.invitationListPage.status"), cell: (row) => row.status },
 ];
 
-export function InvitationListPage({
-  initialData,
-}: {
-  initialData: { items: Invitation[] };
-}) {
+export function InvitationListPage({ initialData }: { initialData: { items: Invitation[] } }) {
   return (
     <AdminListPage
       title={t("identity.features.invitations.ui.invitationListPage.invitations")}

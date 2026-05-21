@@ -1,44 +1,20 @@
 {
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
-  "ownedNouns": [
-    "wallet",
-    "payout",
-    "payout-readiness",
-    "ledger-entry"
-  ],
+  "ownedNouns": ["wallet", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
-  "slices": [
-    "wallets",
-    "payout-readiness",
-    "payouts"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support",
-    "seed-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
+  "slices": ["wallets", "payout-readiness", "payouts"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [],
-  "seedRequirements": [
-    "identity",
-    "payments"
-  ],
+  "seedRequirements": ["identity", "payments"],
   "eventSubscriptions": [
     {
       "sourceContextName": "payments",
       "projectionName": "settlement-payment-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "settlement-payment-input-projection"
-      ],
+      "projectorNames": ["settlement-payment-input-projection"],
       "eventTypes": [
         "payments.payment-created",
         "payments.payment-authorized",
@@ -55,9 +31,7 @@
       "sourceContextName": "support",
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "settlement-support-hold-projection"
-      ],
+      "projectorNames": ["settlement-support-hold-projection"],
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.escalated",
@@ -71,23 +45,14 @@
   "projectionGroups": [
     {
       "projectionName": "settlement-payment-input-projection",
-      "sourceContextNames": [
-        "payments"
-      ],
-      "ownedTables": [
-        "settlement_payment_sources",
-        "settlement_refund_sources"
-      ],
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["settlement_payment_sources", "settlement_refund_sources"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "settlement-support-hold-projection",
-      "sourceContextNames": [
-        "support"
-      ],
-      "ownedTables": [
-        "settlement_support_holds"
-      ],
+      "sourceContextNames": ["support"],
+      "ownedTables": ["settlement_support_holds"],
       "requiredDuringBootstrap": false
     }
   ],
@@ -103,9 +68,7 @@
       "purpose": "Durable transactional email outbox consumed only by event projectors."
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/settlement",
@@ -166,36 +129,26 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": [
-        "top-nav",
-        "bottom-nav"
-      ],
+      "placements": ["top-nav", "bottom-nav"],
       "key": "wallet",
       "label": "Wallet",
       "icon": "wallet",
       "href": "/account/settlement",
       "order": 180,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "payouts.view"
-      ]
+      "requiredPermissions": ["payouts.view"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": [
-        "top-nav",
-        "bottom-nav"
-      ],
+      "placements": ["top-nav", "bottom-nav"],
       "key": "payouts",
       "label": "Payouts",
       "icon": "wallet",
       "href": "/account/payouts",
       "order": 185,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "payouts.view"
-      ]
+      "requiredPermissions": ["payouts.view"]
     }
   ],
   "directoryIntent": {
@@ -203,34 +156,25 @@
       "classification": "slice",
       "purpose": "Own wallets feature behavior, read models, and UI contracts for the settlement context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal settlement module composition"
-      ]
+      "expectedConsumers": ["Internal settlement module composition"]
     },
     "payouts": {
       "classification": "slice",
       "purpose": "Own payouts feature behavior, read models, and UI contracts for the settlement context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal settlement module composition"
-      ]
+      "expectedConsumers": ["Internal settlement module composition"]
     },
     "payout-readiness": {
       "classification": "slice",
       "purpose": "Own payout readiness behavior, provider requirement state, read models, and UI contracts for the settlement context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal settlement module composition"
-      ]
+      "expectedConsumers": ["Internal settlement module composition"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by settlement-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple settlement slices",
-        "Deployable composition for settlement"
-      ],
+      "expectedConsumers": ["Multiple settlement slices", "Deployable composition for settlement"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "settlement workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -240,11 +184,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by settlement-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "payout-readiness",
-        "payouts",
-        "wallets"
-      ],
+      "expectedConsumers": ["payout-readiness", "payouts", "wallets"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "settlement workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -253,10 +193,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by settlement-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple settlement slices",
-        "Deployable composition for settlement"
-      ],
+      "expectedConsumers": ["Multiple settlement slices", "Deployable composition for settlement"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "settlement workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -266,12 +203,8 @@
       "classification": "routes",
       "purpose": "Expose settlement-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

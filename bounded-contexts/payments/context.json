@@ -1,48 +1,25 @@
 {
   "contextName": "payments",
   "packageName": "@chase-sets/payments",
-  "ownedNouns": [
-    "payment",
-    "refund"
-  ],
+  "ownedNouns": ["payment", "refund"],
   "streamPrefix": "payments.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "payments",
-    "refunds"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support",
-    "seed-support",
-    "ucp-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
+  "slices": ["payments", "refunds"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/checkout",
     "@chase-sets/experience",
     "@chase-sets/ordering"
   ],
-  "seedRequirements": [
-    "identity",
-    "marketplace",
-    "ordering"
-  ],
+  "seedRequirements": ["identity", "marketplace", "ordering"],
   "eventSubscriptions": [
     {
       "sourceContextName": "ordering",
       "projectionName": "payments-order-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "payments-order-input-projection"
-      ],
+      "projectorNames": ["payments-order-input-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
@@ -55,56 +32,36 @@
       "sourceContextName": "support",
       "projectionName": "payments-support-refund-effect",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "payments-support-refund-effect"
-      ],
-      "eventTypes": [
-        "support.support-request.resolved"
-      ],
+      "projectorNames": ["payments-support-refund-effect"],
+      "eventTypes": ["support.support-request.resolved"],
       "order": 70
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "payments-order-cancellation-refund-effect",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "payments-order-cancellation-refund-effect"
-      ],
-      "eventTypes": [
-        "ordering.order.cancelled"
-      ],
+      "projectorNames": ["payments-order-cancellation-refund-effect"],
+      "eventTypes": ["ordering.order.cancelled"],
       "order": 20
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "payments-order-input-projection",
-      "sourceContextNames": [
-        "ordering"
-      ],
-      "ownedTables": [
-        "payments_order_inputs"
-      ],
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["payments_order_inputs"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "payments-support-refund-effect",
-      "sourceContextNames": [
-        "support"
-      ],
-      "ownedTables": [
-        "payments_support_refund_effects"
-      ],
+      "sourceContextNames": ["support"],
+      "ownedTables": ["payments_support_refund_effects"],
       "requiredDuringBootstrap": false
     },
     {
       "projectionName": "payments-order-cancellation-refund-effect",
-      "sourceContextNames": [
-        "ordering"
-      ],
-      "ownedTables": [
-        "payments_order_cancellation_refund_effects"
-      ],
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["payments_order_cancellation_refund_effects"],
       "requiredDuringBootstrap": false
     }
   ],
@@ -120,9 +77,7 @@
       "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -171,26 +126,19 @@
       "classification": "slice",
       "purpose": "Own payments feature behavior, read models, and UI contracts for the payments context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal payments module composition"
-      ]
+      "expectedConsumers": ["Internal payments module composition"]
     },
     "refunds": {
       "classification": "slice",
       "purpose": "Own refunds feature behavior, read models, and UI contracts for the payments context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal payments module composition"
-      ]
+      "expectedConsumers": ["Internal payments module composition"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by payments-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple payments slices",
-        "Deployable composition for payments"
-      ],
+      "expectedConsumers": ["Multiple payments slices", "Deployable composition for payments"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "payments workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -200,10 +148,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by payments-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "payments",
-        "refunds"
-      ],
+      "expectedConsumers": ["payments", "refunds"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "payments workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -212,10 +157,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by payments-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple payments slices",
-        "Deployable composition for payments"
-      ],
+      "expectedConsumers": ["Multiple payments slices", "Deployable composition for payments"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "payments workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -225,10 +167,7 @@
       "classification": "support",
       "purpose": "Provide Payments-owned UCP payment-handler declarations and AP2 guarded-completion decisions.",
       "allowedWhen": "Allowed because UCP payment-handler handoff is an external protocol adapter over Payments-owned payment risk decisions.",
-      "expectedConsumers": [
-        "Checkout UCP completion adapter",
-        "Platform UCP route composition"
-      ],
+      "expectedConsumers": ["Checkout UCP completion adapter", "Platform UCP route composition"],
       "justification": "Payments owns payment handlers and AP2 mandate acceptance; Checkout only coordinates the trusted checkout session.",
       "createdFor": "UCP guarded AP2/payment-handler hardening.",
       "sunsetWhen": "Move into a Payments feature slice when production AP2 mandate verification is implemented."
@@ -237,12 +176,8 @@
       "classification": "routes",
       "purpose": "Expose payments-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

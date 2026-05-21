@@ -27,53 +27,65 @@ describe("notifications source event projector", () => {
   it("turns ordering facts into notification-center deliveries", async () => {
     const outbox = { enqueueNotification: vi.fn(async () => undefined) };
 
-    await projectSourceEventToNotification(outbox, {
-      ...baseEvent,
-      type: "ordering.order.created",
-      data: {
-        orderId: "ord_1",
-        buyerAccountId: "acc_buyer" as never,
-        totalAmount: "24.00",
-        shippingDestinationSnapshot: { email: "buyer@example.test" },
+    await projectSourceEventToNotification(
+      outbox,
+      {
+        ...baseEvent,
+        type: "ordering.order.created",
+        data: {
+          orderId: "ord_1",
+          buyerAccountId: "acc_buyer" as never,
+          totalAmount: "24.00",
+          shippingDestinationSnapshot: { email: "buyer@example.test" },
+        },
       },
-    }, NOTIFICATIONS_ORDERING_PROJECTION);
+      NOTIFICATIONS_ORDERING_PROJECTION,
+    );
 
-    expect(outbox.enqueueNotification).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.objectContaining({
-        messageType: "ordering.order.created",
-        actionHref: "/account/purchases/ord_1",
-        actor: { userId: null, accountId: "acc_buyer" },
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          messageType: "ordering.order.created",
+          actionHref: "/account/purchases/ord_1",
+          actor: { userId: null, accountId: "acc_buyer" },
+        }),
+        source: expect.objectContaining({
+          projectionName: NOTIFICATIONS_ORDERING_PROJECTION,
+        }),
       }),
-      source: expect.objectContaining({
-        projectionName: NOTIFICATIONS_ORDERING_PROJECTION,
-      }),
-    }));
+    );
   });
 
   it("turns fulfillment facts into notification-center deliveries", async () => {
     const outbox = { enqueueNotification: vi.fn(async () => undefined) };
 
-    await projectSourceEventToNotification(outbox, {
-      ...baseEvent,
-      type: "fulfillment.shipment.delivered",
-      data: {
-        shipmentId: "shp_1",
-        orderId: "ord_1",
-        buyerAccountId: "acc_buyer" as never,
-        trackingIdentifier: "1Z999",
-        shippingDestinationSnapshot: { email: null },
+    await projectSourceEventToNotification(
+      outbox,
+      {
+        ...baseEvent,
+        type: "fulfillment.shipment.delivered",
+        data: {
+          shipmentId: "shp_1",
+          orderId: "ord_1",
+          buyerAccountId: "acc_buyer" as never,
+          trackingIdentifier: "1Z999",
+          shippingDestinationSnapshot: { email: null },
+        },
       },
-    }, NOTIFICATIONS_FULFILLMENT_PROJECTION);
+      NOTIFICATIONS_FULFILLMENT_PROJECTION,
+    );
 
-    expect(outbox.enqueueNotification).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.objectContaining({
-        messageType: "fulfillment.shipment.delivered",
-        actionHref: "/account/shipments/shp_1",
-        actor: { userId: null, accountId: "acc_buyer" },
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          messageType: "fulfillment.shipment.delivered",
+          actionHref: "/account/shipments/shp_1",
+          actor: { userId: null, accountId: "acc_buyer" },
+        }),
+        source: expect.objectContaining({
+          projectionName: NOTIFICATIONS_FULFILLMENT_PROJECTION,
+        }),
       }),
-      source: expect.objectContaining({
-        projectionName: NOTIFICATIONS_FULFILLMENT_PROJECTION,
-      }),
-    }));
+    );
   });
 });

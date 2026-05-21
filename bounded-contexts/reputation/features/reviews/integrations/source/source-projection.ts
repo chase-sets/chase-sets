@@ -9,9 +9,7 @@ function extractIdFromStreamId(streamId: string, prefix: string): string {
   return streamId.slice(prefix.length);
 }
 
-export function buildReviewAccountProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildReviewAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -85,9 +83,7 @@ export function buildReviewAccountProjectionHandlers(
   };
 }
 
-export function buildReputationOrderProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildReputationOrderProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
@@ -113,12 +109,7 @@ export function buildReputationOrderProjectionHandlers(
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at,
            cancelled_at = EXCLUDED.cancelled_at`,
-        [
-          data.orderId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          event.timing.recordedAt,
-        ],
+        [data.orderId, data.buyerAccountId, data.sellerAccountId, event.timing.recordedAt],
       );
     },
     "ordering.order.pending-payment-recorded": async (event) => {
@@ -168,10 +159,7 @@ export function buildReputationOrderProjectionHandlers(
 export function buildReputationShipmentProjectionHandlers(
   db: PgQueryable,
   options: Readonly<{
-    onDeliveredShipment?: (params: {
-      shipmentId: string;
-      deliveredAt: string;
-    }) => Promise<void>;
+    onDeliveredShipment?: (params: { shipmentId: string; deliveredAt: string }) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
   return {
@@ -304,19 +292,11 @@ async function restoreEligibilityIfDelivered(db: PgQueryable, orderId: string, e
      ON CONFLICT (order_id, author_account_id, subject_account_id) DO UPDATE
      SET eligible_at = EXCLUDED.eligible_at,
          updated_at = EXCLUDED.updated_at`,
-    [
-      orderId,
-      row.buyer_account_id,
-      row.seller_account_id,
-      restoredAt,
-      eligibleAt,
-    ],
+    [orderId, row.buyer_account_id, row.seller_account_id, restoredAt, eligibleAt],
   );
 }
 
-export function buildReputationSupportProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildReputationSupportProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
       const data = event.data as { orderId: string };
@@ -336,15 +316,8 @@ export function buildReputationSupportProjectionHandlers(
         orderId: string;
         resolution: { resolutionType: string; resolvedAt: string };
       };
-      if (
-        data.resolution.resolutionType === "no-action" ||
-        data.resolution.resolutionType === "support-reviewed"
-      ) {
-        await restoreEligibilityIfDelivered(
-          db,
-          data.orderId,
-          data.resolution.resolvedAt,
-        );
+      if (data.resolution.resolutionType === "no-action" || data.resolution.resolutionType === "support-reviewed") {
+        await restoreEligibilityIfDelivered(db, data.orderId, data.resolution.resolvedAt);
       }
     },
   };

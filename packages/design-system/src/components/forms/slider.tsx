@@ -21,16 +21,10 @@ export function Slider({
   onValueChange,
   min = 0,
   max = 100,
-  step = 1
+  step = 1,
 }: SliderProps) {
   return (
-    <FieldChrome
-      label={label}
-      description={description}
-      error={error}
-      required={required}
-      hideLabel={hideLabel}
-    >
+    <FieldChrome label={label} description={description} error={error} required={required} hideLabel={hideLabel}>
       <div className="modern-surface space-y-2 rounded-tokenMd border border-muted p-4">
         <SliderPrimitive.Root
           min={min}

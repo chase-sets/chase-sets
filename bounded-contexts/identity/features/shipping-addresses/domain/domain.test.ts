@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideShippingAddressBook,
-  evolveShippingAddressBook,
-  initialShippingAddressBookState,
-} from "./domain";
+import { decideShippingAddressBook, evolveShippingAddressBook, initialShippingAddressBookState } from "./domain";
 
 const homeAddress = {
   name: "Jane Smith",
@@ -36,10 +32,7 @@ describe("shipping address book domain", () => {
       address: homeAddress,
       addedAt: "2026-05-13T10:00:00.000Z",
     });
-    const firstState = firstEvents.reduce(
-      evolveShippingAddressBook,
-      initialShippingAddressBookState,
-    );
+    const firstState = firstEvents.reduce(evolveShippingAddressBook, initialShippingAddressBookState);
 
     expect(firstState.addresses[0]?.isDefault).toBe(true);
 
@@ -54,27 +47,23 @@ describe("shipping address book domain", () => {
     });
     const secondState = secondEvents.reduce(evolveShippingAddressBook, firstState);
 
-    expect(
-      secondState.addresses.filter((address) => address.isDefault),
-    ).toMatchObject([{ shippingAddressId: "adr_office" }]);
+    expect(secondState.addresses.filter((address) => address.isDefault)).toMatchObject([
+      { shippingAddressId: "adr_office" },
+    ]);
 
     const archivedEvents = decideShippingAddressBook(secondState, {
       type: "ArchiveShippingAddress",
       shippingAddressId: "adr_office" as never,
       archivedAt: "2026-05-13T10:02:00.000Z",
     });
-    const archivedState = archivedEvents.reduce(
-      evolveShippingAddressBook,
-      secondState,
-    );
+    const archivedState = archivedEvents.reduce(evolveShippingAddressBook, secondState);
 
-    expect(
-      archivedState.addresses.filter((address) => address.isDefault),
-    ).toMatchObject([{ shippingAddressId: "adr_home" }]);
-    expect(
-      archivedState.addresses.find((address) => address.shippingAddressId === "adr_office")
-        ?.isArchived,
-    ).toBe(true);
+    expect(archivedState.addresses.filter((address) => address.isDefault)).toMatchObject([
+      { shippingAddressId: "adr_home" },
+    ]);
+    expect(archivedState.addresses.find((address) => address.shippingAddressId === "adr_office")?.isArchived).toBe(
+      true,
+    );
   });
 
   it("normalizes address fields when adding", () => {

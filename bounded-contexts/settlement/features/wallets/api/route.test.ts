@@ -12,10 +12,7 @@ const context = {
   },
 };
 
-function createApp(
-  services: Partial<WalletServices>,
-  permissions: readonly string[] | null,
-) {
+function createApp(services: Partial<WalletServices>, permissions: readonly string[] | null) {
   const app = new Hono<SettlementApiEnv>();
   app.use("*", async (c, next) => {
     c.set(
@@ -96,9 +93,7 @@ describe("settlement wallet routes", () => {
       paymentId: "pay_1",
       description: "Seller refund debit (Customer refund approved)",
     });
-    expect(postEntry.mock.calls[0]?.[0].ledgerEntryId).toBe(
-      postEntry.mock.calls[1]?.[0].ledgerEntryId,
-    );
+    expect(postEntry.mock.calls[0]?.[0].ledgerEntryId).toBe(postEntry.mock.calls[1]?.[0].ledgerEntryId);
   });
 
   it("treats duplicate dispute holds as idempotent retries", async () => {
@@ -132,9 +127,7 @@ describe("settlement wallet routes", () => {
       idempotent: true,
       duplicate: true,
     });
-    expect(postEntry.mock.calls[0]?.[0].ledgerEntryId).toBe(
-      postEntry.mock.calls[1]?.[0].ledgerEntryId,
-    );
+    expect(postEntry.mock.calls[0]?.[0].ledgerEntryId).toBe(postEntry.mock.calls[1]?.[0].ledgerEntryId);
   });
 
   it("posts dispute releases as credits with required operator audit", async () => {

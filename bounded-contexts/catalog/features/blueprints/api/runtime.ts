@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -32,19 +29,13 @@ import { buildBlueprintProjectionHandlers } from "../read-model/projection";
 
 export type BlueprintServices = Readonly<{
   commandHandler: CommandHandler<BlueprintCommand, BlueprintState, BlueprintEvent>;
-  listBlueprints: (
-    params?: Parameters<typeof listBlueprints>[1],
-  ) => ReturnType<typeof listBlueprints>;
-  getBlueprintDetail: (
-    blueprintId: string,
-  ) => ReturnType<typeof getBlueprintDetail>;
+  listBlueprints: (params?: Parameters<typeof listBlueprints>[1]) => ReturnType<typeof listBlueprints>;
+  getBlueprintDetail: (blueprintId: string) => ReturnType<typeof getBlueprintDetail>;
   bulkLifecycle: BulkLifecycleOperations<BlueprintListParams, BlueprintCommand, BlueprintState, BlueprintEvent>;
   projectors: readonly Projector[];
 }>;
 
-export function createBlueprintRuntime(
-  deps: CatalogRuntimeDeps,
-): BlueprintServices {
+export function createBlueprintRuntime(deps: CatalogRuntimeDeps): BlueprintServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -61,11 +52,10 @@ export function createBlueprintRuntime(
       projectorName: "catalog-blueprint-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: withCatalogAdminRealtimeInvalidation(
-        buildBlueprintProjectionHandlers(deps.db),
-        deps.db,
-        { projectionName: "catalog-blueprint-projection", surface: "blueprints" },
-      ),
+      handlers: withCatalogAdminRealtimeInvalidation(buildBlueprintProjectionHandlers(deps.db), deps.db, {
+        projectionName: "catalog-blueprint-projection",
+        surface: "blueprints",
+      }),
     }),
     createProjector({
       projectorName: "catalog-admin-blueprint-detail-projection",
@@ -74,7 +64,12 @@ export function createBlueprintRuntime(
       handlers: buildCatalogAdminBlueprintProjectionHandlers(deps.db),
     }),
   ];
-  const bulkLifecycle = createBulkLifecycleOperations<BlueprintListParams, BlueprintCommand, BlueprintState, BlueprintEvent>({
+  const bulkLifecycle = createBulkLifecycleOperations<
+    BlueprintListParams,
+    BlueprintCommand,
+    BlueprintState,
+    BlueprintEvent
+  >({
     actions: [
       {
         action: "publish",

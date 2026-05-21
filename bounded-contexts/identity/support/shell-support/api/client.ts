@@ -27,9 +27,7 @@ export interface IdentityApiClientOptions {
   credentials?: RequestCredentials;
 }
 
-function resolveHeaders(
-  headers?: HeadersInit | (() => HeadersInit),
-) {
+function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
 
@@ -68,14 +66,9 @@ export function createIdentityApiClient({
       );
     },
     async getAccount<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
-        await client.accounts[":id"].$get({ param: { id }, header: headers }),
-      );
+      return parseJsonResponse<T>(await client.accounts[":id"].$get({ param: { id }, header: headers }));
     },
-    async assignAccountBadge<T = { badges: readonly string[] }>(
-      id: string,
-      badgeKey: string,
-    ): Promise<T> {
+    async assignAccountBadge<T = { badges: readonly string[] }>(id: string, badgeKey: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts[":id"].badges.$post({
           param: { id },
@@ -84,10 +77,7 @@ export function createIdentityApiClient({
         }),
       );
     },
-    async removeAccountBadge<T = { badges: readonly string[] }>(
-      id: string,
-      badgeKey: string,
-    ): Promise<T> {
+    async removeAccountBadge<T = { badges: readonly string[] }>(id: string, badgeKey: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts[":id"].badges[":badgeKey"].$delete({
           param: { id, badgeKey },
@@ -103,10 +93,7 @@ export function createIdentityApiClient({
         }),
       );
     },
-    async createShippingAddress<T>(
-      accountId: string,
-      body: Record<string, unknown>,
-    ): Promise<T> {
+    async createShippingAddress<T>(accountId: string, body: Record<string, unknown>): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"].$post({
           param: { accountId },
@@ -128,10 +115,7 @@ export function createIdentityApiClient({
         }),
       );
     },
-    async setDefaultShippingAddress<T>(
-      accountId: string,
-      shippingAddressId: string,
-    ): Promise<T> {
+    async setDefaultShippingAddress<T>(accountId: string, shippingAddressId: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].default.$post({
           param: { accountId, shippingAddressId },
@@ -140,10 +124,7 @@ export function createIdentityApiClient({
         }),
       );
     },
-    async archiveShippingAddress<T>(
-      accountId: string,
-      shippingAddressId: string,
-    ): Promise<T> {
+    async archiveShippingAddress<T>(accountId: string, shippingAddressId: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].archive.$post({
           param: { accountId, shippingAddressId },
@@ -153,9 +134,7 @@ export function createIdentityApiClient({
       );
     },
     async getCurrentActorDisplay<T>(): Promise<T> {
-      return parseJsonResponse<T>(
-        await client["current-actor-display"].$get({ header: headers }),
-      );
+      return parseJsonResponse<T>(await client["current-actor-display"].$get({ header: headers }));
     },
     async listUsers<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
@@ -166,9 +145,7 @@ export function createIdentityApiClient({
       );
     },
     async getUser<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
-        await client.users[":id"].$get({ param: { id }, header: headers }),
-      );
+      return parseJsonResponse<T>(await client.users[":id"].$get({ param: { id }, header: headers }));
     },
     async listMemberships<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
@@ -179,9 +156,7 @@ export function createIdentityApiClient({
       );
     },
     async getMembership<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
-        await client.memberships[":id"].$get({ param: { id }, header: headers }),
-      );
+      return parseJsonResponse<T>(await client.memberships[":id"].$get({ param: { id }, header: headers }));
     },
     async listInvitations<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
@@ -192,9 +167,7 @@ export function createIdentityApiClient({
       );
     },
     async getInvitation<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
-        await client.invitations[":id"].$get({ param: { id }, header: headers }),
-      );
+      return parseJsonResponse<T>(await client.invitations[":id"].$get({ param: { id }, header: headers }));
     },
     async listApiKeys<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
@@ -205,9 +178,7 @@ export function createIdentityApiClient({
       );
     },
     async getApiKey<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
-        await client["api-keys"][":id"].$get({ param: { id }, header: headers }),
-      );
+      return parseJsonResponse<T>(await client["api-keys"][":id"].$get({ param: { id }, header: headers }));
     },
     async listConsents<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(

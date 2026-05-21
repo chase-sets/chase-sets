@@ -17,9 +17,7 @@ describe("public web deployable", () => {
     const routeRecords = resolvePublicRouteConfigRecords();
     const routePaths = routeRecords.map((routeRecord) => routeRecord.routePath);
 
-    expect(new Set(routeRecords.map((routeRecord) => routeRecord.contextName))).toEqual(
-      new Set(["public-presence"]),
-    );
+    expect(new Set(routeRecords.map((routeRecord) => routeRecord.contextName))).toEqual(new Set(["public-presence"]));
     expect(routePaths).toEqual([
       "",
       "faq",
@@ -72,9 +70,7 @@ describe("public web deployable", () => {
     } as never);
 
     expect(robots.headers.get("Content-Type")).toContain("text/plain");
-    await expect(robots.text()).resolves.toContain(
-      "Sitemap: https://chasesets.com/sitemap.xml",
-    );
+    await expect(robots.text()).resolves.toContain("Sitemap: https://chasesets.com/sitemap.xml");
     vi.unstubAllEnvs();
   });
 
@@ -96,7 +92,7 @@ describe("public web deployable", () => {
       params: {},
       context: undefined,
     } as never);
-    const body = await manifest.json() as { name: string; icons: unknown[] };
+    const body = (await manifest.json()) as { name: string; icons: unknown[] };
 
     expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
     expect(body.name).toBe("Chase Sets");
@@ -153,11 +149,13 @@ describe("public web deployable", () => {
     } as never);
 
     expect(response.status).toBe(400);
-    expect(waitlistAnalyticsLoader({
-      request: new Request("https://chasesets.com/analytics/waitlist"),
-      params: {},
-      context: undefined,
-    } as never).status).toBe(405);
+    expect(
+      waitlistAnalyticsLoader({
+        request: new Request("https://chasesets.com/analytics/waitlist"),
+        params: {},
+        context: undefined,
+      } as never).status,
+    ).toBe(405);
   });
 
   it("rejects arbitrary analytics label text before logging", async () => {

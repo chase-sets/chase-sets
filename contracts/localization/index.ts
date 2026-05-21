@@ -135,9 +135,7 @@ export function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
       ? Object.fromEntries(
           Object.entries(candidate.values).filter(
             (entry): entry is [string, string] =>
-              typeof entry[0] === "string" &&
-              typeof entry[1] === "string" &&
-              entry[1].trim().length > 0,
+              typeof entry[0] === "string" && typeof entry[1] === "string" && entry[1].trim().length > 0,
           ),
         )
       : {};
@@ -165,10 +163,7 @@ export function localizedTextMapValues(value: LocalizedTextMap | null | undefine
   return value ? Object.values(value.values).filter(Boolean) : [];
 }
 
-export function createTranslator({
-  locale = defaultLocale,
-  onMissingTranslation,
-}: TranslatorOptions = {}): Translator {
+export function createTranslator({ locale = defaultLocale, onMissingTranslation }: TranslatorOptions = {}): Translator {
   const catalog = translationCatalogs[locale];
 
   function has(key: string) {
@@ -197,10 +192,7 @@ const defaultTranslator = createTranslator();
 export const t = defaultTranslator.t;
 export const hasTranslation = defaultTranslator.has;
 
-export function formatLanguageCodeLabel(
-  languageCode: string | null | undefined,
-  translate: Translate = t,
-): string {
+export function formatLanguageCodeLabel(languageCode: string | null | undefined, translate: Translate = t): string {
   const code = languageCode?.trim();
 
   if (!code) {

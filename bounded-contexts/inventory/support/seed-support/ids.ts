@@ -17,34 +17,20 @@ export const inventorySeedIds = {
     charizardBaseSetPsa8: "inv_seed_charizard_base_set_psa_8" as SeedInventoryItemId,
     pikachuJungleLightlyPlayed: "inv_seed_pikachu_jungle_lp" as SeedInventoryItemId,
     lugiaNeoGenesisNearMint: "inv_seed_lugia_neo_genesis_nm" as SeedInventoryItemId,
-    lugiaNeoGenesisBgs95:
-      "inv_seed_lugia_neo_genesis_bgs_95" as SeedInventoryItemId,
-    mewtwoBlackStarPromoNearMint:
-      "inv_seed_mewtwo_black_star_promo_nm" as SeedInventoryItemId,
-    pikachuPrismaticEvolutionsNearMint:
-      "inv_seed_pikachu_prismatic_evolutions_nm" as SeedInventoryItemId,
-    pikachuPrismaticEvolutionsPsa10:
-      "inv_seed_pikachu_prismatic_evolutions_psa_10" as SeedInventoryItemId,
-    prismaticEvolutionsBoosterPack:
-      "inv_seed_prismatic_evolutions_booster_pack" as SeedInventoryItemId,
-    surgingSparksBoosterBox:
-      "inv_seed_surging_sparks_booster_box" as SeedInventoryItemId,
-    twilightMasqueradeEliteTrainerBox:
-      "inv_seed_twilight_masquerade_elite_trainer_box" as SeedInventoryItemId,
-    cardVaultCharizardNearMint:
-      "inv_seed_card_vault_charizard_nm" as SeedInventoryItemId,
-    cardVaultCharizardPsa8:
-      "inv_seed_card_vault_charizard_psa_8" as SeedInventoryItemId,
-    cardVaultPikachuExcellent:
-      "inv_seed_card_vault_pikachu_excellent" as SeedInventoryItemId,
-    cardVaultMewtwoNearMint:
-      "inv_seed_card_vault_mewtwo_nm" as SeedInventoryItemId,
-    cardVaultTwilightMasqueradeEliteTrainerBox:
-      "inv_seed_card_vault_twilight_masquerade_etb" as SeedInventoryItemId,
-    sealedStockroomPrismaticEvolutionsBoosterPack:
-      "inv_seed_sealed_seller_prismatic_pack" as SeedInventoryItemId,
-    sealedStockroomSurgingSparksBoosterBox:
-      "inv_seed_sealed_seller_surging_sparks_box" as SeedInventoryItemId,
+    lugiaNeoGenesisBgs95: "inv_seed_lugia_neo_genesis_bgs_95" as SeedInventoryItemId,
+    mewtwoBlackStarPromoNearMint: "inv_seed_mewtwo_black_star_promo_nm" as SeedInventoryItemId,
+    pikachuPrismaticEvolutionsNearMint: "inv_seed_pikachu_prismatic_evolutions_nm" as SeedInventoryItemId,
+    pikachuPrismaticEvolutionsPsa10: "inv_seed_pikachu_prismatic_evolutions_psa_10" as SeedInventoryItemId,
+    prismaticEvolutionsBoosterPack: "inv_seed_prismatic_evolutions_booster_pack" as SeedInventoryItemId,
+    surgingSparksBoosterBox: "inv_seed_surging_sparks_booster_box" as SeedInventoryItemId,
+    twilightMasqueradeEliteTrainerBox: "inv_seed_twilight_masquerade_elite_trainer_box" as SeedInventoryItemId,
+    cardVaultCharizardNearMint: "inv_seed_card_vault_charizard_nm" as SeedInventoryItemId,
+    cardVaultCharizardPsa8: "inv_seed_card_vault_charizard_psa_8" as SeedInventoryItemId,
+    cardVaultPikachuExcellent: "inv_seed_card_vault_pikachu_excellent" as SeedInventoryItemId,
+    cardVaultMewtwoNearMint: "inv_seed_card_vault_mewtwo_nm" as SeedInventoryItemId,
+    cardVaultTwilightMasqueradeEliteTrainerBox: "inv_seed_card_vault_twilight_masquerade_etb" as SeedInventoryItemId,
+    sealedStockroomPrismaticEvolutionsBoosterPack: "inv_seed_sealed_seller_prismatic_pack" as SeedInventoryItemId,
+    sealedStockroomSurgingSparksBoosterBox: "inv_seed_sealed_seller_surging_sparks_box" as SeedInventoryItemId,
     sealedStockroomTwilightMasqueradeEliteTrainerBox:
       "inv_seed_sealed_seller_twilight_masquerade_etb" as SeedInventoryItemId,
   },

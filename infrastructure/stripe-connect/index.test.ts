@@ -11,9 +11,7 @@ afterEach(() => {
 });
 
 function stripeSignature(rawBody: string, secret: string, timestamp = 1_776_000_000) {
-  const signature = createHmac("sha256", secret)
-    .update(`${timestamp}.${rawBody}`)
-    .digest("hex");
+  const signature = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
   return `t=${timestamp},v1=${signature}`;
 }
 
@@ -28,9 +26,7 @@ describe("money movement adapters", () => {
         const headers = init?.headers as Headers;
         expect(headers.get("Stripe-Account")).toBe("acct_123");
         expect(headers.get("Idempotency-Key")).toBe("account-key:manual-payouts");
-        expect(String(init?.body)).toContain(
-          "payments%5Bpayouts%5D%5Bschedule%5D%5Binterval%5D=manual",
-        );
+        expect(String(init?.body)).toContain("payments%5Bpayouts%5D%5Bschedule%5D%5Binterval%5D=manual");
         return new Response(JSON.stringify({}), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -109,10 +105,7 @@ describe("money movement adapters", () => {
       payoutCapabilityStatus: "active",
       payoutDestinationStatus: "ready",
     });
-    expect(calls).toEqual([
-      "https://stripe.test/v2/core/accounts",
-      "https://stripe.test/v1/balance_settings",
-    ]);
+    expect(calls).toEqual(["https://stripe.test/v2/core/accounts", "https://stripe.test/v1/balance_settings"]);
   });
 
   it("Stripe adapter creates recipient onboarding account links with nested v2 parameters", async () => {
@@ -204,9 +197,7 @@ describe("money movement adapters", () => {
       const headers = init?.headers as Headers;
       expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
       expect(headers.get("Idempotency-Key")).toBe("manage-key");
-      expect(String(init?.body)).toContain(
-        "redirect_url=https%3A%2F%2Fexample.test%2Faccount%2Fpayouts",
-      );
+      expect(String(init?.body)).toContain("redirect_url=https%3A%2F%2Fexample.test%2Faccount%2Fpayouts");
 
       return new Response(
         JSON.stringify({
@@ -237,11 +228,12 @@ describe("money movement adapters", () => {
   });
 
   it("Stripe adapter surfaces provider error messages", async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({ error: { message: "Accounts v2 is not enabled." } }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      ),
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: "Accounts v2 is not enabled." } }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
     ) as typeof fetch;
     const adapter = createStripeConnectMoneyMovementGateway({
       secretKey: "sk_test",

@@ -12,10 +12,7 @@ import {
   referenceIdFromValue,
   type ReferenceRecordRef,
 } from "../../../support/item-support/reference-records";
-import {
-  createMarketplaceSlug,
-  rememberSlugRedirect,
-} from "../../../support/runtime-support/slugs";
+import { createMarketplaceSlug, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
 import { fieldFacetSortMetadata } from "./facet-ordering";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
@@ -123,12 +120,7 @@ async function loadCategoryMap(
     [ids],
   );
 
-  return new Map(
-    result.rows.map((row) => [
-      row.category_id,
-      { name: row.name, slug: row.slug },
-    ]),
-  );
+  return new Map(result.rows.map((row) => [row.category_id, { name: row.name, slug: row.slug }]));
 }
 
 async function loadFilterableFieldDefinitions(
@@ -255,15 +247,17 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       valueType: definition.value_type,
     });
 
-    return [{
-      fieldId: fieldValue.fieldId,
-      label: definition.name,
-      value: normalized,
-      valueLabel: formatFilterValueLabel(fieldValue.value),
-      valueType: definition.value_type,
-      sortKind: sort.sortKind,
-      sortValue: sort.sortValue,
-    }];
+    return [
+      {
+        fieldId: fieldValue.fieldId,
+        label: definition.name,
+        value: normalized,
+        valueLabel: formatFilterValueLabel(fieldValue.value),
+        valueType: definition.value_type,
+        sortKind: sort.sortKind,
+        sortValue: sort.sortValue,
+      },
+    ];
   });
   const referenceFilterValues = uniqueReferenceFilterValues(
     fieldValues.flatMap((fieldValue) => {
@@ -284,27 +278,18 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
 
   const [blueprintNames, categoryRefs] = await Promise.all([
     item.blueprint_id
-      ? loadNameMap(
-          db,
-          "discovery_search_catalog_blueprints",
-          "blueprint_id",
-          "name",
-          [item.blueprint_id],
-        )
+      ? loadNameMap(db, "discovery_search_catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
       : Promise.resolve(new Map<string, string>()),
     loadCategoryMap(db, categoryIds),
   ]);
 
-  const blueprintName = item.blueprint_id ? blueprintNames.get(item.blueprint_id) ?? null : null;
+  const blueprintName = item.blueprint_id ? (blueprintNames.get(item.blueprint_id) ?? null) : null;
   const categoryNameList = categoryIds.map((id) => categoryRefs.get(id)?.name ?? id);
   const categorySlugList = categoryIds.map((id) => categoryRefs.get(id)?.slug ?? id);
 
   const fieldValuesText = fieldValues
     .flatMap((fieldValue) =>
-      searchableValueText(
-        fieldValue.value,
-        references.get(referenceIdFromValue(fieldValue.value) ?? ""),
-      )
+      searchableValueText(fieldValue.value, references.get(referenceIdFromValue(fieldValue.value) ?? "")),
     )
     .join(" ");
   const localizedText = localizedMapValues(item.title_i18n)
@@ -449,9 +434,7 @@ function buildReferenceFieldFilterValues(
 
   return collectReferenceRecords(reference).map((record, index) => {
     const fieldId = index === 0 ? fieldValue.fieldId : `${fieldValue.fieldId}:${record.typeKey}`;
-    const label = index === 0
-      ? definition.name
-      : `${definition.name} ${titleizeKey(record.typeKey)}`;
+    const label = index === 0 ? definition.name : `${definition.name} ${titleizeKey(record.typeKey)}`;
     const sort = fieldFacetSortMetadata({
       fieldId,
       label,
@@ -472,9 +455,7 @@ function buildReferenceFieldFilterValues(
   });
 }
 
-function buildReferenceTypeFilterValues(
-  reference: ReferenceRecordRef | undefined,
-): SearchReferenceFilterValue[] {
+function buildReferenceTypeFilterValues(reference: ReferenceRecordRef | undefined): SearchReferenceFilterValue[] {
   return collectReferenceRecords(reference).map((record) => {
     const label = formatReferenceTypeLabel(record.typeKey);
     const sort = fieldFacetSortMetadata({
@@ -496,9 +477,7 @@ function buildReferenceTypeFilterValues(
   });
 }
 
-function uniqueReferenceFilterValues(
-  values: readonly SearchReferenceFilterValue[],
-): SearchReferenceFilterValue[] {
+function uniqueReferenceFilterValues(values: readonly SearchReferenceFilterValue[]): SearchReferenceFilterValue[] {
   const byKey = new Map<string, SearchReferenceFilterValue>();
   for (const value of values) {
     byKey.set(`${value.typeKey}:${value.referenceId}`, value);
@@ -518,9 +497,7 @@ function formatReferenceTypeLabel(typeKey: string): string {
   return typeKey
     .split(/[-_]/g)
     .filter(Boolean)
-    .map((part) => part === "tcg"
-      ? "TCG"
-      : `${part.charAt(0).toLocaleUpperCase("en-US")}${part.slice(1)}`)
+    .map((part) => (part === "tcg" ? "TCG" : `${part.charAt(0).toLocaleUpperCase("en-US")}${part.slice(1)}`))
     .join(" ");
 }
 
@@ -844,11 +821,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
          SET product_asset_sets = $2,
              updated_at = $3
          WHERE catalog_item_id = $1`,
-        [
-          itemId,
-          JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
-          event.timing.recordedAt,
-        ],
+        [itemId, JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []), event.timing.recordedAt],
       );
 
       await refreshDiscoverySearchItem(db, itemId);
@@ -945,10 +918,9 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         }>;
       };
 
-      await db.query(
-        `DELETE FROM discovery_search_catalog_blueprint_dimensions WHERE blueprint_id = $1`,
-        [blueprintId],
-      );
+      await db.query(`DELETE FROM discovery_search_catalog_blueprint_dimensions WHERE blueprint_id = $1`, [
+        blueprintId,
+      ]);
 
       for (const [index, rule] of dimensionRules.entries()) {
         await db.query(
@@ -1062,14 +1034,7 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.reference-record.created": async (event) => {
-      const {
-        referenceRecordId,
-        typeKey,
-        key,
-        name,
-        attributes,
-        relationships,
-      } = event.data as {
+      const { referenceRecordId, typeKey, key, name, attributes, relationships } = event.data as {
         referenceRecordId: string;
         typeKey: string;
         key: string;
@@ -1388,12 +1353,7 @@ function localizedTextMap(value: string): LocalizedTextMap {
 }
 
 function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
-  if (
-    value &&
-    typeof value === "object" &&
-    "defaultLocale" in value &&
-    "values" in value
-  ) {
+  if (value && typeof value === "object" && "defaultLocale" in value && "values" in value) {
     return value as LocalizedTextMap;
   }
 

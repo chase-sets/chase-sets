@@ -27,13 +27,7 @@ import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
-const discoveryContextNames = [
-  "catalog",
-  "identity",
-  "marketplace",
-  "reputation",
-  "discovery",
-] as const;
+const discoveryContextNames = ["catalog", "identity", "marketplace", "reputation", "discovery"] as const;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -55,9 +49,7 @@ let catalogServices: ReturnType<typeof catalogModule.createServices>;
 let discoveryServices: ReturnType<typeof createDiscoveryServices>;
 let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 let app: Hono;
-let pools: Readonly<
-  Record<(typeof discoveryContextNames)[number], PgTransactionalPool>
->;
+let pools: Readonly<Record<(typeof discoveryContextNames)[number], PgTransactionalPool>>;
 
 async function sendCommand<Command>(
   handler: (input: { streamId: string; command: Command; context: EventStoreContext }) => Promise<unknown>,
@@ -144,10 +136,7 @@ describeWithDatabase("marketplace search", () => {
       },
     ] as const;
     subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
-    const projectionGroups = resolveModuleProjectionGroups(
-      mountedContexts,
-      subscriptionRunners,
-    );
+    const projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
     void projectionGroups;
     app = new Hono();
     app.route("/api/marketplace", buildDiscoveryApi(discoveryServices));
@@ -229,11 +218,13 @@ describeWithDatabase("marketplace search", () => {
 
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
       type: "SetBlueprintDimensions",
-      dimensionRules: [{
-        dimensionId: itemSeed.dimensionId as never,
-        required: true,
-        allowedOptionIds: [itemSeed.optionId as never],
-      }],
+      dimensionRules: [
+        {
+          dimensionId: itemSeed.dimensionId as never,
+          required: true,
+          allowedOptionIds: [itemSeed.optionId as never],
+        },
+      ],
     });
 
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${itemSeed.blueprintId}`, {
@@ -325,7 +316,9 @@ describeWithDatabase("marketplace search", () => {
       ]),
     );
 
-    const fieldFilterResponse = await app.request(`/api/marketplace/items?field.${itemSeed.fieldId}=charizard&includeTotal=true`);
+    const fieldFilterResponse = await app.request(
+      `/api/marketplace/items?field.${itemSeed.fieldId}=charizard&includeTotal=true`,
+    );
     expect(fieldFilterResponse.status).toBe(200);
     const fieldFilterBody = await fieldFilterResponse.json();
     expect(fieldFilterBody.total).toBe(1);
@@ -333,11 +326,12 @@ describeWithDatabase("marketplace search", () => {
     expect(
       fieldFilterBody.facets
         .find((facet: { id: string }) => facet.id === itemSeed.fieldId)
-        .values.find((value: { id: string }) => value.id === "charizard")
-        .selected,
+        .values.find((value: { id: string }) => value.id === "charizard").selected,
     ).toBe(true);
 
-    const dimensionFilterResponse = await app.request(`/api/marketplace/items?dimension.${itemSeed.dimensionId}=${itemSeed.optionId}&includeTotal=true`);
+    const dimensionFilterResponse = await app.request(
+      `/api/marketplace/items?dimension.${itemSeed.dimensionId}=${itemSeed.optionId}&includeTotal=true`,
+    );
     expect(dimensionFilterResponse.status).toBe(200);
     const dimensionFilterBody = await dimensionFilterResponse.json();
     expect(dimensionFilterBody.total).toBe(1);
@@ -345,8 +339,7 @@ describeWithDatabase("marketplace search", () => {
     expect(
       dimensionFilterBody.facets
         .find((facet: { id: string }) => facet.id === itemSeed.dimensionId)
-        .values.find((value: { id: string }) => value.id === itemSeed.optionId)
-        .selected,
+        .values.find((value: { id: string }) => value.id === itemSeed.optionId).selected,
     ).toBe(true);
 
     const detailResponse = await app.request(`/api/marketplace/items/${itemSeed.itemId}`);
@@ -393,7 +386,9 @@ describeWithDatabase("marketplace search", () => {
       subscriptionRunners,
     });
 
-    const japaneseSearchResponse = await app.request("/api/marketplace/items?search=%E3%83%AA%E3%82%B6%E3%83%BC%E3%83%89%E3%83%B3&includeTotal=true");
+    const japaneseSearchResponse = await app.request(
+      "/api/marketplace/items?search=%E3%83%AA%E3%82%B6%E3%83%BC%E3%83%89%E3%83%B3&includeTotal=true",
+    );
     expect(japaneseSearchResponse.status).toBe(200);
     const japaneseSearchBody = await japaneseSearchResponse.json();
     expect(japaneseSearchBody.total).toBe(1);
@@ -417,47 +412,63 @@ describeWithDatabase("marketplace search", () => {
     const seriesReferenceId = "ref_mega_evolution";
     const expansionReferenceId = "ref_ascended_heroes";
 
-    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${manufacturerReferenceId}`, {
-      type: "CreateReferenceRecord",
-      referenceRecordId: manufacturerReferenceId as never,
-      typeKey: "manufacturer",
-      key: "pokemon-company",
-      name: l10n("The Pokemon Company"),
-      attributes: {},
-      relationships: [],
-    });
-    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${productLineReferenceId}`, {
-      type: "CreateReferenceRecord",
-      referenceRecordId: productLineReferenceId as never,
-      typeKey: "product-line",
-      key: "pokemon-tcg",
-      name: l10n("Pokemon TCG"),
-      attributes: {},
-      relationships: [{ relationshipType: "manufacturer", referenceId: manufacturerReferenceId as never }],
-    });
-    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${seriesReferenceId}`, {
-      type: "CreateReferenceRecord",
-      referenceRecordId: seriesReferenceId as never,
-      typeKey: "series",
-      key: "mega-evolution",
-      name: l10n("Mega Evolution"),
-      attributes: {},
-      relationships: [{ relationshipType: "part-of", referenceId: productLineReferenceId as never }],
-    });
-    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${expansionReferenceId}`, {
-      type: "CreateReferenceRecord",
-      referenceRecordId: expansionReferenceId as never,
-      typeKey: "expansion",
-      key: "ascended-heroes",
-      name: l10n("Ascended Heroes"),
-      attributes: {
-        "card-count": 217,
-        "release-date": "2026-01-30",
-        abbr: "ASC",
-        "source-id": "me02.5",
+    await sendCommand(
+      catalogServices.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${manufacturerReferenceId}`,
+      {
+        type: "CreateReferenceRecord",
+        referenceRecordId: manufacturerReferenceId as never,
+        typeKey: "manufacturer",
+        key: "pokemon-company",
+        name: l10n("The Pokemon Company"),
+        attributes: {},
+        relationships: [],
       },
-      relationships: [{ relationshipType: "part-of-series", referenceId: seriesReferenceId as never }],
-    });
+    );
+    await sendCommand(
+      catalogServices.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${productLineReferenceId}`,
+      {
+        type: "CreateReferenceRecord",
+        referenceRecordId: productLineReferenceId as never,
+        typeKey: "product-line",
+        key: "pokemon-tcg",
+        name: l10n("Pokemon TCG"),
+        attributes: {},
+        relationships: [{ relationshipType: "manufacturer", referenceId: manufacturerReferenceId as never }],
+      },
+    );
+    await sendCommand(
+      catalogServices.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${seriesReferenceId}`,
+      {
+        type: "CreateReferenceRecord",
+        referenceRecordId: seriesReferenceId as never,
+        typeKey: "series",
+        key: "mega-evolution",
+        name: l10n("Mega Evolution"),
+        attributes: {},
+        relationships: [{ relationshipType: "part-of", referenceId: productLineReferenceId as never }],
+      },
+    );
+    await sendCommand(
+      catalogServices.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${expansionReferenceId}`,
+      {
+        type: "CreateReferenceRecord",
+        referenceRecordId: expansionReferenceId as never,
+        typeKey: "expansion",
+        key: "ascended-heroes",
+        name: l10n("Ascended Heroes"),
+        attributes: {
+          "card-count": 217,
+          "release-date": "2026-01-30",
+          abbr: "ASC",
+          "source-id": "me02.5",
+        },
+        relationships: [{ relationshipType: "part-of-series", referenceId: seriesReferenceId as never }],
+      },
+    );
 
     await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${expansionFieldId}`, {
       type: "CreateField",
@@ -468,7 +479,9 @@ describeWithDatabase("marketplace search", () => {
       valueType: "reference",
       behavior: { filterable: true, searchable: true, sortable: false },
     });
-    await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${expansionFieldId}`, { type: "ActivateField" });
+    await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${expansionFieldId}`, {
+      type: "ActivateField",
+    });
 
     await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "CreateBlueprint",
@@ -481,7 +494,9 @@ describeWithDatabase("marketplace search", () => {
       type: "SetBlueprintFields",
       fieldRules: [{ fieldId: expansionFieldId as never, required: true }],
     });
-    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, { type: "PublishBlueprint" });
+    await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "PublishBlueprint",
+    });
 
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemId}`, {
       type: "CreateCatalogItem",
@@ -516,7 +531,9 @@ describeWithDatabase("marketplace search", () => {
     expect(seriesSearchBody.total).toBe(1);
     expect(seriesSearchBody.items[0].catalog_item_id).toBe(itemId);
 
-    const productLineSearchResponse = await app.request("/api/marketplace/items?search=pokemon%20tcg&includeTotal=true");
+    const productLineSearchResponse = await app.request(
+      "/api/marketplace/items?search=pokemon%20tcg&includeTotal=true",
+    );
     expect(productLineSearchResponse.status).toBe(200);
     const productLineSearchBody = await productLineSearchResponse.json();
     expect(productLineSearchBody.total).toBe(1);
@@ -563,19 +580,25 @@ describeWithDatabase("marketplace search", () => {
       ]),
     );
 
-    const expansionFilterResponse = await app.request(`/api/marketplace/items?field.${expansionFieldId}=${expansionReferenceId}&includeTotal=true`);
+    const expansionFilterResponse = await app.request(
+      `/api/marketplace/items?field.${expansionFieldId}=${expansionReferenceId}&includeTotal=true`,
+    );
     expect(expansionFilterResponse.status).toBe(200);
     const expansionFilterBody = await expansionFilterResponse.json();
     expect(expansionFilterBody.total).toBe(1);
     expect(expansionFilterBody.items[0].catalog_item_id).toBe(itemId);
 
-    const seriesFilterResponse = await app.request(`/api/marketplace/items?field.${expansionFieldId}:series=${seriesReferenceId}&includeTotal=true`);
+    const seriesFilterResponse = await app.request(
+      `/api/marketplace/items?field.${expansionFieldId}:series=${seriesReferenceId}&includeTotal=true`,
+    );
     expect(seriesFilterResponse.status).toBe(200);
     const seriesFilterBody = await seriesFilterResponse.json();
     expect(seriesFilterBody.total).toBe(1);
     expect(seriesFilterBody.items[0].catalog_item_id).toBe(itemId);
 
-    const referenceExpansionFilterResponse = await app.request(`/api/marketplace/items?reference.expansion=${expansionReferenceId}&includeTotal=true`);
+    const referenceExpansionFilterResponse = await app.request(
+      `/api/marketplace/items?reference.expansion=${expansionReferenceId}&includeTotal=true`,
+    );
     expect(referenceExpansionFilterResponse.status).toBe(200);
     const referenceExpansionFilterBody = await referenceExpansionFilterResponse.json();
     expect(referenceExpansionFilterBody.total).toBe(1);
@@ -583,17 +606,20 @@ describeWithDatabase("marketplace search", () => {
     expect(
       referenceExpansionFilterBody.facets
         .find((facet: { id: string; kind: string }) => facet.id === "expansion" && facet.kind === "reference")
-        .values.find((value: { id: string }) => value.id === expansionReferenceId)
-        .selected,
+        .values.find((value: { id: string }) => value.id === expansionReferenceId).selected,
     ).toBe(true);
 
-    const referenceSeriesFilterResponse = await app.request(`/api/marketplace/items?reference.series=${seriesReferenceId}&includeTotal=true`);
+    const referenceSeriesFilterResponse = await app.request(
+      `/api/marketplace/items?reference.series=${seriesReferenceId}&includeTotal=true`,
+    );
     expect(referenceSeriesFilterResponse.status).toBe(200);
     const referenceSeriesFilterBody = await referenceSeriesFilterResponse.json();
     expect(referenceSeriesFilterBody.total).toBe(1);
     expect(referenceSeriesFilterBody.items[0].catalog_item_id).toBe(itemId);
 
-    const referenceProductLineFilterResponse = await app.request(`/api/marketplace/items?reference.product-line=${productLineReferenceId}&includeTotal=true`);
+    const referenceProductLineFilterResponse = await app.request(
+      `/api/marketplace/items?reference.product-line=${productLineReferenceId}&includeTotal=true`,
+    );
     expect(referenceProductLineFilterResponse.status).toBe(200);
     const referenceProductLineFilterBody = await referenceProductLineFilterResponse.json();
     expect(referenceProductLineFilterBody.total).toBe(1);
@@ -635,21 +661,27 @@ describeWithDatabase("marketplace search", () => {
       ],
     });
 
-    await sendCommand(catalogServices.referenceData.referenceRecordCommandHandler, `catalog.reference-record-${productLineReferenceId}`, {
-      type: "ReviseReferenceRecord",
-      typeKey: "product-line",
-      key: "pokemon-tcg",
-      name: l10n("Pokemon Trading Card Game"),
-      attributes: {},
-      relationships: [{ relationshipType: "manufacturer", referenceId: manufacturerReferenceId as never }],
-    });
+    await sendCommand(
+      catalogServices.referenceData.referenceRecordCommandHandler,
+      `catalog.reference-record-${productLineReferenceId}`,
+      {
+        type: "ReviseReferenceRecord",
+        typeKey: "product-line",
+        key: "pokemon-tcg",
+        name: l10n("Pokemon Trading Card Game"),
+        attributes: {},
+        relationships: [{ relationshipType: "manufacturer", referenceId: manufacturerReferenceId as never }],
+      },
+    );
 
     await drainContextProcesses({
       projectors: discoveryServices.projectors,
       subscriptionRunners,
     });
 
-    const updatedSearchResponse = await app.request("/api/marketplace/items?search=trading%20card%20game&includeTotal=true");
+    const updatedSearchResponse = await app.request(
+      "/api/marketplace/items?search=trading%20card%20game&includeTotal=true",
+    );
     expect(updatedSearchResponse.status).toBe(200);
     const updatedSearchBody = await updatedSearchResponse.json();
     expect(updatedSearchBody.total).toBe(1);
@@ -931,12 +963,16 @@ describeWithDatabase("marketplace search", () => {
   });
 
   it("can rebuild the search index idempotently", async () => {
-    await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`);
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at) VALUES ('cat_test', 'Test Card', 'active', now())`,
+    );
 
     await rebuildDiscoverySearchIndex(pools.discovery);
     await rebuildDiscoverySearchIndex(pools.discovery);
 
-    const result = await pools.discovery.query(`SELECT COUNT(*) AS count FROM discovery_search_items WHERE catalog_item_id = 'cat_test'`);
+    const result = await pools.discovery.query(
+      `SELECT COUNT(*) AS count FROM discovery_search_items WHERE catalog_item_id = 'cat_test'`,
+    );
     expect(Number(result.rows[0].count)).toBe(1);
   });
 });

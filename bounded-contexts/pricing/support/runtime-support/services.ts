@@ -14,9 +14,7 @@ export type PricingServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createPricingServices(
-  pool: PgTransactionalPool,
-): PricingServices {
+export function createPricingServices(pool: PgTransactionalPool): PricingServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;

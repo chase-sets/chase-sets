@@ -1,14 +1,6 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
-import {
-  assert,
-  assertNever,
-  type ConsentSubjectType,
-} from "../../../support/runtime-support/common";
+import { assert, assertNever, type ConsentSubjectType } from "../../../support/runtime-support/common";
 
 export type ConsentState = Readonly<{
   id: ConsentId | null;
@@ -58,11 +50,7 @@ export type ConsentRecordedEvent = DomainEvent<
 
 export type ConsentEvent = ConsentRecordedEvent;
 
-export const decideConsent: AggregateDecider<
-  ConsentState,
-  ConsentCommand,
-  ConsentEvent
-> = (state, command) => {
+export const decideConsent: AggregateDecider<ConsentState, ConsentCommand, ConsentEvent> = (state, command) => {
   assert(state.id === null, "Consent has already been recorded.");
   return [
     {
@@ -80,10 +68,7 @@ export const decideConsent: AggregateDecider<
   ];
 };
 
-export const evolveConsent: AggregateEvolver<ConsentState, ConsentEvent> = (
-  state,
-  event,
-) => ({
+export const evolveConsent: AggregateEvolver<ConsentState, ConsentEvent> = (state, event) => ({
   id: event.data.consentId,
   subjectType: event.data.subjectType,
   userId: event.data.userId,

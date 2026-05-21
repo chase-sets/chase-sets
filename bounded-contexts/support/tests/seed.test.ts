@@ -1,8 +1,5 @@
 import { expect, it } from "vitest";
-import {
-  describeWithMarketplaceSeedDatabase,
-  useMarketplaceSeedRuntime,
-} from "@chase-sets/marketplace-seed-testing";
+import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "@chase-sets/marketplace-seed-testing";
 import { supportSeedIds } from "../support/seed-support/ids";
 
 describeWithMarketplaceSeedDatabase("support seed", () => {
@@ -21,17 +18,10 @@ describeWithMarketplaceSeedDatabase("support seed", () => {
        FROM support_request_pages
        WHERE support_request_id = ANY($1::text[])
        ORDER BY support_request_id ASC`,
-      [
-        [
-          supportSeedIds.supportRequests.activeProductNotReceived,
-          supportSeedIds.supportRequests.resolvedPartialRefund,
-        ],
-      ],
+      [[supportSeedIds.supportRequests.activeProductNotReceived, supportSeedIds.supportRequests.resolvedPartialRefund]],
     );
     expect(supportRequests.rows).toHaveLength(2);
-    expect(new Set(supportRequests.rows.map((row) => row.status))).toEqual(
-      new Set(["waiting-on-seller", "resolved"]),
-    );
+    expect(new Set(supportRequests.rows.map((row) => row.status))).toEqual(new Set(["waiting-on-seller", "resolved"]));
 
     const refundEffect = await pools.payments.query<{
       status: string;
@@ -52,12 +42,7 @@ describeWithMarketplaceSeedDatabase("support seed", () => {
        FROM settlement_support_holds
        WHERE support_request_id = ANY($1::text[])
          AND active = TRUE`,
-      [
-        [
-          supportSeedIds.supportRequests.activeProductNotReceived,
-          supportSeedIds.supportRequests.resolvedPartialRefund,
-        ],
-      ],
+      [[supportSeedIds.supportRequests.activeProductNotReceived, supportSeedIds.supportRequests.resolvedPartialRefund]],
     );
     expect(Number(activeHolds.rows[0]?.count ?? 0)).toBe(2);
 

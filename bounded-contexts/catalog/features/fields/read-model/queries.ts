@@ -22,17 +22,15 @@ export type FieldRow = Readonly<{
   updated_at: string;
 }>;
 
-export type FieldListParams = ListParams & Readonly<{
-  valueType?: string;
-  filterable?: string;
-  searchable?: string;
-  sortable?: string;
-}>;
+export type FieldListParams = ListParams &
+  Readonly<{
+    valueType?: string;
+    filterable?: string;
+    searchable?: string;
+    sortable?: string;
+  }>;
 
-export async function listFields(
-  db: PgQueryable,
-  params: FieldListParams = {},
-): Promise<ListResult<FieldRow>> {
+export async function listFields(db: PgQueryable, params: FieldListParams = {}): Promise<ListResult<FieldRow>> {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
 
@@ -51,26 +49,19 @@ export async function listFields(
   return executeListQuery<FieldRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function listFieldIds(
-  db: PgQueryable,
-  params: FieldListParams = {},
-): Promise<string[]> {
+export async function listFieldIds(db: PgQueryable, params: FieldListParams = {}): Promise<string[]> {
   const result = await listFields(db, { ...params, limit: undefined, offset: undefined });
   return result.items.map((row) => row.field_id);
 }
 
-export async function listFieldBulkRows(
-  db: PgQueryable,
-  fieldIds: readonly string[],
-): Promise<BulkLifecycleRow[]> {
+export async function listFieldBulkRows(db: PgQueryable, fieldIds: readonly string[]): Promise<BulkLifecycleRow[]> {
   if (fieldIds.length === 0) {
     return [];
   }
 
-  const result = await db.query<FieldRow>(
-    `SELECT * FROM catalog_fields WHERE field_id = ANY($1::text[])`,
-    [[...fieldIds]],
-  );
+  const result = await db.query<FieldRow>(`SELECT * FROM catalog_fields WHERE field_id = ANY($1::text[])`, [
+    [...fieldIds],
+  ]);
 
   return result.rows.map((row) => ({
     id: row.field_id,
@@ -80,10 +71,7 @@ export async function listFieldBulkRows(
 }
 
 export async function getField(db: PgQueryable, fieldId: string) {
-  const result = await db.query<FieldRow>(
-    `SELECT * FROM catalog_fields WHERE field_id = $1`,
-    [fieldId],
-  );
+  const result = await db.query<FieldRow>(`SELECT * FROM catalog_fields WHERE field_id = $1`, [fieldId]);
 
   return result.rows[0] ?? null;
 }

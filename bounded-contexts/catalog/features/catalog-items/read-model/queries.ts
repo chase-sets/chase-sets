@@ -139,10 +139,7 @@ export async function listCatalogItemIdsForBulkPublishFilter(
   return result.rows.map((row) => row.catalog_item_id);
 }
 
-export async function listCatalogItemIds(
-  db: PgQueryable,
-  params: CatalogItemListParams = {},
-): Promise<string[]> {
+export async function listCatalogItemIds(db: PgQueryable, params: CatalogItemListParams = {}): Promise<string[]> {
   const { where, values } = buildCatalogItemConditions(params);
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT item.catalog_item_id

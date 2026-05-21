@@ -99,11 +99,13 @@ describe("catalog item routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(listCatalogItems).toHaveBeenCalledWith(expect.objectContaining({
-      status: "draft",
-      source: "tcgplayer",
-      language: "en",
-    }));
+    expect(listCatalogItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "draft",
+        source: "tcgplayer",
+        language: "en",
+      }),
+    );
   });
 
   it("passes workflow filters into the Catalog Item list query", async () => {
@@ -111,18 +113,22 @@ describe("catalog item routes", () => {
     const app = buildApp(createServices({ listCatalogItems }));
 
     const response = await app.fetch(
-      new Request("http://catalog.test/items?blueprintId=bp_1&tag=foil&blueprintState=assigned&hasImages=true&hasSourceReferences=false&missingRequiredFields=true"),
+      new Request(
+        "http://catalog.test/items?blueprintId=bp_1&tag=foil&blueprintState=assigned&hasImages=true&hasSourceReferences=false&missingRequiredFields=true",
+      ),
     );
 
     expect(response.status).toBe(200);
-    expect(listCatalogItems).toHaveBeenCalledWith(expect.objectContaining({
-      blueprintId: "bp_1",
-      tag: "foil",
-      blueprintState: "assigned",
-      hasImages: "true",
-      hasSourceReferences: "false",
-      missingRequiredFields: "true",
-    }));
+    expect(listCatalogItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blueprintId: "bp_1",
+        tag: "foil",
+        blueprintState: "assigned",
+        hasImages: "true",
+        hasSourceReferences: "false",
+        missingRequiredFields: "true",
+      }),
+    );
   });
 
   it("previews filter-wide bulk publish against the requested filtered scope", async () => {
@@ -205,20 +211,22 @@ describe("catalog item routes", () => {
       blocked_count: 0,
       candidates: [],
     }));
-    const app = buildApp(createServices({
-      bulkLifecycle: {
-        preview,
-        execute: async () => ({
-          action: "archive",
-          ids: [],
-          total: 0,
-          succeeded_count: 0,
-          skipped_count: 0,
-          failed_count: 0,
-          candidates: [],
-        }),
-      },
-    }));
+    const app = buildApp(
+      createServices({
+        bulkLifecycle: {
+          preview,
+          execute: async () => ({
+            action: "archive",
+            ids: [],
+            total: 0,
+            succeeded_count: 0,
+            skipped_count: 0,
+            failed_count: 0,
+            candidates: [],
+          }),
+        },
+      }),
+    );
 
     const response = await app.fetch(
       new Request("http://catalog.test/items/bulk-lifecycle/preview", {
@@ -244,21 +252,24 @@ describe("catalog item routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(preview).toHaveBeenCalledWith({
-      mode: "filter",
-      query: {
-        search: undefined,
-        status: "active",
-        blueprintId: "bp_1",
-        tag: "foil",
-        language: "en",
-        source: "tcgdex",
-        blueprintState: "assigned",
-        hasImages: "true",
-        hasSourceReferences: "true",
-        missingRequiredFields: "false",
+    expect(preview).toHaveBeenCalledWith(
+      {
+        mode: "filter",
+        query: {
+          search: undefined,
+          status: "active",
+          blueprintId: "bp_1",
+          tag: "foil",
+          language: "en",
+          source: "tcgdex",
+          blueprintState: "assigned",
+          hasImages: "true",
+          hasSourceReferences: "true",
+          missingRequiredFields: "false",
+        },
       },
-    }, "archive");
+      "archive",
+    );
   });
 
   it("previews shared bulk edits against the filtered item scope", async () => {
@@ -294,21 +305,24 @@ describe("catalog item routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(previewBulkEdit).toHaveBeenCalledWith({
-      mode: "filter",
-      query: {
-        search: undefined,
-        status: "active",
-        blueprintId: "bp_1",
-        tag: "foil",
-        language: "en",
-        source: "tcgdex",
-        blueprintState: undefined,
-        hasImages: undefined,
-        hasSourceReferences: "true",
-        missingRequiredFields: undefined,
+    expect(previewBulkEdit).toHaveBeenCalledWith(
+      {
+        mode: "filter",
+        query: {
+          search: undefined,
+          status: "active",
+          blueprintId: "bp_1",
+          tag: "foil",
+          language: "en",
+          source: "tcgdex",
+          blueprintState: undefined,
+          hasImages: undefined,
+          hasSourceReferences: "true",
+          missingRequiredFields: undefined,
+        },
       },
-    }, { action: "assignCategory", categoryId: "cat_pokemon" });
+      { action: "assignCategory", categoryId: "cat_pokemon" },
+    );
   });
 
   it("confirms shared bulk tag edits against selected item IDs", async () => {
@@ -348,9 +362,7 @@ describe("catalog item routes", () => {
     }));
     const app = buildApp(createServices({ commandHandler } as Partial<CatalogItemServices>));
 
-    const response = await app.fetch(
-      new Request("http://catalog.test/items/cat_1", { method: "DELETE" }),
-    );
+    const response = await app.fetch(new Request("http://catalog.test/items/cat_1", { method: "DELETE" }));
 
     expect(response.status).toBe(200);
     expect(commandHandler).toHaveBeenCalledWith({

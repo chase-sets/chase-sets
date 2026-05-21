@@ -15,33 +15,25 @@ export interface ResponsiveActionMenuProps {
 }
 
 function flattenItems(items?: MenuItem[], groups?: MenuGroup[]) {
-  return groups ? groups.flatMap((group) => group.items) : items ?? [];
+  return groups ? groups.flatMap((group) => group.items) : (items ?? []);
 }
 
 function actionItemClassName(destructive?: boolean, disabled?: boolean) {
   return cx(
     "focus-ring flex min-h-11 w-full min-w-0 items-start gap-3 rounded-tokenMd px-3 py-2 text-left text-sm transition",
     disabled && "cursor-not-allowed opacity-50",
-    destructive ? "text-danger" : "text-foreground"
+    destructive ? "text-danger" : "text-foreground",
   );
 }
 
 function renderMobileActionItem(item: MenuItem, onClose: () => void) {
-  const icon = item.icon ? (
-    <Icon
-      name={item.icon}
-      size="sm"
-      tone={item.destructive ? "danger" : "secondary"}
-    />
-  ) : null;
+  const icon = item.icon ? <Icon name={item.icon} size="sm" tone={item.destructive ? "danger" : "secondary"} /> : null;
   const content = (
     <>
       {icon}
       <span className="min-w-0 flex-1 space-y-0.5">
         <span className="block font-medium">{item.label}</span>
-        {item.description ? (
-          <span className="block text-xs text-secondary">{item.description}</span>
-        ) : null}
+        {item.description ? <span className="block text-xs text-secondary">{item.description}</span> : null}
       </span>
       {item.shortcut ? <span className="text-xs text-secondary">{item.shortcut}</span> : null}
     </>
@@ -92,7 +84,7 @@ export function ResponsiveActionMenu({
   menuLabel = "Actions",
   sheetTitle = menuLabel,
   sheetDescription,
-  mobileSheetThreshold = 4
+  mobileSheetThreshold = 4,
 }: ResponsiveActionMenuProps) {
   const [open, setOpen] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
@@ -117,18 +109,14 @@ export function ResponsiveActionMenu({
           groups.map((group, groupIndex) => (
             <div key={groupIndex} className="grid gap-1">
               {group.label ? (
-                <div className="px-3 py-1 text-xs font-semibold uppercase text-secondary">
-                  {group.label}
-                </div>
+                <div className="px-3 py-1 text-xs font-semibold uppercase text-secondary">{group.label}</div>
               ) : null}
               {group.items.map((item) => renderMobileActionItem(item, () => setOpen(false)))}
               {groupIndex < groups.length - 1 ? <div className="my-1 h-px bg-muted" /> : null}
             </div>
           ))
         ) : (
-          <div className="grid gap-1">
-            {items?.map((item) => renderMobileActionItem(item, () => setOpen(false)))}
-          </div>
+          <div className="grid gap-1">{items?.map((item) => renderMobileActionItem(item, () => setOpen(false)))}</div>
         )}
       </div>
     </BottomSheet>

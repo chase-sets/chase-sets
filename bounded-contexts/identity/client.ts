@@ -1,8 +1,4 @@
-export {
-  IdentityApiError,
-  createIdentityApiClient,
-  identityApi,
-} from "./support/shell-support/api/client";
+export { IdentityApiError, createIdentityApiClient, identityApi } from "./support/shell-support/api/client";
 export type { IdentityApiClientOptions } from "./support/shell-support/api/client";
 export type { Account } from "./features/accounts/api/contracts";
 export type { ShippingAddress } from "./features/shipping-addresses/api/contracts";

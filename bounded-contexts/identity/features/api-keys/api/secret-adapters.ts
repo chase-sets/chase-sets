@@ -14,8 +14,7 @@ export function createIdentitySecretAdapters(): IdentitySecretAdapters {
       return prefix ? `${prefix}_${suffix}` : suffix;
     },
     hashSecret: (value) => createHash("sha256").update(value).digest("hex"),
-    verifySecret: (value, hashedValue) =>
-      createHash("sha256").update(value).digest("hex") === hashedValue,
+    verifySecret: (value, hashedValue) => createHash("sha256").update(value).digest("hex") === hashedValue,
     issueChallenge: () => randomBytes(24).toString("base64url"),
   };
 }

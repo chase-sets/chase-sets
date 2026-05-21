@@ -40,9 +40,7 @@ export function createIdentityMutations(c: AuthApiContext) {
   return createIdentityAuthRequestClient(c.req.raw);
 }
 
-export function createPermissionGuard(
-  permission: string,
-): MiddlewareHandler<AuthApiEnv> {
+export function createPermissionGuard(permission: string): MiddlewareHandler<AuthApiEnv> {
   return async (c, next) => {
     const actor = c.var.actor;
     if (!actor) {
@@ -58,7 +56,5 @@ export function createPermissionGuard(
 }
 
 export function createOwnedUserDisplayName(contactValue: string) {
-  return contactValue.includes("@")
-    ? contactValue.split("@")[0]
-    : contactValue;
+  return contactValue.includes("@") ? contactValue.split("@")[0] : contactValue;
 }

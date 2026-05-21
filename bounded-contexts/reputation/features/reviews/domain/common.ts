@@ -96,10 +96,7 @@ export function normalizeFeedback(value?: string | null): string | null {
     return null;
   }
 
-  assert(
-    normalized.length <= 1000,
-    "Feedback must be 1000 characters or fewer.",
-  );
+  assert(normalized.length <= 1000, "Feedback must be 1000 characters or fewer.");
 
   return normalized;
 }

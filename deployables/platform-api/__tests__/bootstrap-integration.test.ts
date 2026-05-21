@@ -19,18 +19,13 @@ import type { PlatformApiContextName } from "../src/config";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
-const platformApiContextNames = getApiHostContextNames(
-  apiContextRegistry,
-  "platform-api",
-);
+const platformApiContextNames = getApiHostContextNames(apiContextRegistry, "platform-api");
 
 type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
-    throw new Error(
-      "TEST_DATABASE_URL is required for database-backed platform-api tests.",
-    );
+    throw new Error("TEST_DATABASE_URL is required for database-backed platform-api tests.");
   }
 
   return databaseBaseUrl;
@@ -72,11 +67,7 @@ describeWithDatabase("platform api bootstrap", () => {
 
     expect(pools.auth).not.toBe(pools.identity);
 
-    await seedApiHostIfEmpty(
-      apiContextRegistry,
-      "platform-api",
-      runtime,
-    );
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime);
 
     const seedOrder = getApiHostSeedOrder(apiContextRegistry, "platform-api");
     expect(seedOrder.indexOf("identity")).toBeLessThan(seedOrder.indexOf("auth"));
@@ -84,21 +75,19 @@ describeWithDatabase("platform api bootstrap", () => {
     const replaySummary = await refreshProjectionReplaySummary(runtime, {
       contextName: "auth",
     });
-    const authReplayContext = replaySummary.contexts.find(
-      (context) => context.contextName === "auth",
-    );
+    const authReplayContext = replaySummary.contexts.find((context) => context.contextName === "auth");
     const authUsers = await pools.auth.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM auth_identity_users",
     );
-    const identityTablesInAuth = await pools.auth.query<
-      Readonly<{ relation_name: string | null }>
-    >("SELECT to_regclass('public.identity_user_pages') AS relation_name");
-    const commercialTermsSchedules = await pools["commercial-terms"].query<
-      Readonly<{ count: string }>
-    >("SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages");
-    const commercialTermsAgreements = await pools["commercial-terms"].query<
-      Readonly<{ count: string }>
-    >("SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages");
+    const identityTablesInAuth = await pools.auth.query<Readonly<{ relation_name: string | null }>>(
+      "SELECT to_regclass('public.identity_user_pages') AS relation_name",
+    );
+    const commercialTermsSchedules = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages",
+    );
+    const commercialTermsAgreements = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages",
+    );
     const seededCatalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM catalog_item_pages",
     );
@@ -157,15 +146,10 @@ describeWithDatabase("platform api bootstrap", () => {
       },
     });
 
-    await seedApiHostIfEmpty(
-      apiContextRegistry,
-      "platform-api",
-      runtime,
-      {
-        enabledDataProfiles: productionLikeDataProfiles,
-        environmentName: "staging",
-      },
-    );
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+      enabledDataProfiles: productionLikeDataProfiles,
+      environmentName: "staging",
+    });
 
     const identityAccounts = await pools.identity.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM identity_accounts",
@@ -176,12 +160,12 @@ describeWithDatabase("platform api bootstrap", () => {
     const catalogBlueprints = await pools.catalog.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM catalog_blueprints",
     );
-    const commercialTermsSchedules = await pools["commercial-terms"].query<
-      Readonly<{ count: string }>
-    >("SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages");
-    const commercialTermsAgreements = await pools["commercial-terms"].query<
-      Readonly<{ count: string }>
-    >("SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages");
+    const commercialTermsSchedules = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages",
+    );
+    const commercialTermsAgreements = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      "SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages",
+    );
     const marketplaceListings = await pools.marketplace.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM marketplace_listing_pages",
     );

@@ -33,7 +33,9 @@ export function AgreementListPage({
       <PageHeader
         eyebrow={t("commercialTerms.features.agreements.ui.agreementListPage.admin")}
         title={t("commercialTerms.features.agreements.ui.agreementListPage.commercial.agreements")}
-        description={t("commercialTerms.features.agreements.ui.agreementListPage.manage.account.specific.overrides.for.marketplace")}
+        description={t(
+          "commercialTerms.features.agreements.ui.agreementListPage.manage.account.specific.overrides.for.marketplace",
+        )}
       />
 
       <Banner
@@ -52,8 +54,16 @@ export function AgreementListPage({
         <Card>
           <form method="post">
             <Stack gap={3}>
-              <TextInput label={t("commercialTerms.features.agreements.ui.agreementListPage.label")} name="label" required />
-              <TextInput label={t("commercialTerms.features.agreements.ui.agreementListPage.account.id")} name="accountId" required />
+              <TextInput
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.label")}
+                name="label"
+                required
+              />
+              <TextInput
+                label={t("commercialTerms.features.agreements.ui.agreementListPage.account.id")}
+                name="accountId"
+                required
+              />
               <NumberInput
                 label={t("commercialTerms.features.agreements.ui.agreementListPage.marketplace.fee.bps")}
                 name="marketplaceSalesFeePercentageBps"
@@ -96,7 +106,9 @@ export function AgreementListPage({
                 name="effectiveUntil"
                 placeholder={t("commercialTerms.features.agreements.ui.agreementListPage.optional.iso.timestamp")}
               />
-              <Button type="submit">{t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement.2")}</Button>
+              <Button type="submit">
+                {t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement.2")}
+              </Button>
             </Stack>
           </form>
         </Card>
@@ -125,10 +137,15 @@ export function AgreementListPage({
               cell: (row) => (
                 <Stack gap={1}>
                   <Text size="sm">
-                    {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}{row.marketplace_sales_fee_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}{row.marketplace_sales_fee_fixed_amount}
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.marketplace")}
+                    {row.marketplace_sales_fee_percentage_bps}{" "}
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}
+                    {row.marketplace_sales_fee_fixed_amount}
                   </Text>
                   <Text size="sm">
-                    {t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance")}{row.shipping_allowance_percentage_bps} {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.shipping.allowance")}
+                    {row.shipping_allowance_percentage_bps}{" "}
+                    {t("commercialTerms.features.agreements.ui.agreementListPage.bps")}
                   </Text>
                 </Stack>
               ),
@@ -143,12 +160,15 @@ export function AgreementListPage({
               header: t("commercialTerms.features.agreements.ui.agreementListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/commercial-terms/agreements/${row.agreement_id}`} tone="secondary" size="sm">
-                  {t("commercialTerms.features.agreements.ui.agreementListPage.open")}</LinkButton>
+                  {t("commercialTerms.features.agreements.ui.agreementListPage.open")}
+                </LinkButton>
               ),
             },
           ]}
           emptyTitle={t("commercialTerms.features.agreements.ui.agreementListPage.no.agreements.yet")}
-          emptyDescription={t("commercialTerms.features.agreements.ui.agreementListPage.create.an.account.specific.agreement.to")}
+          emptyDescription={t(
+            "commercialTerms.features.agreements.ui.agreementListPage.create.an.account.specific.agreement.to",
+          )}
         />
       </PageSection>
     </Page>

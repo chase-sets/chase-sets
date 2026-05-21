@@ -1,2 +1,1 @@
 export { CatalogAdminLayout } from "./layout";
-

@@ -22,9 +22,7 @@ describe("marketplace service worker source", () => {
     expect(isMarketplaceServiceWorkerStaticAssetPath("/assets/app.css")).toBe(true);
     expect(isMarketplaceServiceWorkerStaticAssetPath("/icons/chase-sets-192.png")).toBe(true);
     expect(isMarketplaceServiceWorkerStaticAssetPath("/account/payments/pay_1")).toBe(false);
-    expect(marketplaceServiceWorkerSource).toContain(
-      "fetch(event.request).catch(() => caches.match(OFFLINE_URL))",
-    );
+    expect(marketplaceServiceWorkerSource).toContain("fetch(event.request).catch(() => caches.match(OFFLINE_URL))");
     expect(marketplaceServiceWorkerSource).not.toContain("skipWaiting");
   });
 });

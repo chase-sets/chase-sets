@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -32,19 +29,13 @@ import { buildComponentProjectionHandlers } from "../read-model/projection";
 
 export type ComponentServices = Readonly<{
   commandHandler: CommandHandler<ComponentCommand, ComponentState, ComponentEvent>;
-  listComponents: (
-    params?: Parameters<typeof listComponents>[1],
-  ) => ReturnType<typeof listComponents>;
-  getComponentDetail: (
-    componentId: string,
-  ) => ReturnType<typeof getComponentDetail>;
+  listComponents: (params?: Parameters<typeof listComponents>[1]) => ReturnType<typeof listComponents>;
+  getComponentDetail: (componentId: string) => ReturnType<typeof getComponentDetail>;
   bulkLifecycle: BulkLifecycleOperations<ComponentListParams, ComponentCommand, ComponentState, ComponentEvent>;
   projectors: readonly Projector[];
 }>;
 
-export function createComponentRuntime(
-  deps: CatalogRuntimeDeps,
-): ComponentServices {
+export function createComponentRuntime(deps: CatalogRuntimeDeps): ComponentServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -61,11 +52,10 @@ export function createComponentRuntime(
       projectorName: "catalog-component-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: withCatalogAdminRealtimeInvalidation(
-        buildComponentProjectionHandlers(deps.db),
-        deps.db,
-        { projectionName: "catalog-component-projection", surface: "components" },
-      ),
+      handlers: withCatalogAdminRealtimeInvalidation(buildComponentProjectionHandlers(deps.db), deps.db, {
+        projectionName: "catalog-component-projection",
+        surface: "components",
+      }),
     }),
     createProjector({
       projectorName: "catalog-admin-component-detail-projection",
@@ -74,7 +64,12 @@ export function createComponentRuntime(
       handlers: buildCatalogAdminComponentProjectionHandlers(deps.db),
     }),
   ];
-  const bulkLifecycle = createBulkLifecycleOperations<ComponentListParams, ComponentCommand, ComponentState, ComponentEvent>({
+  const bulkLifecycle = createBulkLifecycleOperations<
+    ComponentListParams,
+    ComponentCommand,
+    ComponentState,
+    ComponentEvent
+  >({
     actions: [
       {
         action: "activate",

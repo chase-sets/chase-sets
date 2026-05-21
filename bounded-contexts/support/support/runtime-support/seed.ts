@@ -49,9 +49,7 @@ async function supportRequestExists(services: SupportServices, supportRequestId:
   return result.rows[0]?.exists ?? false;
 }
 
-async function loadSeedOrderSource(
-  services: SupportServices,
-): Promise<SupportSeedOrderSource> {
+async function loadSeedOrderSource(services: SupportServices): Promise<SupportSeedOrderSource> {
   const reservedOrder = await services.db.query<SupportSeedOrderSource>(
     `SELECT order_id, buyer_account_id, seller_account_id, status
      FROM support_order_sources
@@ -92,12 +90,7 @@ export async function seedSupportDatabase(
       `SELECT COUNT(*) AS count
        FROM support_request_pages
        WHERE support_request_id = ANY($1::text[])`,
-      [
-        [
-          supportSeedIds.supportRequests.activeProductNotReceived,
-          supportSeedIds.supportRequests.resolvedPartialRefund,
-        ],
-      ],
+      [[supportSeedIds.supportRequests.activeProductNotReceived, supportSeedIds.supportRequests.resolvedPartialRefund]],
     );
     if (Number(seededCount.rows[0]?.count ?? 0) === 2) {
       console.log("Support already contains seed data. Skipping seed.");
@@ -108,27 +101,15 @@ export async function seedSupportDatabase(
   }
 
   const order = await loadSeedOrderSource(support);
-  const buyerContext = createSeedContext(
-    identitySeedIds.collector.accountId,
-    identitySeedIds.collector.userId,
-  );
-  const supportContext = createSeedContext(
-    identitySeedIds.demo.accountId,
-    identitySeedIds.demo.userId,
-  );
+  const buyerContext = createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
+  const supportContext = createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
-  if (
-    !(await supportRequestExists(
-      support,
-      supportSeedIds.supportRequests.activeProductNotReceived,
-    ))
-  ) {
+  if (!(await supportRequestExists(support, supportSeedIds.supportRequests.activeProductNotReceived))) {
     await support.supportRequests.commandHandler({
       streamId: `support.support-request-${supportSeedIds.supportRequests.activeProductNotReceived}`,
       command: {
         type: "OpenSupportRequest",
-        supportRequestId:
-          supportSeedIds.supportRequests.activeProductNotReceived as SupportRequestId,
+        supportRequestId: supportSeedIds.supportRequests.activeProductNotReceived as SupportRequestId,
         orderId: order.order_id as OrderId,
         buyerAccountId: order.buyer_account_id as AccountId,
         sellerAccountId: order.seller_account_id as AccountId,
@@ -154,18 +135,12 @@ export async function seedSupportDatabase(
     });
   }
 
-  if (
-    !(await supportRequestExists(
-      support,
-      supportSeedIds.supportRequests.resolvedPartialRefund,
-    ))
-  ) {
+  if (!(await supportRequestExists(support, supportSeedIds.supportRequests.resolvedPartialRefund))) {
     await support.supportRequests.commandHandler({
       streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
       command: {
         type: "OpenSupportRequest",
-        supportRequestId:
-          supportSeedIds.supportRequests.resolvedPartialRefund as SupportRequestId,
+        supportRequestId: supportSeedIds.supportRequests.resolvedPartialRefund as SupportRequestId,
         orderId: order.order_id as OrderId,
         buyerAccountId: order.buyer_account_id as AccountId,
         sellerAccountId: order.seller_account_id as AccountId,

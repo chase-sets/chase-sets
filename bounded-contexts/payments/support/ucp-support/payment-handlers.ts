@@ -79,8 +79,7 @@ export function createPaymentsUcpHandoff(
           processor: publicConfig.processorName,
           confirmation_experience: publicConfig.confirmationExperience,
           dynamic_payment_methods: publicConfig.dynamicPaymentMethods,
-          sensitive_payment_details_handled_by_processor:
-            publicConfig.sensitivePaymentDetailsHandledByProcessor,
+          sensitive_payment_details_handled_by_processor: publicConfig.sensitivePaymentDetailsHandledByProcessor,
           requires_trusted_ui: true,
         },
         ...agenticHandlers.map((handler) => ({
@@ -106,18 +105,26 @@ export function createPaymentsUcpHandoff(
       }
 
       if (!ap2) {
-        return { kind: "respond", response: createUcpEnvelope("requires_action", {
-          action: {
-            type: "trusted_checkout_handoff",
-            reason: "Agent-provided payment instruments require AP2 checkout mandates before headless processor submission.",
-          },
-        }, [
-          {
-            severity: "warning",
-            code: "mandate_required",
-            message: "AP2 checkout mandate is required for agentic payment-handler completion.",
-          },
-        ]) };
+        return {
+          kind: "respond",
+          response: createUcpEnvelope(
+            "requires_action",
+            {
+              action: {
+                type: "trusted_checkout_handoff",
+                reason:
+                  "Agent-provided payment instruments require AP2 checkout mandates before headless processor submission.",
+              },
+            },
+            [
+              {
+                severity: "warning",
+                code: "mandate_required",
+                message: "AP2 checkout mandate is required for agentic payment-handler completion.",
+              },
+            ],
+          ),
+        };
       }
 
       const mandateShape = readAp2Mandates(ap2);
@@ -126,34 +133,51 @@ export function createPaymentsUcpHandoff(
       }
 
       if (!options.ap2Verifier) {
-        return { kind: "respond", response: createUcpEnvelope("requires_action", {
-          action: {
-            type: "trusted_checkout_handoff",
-            reason: "AP2 checkout mandates are recognized but not accepted for headless completion until Payments owns a production mandate verification model.",
-          },
-        }, [
-          {
-            severity: "warning",
-            code: "mandate_verification_unavailable",
-            message: "Continue through trusted checkout UI; AP2 mandate verification is not enabled for headless money movement.",
-          },
-        ]) };
+        return {
+          kind: "respond",
+          response: createUcpEnvelope(
+            "requires_action",
+            {
+              action: {
+                type: "trusted_checkout_handoff",
+                reason:
+                  "AP2 checkout mandates are recognized but not accepted for headless completion until Payments owns a production mandate verification model.",
+              },
+            },
+            [
+              {
+                severity: "warning",
+                code: "mandate_verification_unavailable",
+                message:
+                  "Continue through trusted checkout UI; AP2 mandate verification is not enabled for headless money movement.",
+              },
+            ],
+          ),
+        };
       }
 
       const sharedPaymentToken = readSharedPaymentToken(body);
       if (!sharedPaymentToken || agenticHandlers.length === 0) {
-        return { kind: "respond", response: createUcpEnvelope("requires_action", {
-          action: {
-            type: "trusted_checkout_handoff",
-            reason: "Payment instruments from agents require trusted UI until a provider-backed payment handler is configured.",
-          },
-        }, [
-          {
-            severity: "warning",
-            code: "payment_handler_handoff_required",
-            message: "Payment handler handoff is declared but headless processor submission is disabled.",
-          },
-        ]) };
+        return {
+          kind: "respond",
+          response: createUcpEnvelope(
+            "requires_action",
+            {
+              action: {
+                type: "trusted_checkout_handoff",
+                reason:
+                  "Payment instruments from agents require trusted UI until a provider-backed payment handler is configured.",
+              },
+            },
+            [
+              {
+                severity: "warning",
+                code: "payment_handler_handoff_required",
+                message: "Payment handler handoff is declared but headless processor submission is disabled.",
+              },
+            ],
+          ),
+        };
       }
 
       const verification = await options.ap2Verifier.verify({
@@ -165,13 +189,16 @@ export function createPaymentsUcpHandoff(
         verifiedAt: new Date().toISOString(),
       });
       if (!verification.ok) {
-        return { kind: "respond", response: createUcpEnvelope("error", {}, [
-          {
-            severity: "error",
-            code: verification.code,
-            message: verification.message,
-          },
-        ]) };
+        return {
+          kind: "respond",
+          response: createUcpEnvelope("error", {}, [
+            {
+              severity: "error",
+              code: verification.code,
+              message: verification.message,
+            },
+          ]),
+        };
       }
 
       return {
@@ -199,13 +226,16 @@ function readAp2Mandates(ap2: Readonly<Record<string, unknown>>):
   const paymentMandate = readMandateArtifact(ap2.payment_mandate);
 
   if (!checkoutMandate) {
-    return { kind: "invalid", response: createUcpEnvelope("error", {}, [
-      {
-        severity: "error",
-        code: "invalid_ap2_mandate",
-        message: "AP2 completion requires checkout_mandate details.",
-      },
-    ]) };
+    return {
+      kind: "invalid",
+      response: createUcpEnvelope("error", {}, [
+        {
+          severity: "error",
+          code: "invalid_ap2_mandate",
+          message: "AP2 completion requires checkout_mandate details.",
+        },
+      ]),
+    };
   }
 
   return { kind: "valid", checkoutMandate, paymentMandate };
@@ -241,21 +271,19 @@ function readMandateArtifact(value: unknown): UcpAp2MandateArtifact | null {
 function readSharedPaymentToken(body: Readonly<Record<string, unknown>>) {
   const paymentData = readObject(body.payment_data);
   if (readString(paymentData?.provider) === "stripe") {
-    const token = readString(paymentData?.token) ??
-      readString(readObject(paymentData?.credential)?.token);
+    const token = readString(paymentData?.token) ?? readString(readObject(paymentData?.credential)?.token);
     if (token?.startsWith("spt_")) {
       return token;
     }
   }
 
   const payment = readObject(body.payment);
-  const instruments = Array.isArray(payment?.instruments)
-    ? payment?.instruments
-    : [];
+  const instruments = Array.isArray(payment?.instruments) ? payment?.instruments : [];
   for (const instrument of instruments) {
     const entry = readObject(instrument);
     const credential = readObject(entry?.credential);
-    const token = readString(credential?.shared_payment_granted_token) ??
+    const token =
+      readString(credential?.shared_payment_granted_token) ??
       readString(credential?.token) ??
       readString(entry?.shared_payment_granted_token);
     const provider = readString(entry?.provider) ?? readString(credential?.provider);
@@ -274,12 +302,10 @@ function readMandateId(token: string) {
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Readonly<Record<string, unknown>>
+    ? (value as Readonly<Record<string, unknown>>)
     : null;
 }
 
 function readString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }

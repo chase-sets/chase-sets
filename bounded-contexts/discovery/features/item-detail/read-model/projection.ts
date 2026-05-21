@@ -7,10 +7,7 @@ import {
   loadReferenceRecordMap,
   referenceIdFromValue,
 } from "../../../support/item-support/reference-records";
-import {
-  createMarketplaceSlug,
-  rememberSlugRedirect,
-} from "../../../support/runtime-support/slugs";
+import { createMarketplaceSlug, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -122,12 +119,7 @@ async function loadCategoryMap(
     [ids],
   );
 
-  return new Map(
-    result.rows.map((row) => [
-      row.category_id,
-      { name: row.name, slug: row.slug },
-    ]),
-  );
+  return new Map(result.rows.map((row) => [row.category_id, { name: row.name, slug: row.slug }]));
 }
 
 async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise<unknown | null> {
@@ -144,11 +136,13 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
 
   const dimensionRules = asArray<DimensionRule>(blueprint.dimension_rules);
   const canonicalDimensionOrder = asStringArray(blueprint.canonical_dimension_order);
-  const dimensionIds = [...new Set([
-    ...dimensionRules.map((rule) => rule.dimensionId),
-    ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
-    ...canonicalDimensionOrder,
-  ])];
+  const dimensionIds = [
+    ...new Set([
+      ...dimensionRules.map((rule) => rule.dimensionId),
+      ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
+      ...canonicalDimensionOrder,
+    ]),
+  ];
   const optionIds = dimensionRules.flatMap((rule) => [
     ...(rule.allowedOptionIds ?? []),
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),
@@ -156,20 +150,24 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
 
   const [dimensionRows, choiceRows] = await Promise.all([
     dimensionIds.length > 0
-      ? db.query<DimensionDetailRow>(
-          `SELECT dimension_id, name, value_kind
+      ? db
+          .query<DimensionDetailRow>(
+            `SELECT dimension_id, name, value_kind
            FROM discovery_item_detail_catalog_dimensions
            WHERE dimension_id = ANY($1)`,
-          [dimensionIds],
-        ).then((result) => result.rows)
+            [dimensionIds],
+          )
+          .then((result) => result.rows)
       : Promise.resolve([] as DimensionDetailRow[]),
     optionIds.length > 0
-      ? db.query<ChoiceDetailRow>(
-          `SELECT option_id, code, label_i18n, label, display_order, numeric_value::float8 AS numeric_value
+      ? db
+          .query<ChoiceDetailRow>(
+            `SELECT option_id, code, label_i18n, label, display_order, numeric_value::float8 AS numeric_value
            FROM discovery_item_detail_catalog_dimension_options
            WHERE option_id = ANY($1)`,
-          [optionIds],
-        ).then((result) => result.rows)
+            [optionIds],
+          )
+          .then((result) => result.rows)
       : Promise.resolve([] as ChoiceDetailRow[]),
   ]);
 
@@ -202,11 +200,7 @@ async function buildProductSchema(db: PgQueryable, blueprintId: string): Promise
             numericValue: detail?.numeric_value ?? null,
           };
         })
-        .sort(
-          (left, right) =>
-            left.displayOrder - right.displayOrder ||
-            left.code.localeCompare(right.code),
-        ),
+        .sort((left, right) => left.displayOrder - right.displayOrder || left.code.localeCompare(right.code)),
     })),
   };
 }
@@ -245,29 +239,15 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
   }
 
   const [fieldNames, categoryRefs, blueprintNames, references] = await Promise.all([
-    loadNameMap(
-      db,
-      "discovery_item_detail_catalog_fields",
-      "field_id",
-      "name",
-      fieldIds,
-    ),
+    loadNameMap(db, "discovery_item_detail_catalog_fields", "field_id", "name", fieldIds),
     loadCategoryMap(db, categoryIds),
     item.blueprint_id
-      ? loadNameMap(
-          db,
-          "discovery_item_detail_catalog_blueprints",
-          "blueprint_id",
-          "name",
-          [item.blueprint_id],
-        )
+      ? loadNameMap(db, "discovery_item_detail_catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
       : Promise.resolve(new Map<string, string>()),
     loadReferenceRecordMap(db, ITEM_DETAIL_REFERENCE_RECORDS_TABLE, referenceIds),
   ]);
 
-  const productSchema = item.blueprint_id
-      ? await buildProductSchema(db, item.blueprint_id)
-    : null;
+  const productSchema = item.blueprint_id ? await buildProductSchema(db, item.blueprint_id) : null;
 
   await db.query(
     `INSERT INTO discovery_item_detail_pages (
@@ -647,11 +627,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
          SET product_asset_sets = $2,
              updated_at = $3
          WHERE catalog_item_id = $1`,
-        [
-          itemId,
-          JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
-          event.timing.recordedAt,
-        ],
+        [itemId, JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []), event.timing.recordedAt],
       );
 
       await refreshDiscoveryItemDetailPage(db, itemId);
@@ -873,14 +849,7 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
     },
 
     "catalog.reference-record.created": async (event) => {
-      const {
-        referenceRecordId,
-        typeKey,
-        key,
-        name,
-        attributes,
-        relationships,
-      } = event.data as {
+      const { referenceRecordId, typeKey, key, name, attributes, relationships } = event.data as {
         referenceRecordId: string;
         typeKey: string;
         key: string;
@@ -1157,12 +1126,7 @@ function localizedTextMap(value: string): LocalizedTextMap {
 }
 
 function coerceLocalizedTextMap(value: unknown): LocalizedTextMap {
-  if (
-    value &&
-    typeof value === "object" &&
-    "defaultLocale" in value &&
-    "values" in value
-  ) {
+  if (value && typeof value === "object" && "defaultLocale" in value && "values" in value) {
     return value as LocalizedTextMap;
   }
 

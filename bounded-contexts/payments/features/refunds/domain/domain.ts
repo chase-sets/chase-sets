@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -46,7 +42,7 @@ export const initialRefundState: RefundState = {
   amount: null,
   currencyCode: null,
   reason: null,
- processorName: null,
+  processorName: null,
   processorRefundReference: null,
   processorStatus: null,
   status: null,
@@ -84,10 +80,7 @@ export type RecordRefundFailureCommand = Readonly<{
   failedAt: string;
 }>;
 
-export type RefundCommand =
-  | RequestRefundCommand
-  | RecordRefundIssuedCommand
-  | RecordRefundFailureCommand;
+export type RefundCommand = RequestRefundCommand | RecordRefundIssuedCommand | RecordRefundFailureCommand;
 
 export type RefundRequestedEvent = DomainEvent<
   "payments.refund-requested",
@@ -136,16 +129,9 @@ export type RefundFailedEvent = DomainEvent<
   }>
 >;
 
-export type RefundEvent =
-  | RefundRequestedEvent
-  | RefundIssuedEvent
-  | RefundFailedEvent;
+export type RefundEvent = RefundRequestedEvent | RefundIssuedEvent | RefundFailedEvent;
 
-export const decideRefund: AggregateDecider<
-  RefundState,
-  RefundCommand,
-  RefundEvent
-> = (state, command) => {
+export const decideRefund: AggregateDecider<RefundState, RefundCommand, RefundEvent> = (state, command) => {
   switch (command.type) {
     case "RequestRefund":
       assert(state.refundId === null, "Refund has already been requested.");
@@ -160,15 +146,9 @@ export const decideRefund: AggregateDecider<
               fieldName: "Refund amount",
             }),
             currencyCode: normalizeCurrencyCode(command.currencyCode),
-            reason: normalizeRequiredText(
-              command.reason,
-              "Refund reason is required.",
-            ),
+            reason: normalizeRequiredText(command.reason, "Refund reason is required."),
             processorName: normalizeProcessorName(command.processorName),
-            requestedAt: ensureIsoTimestamp(
-              command.requestedAt,
-              "Refund request must include a timestamp.",
-            ),
+            requestedAt: ensureIsoTimestamp(command.requestedAt, "Refund request must include a timestamp."),
           },
         },
       ];
@@ -192,14 +172,8 @@ export const decideRefund: AggregateDecider<
               command.processorRefundReference,
               "Processor refund reference is required.",
             ),
-            processorStatus: normalizeRequiredText(
-              command.processorStatus,
-              "Processor refund status is required.",
-            ),
-            issuedAt: ensureIsoTimestamp(
-              command.issuedAt,
-              "Refund issuance must include a timestamp.",
-            ),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor refund status is required."),
+            issuedAt: ensureIsoTimestamp(command.issuedAt, "Refund issuance must include a timestamp."),
           },
         },
       ];
@@ -219,16 +193,10 @@ export const decideRefund: AggregateDecider<
             currencyCode: state.currencyCode!,
             reason: state.reason!,
             processorName: state.processorName!,
-            processorStatus: normalizeRequiredText(
-              command.processorStatus,
-              "Processor refund status is required.",
-            ),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor refund status is required."),
             failureCode: normalizeOptionalText(command.failureCode),
             failureMessage: normalizeOptionalText(command.failureMessage),
-            failedAt: ensureIsoTimestamp(
-              command.failedAt,
-              "Refund failure must include a timestamp.",
-            ),
+            failedAt: ensureIsoTimestamp(command.failedAt, "Refund failure must include a timestamp."),
           },
         },
       ];
@@ -237,10 +205,7 @@ export const decideRefund: AggregateDecider<
   }
 };
 
-export const evolveRefund: AggregateEvolver<RefundState, RefundEvent> = (
-  state,
-  event,
-) => {
+export const evolveRefund: AggregateEvolver<RefundState, RefundEvent> = (state, event) => {
   switch (event.type) {
     case "payments.refund-requested":
       return {

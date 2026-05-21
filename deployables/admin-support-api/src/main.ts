@@ -12,10 +12,7 @@ import { getObservabilityRuntime } from "@chase-sets/observability";
 import { buildAdminSupportApiApp, createAdminSupportApiHost } from "./app";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { loadConfig, type AdminSupportCatalogAssetStorageConfig } from "./config";
-import {
-  closeAdminSupportApiPools,
-  createAdminSupportApiPools,
-} from "./database-pools";
+import { closeAdminSupportApiPools, createAdminSupportApiPools } from "./database-pools";
 
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
@@ -41,10 +38,7 @@ const app = buildAdminSupportApiApp(runtime, {
     },
   })),
   resolveActor: (request) =>
-    resolveActorFromRequest(
-      runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0],
-      request,
-    ),
+    resolveActorFromRequest(runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0], request),
 });
 mountLocalCatalogAssetRoute(app, config.catalogAssetStorage);
 
@@ -63,9 +57,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-function createCatalogAssetStorage(
-  storageConfig: AdminSupportCatalogAssetStorageConfig,
-): ObjectStorage {
+function createCatalogAssetStorage(storageConfig: AdminSupportCatalogAssetStorageConfig): ObjectStorage {
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
@@ -97,8 +89,5 @@ function mountLocalCatalogAssetRoute(
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }

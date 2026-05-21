@@ -13,20 +13,33 @@ function requireShipmentAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("fulfillment.features.shipments.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("fulfillment.features.shipments.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -40,52 +53,26 @@ function errorMessage(error: unknown) {
 function readAddress(body: Record<string, unknown>, prefix: string) {
   return {
     name: String(body[`${prefix}Name`] ?? ""),
-    company:
-      typeof body[`${prefix}Company`] === "string"
-        ? String(body[`${prefix}Company`])
-        : null,
+    company: typeof body[`${prefix}Company`] === "string" ? String(body[`${prefix}Company`]) : null,
     street1: String(body[`${prefix}Street1`] ?? ""),
-    street2:
-      typeof body[`${prefix}Street2`] === "string"
-        ? String(body[`${prefix}Street2`])
-        : null,
+    street2: typeof body[`${prefix}Street2`] === "string" ? String(body[`${prefix}Street2`]) : null,
     city: String(body[`${prefix}City`] ?? ""),
     state: String(body[`${prefix}State`] ?? ""),
     postalCode: String(body[`${prefix}PostalCode`] ?? ""),
     country: String(body[`${prefix}Country`] ?? "US"),
-    phone:
-      typeof body[`${prefix}Phone`] === "string"
-        ? String(body[`${prefix}Phone`])
-        : null,
-    email:
-      typeof body[`${prefix}Email`] === "string"
-        ? String(body[`${prefix}Email`])
-        : null,
+    phone: typeof body[`${prefix}Phone`] === "string" ? String(body[`${prefix}Phone`]) : null,
+    email: typeof body[`${prefix}Email`] === "string" ? String(body[`${prefix}Email`]) : null,
   };
 }
 
 function hasAddressInput(body: Record<string, unknown>, prefix: string) {
-  return [
-    "Name",
-    "Company",
-    "Street1",
-    "Street2",
-    "City",
-    "State",
-    "PostalCode",
-    "Country",
-    "Phone",
-    "Email",
-  ].some((field) => typeof body[`${prefix}${field}`] === "string");
+  return ["Name", "Company", "Street1", "Street2", "City", "State", "PostalCode", "Country", "Phone", "Email"].some(
+    (field) => typeof body[`${prefix}${field}`] === "string",
+  );
 }
 
 function readPackageInput(body: Record<string, unknown>) {
-  const fields = [
-    "packageLengthInches",
-    "packageWidthInches",
-    "packageHeightInches",
-    "packageWeightOunces",
-  ];
+  const fields = ["packageLengthInches", "packageWidthInches", "packageHeightInches", "packageWeightOunces"];
   if (!fields.some((field) => body[field] !== undefined)) {
     return null;
   }
@@ -138,12 +125,12 @@ export function createAccountShipmentRoutes(services: FulfillmentShipmentService
       return access.response;
     }
 
-    const shipment = await services.getBuyerShipment(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const shipment = await services.getBuyerShipment(c.req.param("id"), access.actor.accountId);
     if (!shipment) {
-      return c.json({ error: { code: "not_found", message: t("fulfillment.features.shipments.api.route.shipment.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("fulfillment.features.shipments.api.route.shipment.not.found") } },
+        404,
+      );
     }
 
     return c.json(shipment);
@@ -184,20 +171,26 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const shipmentIds = parseShipmentIds(c.req.query("shipmentIds"));
     if (shipmentIds.length === 0) {
-      return c.json({
-        error: {
-          code: "validation_failed",
-          message: t("fulfillment.features.shipments.api.route.packing.slips.require.shipments"),
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("fulfillment.features.shipments.api.route.packing.slips.require.shipments"),
+          },
         },
-      }, 400);
+        400,
+      );
     }
     if (shipmentIds.length > 100) {
-      return c.json({
-        error: {
-          code: "validation_failed",
-          message: t("fulfillment.features.shipments.api.route.packing.slips.too.many.shipments"),
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("fulfillment.features.shipments.api.route.packing.slips.too.many.shipments"),
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
     const items = await services.listSellerPackingSlips({
@@ -217,12 +210,12 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
       return access.response;
     }
 
-    const shipment = await services.getSellerShipment(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const shipment = await services.getSellerShipment(c.req.param("id"), access.actor.accountId);
     if (!shipment) {
-      return c.json({ error: { code: "not_found", message: t("fulfillment.features.shipments.api.route.shipment.not.found.2") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("fulfillment.features.shipments.api.route.shipment.not.found.2") } },
+        404,
+      );
     }
 
     return c.json(shipment);
@@ -236,7 +229,15 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -264,7 +265,15 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -295,10 +304,18 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
-    const body = await c.req.json() as Record<string, unknown>;
+    const body = (await c.req.json()) as Record<string, unknown>;
 
     try {
       const result = await services.purchaseUspsLabel(
@@ -306,16 +323,9 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
           serviceLevel: String(body.serviceLevel ?? "USPS_GROUND_ADVANTAGE"),
-          sender: hasAddressInput(body, "sender")
-            ? readAddress(body, "sender")
-            : null,
-          recipient: hasAddressInput(body, "recipient")
-            ? readAddress(body, "recipient")
-            : null,
-          overrideReason:
-            typeof body.overrideReason === "string"
-              ? body.overrideReason
-              : null,
+          sender: hasAddressInput(body, "sender") ? readAddress(body, "sender") : null,
+          recipient: hasAddressInput(body, "recipient") ? readAddress(body, "recipient") : null,
+          overrideReason: typeof body.overrideReason === "string" ? body.overrideReason : null,
           package: readPackageInput(body),
         },
         context,
@@ -339,7 +349,15 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing.4") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.4"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -364,7 +382,15 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing.5") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.5"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -389,7 +415,15 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing.6") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.6"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -414,7 +448,15 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing.7") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.7"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -424,10 +466,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         {
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
-          reason:
-            typeof body.reason === "string"
-              ? body.reason
-              : null,
+          reason: typeof body.reason === "string" ? body.reason : null,
         },
         context,
       );
@@ -445,7 +484,15 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("fulfillment.features.shipments.api.route.authentication.context.missing.8") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.8"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -456,10 +503,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
           exceptionType: String(body.exceptionType ?? "other"),
-          notes:
-            typeof body.notes === "string"
-              ? body.notes
-              : null,
+          notes: typeof body.notes === "string" ? body.notes : null,
         },
         context,
       );

@@ -5,17 +5,14 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  type SubmittedOfferListItem,
-} from "../support/request-support/api-client";
+import { type SubmittedOfferListItem } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import { MarketplaceSubmittedOfferListPage } from "../features/offers/ui/submitted-offer-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
-const MARKETPLACE_DESCRIPTION =
-  t("marketplace.routes.accountOffersSubmitted.track.offers.you.have.submitted.against");
+const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOffersSubmitted.track.offers.you.have.submitted.against");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "offers.view" });
@@ -34,9 +31,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSubmittedOffersRoute() {
   const data = useLoaderData<typeof loader>();
-  const rootData = useRouteLoaderData("root") as
-    | { actor?: { accountId?: string } | null }
-    | undefined;
+  const rootData = useRouteLoaderData("root") as { actor?: { accountId?: string } | null } | undefined;
   const accountId = rootData?.actor?.accountId ?? null;
 
   return (
@@ -71,11 +66,7 @@ function MarketplaceAccountSubmittedOffersRealtimeView({
     onSyncRequired: reloadForRealtimeSync,
   });
 
-  return (
-    <MarketplaceSubmittedOfferListPage
-      data={submittedOffers}
-    />
-  );
+  return <MarketplaceSubmittedOfferListPage data={submittedOffers} />;
 }
 
 function reloadForRealtimeSync() {

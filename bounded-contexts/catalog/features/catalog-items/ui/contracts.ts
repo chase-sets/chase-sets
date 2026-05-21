@@ -20,10 +20,13 @@ export interface CatalogItemImageFallback {
   url: string;
   alt: string;
   usage: "permanent" | "loading-only";
-  variants: Record<string, {
-    oneX?: string;
-    twoX?: string;
-  }>;
+  variants: Record<
+    string,
+    {
+      oneX?: string;
+      twoX?: string;
+    }
+  >;
 }
 
 export interface CatalogItemDetail {

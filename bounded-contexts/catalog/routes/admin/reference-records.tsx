@@ -12,10 +12,7 @@ import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/r
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
   const [routeData, referenceTypes, referenceRecords] = await Promise.all([
-    loadCatalogListRouteData<ReferenceRecord>(
-      request,
-      (query) => api.listReferenceRecords(query),
-    ),
+    loadCatalogListRouteData<ReferenceRecord>(request, (query) => api.listReferenceRecords(query)),
     api.listReferenceTypes<ListResponse<ReferenceType>>("limit=500&status=active"),
     api.listReferenceRecords<ListResponse<ReferenceRecord>>("limit=500"),
   ]);
@@ -27,7 +24,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.referenceRecords.reference.records.catalog.admin") }];
+export const meta: MetaFunction = () => [
+  { title: t("catalog.routes.admin.referenceRecords.reference.records.catalog.admin") },
+];
 
 export default function ReferenceRecordsRoute() {
   const routeData = useLoaderData<typeof loader>();

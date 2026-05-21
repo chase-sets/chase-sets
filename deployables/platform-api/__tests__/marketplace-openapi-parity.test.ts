@@ -31,9 +31,7 @@ function readJson<T>(path: string): T {
 function readOpenApiEndpointKeys(openApi: OpenApiDocument): readonly string[] {
   return Object.entries(openApi.paths).flatMap(([path, methods]) =>
     Object.keys(methods)
-      .filter((method) =>
-        ["get", "post", "put", "patch", "delete"].includes(method),
-      )
+      .filter((method) => ["get", "post", "put", "patch", "delete"].includes(method))
       .map((method) => `${method} ${path}`),
   );
 }
@@ -85,9 +83,7 @@ function createRouteInventoryRuntime(): RouteInventoryRuntime {
       pool: createServiceProxy(),
       projectors: [],
     }));
-  const services = Object.fromEntries(
-    mountedContexts.map((entry) => [entry.contextName, entry.services]),
-  );
+  const services = Object.fromEntries(mountedContexts.map((entry) => [entry.contextName, entry.services]));
 
   return {
     mountedContexts,
@@ -110,10 +106,7 @@ function readMountedPlatformApiEndpointKeys(): readonly string[] {
   return routes
     .filter((route) => supportedMethods.has(route.method.toUpperCase()))
     .filter((route) => route.path.startsWith("/api/"))
-    .map(
-      (route) =>
-        `${route.method.toLowerCase()} ${normalizeRoutePattern(route.path)}`,
-    );
+    .map((route) => `${route.method.toLowerCase()} ${normalizeRoutePattern(route.path)}`);
 }
 
 function readMarketplaceWebApiMounts(): readonly string[] {
@@ -139,12 +132,8 @@ function readMarketplaceWebApiMounts(): readonly string[] {
     }
 
     const contributesToMarketplaceWeb =
-      manifest.deployableContributions?.some(
-        (contribution) => contribution.deployable === "marketplace-web",
-      ) ||
-      manifest.shellContributions?.some(
-        (contribution) => contribution.deployable === "marketplace-web",
-      );
+      manifest.deployableContributions?.some((contribution) => contribution.deployable === "marketplace-web") ||
+      manifest.shellContributions?.some((contribution) => contribution.deployable === "marketplace-web");
 
     if (!contributesToMarketplaceWeb) {
       continue;
@@ -164,8 +153,7 @@ describe("marketplace OpenAPI parity", () => {
   it("keeps endpoint coverage in the machine-readable OpenAPI contract", () => {
     const content = readFileSync(apiDocPath, "utf8");
 
-    expect(readOpenApiEndpointKeys(readJson<OpenApiDocument>(openApiPath)).length)
-      .toBeGreaterThan(70);
+    expect(readOpenApiEndpointKeys(readJson<OpenApiDocument>(openApiPath)).length).toBeGreaterThan(70);
     expect(content).toContain("marketplace.openapi.json");
     expect(content).toContain("rather than maintaining a separate manual parity matrix");
   });
@@ -173,13 +161,9 @@ describe("marketplace OpenAPI parity", () => {
   it("keeps documented marketplace endpoints mounted by platform-api", () => {
     const openApi = readJson<OpenApiDocument>(openApiPath);
     const mountedEndpoints = new Set(readMountedPlatformApiEndpointKeys());
-    const documentedEndpoints = readOpenApiEndpointKeys(openApi).map(
-      normalizeEndpointKey,
-    );
+    const documentedEndpoints = readOpenApiEndpointKeys(openApi).map(normalizeEndpointKey);
 
-    expect(
-      documentedEndpoints.filter((endpoint) => !mountedEndpoints.has(endpoint)),
-    ).toEqual([]);
+    expect(documentedEndpoints.filter((endpoint) => !mountedEndpoints.has(endpoint))).toEqual([]);
   });
 
   it("keeps marketplace-web bounded-context API mounts represented", () => {
@@ -194,9 +178,7 @@ describe("marketplace OpenAPI parity", () => {
       "/api/settlement",
     ]);
     for (const mountPath of readMarketplaceWebApiMounts()) {
-      expect(
-        openApiPaths.some((path) => path === mountPath || path.startsWith(`${mountPath}/`)),
-      ).toBe(true);
+      expect(openApiPaths.some((path) => path === mountPath || path.startsWith(`${mountPath}/`))).toBe(true);
     }
   });
 

@@ -4,15 +4,8 @@ import { resolvePublicOrigin, shouldIndexPublicWeb } from "../seo";
 export function loader(_args: LoaderFunctionArgs) {
   const origin = resolvePublicOrigin();
   const body = shouldIndexPublicWeb()
-    ? [
-        "User-agent: *",
-        "Allow: /",
-        `Sitemap: ${origin}/sitemap.xml`,
-      ].join("\n")
-    : [
-        "User-agent: *",
-        "Disallow: /",
-      ].join("\n");
+    ? ["User-agent: *", "Allow: /", `Sitemap: ${origin}/sitemap.xml`].join("\n")
+    : ["User-agent: *", "Disallow: /"].join("\n");
 
   return new Response(body, {
     headers: {

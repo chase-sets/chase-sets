@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createInventoryApiClient,
-  InventoryApiError,
-  inventoryApi,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createInventoryApiClient, InventoryApiError, inventoryApi } from "../../client";
 export type {
   InventoryApiClientOptions,
   InventoryCatalogItemSnapshot,

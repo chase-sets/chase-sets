@@ -131,8 +131,6 @@ describe("EasyPost postage adapter", () => {
       fetch: fetch as typeof globalThis.fetch,
     });
 
-    await expect(provider.purchaseUspsLabel(sampleRequest)).rejects.toThrow(
-      "Invalid address.",
-    );
+    await expect(provider.purchaseUspsLabel(sampleRequest)).rejects.toThrow("Invalid address.");
   });
 });

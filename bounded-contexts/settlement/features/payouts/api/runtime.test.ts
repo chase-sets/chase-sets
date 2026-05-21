@@ -66,8 +66,7 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
   return {
-    loadCheckpoint: async (projectorName) =>
-      checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
     saveCheckpoint: async (projectorName, checkpoint) => {
       checkpoints.set(projectorName, checkpoint);
     },
@@ -82,10 +81,7 @@ const context = {
   },
 };
 
-async function seedAvailableWallet(
-  wallets: ReturnType<typeof createWalletRuntime>,
-  amount = "20.00",
-) {
+async function seedAvailableWallet(wallets: ReturnType<typeof createWalletRuntime>, amount = "20.00") {
   await wallets.postEntry(
     {
       accountId: "acc_seller" as never,
@@ -205,15 +201,11 @@ describe("settlement payout runtime", () => {
       context,
     );
 
-    const payoutEvents = readAllEvents().filter((event) =>
-      event.eventType.startsWith("settlement.payout.")
-    );
+    const payoutEvents = readAllEvents().filter((event) => event.eventType.startsWith("settlement.payout."));
     const walletEntryEvents = readAllEvents().filter(
       (event) =>
         event.eventType === "settlement.wallet.ledger-entry-posted" &&
-        ["payout", "payout-reversal"].includes(
-          (event.payload as { kind?: string }).kind ?? "",
-        ),
+        ["payout", "payout-reversal"].includes((event.payload as { kind?: string }).kind ?? ""),
     );
 
     expect(payoutEvents.map((event) => event.eventType)).toEqual([
@@ -397,12 +389,8 @@ describe("settlement payout runtime", () => {
       context,
     );
 
-    expect(moneyMovementGateway.usedIdempotencyKeys).toContain(
-      `settlement:payout:${requested.payoutId}:transfer`,
-    );
-    expect(moneyMovementGateway.usedIdempotencyKeys).toContain(
-      `settlement:payout:${requested.payoutId}:payout`,
-    );
+    expect(moneyMovementGateway.usedIdempotencyKeys).toContain(`settlement:payout:${requested.payoutId}:transfer`);
+    expect(moneyMovementGateway.usedIdempotencyKeys).toContain(`settlement:payout:${requested.payoutId}:payout`);
   });
 
   it("fails before creating payout events when platform balance is too low", async () => {
@@ -575,18 +563,15 @@ describe("settlement payout runtime", () => {
       readAllEvents()
         .filter((event) => event.eventType.startsWith("settlement.payout."))
         .map((event) => event.eventType),
-    ).toEqual([
-      "settlement.payout.requested",
-      "settlement.payout.failed",
-    ]);
+    ).toEqual(["settlement.payout.requested", "settlement.payout.failed"]);
     expect(
-      readAllEvents().filter(
-        (event) =>
-          event.eventType === "settlement.wallet.ledger-entry-posted" &&
-          ["payout", "payout-reversal"].includes(
-            (event.payload as { kind?: string }).kind ?? "",
-          ),
-      ).map((event) => event.payload),
+      readAllEvents()
+        .filter(
+          (event) =>
+            event.eventType === "settlement.wallet.ledger-entry-posted" &&
+            ["payout", "payout-reversal"].includes((event.payload as { kind?: string }).kind ?? ""),
+        )
+        .map((event) => event.payload),
     ).toEqual([
       expect.objectContaining({ kind: "payout", direction: "debit" }),
       expect.objectContaining({ kind: "payout-reversal", direction: "credit" }),

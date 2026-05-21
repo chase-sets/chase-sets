@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -19,9 +16,7 @@ import { buildAccountProjectionHandlers } from "../read-model/projection";
 
 export type AccountServices = Readonly<{
   commandHandler: CommandHandler<AccountCommand, AccountState, AccountEvent>;
-  listAccounts: (
-    params?: Parameters<typeof listAccounts>[1],
-  ) => ReturnType<typeof listAccounts>;
+  listAccounts: (params?: Parameters<typeof listAccounts>[1]) => ReturnType<typeof listAccounts>;
   getAccount: (accountId: string) => ReturnType<typeof getAccount>;
   projectors: readonly Projector[];
 }>;

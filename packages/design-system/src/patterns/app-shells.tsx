@@ -9,25 +9,14 @@ import {
   SideNav,
   TopNav,
   type NavigationItem,
-  type PageStepperItem
+  type PageStepperItem,
 } from "../components/actions";
 import { SearchInput, Switch } from "../components/forms";
 import { useChaseMotion } from "../theme/provider";
 import { useMediaQuery } from "../hooks";
-import {
-  SkipLink,
-  layoutWidthClasses,
-  type LayoutWidth,
-  type SidebarWidth
-} from "../primitives/layout";
+import { SkipLink, layoutWidthClasses, type LayoutWidth, type SidebarWidth } from "../primitives/layout";
 import { cx } from "../utils/cx";
-import {
-  Card,
-  DetailPanel,
-  KeyValueList,
-  Stat,
-  StatGrid
-} from "../components/data-display";
+import { Card, DetailPanel, KeyValueList, Stat, StatGrid } from "../components/data-display";
 import {
   Badge,
   BottomSheet,
@@ -37,29 +26,24 @@ import {
   type BottomSheetHeight,
   type BottomSheetProps,
   type PanelWidth,
-  type SideSheetProps
+  type SideSheetProps,
 } from "../components/feedback";
 import { ChaseSetsLogo } from "../brand/chase-sets-logo";
 import { Icon, type IconName } from "../icons";
 import { toMotionDomProps } from "../utils/motion-props";
 
-export interface PageProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface PageProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   width?: LayoutWidth;
 }
 
-export function Page({
-  children,
-  width = "full",
-  ...rest
-}: PageProps) {
+export function Page({ children, width = "full", ...rest }: PageProps) {
   return (
     <div
       {...rest}
       className={cx(
         "mx-auto flex w-full min-w-0 max-w-full flex-col gap-6 overflow-x-clip px-4 py-6 pb-24 md:px-6 md:pb-8",
-        layoutWidthClasses[width]
+        layoutWidthClasses[width],
       )}
     >
       {children}
@@ -67,65 +51,39 @@ export function Page({
   );
 }
 
-export interface PageHeaderProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
 }
 
-export function PageHeader({
-  eyebrow,
-  title,
-  description,
-  actions,
-  ...rest
-}: PageHeaderProps) {
+export function PageHeader({ eyebrow, title, description, actions, ...rest }: PageHeaderProps) {
   return (
-    <div
-      {...rest}
-      className="flex min-w-0 max-w-full flex-col gap-4 md:flex-row md:items-end md:justify-between"
-    >
+    <div {...rest} className="flex min-w-0 max-w-full flex-col gap-4 md:flex-row md:items-end md:justify-between">
       <div className="min-w-0 space-y-2">
-        {eyebrow ? (
-          <div className="text-xs font-semibold uppercase text-accent">
-            {eyebrow}
-          </div>
-        ) : null}
-        <h1 className="font-display text-4xl font-semibold text-foreground md:text-5xl">
-          {title}
-        </h1>
-        {description ? (
-          <div className="max-w-full text-base text-secondary md:max-w-3xl">{description}</div>
-        ) : null}
+        {eyebrow ? <div className="text-xs font-semibold uppercase text-accent">{eyebrow}</div> : null}
+        <h1 className="font-display text-4xl font-semibold text-foreground md:text-5xl">{title}</h1>
+        {description ? <div className="max-w-full text-base text-secondary md:max-w-3xl">{description}</div> : null}
       </div>
       {actions ? <ButtonGroup>{actions}</ButtonGroup> : null}
     </div>
   );
 }
 
-export interface PageSectionProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
+export interface PageSectionProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
   title?: ReactNode;
   description?: ReactNode;
   children?: ReactNode;
 }
 
-export function PageSection({
-  title,
-  description,
-  children,
-  ...rest
-}: PageSectionProps) {
+export function PageSection({ title, description, children, ...rest }: PageSectionProps) {
   return (
     <section {...rest} className="space-y-4">
       {title ? (
         <div className="max-w-4xl space-y-2">
           <h2 className="font-heading text-2xl font-semibold leading-tight text-foreground md:text-3xl">{title}</h2>
-          {description ? (
-            <div className="max-w-3xl text-base leading-7 text-secondary">{description}</div>
-          ) : null}
+          {description ? <div className="max-w-3xl text-base leading-7 text-secondary">{description}</div> : null}
         </div>
       ) : null}
       {children}
@@ -133,8 +91,7 @@ export function PageSection({
   );
 }
 
-export interface SplitPaneProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface SplitPaneProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   primary: ReactNode;
   secondary: ReactNode;
   secondaryWidth?: SidebarWidth;
@@ -145,7 +102,7 @@ const splitPaneWidthClasses: Record<SidebarWidth, string> = {
   nav: "lg:grid-cols-[minmax(0,1fr)_16rem]",
   filter: "lg:grid-cols-[minmax(0,1fr)_18rem]",
   detail: "lg:grid-cols-[minmax(0,1fr)_22rem]",
-  summary: "lg:grid-cols-[minmax(0,1fr)_24rem]"
+  summary: "lg:grid-cols-[minmax(0,1fr)_24rem]",
 };
 
 export function SplitPane({
@@ -156,17 +113,9 @@ export function SplitPane({
   ...rest
 }: SplitPaneProps) {
   return (
-    <div
-      {...rest}
-      className={cx(
-        "grid gap-6",
-        splitPaneWidthClasses[secondaryWidth]
-      )}
-    >
+    <div {...rest} className={cx("grid gap-6", splitPaneWidthClasses[secondaryWidth])}>
       <div>{primary}</div>
-      <div className={cx(secondarySticky && "lg:sticky lg:top-24 lg:self-start")}>
-        {secondary}
-      </div>
+      <div className={cx(secondarySticky && "lg:sticky lg:top-24 lg:self-start")}>{secondary}</div>
     </div>
   );
 }
@@ -178,19 +127,11 @@ export interface RecordPageProps {
   width?: LayoutWidth;
 }
 
-export function RecordPage({
-  header,
-  summary,
-  details,
-  width = "full"
-}: RecordPageProps) {
+export function RecordPage({ header, summary, details, width = "full" }: RecordPageProps) {
   return (
     <Page width={width}>
       {header}
-      <SplitPane
-        primary={summary}
-        secondary={details}
-      />
+      <SplitPane primary={summary} secondary={details} />
     </Page>
   );
 }
@@ -218,7 +159,7 @@ export function MarketplaceShell({
   hero,
   sidebar,
   children,
-  width = "full"
+  width = "full",
 }: MarketplaceShellProps) {
   const content = <div className="space-y-6">{children}</div>;
 
@@ -246,12 +187,7 @@ export function MarketplaceShell({
           )}
         </Page>
       </main>
-      <BottomNav
-        items={bottomNavItems}
-        activeKey={activeKey}
-        onSelect={onNavSelect}
-        width={width}
-      />
+      <BottomNav items={bottomNavItems} activeKey={activeKey} onSelect={onNavSelect} width={width} />
     </div>
   );
 }
@@ -265,14 +201,7 @@ export interface AdminShellProps {
   width?: LayoutWidth;
 }
 
-export function AdminShell({
-  brand,
-  navItems,
-  activeKey,
-  actions,
-  children,
-  width = "full"
-}: AdminShellProps) {
+export function AdminShell({ brand, navItems, activeKey, actions, children, width = "full" }: AdminShellProps) {
   return (
     <div className="min-h-screen bg-background">
       <SkipLink />
@@ -288,7 +217,7 @@ export function AdminShell({
         id="main-content"
         className={cx(
           "mx-auto grid min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-5 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:py-6 lg:pb-8",
-          layoutWidthClasses[width]
+          layoutWidthClasses[width],
         )}
       >
         <div className="hidden lg:block">
@@ -309,11 +238,7 @@ export interface SearchResultsLayoutProps {
   children?: ReactNode;
 }
 
-export function SearchResultsLayout({
-  filters,
-  summary,
-  children
-}: SearchResultsLayoutProps) {
+export function SearchResultsLayout({ filters, summary, children }: SearchResultsLayoutProps) {
   const content = (
     <div className="min-w-0 space-y-6">
       {summary}
@@ -329,9 +254,7 @@ export function SearchResultsLayout({
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <div className="hidden lg:block">
         <Sidebar label="Desktop search filters" purpose="support" width="filter" sticky>
-          <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain pb-4 pr-1">
-            {filters}
-          </div>
+          <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain pb-4 pr-1">{filters}</div>
         </Sidebar>
       </div>
       {content}
@@ -350,7 +273,7 @@ export function CheckoutLayout({
   summary,
   children,
   summaryMobile = "after",
-  summaryLabel = "Summary"
+  summaryLabel = "Summary",
 }: CheckoutLayoutProps) {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -369,10 +292,7 @@ export interface InspectorLayoutProps {
   inspector: ReactNode;
 }
 
-export function InspectorLayout({
-  main,
-  inspector
-}: InspectorLayoutProps) {
+export function InspectorLayout({ main, inspector }: InspectorLayoutProps) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div>{main}</div>
@@ -383,8 +303,7 @@ export function InspectorLayout({
   );
 }
 
-export interface SelectionToolbarProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface SelectionToolbarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   count: number;
   actions?: ReactNode;
   formatSelectedLabel?: (count: number) => string;
@@ -411,62 +330,43 @@ export function SelectionToolbar({
       }
       className="modern-surface sticky bottom-20 z-sticky flex flex-col gap-3 rounded-tokenLg border border-accent p-4 shadow-overlay md:bottom-4 md:flex-row md:items-center md:justify-between"
     >
-      <div className="text-sm font-semibold text-foreground">
-        {formatSelectedLabel(count)}
-      </div>
+      <div className="text-sm font-semibold text-foreground">{formatSelectedLabel(count)}</div>
       {actions ? <ButtonGroup>{actions}</ButtonGroup> : null}
     </motion.div>
   );
 }
 
-export interface PriceDisplayProps
-  extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+export interface PriceDisplayProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   amount: number;
   currency?: string;
   emphasis?: boolean;
   locale?: string;
 }
 
-export function PriceDisplay({
-  amount,
-  currency = "USD",
-  emphasis = false,
-  locale,
-  ...rest
-}: PriceDisplayProps) {
+export function PriceDisplay({ amount, currency = "USD", emphasis = false, locale, ...rest }: PriceDisplayProps) {
   return (
     <span
       {...rest}
       className={cx(
         "font-heading",
-        emphasis ? "text-2xl font-semibold text-foreground" : "text-lg font-semibold text-foreground"
+        emphasis ? "text-2xl font-semibold text-foreground" : "text-lg font-semibold text-foreground",
       )}
     >
       {new Intl.NumberFormat(locale, {
         style: "currency",
-        currency
+        currency,
       }).format(amount)}
     </span>
   );
 }
 
-export interface ConditionBadgeProps
-  extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+export interface ConditionBadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   condition: "NM" | "LP" | "MP" | "HP" | "DMG";
 }
 
-export function ConditionBadge({
-  condition,
-  ...rest
-}: ConditionBadgeProps) {
+export function ConditionBadge({ condition, ...rest }: ConditionBadgeProps) {
   const tone =
-    condition === "NM"
-      ? "success"
-      : condition === "LP"
-        ? "accent"
-        : condition === "MP"
-          ? "warning"
-          : "danger";
+    condition === "NM" ? "success" : condition === "LP" ? "accent" : condition === "MP" ? "warning" : "danger";
 
   return (
     <Badge {...rest} tone={tone}>
@@ -475,20 +375,14 @@ export function ConditionBadge({
   );
 }
 
-export interface SellerBadgeProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface SellerBadgeProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   logo?: ReactNode | false;
   name: ReactNode;
   verified?: boolean;
 }
 
-export function SellerBadge({
-  logo,
-  name,
-  verified = false,
-  ...rest
-}: SellerBadgeProps) {
-  const resolvedLogo = logo === false ? null : logo ?? <ChaseSetsLogo decorative size={20} />;
+export function SellerBadge({ logo, name, verified = false, ...rest }: SellerBadgeProps) {
+  const resolvedLogo = logo === false ? null : (logo ?? <ChaseSetsLogo decorative size={20} />);
 
   return (
     <div
@@ -497,9 +391,7 @@ export function SellerBadge({
     >
       <span className="inline-flex min-w-0 items-center gap-0">
         {resolvedLogo ? (
-          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-            {resolvedLogo}
-          </span>
+          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{resolvedLogo}</span>
         ) : null}
         <span>{name}</span>
       </span>
@@ -547,23 +439,16 @@ const tokenSwatchClasses: Record<TokenSwatchProps["color"], string> = {
   textSecondary: "bg-secondary",
   success: "bg-success",
   warning: "bg-warning",
-  danger: "bg-danger"
+  danger: "bg-danger",
 };
 
-export function TokenSwatch({
-  label,
-  value,
-  color
-}: TokenSwatchProps) {
+export function TokenSwatch({ label, value, color }: TokenSwatchProps) {
   return (
     <Card variant="feature">
       <div className="space-y-3">
         <div
           aria-hidden="true"
-          className={cx(
-            "h-10 rounded-tokenMd border border-muted shadow-tokenSm",
-            tokenSwatchClasses[color]
-          )}
+          className={cx("h-10 rounded-tokenMd border border-muted shadow-tokenSm", tokenSwatchClasses[color])}
         />
         <div>
           <div className="text-sm font-semibold text-foreground">{label}</div>
@@ -574,8 +459,7 @@ export function TokenSwatch({
   );
 }
 
-export interface ProductCardProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+export interface ProductCardProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   title: ReactNode;
   subtitle?: ReactNode;
   price?: ReactNode;
@@ -620,80 +504,74 @@ export function ProductCard({
   ...rest
 }: ProductCardProps) {
   const motionSettings = useChaseMotion();
-  const [failedImageSources, setFailedImageSources] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [failedImageSources, setFailedImageSources] = useState<ReadonlySet<string>>(() => new Set());
 
-  const resolvedImageSrc = imageSrc && !failedImageSources.has(imageSrc)
-    ? imageSrc
-    : fallbackImageSrc && !failedImageSources.has(fallbackImageSrc)
-      ? fallbackImageSrc
-      : undefined;
+  const resolvedImageSrc =
+    imageSrc && !failedImageSources.has(imageSrc)
+      ? imageSrc
+      : fallbackImageSrc && !failedImageSources.has(fallbackImageSrc)
+        ? fallbackImageSrc
+        : undefined;
   const showingFallbackImage = Boolean(fallbackImageSrc) && resolvedImageSrc === fallbackImageSrc;
   const resolvedImageFit = showingFallbackImage ? fallbackImageFit : imageFit;
-  const resolvedImageAlt = showingFallbackImage
-    ? fallbackImageAlt ?? imageAlt ?? ""
-    : imageAlt ?? "";
+  const resolvedImageAlt = showingFallbackImage ? (fallbackImageAlt ?? imageAlt ?? "") : (imageAlt ?? "");
   const interactiveMotion = motionSettings.reducedMotion
     ? {}
     : {
         whileHover: { y: -2, scale: 1.01 },
         whileTap: { y: 0, scale: 0.99 },
-        transition: { duration: motionSettings.durations.base, ease: motionSettings.easing }
+        transition: { duration: motionSettings.durations.base, ease: motionSettings.easing },
       };
   const content = (
-      <div className="space-y-3">
-        <div className="relative overflow-hidden rounded-tokenMd border border-muted bg-surface-2">
-          {status ? <div className="absolute left-2 top-2 z-10">{status}</div> : null}
-          <div className="flex aspect-[4/3] items-center justify-center">
-            {resolvedImageSrc ? (
-              <img
-                src={resolvedImageSrc}
-                alt={resolvedImageAlt}
-                onError={() => {
-                  setFailedImageSources((current) => {
-                    if (current.has(resolvedImageSrc)) {
-                      return current;
-                    }
+    <div className="space-y-3">
+      <div className="relative overflow-hidden rounded-tokenMd border border-muted bg-surface-2">
+        {status ? <div className="absolute left-2 top-2 z-10">{status}</div> : null}
+        <div className="flex aspect-[4/3] items-center justify-center">
+          {resolvedImageSrc ? (
+            <img
+              src={resolvedImageSrc}
+              alt={resolvedImageAlt}
+              onError={() => {
+                setFailedImageSources((current) => {
+                  if (current.has(resolvedImageSrc)) {
+                    return current;
+                  }
 
-                    const next = new Set(current);
-                    next.add(resolvedImageSrc);
-                    return next;
-                  });
-                }}
-                className={cx(
-                  "h-full w-full",
-                  resolvedImageFit === "contain" ? "object-contain p-3" : "object-cover"
-                )}
-              />
-            ) : (
-              <Icon name="image" size="lg" tone="secondary" />
-            )}
-          </div>
+                  const next = new Set(current);
+                  next.add(resolvedImageSrc);
+                  return next;
+                });
+              }}
+              className={cx("h-full w-full", resolvedImageFit === "contain" ? "object-contain p-3" : "object-cover")}
+            />
+          ) : (
+            <Icon name="image" size="lg" tone="secondary" />
+          )}
         </div>
-        <div className="space-y-1">
-          <div className="text-sm font-semibold leading-snug text-foreground">{title}</div>
-          {subtitle ? <div className="text-xs text-secondary">{subtitle}</div> : null}
-        </div>
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            {price ? <div className="font-heading text-xl font-semibold text-foreground">{price}</div> : null}
-            {meta ? <div className="mt-1 text-xs text-secondary">{meta}</div> : null}
-          </div>
-          {actions}
-        </div>
-        {children ? <div>{children}</div> : null}
-        {actionLabel ? (
-          <div className="inline-flex items-center gap-2 text-sm font-semibold text-accent">
-            <span>{actionLabel}</span>
-            <Icon name="chevronRight" size="sm" tone="accent" />
-          </div>
-        ) : null}
       </div>
+      <div className="space-y-1">
+        <div className="text-sm font-semibold leading-snug text-foreground">{title}</div>
+        {subtitle ? <div className="text-xs text-secondary">{subtitle}</div> : null}
+      </div>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          {price ? <div className="font-heading text-xl font-semibold text-foreground">{price}</div> : null}
+          {meta ? <div className="mt-1 text-xs text-secondary">{meta}</div> : null}
+        </div>
+        {actions}
+      </div>
+      {children ? <div>{children}</div> : null}
+      {actionLabel ? (
+        <div className="inline-flex items-center gap-2 text-sm font-semibold text-accent">
+          <span>{actionLabel}</span>
+          <Icon name="chevronRight" size="sm" tone="accent" />
+        </div>
+      ) : null}
+    </div>
   );
 
   const interactiveClassName = cx(
-    "focus-ring glass-surface block w-full overflow-hidden rounded-tokenLg border border-muted bg-surface p-4 text-left shadow-tokenSm transition hover:border-accent hover:shadow-tokenMd"
+    "focus-ring glass-surface block w-full overflow-hidden rounded-tokenLg border border-muted bg-surface p-4 text-left shadow-tokenSm transition hover:border-accent hover:shadow-tokenMd",
   );
 
   if (href) {
@@ -733,26 +611,20 @@ export function ProductCard({
   );
 }
 
-export interface CategoryTileProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface CategoryTileProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   icon: IconName;
   label: ReactNode;
   detail?: ReactNode;
 }
 
-export type MarketplaceStatus =
-  | "available"
-  | "marketOnly"
-  | "unavailable"
-  | "verified"
-  | "watching";
+export type MarketplaceStatus = "available" | "marketOnly" | "unavailable" | "verified" | "watching";
 
 const marketplaceStatusLabels: Record<MarketplaceStatus, string> = {
   available: "Available now",
   marketOnly: "Market only",
   unavailable: "Unavailable",
   verified: "Verified",
-  watching: "Watching"
+  watching: "Watching",
 };
 
 const marketplaceStatusTones: Record<MarketplaceStatus, BadgeProps["tone"]> = {
@@ -760,20 +632,15 @@ const marketplaceStatusTones: Record<MarketplaceStatus, BadgeProps["tone"]> = {
   marketOnly: "neutral",
   unavailable: "neutral",
   verified: "success",
-  watching: "warning"
+  watching: "warning",
 };
 
-export interface MarketStatusBadgeProps
-  extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+export interface MarketStatusBadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   status: MarketplaceStatus;
   label?: ReactNode;
 }
 
-export function MarketStatusBadge({
-  status,
-  label,
-  ...rest
-}: MarketStatusBadgeProps) {
+export function MarketStatusBadge({ status, label, ...rest }: MarketStatusBadgeProps) {
   return (
     <Badge {...rest} tone={marketplaceStatusTones[status]}>
       {label ?? marketplaceStatusLabels[status]}
@@ -794,7 +661,7 @@ const DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS = 6;
 function isMarketplaceFacetItemSelected(
   item: MarketplaceFacetItem,
   selectedValues: ReadonlySet<string> | null,
-  selectedId: string
+  selectedId: string,
 ) {
   return selectedValues?.has(item.id) ?? selectedId === item.id;
 }
@@ -805,7 +672,7 @@ function getProgressiveMarketplaceFacetItems({
   selectedValues,
   selectedId,
   expanded,
-  visibleOptionCount
+  visibleOptionCount,
 }: {
   items: MarketplaceFacetItem[];
   normalizedSearch: string;
@@ -822,14 +689,14 @@ function getProgressiveMarketplaceFacetItems({
 
   if (normalizedSearch) {
     const matchedIds = new Set(matchedItems.map((item) => item.id));
-    const selectedItemsOutsideSearch = items.filter((item) =>
-      isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !matchedIds.has(item.id)
+    const selectedItemsOutsideSearch = items.filter(
+      (item) => isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !matchedIds.has(item.id),
     );
 
     return {
       matchedItems,
       visibleItems: [...selectedItemsOutsideSearch, ...matchedItems],
-      canToggle: false
+      canToggle: false,
     };
   }
 
@@ -839,14 +706,14 @@ function getProgressiveMarketplaceFacetItems({
     return {
       matchedItems,
       visibleItems: matchedItems,
-      canToggle: items.length > limitedCount
+      canToggle: items.length > limitedCount,
     };
   }
 
   const defaultItems = items.slice(0, limitedCount);
   const defaultIds = new Set(defaultItems.map((item) => item.id));
-  const selectedItemsOutsideDefault = items.filter((item) =>
-    isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !defaultIds.has(item.id)
+  const selectedItemsOutsideDefault = items.filter(
+    (item) => isMarketplaceFacetItemSelected(item, selectedValues, selectedId) && !defaultIds.has(item.id),
   );
   const visibleItems = [...defaultItems, ...selectedItemsOutsideDefault];
   const visibleIds = new Set(visibleItems.map((item) => item.id));
@@ -854,7 +721,7 @@ function getProgressiveMarketplaceFacetItems({
   return {
     matchedItems,
     visibleItems,
-    canToggle: items.some((item) => !visibleIds.has(item.id))
+    canToggle: items.some((item) => !visibleIds.has(item.id)),
   };
 }
 
@@ -891,7 +758,7 @@ export function MarketplaceFacetRail({
   searchEmptyLabel = "No matching options",
   showMoreLabel = "Show more",
   showLessLabel = "Show less",
-  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS
+  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS,
 }: MarketplaceFacetRailProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -904,7 +771,7 @@ export function MarketplaceFacetRail({
     selectedValues,
     selectedId: selectedId ?? "",
     expanded,
-    visibleOptionCount
+    visibleOptionCount,
   });
 
   return (
@@ -997,19 +864,14 @@ export function MarketplaceFacetStrip({
   selectionMode = selectedIds ? "multiple" : "single",
   onSelect,
   allLeadingIcon = "grid",
-  itemLeadingIcon = "tag"
+  itemLeadingIcon = "tag",
 }: MarketplaceFacetStripProps) {
   const selectedValues = selectedIds ? new Set(selectedIds) : null;
   const multiple = selectionMode === "multiple";
 
   return (
-    <section
-      className="grid min-w-0 gap-2"
-      aria-label={ariaLabel ?? (typeof title === "string" ? title : allLabel)}
-    >
-      {title ? (
-        <div className="font-heading text-sm font-semibold text-foreground">{title}</div>
-      ) : null}
+    <section className="grid min-w-0 gap-2" aria-label={ariaLabel ?? (typeof title === "string" ? title : allLabel)}>
+      {title ? <div className="font-heading text-sm font-semibold text-foreground">{title}</div> : null}
       <div className="w-full min-w-0 overflow-x-auto">
         <div className="flex min-w-max gap-2 pb-1">
           <Button
@@ -1080,7 +942,7 @@ export function MarketplaceFacetChoiceGroup({
   searchEmptyLabel = "No matching options",
   showMoreLabel = "Show more",
   showLessLabel = "Show less",
-  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS
+  visibleOptionCount = DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS,
 }: MarketplaceFacetChoiceGroupProps) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -1094,16 +956,10 @@ export function MarketplaceFacetChoiceGroup({
     selectedValues,
     selectedId,
     expanded,
-    visibleOptionCount
+    visibleOptionCount,
   });
 
-  const renderChoice = (
-    id: string,
-    label: string,
-    count: number | undefined,
-    selected: boolean,
-    icon: IconName
-  ) => (
+  const renderChoice = (id: string, label: string, count: number | undefined, selected: boolean, icon: IconName) => (
     <button
       key={id || "__all__"}
       type="button"
@@ -1114,7 +970,7 @@ export function MarketplaceFacetChoiceGroup({
         "focus-ring flex min-h-11 w-full items-center justify-between gap-3 rounded-tokenMd border px-3 py-2 text-left text-sm font-semibold transition",
         selected
           ? "border-accent bg-accent text-inverse shadow-tokenSm"
-          : "border-muted bg-surface text-foreground hover:border-accent hover:bg-elevated"
+          : "border-muted bg-surface text-foreground hover:border-accent hover:bg-elevated",
       )}
     >
       <span className="inline-flex min-w-0 items-center gap-2">
@@ -1123,7 +979,7 @@ export function MarketplaceFacetChoiceGroup({
             aria-hidden="true"
             className={cx(
               "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-tokenSm border",
-              selected ? "border-inverse text-inverse" : "border-muted bg-surface-2"
+              selected ? "border-inverse text-inverse" : "border-muted bg-surface-2",
             )}
           >
             {selected ? <Icon name="check" size="sm" tone="inverse" /> : null}
@@ -1137,7 +993,7 @@ export function MarketplaceFacetChoiceGroup({
         <span
           className={cx(
             "shrink-0 rounded-full px-2 py-0.5 text-xs tabular-nums",
-            selected ? "bg-accent-contrast/20 text-inverse" : "bg-surface-2 text-secondary"
+            selected ? "bg-accent-contrast/20 text-inverse" : "bg-surface-2 text-secondary",
           )}
         >
           {count}
@@ -1161,9 +1017,7 @@ export function MarketplaceFacetChoiceGroup({
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
       ) : null}
-      <div className="grid gap-2">
-        {renderChoice("", allLabel, undefined, !anySelected, allLeadingIcon)}
-      </div>
+      <div className="grid gap-2">{renderChoice("", allLabel, undefined, !anySelected, allLeadingIcon)}</div>
       <div className="grid gap-2">
         {visibleItems.map((item) =>
           renderChoice(
@@ -1171,8 +1025,8 @@ export function MarketplaceFacetChoiceGroup({
             item.label,
             item.count,
             isMarketplaceFacetItemSelected(item, selectedValues, selectedId),
-            itemLeadingIcon
-          )
+            itemLeadingIcon,
+          ),
         )}
         {normalizedSearch && matchedItems.length === 0 ? (
           <div className="rounded-tokenMd border border-dashed border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-secondary">
@@ -1215,7 +1069,7 @@ export function MarketplaceMobileFilterBar({
   activeFilterLabel,
   ariaLabel = "Search filters",
   onOpen,
-  clearAction
+  clearAction,
 }: MarketplaceMobileFilterBarProps) {
   const hasActiveFilters = activeFilterCount > 0;
 
@@ -1230,9 +1084,7 @@ export function MarketplaceMobileFilterBar({
                 {title}
               </span>
               {hasActiveFilters ? (
-                <Badge tone="accent">
-                  {activeFilterLabel ?? `${activeFilterCount} active`}
-                </Badge>
+                <Badge tone="accent">{activeFilterLabel ?? `${activeFilterCount} active`}</Badge>
               ) : null}
             </div>
             {summary ? <div className="mt-1 text-sm leading-5 text-secondary">{summary}</div> : null}
@@ -1255,8 +1107,7 @@ export function MarketplaceMobileFilterBar({
   );
 }
 
-export interface MarketplaceFilterBottomSheetProps
-  extends Omit<BottomSheetProps, "children" | "trigger"> {
+export interface MarketplaceFilterBottomSheetProps extends Omit<BottomSheetProps, "children" | "trigger"> {
   children?: ReactNode;
   resultSummary?: ReactNode;
 }
@@ -1268,11 +1119,7 @@ export function MarketplaceFilterBottomSheet({
   ...rest
 }: MarketplaceFilterBottomSheetProps) {
   return (
-    <BottomSheet
-      {...rest}
-      height="expanded"
-      footer={footer}
-    >
+    <BottomSheet {...rest} height="expanded" footer={footer}>
       <div className="grid gap-5">
         {resultSummary ? (
           <div className="rounded-tokenMd border border-muted bg-surface-2 px-3 py-2 text-sm font-semibold text-foreground">
@@ -1318,7 +1165,7 @@ export function MarketplaceLandingHero({
   description,
   search,
   filters = [],
-  metrics = []
+  metrics = [],
 }: MarketplaceLandingHeroProps) {
   return (
     <Card variant="feature" glow>
@@ -1334,9 +1181,7 @@ export function MarketplaceLandingHero({
                 ))}
               </div>
             ) : null}
-            <h1 className="font-display text-3xl font-semibold leading-tight text-foreground md:text-5xl">
-              {title}
-            </h1>
+            <h1 className="font-display text-3xl font-semibold leading-tight text-foreground md:text-5xl">{title}</h1>
             {description ? <div className="text-base text-secondary">{description}</div> : null}
           </div>
           {search}
@@ -1360,12 +1205,7 @@ export function MarketplaceLandingHero({
           <div className="hidden md:block">
             <StatGrid columns={{ base: 1 }}>
               {metrics.map((metric, index) => (
-                <Stat
-                  key={index}
-                  label={metric.label}
-                  value={metric.value}
-                  trend={metric.detail}
-                />
+                <Stat key={index} label={metric.label} value={metric.value} trend={metric.detail} />
               ))}
             </StatGrid>
           </div>
@@ -1411,14 +1251,10 @@ export function MarketingImageHero({
   description,
   actions,
   conversionPanel,
-  highlights = []
+  highlights = [],
 }: MarketingImageHeroProps) {
   const imagePositionClass =
-    imagePosition === "left"
-      ? "object-left"
-      : imagePosition === "right"
-        ? "object-right"
-        : "object-[18%_72%]";
+    imagePosition === "left" ? "object-left" : imagePosition === "right" ? "object-right" : "object-[18%_72%]";
 
   return (
     <section className="relative min-h-[22rem] overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg">
@@ -1437,25 +1273,19 @@ export function MarketingImageHero({
         <div className="flex max-w-3xl flex-col justify-start gap-4 lg:justify-center">
           <div className="grid gap-3">
             {eyebrow ? (
-              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
-                {eyebrow}
-              </div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">{eyebrow}</div>
             ) : null}
             <h1 className="max-w-2xl font-display text-3xl font-semibold leading-tight text-[var(--foreground)] sm:text-4xl md:text-5xl md:leading-[1.08]">
               {title}
             </h1>
             {description ? (
-              <p className="max-w-2xl text-base leading-7 text-[var(--text-secondary)] md:text-lg">
-                {description}
-              </p>
+              <p className="max-w-2xl text-base leading-7 text-[var(--text-secondary)] md:text-lg">{description}</p>
             ) : null}
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
         </div>
         {conversionPanel ? (
-          <div className="grid w-full min-w-0 content-center lg:justify-self-end">
-            {conversionPanel}
-          </div>
+          <div className="grid w-full min-w-0 content-center lg:justify-self-end">{conversionPanel}</div>
         ) : highlights.length > 0 ? (
           <div className="grid content-end gap-3 lg:justify-self-end">
             {highlights.map((highlight, index) => (
@@ -1478,8 +1308,7 @@ export function MarketingImageHero({
   );
 }
 
-export interface MarketingVisualCardProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
+export interface MarketingVisualCardProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
   imageSrc: string;
   imageAlt: string;
   imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
@@ -1500,7 +1329,7 @@ const marketingVisualCardImagePositionClasses: Record<
 > = {
   left: "object-left",
   center: "object-center",
-  right: "object-right"
+  right: "object-right",
 };
 
 export function MarketingVisualCard({
@@ -1533,7 +1362,7 @@ export function MarketingVisualCard({
         height={imageHeight}
         className={cx(
           "absolute inset-0 h-full w-full object-cover",
-          marketingVisualCardImagePositionClasses[imagePosition]
+          marketingVisualCardImagePositionClasses[imagePosition],
         )}
       />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_34%,transparent)_0%,color-mix(in_srgb,var(--card)_88%,transparent)_58%,var(--card)_100%)]" />
@@ -1544,12 +1373,8 @@ export function MarketingVisualCard({
           </div>
         ) : null}
         <div className="space-y-2">
-          <h3 className="font-heading text-2xl font-semibold leading-snug text-foreground">
-            {title}
-          </h3>
-          {description ? (
-            <p className="text-sm leading-6 text-secondary">{description}</p>
-          ) : null}
+          <h3 className="font-heading text-2xl font-semibold leading-snug text-foreground">{title}</h3>
+          {description ? <p className="text-sm leading-6 text-secondary">{description}</p> : null}
         </div>
       </div>
     </article>
@@ -1589,7 +1414,7 @@ export function MarketplaceProductCard({
   meta,
   actionLabel,
   categoryTags = [],
-  metadataTags = []
+  metadataTags = [],
 }: MarketplaceProductCardProps) {
   return (
     <ProductCard
@@ -1632,12 +1457,7 @@ export function MarketplaceProductCard({
   );
 }
 
-export function CategoryTile({
-  icon,
-  label,
-  detail,
-  ...rest
-}: CategoryTileProps) {
+export function CategoryTile({ icon, label, detail, ...rest }: CategoryTileProps) {
   return (
     <Card {...rest} variant="feature" interactive>
       <div className="flex flex-col items-center gap-3 text-center">
@@ -1653,21 +1473,14 @@ export function CategoryTile({
   );
 }
 
-export interface FeatureCardProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+export interface FeatureCardProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   icon: IconName;
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
 }
 
-export function FeatureCard({
-  icon,
-  title,
-  description,
-  action,
-  ...rest
-}: FeatureCardProps) {
+export function FeatureCard({ icon, title, description, action, ...rest }: FeatureCardProps) {
   return (
     <Card {...rest} variant="feature">
       <div className="flex gap-4">
@@ -1684,21 +1497,14 @@ export function FeatureCard({
   );
 }
 
-export interface PromoStripProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
+export interface PromoStripProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   icon?: IconName;
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
 }
 
-export function PromoStrip({
-  icon = "spark",
-  title,
-  description,
-  action,
-  ...rest
-}: PromoStripProps) {
+export function PromoStrip({ icon = "spark", title, description, action, ...rest }: PromoStripProps) {
   return (
     <div
       {...rest}
@@ -1727,10 +1533,7 @@ export interface CheckoutTrustPanelProps {
   }>;
 }
 
-export function CheckoutTrustPanel({
-  title = "Order Protection",
-  items
-}: CheckoutTrustPanelProps) {
+export function CheckoutTrustPanel({ title = "Order Protection", items }: CheckoutTrustPanelProps) {
   return (
     <DetailPanel
       title={
@@ -1762,18 +1565,13 @@ export interface OrderSummaryProps {
   totalLabel?: ReactNode;
 }
 
-export function OrderSummary({
-  title = "Order summary",
-  lines,
-  total,
-  totalLabel = "Total"
-}: OrderSummaryProps) {
+export function OrderSummary({ title = "Order summary", lines, total, totalLabel = "Total" }: OrderSummaryProps) {
   return (
     <DetailPanel title={title}>
       <KeyValueList
         items={lines.map((line) => ({
           key: line.label,
-          value: line.value
+          value: line.value,
         }))}
       />
       <div className="flex items-center justify-between border-t border-muted pt-4">
@@ -1794,18 +1592,11 @@ export interface MetricStripProps {
   items: MetricStripItem[];
 }
 
-export function MetricStrip({
-  items
-}: MetricStripProps) {
+export function MetricStrip({ items }: MetricStripProps) {
   return (
     <StatGrid columns={{ base: 1, sm: 2, xl: 4 }}>
       {items.map((item, index) => (
-        <Stat
-          key={index}
-          label={item.label}
-          value={item.value}
-          trend={item.trend}
-        />
+        <Stat key={index} label={item.label} value={item.value} trend={item.trend} />
       ))}
     </StatGrid>
   );
@@ -1827,7 +1618,7 @@ export interface MarketplaceProductCommerceRailProps {
 
 export function MarketplaceProductCommerceRail({
   children,
-  label = "Commerce options"
+  label = "Commerce options",
 }: MarketplaceProductCommerceRailProps) {
   return (
     <div className="order-5 hidden min-w-0 xl:sticky xl:top-20 xl:order-3 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-x-hidden xl:overflow-y-auto xl:overscroll-contain xl:[scrollbar-gutter:stable]">
@@ -1842,9 +1633,7 @@ export interface MarketplaceProductMobileActionDockProps {
   children: ReactNode;
 }
 
-export function MarketplaceProductMobileActionDock({
-  children
-}: MarketplaceProductMobileActionDockProps) {
+export function MarketplaceProductMobileActionDock({ children }: MarketplaceProductMobileActionDockProps) {
   return (
     <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-sticky mt-6 xl:hidden">
       <div className="mx-auto max-w-3xl">{children}</div>
@@ -1858,16 +1647,14 @@ export function MarketplaceProductDetailLayout({
   market,
   commerce,
   mobileActionBar,
-  children
+  children,
 }: MarketplaceProductDetailLayoutProps) {
   return (
     <>
       <div className="grid gap-6 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)_24rem] xl:items-start 2xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)_26rem]">
         <div className="order-2 xl:order-1 xl:col-start-1 xl:row-start-1">{media}</div>
         <div className="contents min-w-0 xl:order-2 xl:block">
-          <div className="order-1 min-w-0">
-            {summary}
-          </div>
+          <div className="order-1 min-w-0">{summary}</div>
           <div className="order-3 min-w-0 xl:mt-6">{market}</div>
         </div>
         <div className="order-4 min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-2">{children}</div>
@@ -1886,34 +1673,18 @@ export interface MarketplaceMetricItem {
   detail?: ReactNode;
 }
 
-export interface MarketplaceMetricStripProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface MarketplaceMetricStripProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   items: MarketplaceMetricItem[];
 }
 
-export function MarketplaceMetricStrip({
-  items,
-  ...rest
-}: MarketplaceMetricStripProps) {
+export function MarketplaceMetricStrip({ items, ...rest }: MarketplaceMetricStripProps) {
   return (
-    <div
-      {...rest}
-      className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4"
-    >
+    <div {...rest} className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
       {items.map((item, index) => (
-        <div
-          key={index}
-          className="rounded-tokenLg border border-muted bg-surface p-3 shadow-tokenSm"
-        >
-          <div className="text-xs font-semibold uppercase text-secondary">
-            {item.label}
-          </div>
-          <div className="mt-1 font-heading text-lg font-semibold text-foreground md:text-xl">
-            {item.value}
-          </div>
-          {item.detail ? (
-            <div className="mt-1 text-xs text-secondary">{item.detail}</div>
-          ) : null}
+        <div key={index} className="rounded-tokenLg border border-muted bg-surface p-3 shadow-tokenSm">
+          <div className="text-xs font-semibold uppercase text-secondary">{item.label}</div>
+          <div className="mt-1 font-heading text-lg font-semibold text-foreground md:text-xl">{item.value}</div>
+          {item.detail ? <div className="mt-1 text-xs text-secondary">{item.detail}</div> : null}
         </div>
       ))}
     </div>
@@ -1925,8 +1696,7 @@ export interface MarketplaceMarketSummaryFact {
   value: ReactNode;
 }
 
-export interface MarketplaceMarketSummaryProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface MarketplaceMarketSummaryProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   priceLabel?: ReactNode;
   price: ReactNode;
   facts: MarketplaceMarketSummaryFact[];
@@ -1941,30 +1711,19 @@ export function MarketplaceMarketSummary({
   ...rest
 }: MarketplaceMarketSummaryProps) {
   return (
-    <div
-      {...rest}
-      className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
-    >
+    <div {...rest} className="modern-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase text-secondary">
-            {priceLabel}
-          </div>
-          <div className="mt-1 font-heading text-2xl font-semibold text-foreground">
-            {price}
-          </div>
+          <div className="text-xs font-semibold uppercase text-secondary">{priceLabel}</div>
+          <div className="mt-1 font-heading text-2xl font-semibold text-foreground">{price}</div>
           {note ? <div className="mt-1 text-sm text-secondary">{note}</div> : null}
         </div>
         {facts.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:min-w-[22rem]">
             {facts.map((fact, index) => (
               <div key={index}>
-                <div className="text-xs font-semibold uppercase text-secondary">
-                  {fact.label}
-                </div>
-                <div className="mt-1 text-sm font-semibold text-foreground">
-                  {fact.value}
-                </div>
+                <div className="text-xs font-semibold uppercase text-secondary">{fact.label}</div>
+                <div className="mt-1 text-sm font-semibold text-foreground">{fact.value}</div>
               </div>
             ))}
           </div>
@@ -1974,8 +1733,7 @@ export function MarketplaceMarketSummary({
   );
 }
 
-export interface CommerceActionBarProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface CommerceActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   intentControl?: ReactNode;
   summary: ReactNode;
   primaryAction: ReactNode;
@@ -1985,19 +1743,13 @@ export interface CommerceActionBarProps
 
 export type FormPanelVariant = "card" | "plain";
 
-export interface FormPanelProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface FormPanelProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   variant?: FormPanelVariant;
   glow?: boolean;
 }
 
-export function FormPanel({
-  children,
-  variant = "card",
-  glow = false,
-  ...rest
-}: FormPanelProps) {
+export function FormPanel({ children, variant = "card", glow = false, ...rest }: FormPanelProps) {
   if (variant === "plain") {
     return <div {...rest}>{children}</div>;
   }
@@ -2009,32 +1761,19 @@ export function FormPanel({
   );
 }
 
-export interface CommerceBottomSheetProps
-  extends Omit<BottomSheetProps, "children"> {
+export interface CommerceBottomSheetProps extends Omit<BottomSheetProps, "children"> {
   children?: ReactNode;
 }
 
-export function CommerceBottomSheet({
-  children,
-  bodyClassName,
-  footer,
-  ...rest
-}: CommerceBottomSheetProps) {
+export function CommerceBottomSheet({ children, bodyClassName, footer, ...rest }: CommerceBottomSheetProps) {
   return (
-    <BottomSheet
-      {...rest}
-      height="expanded"
-      bodyLayout="edge"
-      bodyClassName={bodyClassName}
-      footer={footer}
-    >
+    <BottomSheet {...rest} height="expanded" bodyLayout="edge" bodyClassName={bodyClassName} footer={footer}>
       {children}
     </BottomSheet>
   );
 }
 
-export interface CommerceSheetProps
-  extends Omit<SideSheetProps, "children" | "side" | "width"> {
+export interface CommerceSheetProps extends Omit<SideSheetProps, "children" | "side" | "width"> {
   children?: ReactNode;
   desktopWidth?: PanelWidth;
   mobileHeight?: BottomSheetHeight;
@@ -2052,25 +1791,14 @@ export function CommerceSheet({
 
   if (isDesktop) {
     return (
-      <SideSheet
-        {...rest}
-        side="right"
-        width={desktopWidth}
-        footer={footer}
-      >
+      <SideSheet {...rest} side="right" width={desktopWidth} footer={footer}>
         {children}
       </SideSheet>
     );
   }
 
   return (
-    <BottomSheet
-      {...rest}
-      height={mobileHeight}
-      bodyLayout="edge"
-      bodyClassName={bodyClassName}
-      footer={footer}
-    >
+    <BottomSheet {...rest} height={mobileHeight} bodyLayout="edge" bodyClassName={bodyClassName} footer={footer}>
       {children}
     </BottomSheet>
   );
@@ -2082,8 +1810,7 @@ export function MarketplaceActionSheet(props: MarketplaceActionSheetProps) {
   return <CommerceSheet {...props} />;
 }
 
-export interface ResponsiveEditSheetProps
-  extends Omit<SideSheetProps, "children" | "side" | "width"> {
+export interface ResponsiveEditSheetProps extends Omit<SideSheetProps, "children" | "side" | "width"> {
   children?: ReactNode;
   desktopWidth?: PanelWidth;
   mobileHeight?: BottomSheetHeight;
@@ -2100,30 +1827,20 @@ export function ResponsiveEditSheet({
 
   if (isDesktop) {
     return (
-      <SideSheet
-        {...rest}
-        side="right"
-        width={desktopWidth}
-        footer={footer}
-      >
+      <SideSheet {...rest} side="right" width={desktopWidth} footer={footer}>
         {children}
       </SideSheet>
     );
   }
 
   return (
-    <BottomSheet
-      {...rest}
-      height={mobileHeight}
-      footer={footer}
-    >
+    <BottomSheet {...rest} height={mobileHeight} footer={footer}>
       {children}
     </BottomSheet>
   );
 }
 
-export interface ResponsiveSupportSheetProps
-  extends Omit<SideSheetProps, "children" | "modal" | "side" | "width"> {
+export interface ResponsiveSupportSheetProps extends Omit<SideSheetProps, "children" | "modal" | "side" | "width"> {
   children?: ReactNode;
   desktopModal?: boolean;
   desktopWidth?: PanelWidth;
@@ -2144,32 +1861,20 @@ export function ResponsiveSupportSheet({
 
   if (isDesktop) {
     return (
-      <SideSheet
-        {...rest}
-        modal={desktopModal}
-        side="right"
-        width={desktopWidth}
-        footer={footer}
-      >
+      <SideSheet {...rest} modal={desktopModal} side="right" width={desktopWidth} footer={footer}>
         {children}
       </SideSheet>
     );
   }
 
   return (
-    <BottomSheet
-      {...rest}
-      modal={mobileModal}
-      height={mobileHeight}
-      footer={footer}
-    >
+    <BottomSheet {...rest} modal={mobileModal} height={mobileHeight} footer={footer}>
       {children}
     </BottomSheet>
   );
 }
 
-export interface ActivitySheetProps
-  extends Omit<ResponsiveSupportSheetProps, "title"> {
+export interface ActivitySheetProps extends Omit<ResponsiveSupportSheetProps, "title"> {
   title?: ReactNode;
 }
 
@@ -2178,17 +1883,10 @@ export function ActivitySheet({
   description = "Review recent updates.",
   ...rest
 }: ActivitySheetProps) {
-  return (
-    <ResponsiveSupportSheet
-      {...rest}
-      title={title}
-      description={description}
-    />
-  );
+  return <ResponsiveSupportSheet {...rest} title={title} description={description} />;
 }
 
-export interface CommentsSheetProps
-  extends Omit<ResponsiveSupportSheetProps, "title"> {
+export interface CommentsSheetProps extends Omit<ResponsiveSupportSheetProps, "title"> {
   title?: ReactNode;
 }
 
@@ -2197,17 +1895,10 @@ export function CommentsSheet({
   description = "Review and add contextual comments.",
   ...rest
 }: CommentsSheetProps) {
-  return (
-    <ResponsiveSupportSheet
-      {...rest}
-      title={title}
-      description={description}
-    />
-  );
+  return <ResponsiveSupportSheet {...rest} title={title} description={description} />;
 }
 
-export interface AssistantSheetProps
-  extends Omit<ResponsiveSupportSheetProps, "title"> {
+export interface AssistantSheetProps extends Omit<ResponsiveSupportSheetProps, "title"> {
   title?: ReactNode;
 }
 
@@ -2216,17 +1907,10 @@ export function AssistantSheet({
   description = "Get contextual help without leaving your work.",
   ...rest
 }: AssistantSheetProps) {
-  return (
-    <ResponsiveSupportSheet
-      {...rest}
-      title={title}
-      description={description}
-    />
-  );
+  return <ResponsiveSupportSheet {...rest} title={title} description={description} />;
 }
 
-export interface HelpSheetProps
-  extends Omit<ResponsiveSupportSheetProps, "title"> {
+export interface HelpSheetProps extends Omit<ResponsiveSupportSheetProps, "title"> {
   title?: ReactNode;
 }
 
@@ -2235,13 +1919,7 @@ export function HelpSheet({
   description = "Review guidance for this workflow.",
   ...rest
 }: HelpSheetProps) {
-  return (
-    <ResponsiveSupportSheet
-      {...rest}
-      title={title}
-      description={description}
-    />
-  );
+  return <ResponsiveSupportSheet {...rest} title={title} description={description} />;
 }
 
 export type NotificationCenterView = "feed" | "settings";
@@ -2272,8 +1950,10 @@ export interface NotificationCenterProductAlert {
   productHref?: string;
 }
 
-export interface NotificationCenterSheetProps
-  extends Omit<SideSheetProps, "children" | "title" | "description" | "footer"> {
+export interface NotificationCenterSheetProps extends Omit<
+  SideSheetProps,
+  "children" | "title" | "description" | "footer"
+> {
   title?: ReactNode;
   description?: ReactNode;
   view?: NotificationCenterView;
@@ -2312,18 +1992,19 @@ export function NotificationCenterSheet({
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const hasNotifications = notifications.length > 0;
   const unreadLabel = unreadCount === 1 ? "1 unread" : `${unreadCount} unread`;
-  const footer = view === "feed" ? (
-    <Button
-      type="button"
-      tone="secondary"
-      size="sm"
-      block
-      disabled={unreadCount === 0 || loading}
-      onClick={onMarkAllRead}
-    >
-      Mark all read
-    </Button>
-  ) : null;
+  const footer =
+    view === "feed" ? (
+      <Button
+        type="button"
+        tone="secondary"
+        size="sm"
+        block
+        disabled={unreadCount === 0 || loading}
+        onClick={onMarkAllRead}
+      >
+        Mark all read
+      </Button>
+    ) : null;
   const content = (
     <div className="grid min-h-0 gap-4">
       <div className="grid grid-cols-2 gap-2">
@@ -2365,16 +2046,10 @@ export function NotificationCenterSheet({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
-                    <div className="text-sm font-semibold text-foreground">
-                      {notification.title}
-                    </div>
-                    <div className="text-sm leading-6 text-secondary">
-                      {notification.body}
-                    </div>
+                    <div className="text-sm font-semibold text-foreground">{notification.title}</div>
+                    <div className="text-sm leading-6 text-secondary">{notification.body}</div>
                   </div>
-                  <Badge tone={notification.read ? "neutral" : "accent"}>
-                    {notification.read ? "Read" : "New"}
-                  </Badge>
+                  <Badge tone={notification.read ? "neutral" : "accent"}>{notification.read ? "Read" : "New"}</Badge>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-secondary">
                   {notification.sourceLabel ? <span>{notification.sourceLabel}</span> : null}
@@ -2387,12 +2062,7 @@ export function NotificationCenterSheet({
                     </LinkButton>
                   ) : null}
                   {!notification.read ? (
-                    <Button
-                      type="button"
-                      tone="ghost"
-                      size="sm"
-                      onClick={() => onMarkRead?.(notification.deliveryId)}
-                    >
+                    <Button type="button" tone="ghost" size="sm" onClick={() => onMarkRead?.(notification.deliveryId)}>
                       Mark read
                     </Button>
                   ) : null}
@@ -2413,9 +2083,7 @@ export function NotificationCenterSheet({
           <section className="grid gap-3">
             <div>
               <div className="text-sm font-semibold text-foreground">Delivery settings</div>
-              <div className="text-sm text-secondary">
-                Control how marketplace updates reach this account.
-              </div>
+              <div className="text-sm text-secondary">Control how marketplace updates reach this account.</div>
             </div>
             {preferences.map((preference) => (
               <Switch
@@ -2431,16 +2099,11 @@ export function NotificationCenterSheet({
           <section className="grid gap-3">
             <div>
               <div className="text-sm font-semibold text-foreground">Product alerts</div>
-              <div className="text-sm text-secondary">
-                Pause or remove watches created from product detail pages.
-              </div>
+              <div className="text-sm text-secondary">Pause or remove watches created from product detail pages.</div>
             </div>
             {productAlerts.length > 0 ? (
               productAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm"
-                >
+                <div key={alert.id} className="rounded-tokenMd border border-muted bg-surface p-4 shadow-tokenSm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-foreground">{alert.title}</div>
@@ -2448,36 +2111,19 @@ export function NotificationCenterSheet({
                         <div className="mt-1 text-sm leading-6 text-secondary">{alert.detail}</div>
                       ) : null}
                     </div>
-                    <Badge tone={alert.status === "active" ? "success" : "neutral"}>
-                      {alert.status}
-                    </Badge>
+                    <Badge tone={alert.status === "active" ? "success" : "neutral"}>{alert.status}</Badge>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {alert.status === "active" ? (
-                      <Button
-                        type="button"
-                        tone="secondary"
-                        size="sm"
-                        onClick={() => onProductAlertPause?.(alert.id)}
-                      >
+                      <Button type="button" tone="secondary" size="sm" onClick={() => onProductAlertPause?.(alert.id)}>
                         Pause
                       </Button>
                     ) : (
-                      <Button
-                        type="button"
-                        tone="secondary"
-                        size="sm"
-                        onClick={() => onProductAlertResume?.(alert.id)}
-                      >
+                      <Button type="button" tone="secondary" size="sm" onClick={() => onProductAlertResume?.(alert.id)}>
                         Resume
                       </Button>
                     )}
-                    <Button
-                      type="button"
-                      tone="ghost"
-                      size="sm"
-                      onClick={() => onProductAlertDelete?.(alert.id)}
-                    >
+                    <Button type="button" tone="ghost" size="sm" onClick={() => onProductAlertDelete?.(alert.id)}>
                       Delete
                     </Button>
                     {alert.productHref ? (
@@ -2504,27 +2150,14 @@ export function NotificationCenterSheet({
 
   if (!isDesktop) {
     return (
-      <BottomSheet
-        {...rest}
-        height="expanded"
-        title={title}
-        description={description}
-        footer={footer}
-      >
+      <BottomSheet {...rest} height="expanded" title={title} description={description} footer={footer}>
         {content}
       </BottomSheet>
     );
   }
 
   return (
-    <SideSheet
-      {...rest}
-      side="right"
-      width="md"
-      title={title}
-      description={description}
-      footer={footer}
-    >
+    <SideSheet {...rest} side="right" width="md" title={title} description={description} footer={footer}>
       {content}
     </SideSheet>
   );
@@ -2538,30 +2171,17 @@ export function CommerceActionBar({
   tertiaryAction,
   ...rest
 }: CommerceActionBarProps) {
-  const actionCount = [
-    primaryAction,
-    secondaryAction,
-    tertiaryAction,
-  ].filter(Boolean).length;
+  const actionCount = [primaryAction, secondaryAction, tertiaryAction].filter(Boolean).length;
 
   return (
-    <div
-      {...rest}
-      className="modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay"
-    >
+    <div {...rest} className="modern-surface rounded-tokenLg border border-muted p-3 shadow-overlay">
       {intentControl ? <div className="mb-3">{intentControl}</div> : null}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="min-w-0 flex-1 text-xs font-medium text-secondary">
-          {summary}
-        </div>
+        <div className="min-w-0 flex-1 text-xs font-medium text-secondary">{summary}</div>
         <div
           className={cx(
             "grid shrink-0 gap-2 sm:flex sm:items-center [&>*]:w-full sm:[&>*]:w-auto",
-            actionCount === 3
-              ? "grid-cols-3"
-              : actionCount === 2
-                ? "grid-cols-2"
-                : "grid-cols-1"
+            actionCount === 3 ? "grid-cols-3" : actionCount === 2 ? "grid-cols-2" : "grid-cols-1",
           )}
         >
           {primaryAction}
@@ -2598,7 +2218,7 @@ export function Wizard({
   onComplete,
   nextLabel = "Continue",
   previousLabel = "Back",
-  completeLabel = "Complete"
+  completeLabel = "Complete",
 }: WizardProps) {
   const motionSettings = useChaseMotion();
   const activeIndex = steps.findIndex((s) => s.key === activeStep);
@@ -2609,12 +2229,7 @@ export function Wizard({
   const stepperItems: PageStepperItem[] = steps.map((step, index) => ({
     label: step.label,
     description: step.description,
-    status:
-      index < activeIndex
-        ? "complete"
-        : index === activeIndex
-          ? "current"
-          : "upcoming"
+    status: index < activeIndex ? "complete" : index === activeIndex ? "current" : "upcoming",
   }));
 
   return (
@@ -2638,21 +2253,14 @@ export function Wizard({
       <div className="flex items-center justify-between gap-3">
         <div>
           {!isFirst ? (
-            <Button
-              tone="secondary"
-              onClick={() => onStepChange(steps[activeIndex - 1].key)}
-            >
+            <Button tone="secondary" onClick={() => onStepChange(steps[activeIndex - 1].key)}>
               {previousLabel}
             </Button>
           ) : null}
         </div>
         <div>
           {isLast ? (
-            <Button
-              tone="primary"
-              disabled={current?.isValid === false}
-              onClick={onComplete}
-            >
+            <Button tone="primary" disabled={current?.isValid === false} onClick={onComplete}>
               {completeLabel}
             </Button>
           ) : (

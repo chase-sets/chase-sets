@@ -1,11 +1,5 @@
-import type {
-  AccountId,
-} from "@chase-sets/primitives/typed-ids";
-import type {
-  EmailNotificationChannel,
-  NotificationMessage,
-  WebNotificationChannel,
-} from "@chase-sets/notifications";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { EmailNotificationChannel, NotificationMessage, WebNotificationChannel } from "@chase-sets/notifications";
 
 export type OrderCreatedNotificationInput = Readonly<{
   buyerAccountId: AccountId;
@@ -24,9 +18,7 @@ export type ShipmentDeliveredNotificationInput = Readonly<{
   correlationId: string;
 }>;
 
-export function mapOrderCreatedToNotification(
-  input: OrderCreatedNotificationInput,
-): NotificationMessage {
+export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInput): NotificationMessage {
   const title = `Order ${input.orderId} confirmed`;
   const body = `Your order total is ${input.orderTotal}.`;
   const actionHref = `/account/purchases/${input.orderId}`;
@@ -63,9 +55,7 @@ export function mapOrderCreatedToNotification(
   };
 }
 
-export function mapShipmentDeliveredToNotification(
-  input: ShipmentDeliveredNotificationInput,
-): NotificationMessage {
+export function mapShipmentDeliveredToNotification(input: ShipmentDeliveredNotificationInput): NotificationMessage {
   const title = `Shipment delivered for order ${input.orderId}`;
   const body = `Tracking ${input.trackingNumber} is marked delivered.`;
   const actionHref = `/account/shipments/${input.shipmentId}`;

@@ -4,32 +4,21 @@ import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-const TERMINAL_DEPLOYMENT_PHASES = new Set([
-  "ACTIVE",
-  "ERROR",
-  "CANCELED",
-  "CANCELLED",
-  "SUPERSEDED",
-]);
+const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANCELLED", "SUPERSEDED"]);
 
 const ACTIVE_DOMAIN_PHASE = "ACTIVE";
 
 function commandOutput(command, args) {
   return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      { maxBuffer: 50 * 1024 * 1024, windowsHide: true },
-      (error, stdout, stderr) => {
-        if (error) {
-          const message = stderr.trim() || stdout.trim() || error.message;
-          reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
-          return;
-        }
+    execFile(command, args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        const message = stderr.trim() || stdout.trim() || error.message;
+        reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
+        return;
+      }
 
-        resolve(stdout);
-      },
-    );
+      resolve(stdout);
+    });
   });
 }
 
@@ -107,18 +96,14 @@ export function assertNoDestructiveChanges(plan, options = {}) {
     return destructiveChanges;
   }
 
-  const summary = destructiveChanges
-    .map((change) => `- ${change.address}: ${change.actions.join(",")}`)
-    .join("\n");
+  const summary = destructiveChanges.map((change) => `- ${change.address}: ${change.actions.join(",")}`).join("\n");
   throw new Error(
     `Production Terraform plan contains destructive changes and no reviewed override marker was found:\n${summary}`,
   );
 }
 
 export function activeDeployments(deployments) {
-  return deployments
-    .map(normalizeDeployment)
-    .filter((deployment) => !TERMINAL_DEPLOYMENT_PHASES.has(deployment.phase));
+  return deployments.map(normalizeDeployment).filter((deployment) => !TERMINAL_DEPLOYMENT_PHASES.has(deployment.phase));
 }
 
 export function pendingDomains(app, hostnames) {
@@ -133,27 +118,16 @@ export function pendingDomains(app, hostnames) {
 
 export function appNotFound(error) {
   const message = error instanceof Error ? error.message : String(error);
-  return (
-    /(?:not found|404|does not exist|could not find)/i.test(message) &&
-    /\bapp(?:s| platform)?\b/i.test(message)
-  );
+  return /(?:not found|404|does not exist|could not find)/i.test(message) && /\bapp(?:s| platform)?\b/i.test(message);
 }
 
 export async function planAppChanged(tfplanPath, options = {}) {
-  const output = await (options.commandOutput ?? commandOutput)("terraform", [
-    "show",
-    "-json",
-    tfplanPath,
-  ]);
+  const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
   return appPlatformChanges(JSON.parse(output));
 }
 
 export async function assertTerraformPlanSafe(tfplanPath, options = {}) {
-  const output = await (options.commandOutput ?? commandOutput)("terraform", [
-    "show",
-    "-json",
-    tfplanPath,
-  ]);
+  const output = await (options.commandOutput ?? commandOutput)("terraform", ["show", "-json", tfplanPath]);
   return assertNoDestructiveChanges(JSON.parse(output), options);
 }
 
@@ -168,11 +142,7 @@ export async function waitForDeployments(appId, options = {}) {
   while (true) {
     let deploymentResponse;
     try {
-      deploymentResponse = await runJson(
-        "doctl",
-        ["apps", "list-deployments", appId, "--output", "json"],
-        options,
-      );
+      deploymentResponse = await runJson("doctl", ["apps", "list-deployments", appId, "--output", "json"], options);
     } catch (error) {
       if (appNotFound(error)) {
         console.log(`App Platform app '${appId}' no longer exists; skipping deployment wait.`);
@@ -189,9 +159,7 @@ export async function waitForDeployments(appId, options = {}) {
     }
 
     if (now() >= deadline) {
-      const summary = deployments
-        .map((deployment) => `- ${deployment.id}: ${deployment.phase}`)
-        .join("\n");
+      const summary = deployments.map((deployment) => `- ${deployment.id}: ${deployment.phase}`).join("\n");
       throw new Error(`Timed out waiting for App Platform deployments to finish:\n${summary}`);
     }
 
@@ -227,9 +195,7 @@ export async function waitForDomains(appId, hostnames, options = {}) {
     }
 
     if (now() >= deadline) {
-      const summary = waiting
-        .map((domain) => `- ${domain.name}: ${domain.phase}`)
-        .join("\n");
+      const summary = waiting.map((domain) => `- ${domain.name}: ${domain.phase}`).join("\n");
       throw new Error(`Timed out waiting for App Platform domains to become active:\n${summary}`);
     }
 
@@ -262,21 +228,11 @@ export async function deployApp(appId, options = {}) {
   }
 
   const phase = (
-    await command("doctl", [
-      "apps",
-      "get-deployment",
-      appId,
-      deploymentId,
-      "--format",
-      "Phase",
-      "--no-header",
-    ])
+    await command("doctl", ["apps", "get-deployment", appId, deploymentId, "--format", "Phase", "--no-header"])
   ).trim();
 
   if (phase !== "ACTIVE") {
-    throw new Error(
-      `DigitalOcean deployment ${deploymentId} finished with phase '${phase}' instead of ACTIVE.`,
-    );
+    throw new Error(`DigitalOcean deployment ${deploymentId} finished with phase '${phase}' instead of ACTIVE.`);
   }
 
   return deploymentId;
@@ -288,9 +244,7 @@ async function main(argv) {
   if (command === "plan-app-changed") {
     const [tfplanPath] = args;
     if (!tfplanPath) {
-      throw new Error(
-        "Usage: node ./scripts/digitalocean-app-deployment.mjs plan-app-changed <tfplan>",
-      );
+      throw new Error("Usage: node ./scripts/digitalocean-app-deployment.mjs plan-app-changed <tfplan>");
     }
 
     console.log(String(await planAppChanged(tfplanPath)));
@@ -305,9 +259,7 @@ async function main(argv) {
       );
     }
 
-    const allowFilePath = options
-      .find((option) => option.startsWith("--allow-file="))
-      ?.slice("--allow-file=".length);
+    const allowFilePath = options.find((option) => option.startsWith("--allow-file="))?.slice("--allow-file=".length);
     const allowDestructiveChanges = Boolean(allowFilePath && existsSync(allowFilePath));
 
     await assertTerraformPlanSafe(tfplanPath, { allowDestructiveChanges });
@@ -340,9 +292,7 @@ async function main(argv) {
   if (command === "wait-domains") {
     const [appId, ...optionsAndHostnames] = args;
     if (!appId) {
-      throw new Error(
-        "Usage: node ./scripts/digitalocean-app-deployment.mjs wait-domains <app-id> <hostname...>",
-      );
+      throw new Error("Usage: node ./scripts/digitalocean-app-deployment.mjs wait-domains <app-id> <hostname...>");
     }
 
     const hostnames = optionsAndHostnames.filter((arg) => !arg.startsWith("--"));

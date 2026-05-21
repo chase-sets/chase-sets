@@ -40,7 +40,9 @@ export function useFetch<T>(
       .catch((errorValue) => {
         if (!cancelled) {
           setError(
-            errorValue instanceof Error ? errorValue.message : t("identity.support.shellSupport.ui.useFetch.unknown.error"),
+            errorValue instanceof Error
+              ? errorValue.message
+              : t("identity.support.shellSupport.ui.useFetch.unknown.error"),
           );
           setLoading(false);
         }

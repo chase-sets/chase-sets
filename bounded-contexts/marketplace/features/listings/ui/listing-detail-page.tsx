@@ -37,8 +37,8 @@ function listingPhotoUrl(
   role: "thumbnail" | "search-card" | "catalog-detail",
 ) {
   return (
-    photo.assetSet.variants.find((variant) => variant.role === role && variant.density === 1)
-      ?.publicUrl ?? photo.assetSet.source.publicUrl
+    photo.assetSet.variants.find((variant) => variant.role === role && variant.density === 1)?.publicUrl ??
+    photo.assetSet.source.publicUrl
   );
 }
 
@@ -165,15 +165,22 @@ export function MarketplaceListingDetailPage({
       <PageHeader
         eyebrow={t("marketplace.features.listings.ui.listingDetailPage.seller")}
         title={listing.item_title ?? listing.catalog_catalog_item_id}
-        description={t("marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps")}
+        description={t(
+          "marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps",
+        )}
         actions={
           <LinkButton href="/account/listings" tone="secondary">
-            {t("marketplace.features.listings.ui.listingDetailPage.back.to.listings")}</LinkButton>
+            {t("marketplace.features.listings.ui.listingDetailPage.back.to.listings")}
+          </LinkButton>
         }
       />
 
       {errorMessage ? (
-        <MarketplaceNotice tone="error" title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")} description={errorMessage} />
+        <MarketplaceNotice
+          tone="error"
+          title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}
+          description={errorMessage}
+        />
       ) : null}
 
       {feedbackPrompt}
@@ -183,10 +190,7 @@ export function MarketplaceListingDetailPage({
           <Card>
             <Stack gap={4}>
               {listing.listing_photos.length > 0 ? (
-                <ImageGallery
-                  images={listingPhotoImages(listing)}
-                  aspectRatio="3/4"
-                />
+                <ImageGallery images={listingPhotoImages(listing)} aspectRatio="3/4" />
               ) : null}
               <Stack gap={2}>
                 <Inline>
@@ -209,19 +213,21 @@ export function MarketplaceListingDetailPage({
                   <MarketplaceNotice
                     tone="warning"
                     title={t("marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing")}
-                    description={t("marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing.description")}
+                    description={t(
+                      "marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing.description",
+                    )}
                   />
                 )}
                 <Text size="lg" weight="semibold">
                   {listing.item_title ?? listing.catalog_catalog_item_id}
                 </Text>
-                {listing.item_subtitle ? (
-                  <Text tone="secondary">{listing.item_subtitle}</Text>
-                ) : null}
+                {listing.item_subtitle ? <Text tone="secondary">{listing.item_subtitle}</Text> : null}
                 {listing.product_summary ? (
                   <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
                 ) : null}
-                <Text size="lg" weight="semibold">{formatMoney(listing.price_amount)}</Text>
+                <Text size="lg" weight="semibold">
+                  {formatMoney(listing.price_amount)}
+                </Text>
                 <Text size="sm" tone="secondary">
                   {renderPreviewSummary({
                     account_type: "personal",
@@ -242,7 +248,8 @@ export function MarketplaceListingDetailPage({
                 items={[
                   {
                     key: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
-                    value: `${listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")} ${listing.ship_from_code ?? ""}`.trim(),
+                    value:
+                      `${listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")} ${listing.ship_from_code ?? ""}`.trim(),
                   },
                   {
                     key: t("marketplace.features.listings.ui.listingDetailPage.quantity.cap"),
@@ -288,13 +295,18 @@ export function MarketplaceListingDetailPage({
             items={[
               {
                 title: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit"),
-                description: t("marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping", {
-                  percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
-                }),
+                description: t(
+                  "marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping",
+                  {
+                    percentage: formatAllowancePercentage(listing.shipping_allowance_percentage_bps),
+                  },
+                ),
               },
               {
                 title: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
-                description: listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location"),
+                description:
+                  listing.storage_location_name ??
+                  t("marketplace.features.listings.ui.listingDetailPage.unknown.location"),
               },
               {
                 title: t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at"),
@@ -323,7 +335,8 @@ export function MarketplaceListingDetailPage({
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
-                value: `${listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")} ${listing.ship_from_code ?? ""}`.trim(),
+                value:
+                  `${listing.storage_location_name ?? t("marketplace.features.listings.ui.listingDetailPage.unknown.location")} ${listing.ship_from_code ?? ""}`.trim(),
               },
             ]}
           />
@@ -332,12 +345,17 @@ export function MarketplaceListingDetailPage({
             steps={[
               {
                 label: listing.status,
-                description: t("marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps"),
+                description: t(
+                  "marketplace.features.listings.ui.listingDetailPage.manage.seller.listing.pricing.quantity.caps",
+                ),
                 status: listing.status === "active" ? "complete" : "current",
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.fee.lock.history"),
-                description: t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at") + " " + formatTimestamp(listing.terms_resolved_at),
+                description:
+                  t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at") +
+                  " " +
+                  formatTimestamp(listing.terms_resolved_at),
                 status: listing.terms_resolved_at ? "complete" : "upcoming",
               },
             ]}
@@ -367,7 +385,8 @@ export function MarketplaceListingDetailPage({
                   browseLabel={t("marketplace.features.listings.ui.listingDetailPage.choose.photos")}
                 />
                 <Button type="submit" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.add.photos")}</Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.add.photos")}
+                </Button>
               </Stack>
             </form>
           </Card>
@@ -385,34 +404,38 @@ export function MarketplaceListingDetailPage({
                       })}
                     </Text>
                     <Text size="sm" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingDetailPage.price")}{entry.price_amount ? formatMoney(entry.price_amount) : formatMoney(listing.price_amount)}
+                      {t("marketplace.features.listings.ui.listingDetailPage.price")}
+                      {entry.price_amount ? formatMoney(entry.price_amount) : formatMoney(listing.price_amount)}
                     </Text>
                     {entry.quantity_cap !== null ? (
                       <Text size="sm" tone="secondary">
-                        {t("marketplace.features.listings.ui.listingDetailPage.quantity.cap")}{entry.quantity_cap}
+                        {t("marketplace.features.listings.ui.listingDetailPage.quantity.cap")}
+                        {entry.quantity_cap}
                       </Text>
                     ) : null}
                     <Text size="sm" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}{formatOptionalMoney(entry.marketplace_sales_fee_unit_amount)}
+                      {t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}
+                      {formatOptionalMoney(entry.marketplace_sales_fee_unit_amount)}
                     </Text>
                     <Text size="sm" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingDetailPage.seller.net")}{formatOptionalMoney(entry.seller_net_unit_amount)}
+                      {t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
+                      {formatOptionalMoney(entry.seller_net_unit_amount)}
                     </Text>
                     <Text size="sm" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}{termsLabel({
+                      {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}
+                      {termsLabel({
                         agreement_id: entry.terms_agreement_id,
                         schedule_id: entry.terms_schedule_id,
                       })}
                     </Text>
                     <Text size="sm" tone="secondary">
-                      {t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at")} {formatTimestamp(entry.terms_resolved_at)}
+                      {t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at")}{" "}
+                      {formatTimestamp(entry.terms_resolved_at)}
                     </Text>
                   </Stack>
                 ))
               ) : (
-                <Text tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.no.fee.history")}
-                </Text>
+                <Text tone="secondary">{t("marketplace.features.listings.ui.listingDetailPage.no.fee.history")}</Text>
               )}
             </Stack>
           </Card>
@@ -438,26 +461,33 @@ export function MarketplaceListingDetailPage({
                 />
                 <Stack gap={2}>
                   <Button type="submit" name="intent" value="update-price" tone="secondary">
-                    {t("marketplace.features.listings.ui.listingDetailPage.save.price")}</Button>
+                    {t("marketplace.features.listings.ui.listingDetailPage.save.price")}
+                  </Button>
                   <Button type="submit" name="intent" value="preview-price" tone="secondary">
-                    {t("marketplace.features.listings.ui.listingDetailPage.preview.fees")}</Button>
+                    {t("marketplace.features.listings.ui.listingDetailPage.preview.fees")}
+                  </Button>
                 </Stack>
               </Stack>
             </form>
             {pricePreview ? (
               <Stack gap={2}>
-                <Text weight="semibold">{t("marketplace.features.listings.ui.listingDetailPage.updated.fee.preview")}</Text>
+                <Text weight="semibold">
+                  {t("marketplace.features.listings.ui.listingDetailPage.updated.fee.preview")}
+                </Text>
                 <Text size="sm" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.account.type")}{pricePreview.account_type}
+                  {t("marketplace.features.listings.ui.listingDetailPage.account.type")}
+                  {pricePreview.account_type}
                 </Text>
                 <Text size="sm" tone="secondary">
                   {renderPreviewSummary(pricePreview)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.basis.amount")}{formatMoney(pricePreview.basis_amount)}
+                  {t("marketplace.features.listings.ui.listingDetailPage.basis.amount")}
+                  {formatMoney(pricePreview.basis_amount)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule.2")}{termsLabel(pricePreview)}
+                  {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule.2")}
+                  {termsLabel(pricePreview)}
                 </Text>
               </Stack>
             ) : null}
@@ -467,11 +497,7 @@ export function MarketplaceListingDetailPage({
             <form method="post">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="update-quantity-cap" />
-                <input
-                  type="hidden"
-                  name="feeQuoteFingerprint"
-                  value={listing.fee_quote_fingerprint}
-                />
+                <input type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
                 <NumberInput
                   label={t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.2")}
                   name="quantityCap"
@@ -483,7 +509,8 @@ export function MarketplaceListingDetailPage({
                   {t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.exposure.copy")}
                 </Text>
                 <Button type="submit" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.save.quantity.cap")}</Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.save.quantity.cap")}
+                </Button>
               </Stack>
             </form>
           </Card>
@@ -493,60 +520,59 @@ export function MarketplaceListingDetailPage({
             summary={listingPurchaseLimitSummary(listing)}
             tone="info"
           >
-          <Card>
-            <form method="post">
-              <Stack gap={3}>
-                <input type="hidden" name="intent" value="update-purchase-limits" />
-                <Inline>
-                  <NumberInput
-                    label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.order")}
-                    name="maxUnitsPerOrder"
-                    defaultValue={listing.max_units_per_order == null ? "" : String(listing.max_units_per_order)}
-                    min="1"
-                  />
-                  <NumberInput
-                    label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.day")}
-                    name="maxUnitsPerDay"
-                    defaultValue={listing.max_units_per_day == null ? "" : String(listing.max_units_per_day)}
-                    min="1"
-                  />
-                  <NumberInput
-                    label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.customer")}
-                    name="maxUnitsPerCustomerAccount"
-                    defaultValue={
-                      listing.max_units_per_customer_account == null
-                        ? ""
-                        : String(listing.max_units_per_customer_account)
-                    }
-                    min="1"
-                  />
-                </Inline>
-                <Text size="sm" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.purchase.limits.copy")}
-                </Text>
-                <Button type="submit" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingDetailPage.save.purchase.limits")}</Button>
-              </Stack>
-            </form>
-          </Card>
+            <Card>
+              <form method="post">
+                <Stack gap={3}>
+                  <input type="hidden" name="intent" value="update-purchase-limits" />
+                  <Inline>
+                    <NumberInput
+                      label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.order")}
+                      name="maxUnitsPerOrder"
+                      defaultValue={listing.max_units_per_order == null ? "" : String(listing.max_units_per_order)}
+                      min="1"
+                    />
+                    <NumberInput
+                      label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.day")}
+                      name="maxUnitsPerDay"
+                      defaultValue={listing.max_units_per_day == null ? "" : String(listing.max_units_per_day)}
+                      min="1"
+                    />
+                    <NumberInput
+                      label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.customer")}
+                      name="maxUnitsPerCustomerAccount"
+                      defaultValue={
+                        listing.max_units_per_customer_account == null
+                          ? ""
+                          : String(listing.max_units_per_customer_account)
+                      }
+                      min="1"
+                    />
+                  </Inline>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.purchase.limits.copy")}
+                  </Text>
+                  <Button type="submit" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingDetailPage.save.purchase.limits")}
+                  </Button>
+                </Stack>
+              </form>
+            </Card>
           </ProgressiveDisclosure>
 
           <Card>
             <Stack gap={3}>
               <form method="post">
                 <input type="hidden" name="intent" value="publish" />
-                <input
-                  type="hidden"
-                  name="feeQuoteFingerprint"
-                  value={listing.fee_quote_fingerprint}
-                />
+                <input type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
                 <Button type="submit" disabled={listing.status === "active" || listing.status === "withdrawn"}>
-                  {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}</Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}
+                </Button>
               </form>
               <form method="post">
                 <input type="hidden" name="intent" value="pause" />
                 <Button type="submit" tone="secondary" disabled={listing.status !== "active"}>
-                  {t("marketplace.features.listings.ui.listingDetailPage.pause.listing")}</Button>
+                  {t("marketplace.features.listings.ui.listingDetailPage.pause.listing")}
+                </Button>
               </form>
               <ModalDialog
                 title={t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}

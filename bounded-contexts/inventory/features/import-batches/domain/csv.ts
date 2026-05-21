@@ -36,9 +36,9 @@ function parseRecords(text: string): string[][] {
     const char = text[index];
     const next = text[index + 1];
 
-    if (char === "\"") {
-      if (inQuotes && next === "\"") {
-        currentValue += "\"";
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        currentValue += '"';
         index += 1;
         continue;
       }

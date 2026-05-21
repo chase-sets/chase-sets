@@ -1,40 +1,19 @@
-import {
-  Children,
-  createContext,
-  useContext,
-  useState,
-  type HTMLAttributes,
-  type ReactNode,
-} from "react";
+import { Children, createContext, useContext, useState, type HTMLAttributes, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
 import { Button } from "../actions";
-import {
-  BottomSheet,
-  Menu,
-  SideSheet,
-  type BottomSheetProps,
-  type MenuItem,
-  type SideSheetProps,
-} from "../feedback";
+import { BottomSheet, Menu, SideSheet, type BottomSheetProps, type MenuItem, type SideSheetProps } from "../feedback";
 
-export interface FilterBarProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface FilterBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   actions?: ReactNode;
   sticky?: boolean;
   stickyOffset?: string;
 }
 
-export function FilterBar({
-  children,
-  actions,
-  sticky = true,
-  stickyOffset,
-  ...rest
-}: FilterBarProps) {
+export function FilterBar({ children, actions, sticky = true, stickyOffset, ...rest }: FilterBarProps) {
   const motionSettings = useChaseMotion();
   const nativeProps = toMotionDomProps(rest);
 
@@ -52,7 +31,7 @@ export function FilterBar({
       className={cx(
         "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
         sticky && "sticky z-sticky",
-        sticky && !stickyOffset && "top-16"
+        sticky && !stickyOffset && "top-16",
       )}
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3 md:[&>*]:max-w-full md:[&>*]:min-w-[12rem]">
@@ -67,19 +46,13 @@ export function FilterBar({
   );
 }
 
-export interface ActionBarProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface ActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   sticky?: boolean;
   stickyOffset?: string;
 }
 
-export function ActionBar({
-  children,
-  sticky = false,
-  stickyOffset,
-  ...rest
-}: ActionBarProps) {
+export function ActionBar({ children, sticky = false, stickyOffset, ...rest }: ActionBarProps) {
   const motionSettings = useChaseMotion();
   const nativeProps = toMotionDomProps(rest);
 
@@ -101,7 +74,7 @@ export function ActionBar({
       className={cx(
         "modern-surface flex min-w-0 flex-wrap items-end justify-start gap-2 rounded-tokenLg border border-muted p-3 shadow-tokenSm md:justify-end",
         sticky && "sticky z-sticky",
-        sticky && !stickyOffset && "top-16"
+        sticky && !stickyOffset && "top-16",
       )}
     >
       {children}
@@ -109,8 +82,7 @@ export function ActionBar({
   );
 }
 
-export interface FilterAreaProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface FilterAreaProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
   filters?: readonly ReactNode[];
   actions?: ReactNode;
@@ -125,11 +97,7 @@ export interface FilterAreaProps
   overflowTriggerLabel?: string;
 }
 
-function formatOverflowTriggerLabel(
-  baseLabel: string,
-  overflowCount: number,
-  activeFilterCount: number | undefined,
-) {
+function formatOverflowTriggerLabel(baseLabel: string, overflowCount: number, activeFilterCount: number | undefined) {
   if (activeFilterCount !== undefined && activeFilterCount > 0) {
     return `${baseLabel} (${activeFilterCount} active)`;
   }
@@ -160,11 +128,7 @@ export function FilterArea({
   const inlineFilters = filterItems.slice(0, visibleFilterCount);
   const overflowFilters = filterItems.slice(visibleFilterCount);
   const hasOverflow = overflowFilters.length > 0;
-  const triggerLabel = formatOverflowTriggerLabel(
-    overflowTriggerLabel,
-    overflowFilters.length,
-    activeFilterCount,
-  );
+  const triggerLabel = formatOverflowTriggerLabel(overflowTriggerLabel, overflowFilters.length, activeFilterCount);
 
   return (
     <motion.div
@@ -180,7 +144,7 @@ export function FilterArea({
       className={cx(
         "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end",
         sticky && "sticky z-sticky",
-        sticky && !stickyOffset && "top-16"
+        sticky && !stickyOffset && "top-16",
       )}
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
@@ -190,7 +154,7 @@ export function FilterArea({
           </div>
         ))}
       </div>
-      {(hasOverflow || actions) ? (
+      {hasOverflow || actions ? (
         <div className="flex min-w-0 flex-wrap items-end justify-start gap-2 lg:ml-auto lg:justify-end lg:self-end lg:[&>*]:max-w-full lg:[&>div]:items-end">
           {hasOverflow ? (
             <SideSheet
@@ -227,8 +191,7 @@ export function FilterArea({
   );
 }
 
-export interface FilterBottomSheetProps
-  extends Omit<BottomSheetProps, "title" | "trigger" | "children"> {
+export interface FilterBottomSheetProps extends Omit<BottomSheetProps, "title" | "trigger" | "children"> {
   trigger: ReactNode;
   children?: ReactNode;
   title?: ReactNode;
@@ -248,15 +211,18 @@ export function FilterBottomSheet({
       trigger={trigger}
       height="expanded"
       title={title}
-      footer={<Button tone="primary" block>{applyLabel}</Button>}
+      footer={
+        <Button tone="primary" block>
+          {applyLabel}
+        </Button>
+      }
     >
       <div className="space-y-4">{children}</div>
     </BottomSheet>
   );
 }
 
-export interface BulkActionBarProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface BulkActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   count: number;
   /**
    * @deprecated Use primaryActions, secondaryActions, and overflowActions to
@@ -283,11 +249,7 @@ export interface BulkActionSurfaceProps {
 export function BulkActionSurface({ children }: BulkActionSurfaceProps) {
   const registration: BulkActionSurfaceRegistration = { count: 0 };
 
-  return (
-    <BulkActionSurfaceContext.Provider value={registration}>
-      {children}
-    </BulkActionSurfaceContext.Provider>
-  );
+  return <BulkActionSurfaceContext.Provider value={registration}>{children}</BulkActionSurfaceContext.Provider>;
 }
 
 export function BulkActionBar({
@@ -323,21 +285,13 @@ export function BulkActionBar({
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <span
-            aria-hidden="true"
-            className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent"
-          />
-          <div className="min-w-0 text-sm font-semibold text-foreground">
-            {formatSelectedLabel(count)}
-          </div>
+          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent" />
+          <div className="min-w-0 text-sm font-semibold text-foreground">{formatSelectedLabel(count)}</div>
         </div>
         {hasActions ? (
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
             {hasPrimaryActions ? (
-              <div
-                data-bulk-action-region="primary"
-                className="flex flex-wrap items-end gap-2"
-              >
+              <div data-bulk-action-region="primary" className="flex flex-wrap items-end gap-2">
                 {visiblePrimaryActions}
               </div>
             ) : null}
@@ -356,11 +310,7 @@ export function BulkActionBar({
               >
                 <Menu
                   trigger={
-                    <Button
-                      tone="secondary"
-                      size="sm"
-                      trailingIcon="chevronDown"
-                    >
+                    <Button tone="secondary" size="sm" trailingIcon="chevronDown">
                       {overflowLabel}
                     </Button>
                   }
@@ -375,8 +325,7 @@ export function BulkActionBar({
   );
 }
 
-export interface BulkActionPanelProps
-  extends Omit<SideSheetProps, "title" | "trigger" | "children" | "footer"> {
+export interface BulkActionPanelProps extends Omit<SideSheetProps, "title" | "trigger" | "children" | "footer"> {
   title: ReactNode;
   description?: ReactNode;
   triggerLabel?: ReactNode;
@@ -425,7 +374,9 @@ function useBulkActionSurfaceRegistration() {
   registration.count += 1;
 
   if (registration.count > 1) {
-    throw new Error("BulkActionSurface can render only one BulkActionBar. Combine actions into one bar and move advanced choices into BulkActionPanel or overflowActions.");
+    throw new Error(
+      "BulkActionSurface can render only one BulkActionBar. Combine actions into one bar and move advanced choices into BulkActionPanel or overflowActions.",
+    );
   }
 }
 

@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.category-";
@@ -75,30 +71,28 @@ export function buildCategoryProjectionHandlers(db: PgQueryable): ProjectorHandl
     "catalog.category.published": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_categories SET status = 'active', updated_at = $2 WHERE category_id = $1`,
-        [categoryId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_categories SET status = 'active', updated_at = $2 WHERE category_id = $1`, [
+        categoryId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.category.deprecated": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_categories SET status = 'deprecated', updated_at = $2 WHERE category_id = $1`,
-        [categoryId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_categories SET status = 'deprecated', updated_at = $2 WHERE category_id = $1`, [
+        categoryId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.category.archived": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_categories SET status = 'archived', updated_at = $2 WHERE category_id = $1`,
-        [categoryId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_categories SET status = 'archived', updated_at = $2 WHERE category_id = $1`, [
+        categoryId,
+        event.timing.recordedAt,
+      ]);
     },
   };
 }
-
-

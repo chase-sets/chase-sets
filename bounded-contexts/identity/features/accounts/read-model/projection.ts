@@ -7,15 +7,13 @@ const STREAM_PREFIX = "identity.account-";
 
 function readAccountBadgeKeys(value: unknown): AccountBadgeKey[] {
   const values = Array.isArray(value) ? value : [];
-  return values.filter((badgeKey): badgeKey is AccountBadgeKey =>
-    typeof badgeKey === "string" && accountBadgeKeys.includes(badgeKey as AccountBadgeKey),
+  return values.filter(
+    (badgeKey): badgeKey is AccountBadgeKey =>
+      typeof badgeKey === "string" && accountBadgeKeys.includes(badgeKey as AccountBadgeKey),
   );
 }
 
-function addAccountBadge(
-  badges: readonly AccountBadgeKey[],
-  badgeKey: AccountBadgeKey,
-) {
+function addAccountBadge(badges: readonly AccountBadgeKey[], badgeKey: AccountBadgeKey) {
   return [...new Set([...badges, badgeKey])].sort((left, right) => left.localeCompare(right));
 }
 
@@ -27,10 +25,9 @@ async function updateAccountBadges(
     update: (badges: readonly AccountBadgeKey[]) => readonly AccountBadgeKey[];
   }>,
 ) {
-  const result = await db.query<{ badges: unknown }>(
-    `SELECT badges FROM identity_accounts WHERE account_id = $1`,
-    [params.accountId],
-  );
+  const result = await db.query<{ badges: unknown }>(`SELECT badges FROM identity_accounts WHERE account_id = $1`, [
+    params.accountId,
+  ]);
   const current = readAccountBadgeKeys(result.rows[0]?.badges);
   await db.query(
     `UPDATE identity_accounts

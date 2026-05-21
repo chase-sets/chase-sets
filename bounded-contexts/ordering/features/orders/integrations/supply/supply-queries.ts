@@ -57,9 +57,7 @@ export async function listOrderingSupplyCandidates(
 ): Promise<readonly MarketplaceSupplyCandidate[]> {
   const normalizedSelection = normalizeVersionSelection(demand.selectedOptions);
   const values: unknown[] = [demand.productId.trim()];
-  const sellerClause = demand.sellerAccountId
-    ? "AND listing.seller_account_id = $2"
-    : "";
+  const sellerClause = demand.sellerAccountId ? "AND listing.seller_account_id = $2" : "";
 
   if (demand.sellerAccountId) {
     values.push(demand.sellerAccountId);
@@ -270,9 +268,7 @@ export async function getOrderingSupplyCandidateByListingId(
 }
 
 function productMeasureFromUnknown(value: unknown) {
-  return typeof value === "object" && value !== null
-    ? (value as ProductMeasureSnapshot)
-    : null;
+  return typeof value === "object" && value !== null ? (value as ProductMeasureSnapshot) : null;
 }
 
 export type OrderingAcceptedOfferBatchInputRow = Readonly<{
@@ -303,9 +299,10 @@ export async function listAcceptedOfferBatchInputs(
   acceptanceBatchId: string,
 ): Promise<readonly OrderingAcceptedOfferBatchInputRow[]> {
   const result = await db.query<
-    Omit<OrderingAcceptedOfferBatchInputRow, "selected_options"> & Readonly<{
-      selected_options: unknown;
-    }>
+    Omit<OrderingAcceptedOfferBatchInputRow, "selected_options"> &
+      Readonly<{
+        selected_options: unknown;
+      }>
   >(
     `SELECT
        offer_id,

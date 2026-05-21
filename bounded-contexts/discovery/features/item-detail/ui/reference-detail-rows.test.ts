@@ -13,10 +13,12 @@ describe("buildReferenceDetailRows", () => {
       },
     ] satisfies FieldValue[];
 
-    expect(buildReferenceDetailRows(fieldValues).map((row) => ({
-      label: row.label,
-      value: row.value,
-    }))).toEqual([
+    expect(
+      buildReferenceDetailRows(fieldValues).map((row) => ({
+        label: row.label,
+        value: row.value,
+      })),
+    ).toEqual([
       { label: "Expansion", value: "Perfect Order" },
       { label: "Series", value: "Mega Evolution" },
       { label: "Product Line", value: "Pokemon Trading Card Game" },

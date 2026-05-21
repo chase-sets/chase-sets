@@ -54,13 +54,7 @@ describe("platform feedback read-model queries", () => {
     expect(result.total).toBe(1);
     expect(result.items).toHaveLength(1);
     expect(String(calls[0]?.[0])).toContain("WHERE status = $1 AND topic = $2 AND workflow = $3");
-    expect(calls[1]?.[1]).toEqual([
-      "new",
-      "ease-of-use",
-      "listing-publish",
-      250,
-      0,
-    ]);
+    expect(calls[1]?.[1]).toEqual(["new", "ease-of-use", "listing-publish", 250, 0]);
   });
 
   it("uses entity-wide duplicate checks and workflow 30 day duplicate checks", async () => {
@@ -72,31 +66,27 @@ describe("platform feedback read-model queries", () => {
       }),
     };
 
-    await expect(hasRecentPlatformFeedbackSubmission(db as never, {
-      accountId: "acc_test",
-      workflow: "checkout-payment",
-      relatedEntityKey: "payment:pay_test",
-      submittedAfter: "2026-04-07T12:00:00.000Z",
-    })).resolves.toBe(true);
-    await expect(hasRecentPlatformFeedbackSubmission(db as never, {
-      accountId: "acc_test",
-      workflow: "listing-publish",
-      relatedEntityKey: null,
-      submittedAfter: "2026-04-07T12:00:00.000Z",
-    })).resolves.toBe(true);
+    await expect(
+      hasRecentPlatformFeedbackSubmission(db as never, {
+        accountId: "acc_test",
+        workflow: "checkout-payment",
+        relatedEntityKey: "payment:pay_test",
+        submittedAfter: "2026-04-07T12:00:00.000Z",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      hasRecentPlatformFeedbackSubmission(db as never, {
+        accountId: "acc_test",
+        workflow: "listing-publish",
+        relatedEntityKey: null,
+        submittedAfter: "2026-04-07T12:00:00.000Z",
+      }),
+    ).resolves.toBe(true);
 
     expect(String(calls[0]?.[0])).toContain("related_entity_key = $3");
-    expect(calls[0]?.[1]).toEqual([
-      "acc_test",
-      "checkout-payment",
-      "payment:pay_test",
-    ]);
+    expect(calls[0]?.[1]).toEqual(["acc_test", "checkout-payment", "payment:pay_test"]);
     expect(String(calls[1]?.[0])).toContain("submitted_at >= $3");
-    expect(calls[1]?.[1]).toEqual([
-      "acc_test",
-      "listing-publish",
-      "2026-04-07T12:00:00.000Z",
-    ]);
+    expect(calls[1]?.[1]).toEqual(["acc_test", "listing-publish", "2026-04-07T12:00:00.000Z"]);
   });
 
   it("checks active prompt snoozes and maps metrics groups", async () => {
@@ -114,13 +104,15 @@ describe("platform feedback read-model queries", () => {
 
         if (sql.includes("COUNT(*) AS total_count")) {
           return {
-            rows: [{
-              total_count: "3",
-              new_count: "1",
-              reviewed_count: "1",
-              archived_count: "1",
-              average_rating: "4.33",
-            }],
+            rows: [
+              {
+                total_count: "3",
+                new_count: "1",
+                reviewed_count: "1",
+                archived_count: "1",
+                average_rating: "4.33",
+              },
+            ],
           };
         }
 
@@ -140,12 +132,14 @@ describe("platform feedback read-model queries", () => {
       }),
     };
 
-    await expect(hasActivePromptSnooze(db as never, {
-      accountId: "acc_test",
-      workflow: "inventory-adjust",
-      relatedEntityKey: "inventoryItem:inv_test",
-      now: "2026-05-07T12:00:00.000Z",
-    })).resolves.toBe(true);
+    await expect(
+      hasActivePromptSnooze(db as never, {
+        accountId: "acc_test",
+        workflow: "inventory-adjust",
+        relatedEntityKey: "inventoryItem:inv_test",
+        now: "2026-05-07T12:00:00.000Z",
+      }),
+    ).resolves.toBe(true);
     await expect(getPlatformFeedbackMetrics(db as never)).resolves.toEqual({
       total_count: 3,
       new_count: 1,

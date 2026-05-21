@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildInventoryItemProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildInventoryItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.item.created": async (event) => {
       const {
@@ -62,9 +60,7 @@ export function buildInventoryItemProjectionHandlers(
           catalogItemId,
           productId,
           JSON.stringify(Array.isArray(selectedOptions) ? selectedOptions : []),
-          gradedCard === null || typeof gradedCard !== "object"
-            ? null
-            : JSON.stringify(gradedCard),
+          gradedCard === null || typeof gradedCard !== "object" ? null : JSON.stringify(gradedCard),
           storageLocationId,
           totalQuantity,
           event.streamVersion,

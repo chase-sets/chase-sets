@@ -83,8 +83,7 @@ vi.mock("react-router", async () => {
 
   return {
     ...actual,
-    Form: ({ children, ...props }: { children: ReactNode }) =>
-      React.createElement("form", props, children),
+    Form: ({ children, ...props }: { children: ReactNode }) => React.createElement("form", props, children),
     useActionData: mockUseActionData,
     useLoaderData: mockUseLoaderData,
     useRevalidator: mockUseRevalidator,
@@ -219,9 +218,7 @@ describe("marketplace account payment route", () => {
 
     expect(screen.getByText("Card was declined.")).toBeTruthy();
     const retryLink = screen.getByRole("link", { name: "Retry payment" });
-    expect(retryLink.getAttribute("href")).toBe(
-      "/account/payments/new?orderIds=ord_1%2Cord_2",
-    );
+    expect(retryLink.getAttribute("href")).toBe("/account/payments/new?orderIds=ord_1%2Cord_2");
   });
 
   it("renders guest retry errors beside the retry form", () => {
@@ -273,9 +270,7 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    expect(
-      screen.getAllByText("The secure processor could not complete this payment.").length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("The secure processor could not complete this payment.").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Retry payment" })).toBeTruthy();
   });
 
@@ -371,9 +366,8 @@ describe("marketplace account payment route", () => {
 
     expect(fetchPayment).toHaveBeenCalledTimes(1);
     const requestedPayment = fetchPayment.mock.calls[0]?.[0];
-    const requestedPaymentUrl = requestedPayment instanceof Request
-      ? requestedPayment.url
-      : requestedPayment?.toString();
+    const requestedPaymentUrl =
+      requestedPayment instanceof Request ? requestedPayment.url : requestedPayment?.toString();
     expect(requestedPaymentUrl).toContain("/api/marketplace/account/payments/pay_1");
     expect(revalidate).not.toHaveBeenCalled();
   });
@@ -387,11 +381,13 @@ describe("marketplace account payment route", () => {
     const revalidate = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
-        JSON.stringify(buildPayment({
-          status: "captured",
-          processor_status: "succeeded",
-          captured_at: "2026-04-01T00:05:00.000Z",
-        })),
+        JSON.stringify(
+          buildPayment({
+            status: "captured",
+            processor_status: "succeeded",
+            captured_at: "2026-04-01T00:05:00.000Z",
+          }),
+        ),
         {
           status: 200,
           headers: { "content-type": "application/json" },

@@ -24,14 +24,8 @@ import {
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
-import type {
-  SourceObservationIntegrationOption,
-  SourceObservationIntegrationScope,
-} from "./contracts";
-import {
-  importTcgdexSet,
-  useSourceObservationIntegrationOptions,
-} from "./use-source-observations";
+import type { SourceObservationIntegrationOption, SourceObservationIntegrationScope } from "./contracts";
+import { importTcgdexSet, useSourceObservationIntegrationOptions } from "./use-source-observations";
 
 const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
@@ -41,10 +35,7 @@ const providerOptions = [
   { label: t("catalog.features.sourceObservations.ui.integrations.provider.tcgdex"), value: "tcgdex" },
 ];
 
-export function IntegrationManagementPage({
-  data,
-  query,
-}: CatalogListRouteData<SourceObservationIntegrationScope>) {
+export function IntegrationManagementPage({ data, query }: CatalogListRouteData<SourceObservationIntegrationScope>) {
   const listControls = useCatalogListQueryControls(query);
   const revalidator = useRevalidator();
   const { addToast } = useToasts();
@@ -87,24 +78,15 @@ export function IntegrationManagementPage({
       })),
     [importLanguages.data],
   );
-  const seriesOptions = useMemo(
-    () => toSelectItems(importSeries.data?.items ?? []),
-    [importSeries.data],
-  );
-  const expansionOptions = useMemo(
-    () => toSelectItems(importExpansions.data?.items ?? []),
-    [importExpansions.data],
-  );
+  const seriesOptions = useMemo(() => toSelectItems(importSeries.data?.items ?? []), [importSeries.data]);
+  const expansionOptions = useMemo(() => toSelectItems(importExpansions.data?.items ?? []), [importExpansions.data]);
   const filterExpansionOptions = useMemo(
     () => toSelectItems(filterExpansions.data?.items ?? []),
     [filterExpansions.data],
   );
 
   useEffect(() => {
-    if (
-      languageOptions.length > 0 &&
-      !languageOptions.some((item) => item.value === languageCode)
-    ) {
+    if (languageOptions.length > 0 && !languageOptions.some((item) => item.value === languageCode)) {
       setLanguageCode(languageOptions[0].value);
     }
   }, [languageOptions, languageCode]);
@@ -165,9 +147,7 @@ export function IntegrationManagementPage({
       revalidator.revalidate();
     } catch (error) {
       addToast(
-        error instanceof Error
-          ? error.message
-          : t("catalog.features.sourceObservations.ui.integrations.import.failed"),
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.integrations.import.failed"),
         "danger",
       );
     } finally {
@@ -242,9 +222,7 @@ export function IntegrationManagementPage({
           <Select
             label={t("catalog.features.sourceObservations.ui.list.expansion")}
             value={listControls.setId || ALL_EXPANSIONS}
-            onValueChange={(value) =>
-              listControls.setSetId(value === ALL_EXPANSIONS ? "" : value)
-            }
+            onValueChange={(value) => listControls.setSetId(value === ALL_EXPANSIONS ? "" : value)}
             items={[
               {
                 label: t("catalog.features.sourceObservations.ui.integrations.all.expansions"),
@@ -252,10 +230,7 @@ export function IntegrationManagementPage({
               },
               ...withSelectedFallback(filterExpansionOptions, listControls.setId),
             ]}
-            disabled={
-              (!!listControls.source && listControls.source !== "tcgdex") ||
-              filterExpansions.loading
-            }
+            disabled={(!!listControls.source && listControls.source !== "tcgdex") || filterExpansions.loading}
             error={filterExpansions.error ?? undefined}
           />
         </FilterBar>
@@ -263,14 +238,7 @@ export function IntegrationManagementPage({
         <DataTable
           rows={data.items ?? []}
           columns={columns}
-          getRowId={(row) =>
-            [
-              row.provider_key,
-              row.language_code,
-              row.expansion_id,
-              row.series_id,
-            ].join(":")
-          }
+          getRowId={(row) => [row.provider_key, row.language_code, row.expansion_id, row.series_id].join(":")}
           emptyTitle={t("catalog.features.sourceObservations.ui.integrations.none.found")}
         />
       </Stack>
@@ -281,11 +249,7 @@ export function IntegrationManagementPage({
         title={t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
         footer={
           <Inline gap={2} align="end">
-            <Button
-              tone="secondary"
-              onClick={() => setShowImport(false)}
-              disabled={importing}
-            >
+            <Button tone="secondary" onClick={() => setShowImport(false)} disabled={importing}>
               {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
@@ -418,9 +382,7 @@ function reviewableObservationCount(scope: SourceObservationIntegrationScope): n
   return scope.observed_observations + scope.changed_observations;
 }
 
-function toSelectItems(
-  options: readonly SourceObservationIntegrationOption[],
-): SelectItem[] {
+function toSelectItems(options: readonly SourceObservationIntegrationOption[]): SelectItem[] {
   return options.map((option) => ({
     label: option.label,
     value: option.value,
@@ -428,10 +390,7 @@ function toSelectItems(
   }));
 }
 
-function withSelectedFallback(
-  options: readonly SelectItem[],
-  selectedValue: string,
-): SelectItem[] {
+function withSelectedFallback(options: readonly SelectItem[], selectedValue: string): SelectItem[] {
   if (!selectedValue || options.some((option) => option.value === selectedValue)) {
     return [...options];
   }
@@ -465,11 +424,7 @@ function formatCount(value: number) {
   return new Intl.NumberFormat().format(value);
 }
 
-function importProgressPercent(progress: {
-  phase: string;
-  completed: number;
-  total: number;
-}): number {
+function importProgressPercent(progress: { phase: string; completed: number; total: number }): number {
   if (progress.phase === "completed") {
     return 100;
   }

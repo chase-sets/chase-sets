@@ -13,20 +13,36 @@ function requirePayoutReadinessAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("settlement.features.payoutReadiness.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payoutReadiness.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("settlement.features.payoutReadiness.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authorization_forbidden",
+            message: t("settlement.features.payoutReadiness.api.route.forbidden"),
+          },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -51,11 +67,7 @@ function requestPublicOrigin(request: Request) {
   return host ? `${protocol}://${host}` : requestUrl.origin;
 }
 
-function hostedRedirectUrlFromBody(
-  body: Record<string, unknown>,
-  fieldName: string,
-  request: Request,
-) {
+function hostedRedirectUrlFromBody(body: Record<string, unknown>, fieldName: string, request: Request) {
   const value = body[fieldName];
   if (typeof value !== "string" || value.trim() === "") {
     return null;
@@ -75,9 +87,7 @@ function hostedRedirectUrlFromBody(
   return parsed.toString();
 }
 
-export function createPayoutReadinessRoutes(
-  services: PayoutReadinessServices,
-) {
+export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
   const app = new Hono<SettlementApiEnv>();
 
   app.get("/payout-readiness", async (c) => {
@@ -106,10 +116,18 @@ export function createPayoutReadinessRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
     try {
       const returnUrl = hostedRedirectUrlFromBody(body, "returnUrl", c.req.raw);
@@ -138,10 +156,18 @@ export function createPayoutReadinessRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
     try {
       const result = await services.createAccountManagementSession(
@@ -166,10 +192,18 @@ export function createPayoutReadinessRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
 
     try {
       const readiness = await services.refreshProviderReadiness(

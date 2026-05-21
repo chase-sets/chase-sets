@@ -1,8 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  WaitlistMetrics,
-  WaitlistSignupListItem,
-} from "../api/contracts";
+import type { WaitlistMetrics, WaitlistSignupListItem } from "../api/contracts";
 
 function normalizePageParams(params: Readonly<{ limit?: number; offset?: number }>) {
   return {
@@ -11,11 +8,13 @@ function normalizePageParams(params: Readonly<{ limit?: number; offset?: number 
   };
 }
 
-function waitlistFilters(params: Readonly<{
-  role?: string | null;
-  interest?: string | null;
-  search?: string | null;
-}>) {
+function waitlistFilters(
+  params: Readonly<{
+    role?: string | null;
+    interest?: string | null;
+    search?: string | null;
+  }>,
+) {
   const clauses: string[] = [];
   const values: unknown[] = [];
 

@@ -1,26 +1,10 @@
 {
   "contextName": "identity",
   "packageName": "@chase-sets/identity",
-  "ownedNouns": [
-    "user",
-    "account",
-    "membership",
-    "invitation",
-    "api-key",
-    "consent",
-    "shipping-address"
-  ],
+  "ownedNouns": ["user", "account", "membership", "invitation", "api-key", "consent", "shipping-address"],
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
-  "slices": [
-    "accounts",
-    "users",
-    "memberships",
-    "invitations",
-    "api-keys",
-    "consents",
-    "shipping-addresses"
-  ],
+  "slices": ["accounts", "users", "memberships", "invitations", "api-keys", "consents", "shipping-addresses"],
   "allowedSupportDirectories": [
     "read-model-support",
     "request-support",
@@ -31,25 +15,12 @@
     "ucp-support",
     "ui-support"
   ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server",
-    "./web"
-  ],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [],
-  "apiDeployables": [
-    "admin-support-api",
-    "platform-api"
-  ],
-  "runtimeDeployables": [
-    "admin-support-worker",
-    "platform-worker"
-  ],
+  "apiDeployables": ["admin-support-api", "platform-api"],
+  "runtimeDeployables": ["admin-support-worker", "platform-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/identity",
@@ -234,19 +205,14 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": [
-        "top-nav",
-        "bottom-nav"
-      ],
+      "placements": ["top-nav", "bottom-nav"],
       "key": "account",
       "label": "Account",
       "icon": "user",
       "href": "/account",
       "order": 200,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "accounts.view"
-      ]
+      "requiredPermissions": ["accounts.view"]
     }
   ],
   "directoryIntent": {
@@ -254,71 +220,49 @@
       "classification": "slice",
       "purpose": "Own accounts feature behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal identity module composition"
-      ]
+      "expectedConsumers": ["Internal identity module composition"]
     },
     "users": {
       "classification": "slice",
       "purpose": "Own users feature behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal identity module composition"
-      ]
+      "expectedConsumers": ["Internal identity module composition"]
     },
     "memberships": {
       "classification": "slice",
       "purpose": "Own memberships feature behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal identity module composition"
-      ]
+      "expectedConsumers": ["Internal identity module composition"]
     },
     "invitations": {
       "classification": "slice",
       "purpose": "Own invitations feature behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal identity module composition"
-      ]
+      "expectedConsumers": ["Internal identity module composition"]
     },
     "api-keys": {
       "classification": "slice",
       "purpose": "Own api-keys feature behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal identity module composition"
-      ]
+      "expectedConsumers": ["Internal identity module composition"]
     },
     "consents": {
       "classification": "slice",
       "purpose": "Own consents feature behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal identity module composition"
-      ]
+      "expectedConsumers": ["Internal identity module composition"]
     },
     "shipping-addresses": {
       "classification": "slice",
       "purpose": "Own reusable account recipient shipping address behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal identity module composition",
-        "Checkout request-time address selection"
-      ]
+      "expectedConsumers": ["Internal identity module composition", "Checkout request-time address selection"]
     },
     "read-model-support": {
       "classification": "support",
       "purpose": "Provide reusable read-model-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "accounts",
-        "users",
-        "memberships",
-        "invitations",
-        "api-keys",
-        "consents"
-      ],
+      "expectedConsumers": ["accounts", "users", "memberships", "invitations", "api-keys", "consents"],
       "justification": "read-model-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -327,13 +271,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "accounts",
-        "consents",
-        "memberships",
-        "shipping-addresses",
-        "users"
-      ],
+      "expectedConsumers": ["accounts", "consents", "memberships", "shipping-addresses", "users"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -343,10 +281,7 @@
       "classification": "support",
       "purpose": "Provide reusable route-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple identity slices",
-        "Deployable composition for identity"
-      ],
+      "expectedConsumers": ["Multiple identity slices", "Deployable composition for identity"],
       "justification": "route-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -372,10 +307,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple identity slices",
-        "Deployable composition for identity"
-      ],
+      "expectedConsumers": ["Multiple identity slices", "Deployable composition for identity"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -385,13 +317,7 @@
       "classification": "support",
       "purpose": "Provide reusable shell-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "accounts",
-        "api-keys",
-        "invitations",
-        "memberships",
-        "users"
-      ],
+      "expectedConsumers": ["accounts", "api-keys", "invitations", "memberships", "users"],
       "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -400,10 +326,7 @@
       "classification": "support",
       "purpose": "Provide Identity-owned durable Linked Platform Authorization storage for UCP delegated access.",
       "allowedWhen": "Allowed because linked platform authorization spans OAuth token resolution, consent audit, and deployable protocol composition.",
-      "expectedConsumers": [
-        "Auth UCP OAuth routes",
-        "Platform actor resolution"
-      ],
+      "expectedConsumers": ["Auth UCP OAuth routes", "Platform actor resolution"],
       "justification": "Identity owns the durable user/account authorization fact while Auth owns the OAuth journey.",
       "createdFor": "UCP identity linking.",
       "sunsetWhen": "Move into a dedicated Identity feature slice when linked platform authorization gets UI management."
@@ -412,10 +335,7 @@
       "classification": "support",
       "purpose": "Provide reusable ui-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "consents",
-        "memberships"
-      ],
+      "expectedConsumers": ["consents", "memberships"],
       "justification": "ui-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -424,9 +344,7 @@
       "classification": "routes",
       "purpose": "Expose identity-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   }
 }

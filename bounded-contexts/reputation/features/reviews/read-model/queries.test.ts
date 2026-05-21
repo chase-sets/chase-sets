@@ -57,10 +57,7 @@ describe("reputation review queries", () => {
       eligible_at: "2026-04-02T00:00:00.000Z",
       active_review_id: null,
     });
-    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
-      "ord_1",
-      "acc_buyer",
-    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["ord_1", "acc_buyer"]);
   });
 
   it("returns the seller-to-buyer review opportunity with the active review id when present", async () => {
@@ -92,10 +89,7 @@ describe("reputation review queries", () => {
       eligible_at: "2026-04-02T00:00:00.000Z",
       active_review_id: "rev_1",
     });
-    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
-      "ord_1",
-      "acc_seller",
-    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["ord_1", "acc_seller"]);
   });
 
   it("lists only active public reviews for an account", async () => {
@@ -123,17 +117,14 @@ describe("reputation review queries", () => {
 
     expect(result.total).toBe(1);
     expect(result.items).toHaveLength(1);
-    const sql = vi.mocked(db.query).mock.calls.map(([query]) => query).join("\n");
+    const sql = vi
+      .mocked(db.query)
+      .mock.calls.map(([query]) => query)
+      .join("\n");
     expect(sql).toContain("WHERE subject_account_id = $1");
     expect(sql).toContain("AND status = 'active'");
-    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
-      "acc_reviewed",
-    ]);
-    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
-      "acc_reviewed",
-      10,
-      0,
-    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["acc_reviewed"]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["acc_reviewed", 10, 0]);
   });
 
   it("keeps written and received account review lists scoped to the requested account across statuses", async () => {
@@ -174,32 +165,21 @@ describe("reputation review queries", () => {
       offset: 5,
     });
 
-    const sql = vi.mocked(db.query).mock.calls.map(([query]) => query).join("\n");
+    const sql = vi
+      .mocked(db.query)
+      .mock.calls.map(([query]) => query)
+      .join("\n");
     expect(sql).toContain("WHERE author_account_id = $1");
     expect(sql).toContain("WHERE page.author_account_id = $1");
     expect(sql).toContain("WHERE subject_account_id = $1");
     expect(sql).toContain("WHERE page.subject_account_id = $1");
     expect(sql).not.toContain("status = 'active'");
     expect(written.total).toBe(2);
-    expect(written.items.map((review) => review.status)).toEqual([
-      "active",
-      "withdrawn",
-    ]);
+    expect(written.items.map((review) => review.status)).toEqual(["active", "withdrawn"]);
     expect(received.total).toBe(2);
-    expect(received.items.map((review) => review.status)).toEqual([
-      "active",
-      "withdrawn",
-    ]);
-    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
-      "acc_author",
-      25,
-      5,
-    ]);
-    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
-      "acc_reviewed",
-      25,
-      5,
-    ]);
+    expect(received.items.map((review) => review.status)).toEqual(["active", "withdrawn"]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["acc_author", 25, 5]);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["acc_reviewed", 25, 5]);
   });
 
   it("loads account review details only for the author or reviewed account", async () => {
@@ -211,26 +191,15 @@ describe("reputation review queries", () => {
     });
     const db = {
       query: vi.fn(async (_sql: string, params?: unknown[]) => ({
-        rows:
-          params?.[1] === "acc_author" || params?.[1] === "acc_reviewed"
-            ? [row]
-            : [],
+        rows: params?.[1] === "acc_author" || params?.[1] === "acc_reviewed" ? [row] : [],
       })),
     };
 
-    await expect(
-      getAccountReview(db as never, "rev_1", "acc_author"),
-    ).resolves.toEqual(row);
-    await expect(
-      getAccountReview(db as never, "rev_1", "acc_reviewed"),
-    ).resolves.toEqual(row);
-    await expect(
-      getAccountReview(db as never, "rev_1", "acc_unrelated"),
-    ).resolves.toBeNull();
+    await expect(getAccountReview(db as never, "rev_1", "acc_author")).resolves.toEqual(row);
+    await expect(getAccountReview(db as never, "rev_1", "acc_reviewed")).resolves.toEqual(row);
+    await expect(getAccountReview(db as never, "rev_1", "acc_unrelated")).resolves.toBeNull();
 
     const sql = vi.mocked(db.query).mock.calls[0]?.[0] ?? "";
-    expect(sql).toContain(
-      "AND (page.author_account_id = $2 OR page.subject_account_id = $2)",
-    );
+    expect(sql).toContain("AND (page.author_account_id = $2 OR page.subject_account_id = $2)");
   });
 });

@@ -9,11 +9,13 @@ export { createIdentityRequestApiClient } from "../request-support/api-client";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 
-export async function resolveActorFromIdentityApi(options: Readonly<{
-  identityApiBaseUrl: string;
-  request: Request;
-  fetch?: typeof globalThis.fetch;
-}>): Promise<ResolvedActor | null> {
+export async function resolveActorFromIdentityApi(
+  options: Readonly<{
+    identityApiBaseUrl: string;
+    request: Request;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): Promise<ResolvedActor | null> {
   const authApiBaseUrl = new URL(options.identityApiBaseUrl);
   authApiBaseUrl.pathname = "/api/auth";
   return resolveActorFromAuthApi({
@@ -23,21 +25,22 @@ export async function resolveActorFromIdentityApi(options: Readonly<{
   });
 }
 
-export async function requireActorFromIdentityApi(options: Readonly<{
-  request: Request;
-  permission?: PermissionKey;
-  signInPath?: string;
-  identityApiBaseUrl?: string;
-  fetch?: typeof globalThis.fetch;
-}>): Promise<ResolvedActor> {
+export async function requireActorFromIdentityApi(
+  options: Readonly<{
+    request: Request;
+    permission?: PermissionKey;
+    signInPath?: string;
+    identityApiBaseUrl?: string;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): Promise<ResolvedActor> {
   return requireActorFromAuthApi({
     request: options.request,
     permission: options.permission,
     signInPath: options.signInPath,
-    authApiBaseUrl:
-      options.identityApiBaseUrl
-        ? new URL("/api/auth", `${options.identityApiBaseUrl}/`).toString().replace(/\/$/, "")
-        : resolveRequestApiBaseUrl(options.request, "/api/auth"),
+    authApiBaseUrl: options.identityApiBaseUrl
+      ? new URL("/api/auth", `${options.identityApiBaseUrl}/`).toString().replace(/\/$/, "")
+      : resolveRequestApiBaseUrl(options.request, "/api/auth"),
     fetch: options.fetch,
   });
 }

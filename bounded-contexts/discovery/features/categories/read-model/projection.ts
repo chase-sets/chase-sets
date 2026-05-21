@@ -1,10 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap } from "@chase-sets/localization";
-import {
-  createMarketplaceSlug,
-  rememberSlugRedirect,
-} from "../../../support/runtime-support/slugs";
+import { createMarketplaceSlug, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
 
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const ITEM_STREAM_PREFIX = "catalog.item-";
@@ -126,9 +123,7 @@ async function refreshCategoriesForItem(db: PgQueryable, itemId: string): Promis
     return;
   }
 
-  const categoryIds = Array.isArray(result.rows[0].category_ids)
-    ? (result.rows[0].category_ids as string[])
-    : [];
+  const categoryIds = Array.isArray(result.rows[0].category_ids) ? (result.rows[0].category_ids as string[]) : [];
 
   await Promise.all(categoryIds.map((categoryId) => refreshDiscoveryCategory(db, categoryId)));
 }

@@ -17,25 +17,11 @@ import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { PokemonReferenceIds } from "../../features/reference-data/api/seed";
 import { catalogSeedIds } from "../seed-support/ids";
 import { drainProjectors } from "../seed-support/context";
-import type {
-  BlueprintId,
-  CategoryId,
-  ComponentId,
-  DimensionId,
-  FieldId,
-  OptionId,
-} from "../../ids";
+import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 
-export async function seedCatalogDatabase(
-  pool: PgTransactionalPool,
-  _services?: unknown,
-  options?: BcSeedOptions,
-) {
+export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const services = createCatalogServices(pool);
-  const shouldSeedIntegrationProfile = profileEnabled(
-    options,
-    "catalog-integration-bootstrap",
-  );
+  const shouldSeedIntegrationProfile = profileEnabled(options, "catalog-integration-bootstrap");
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
 
   if (!shouldSeedIntegrationProfile && !shouldSeedScenarioData) {
@@ -77,19 +63,11 @@ export async function seedTcgdexCatalogIntegrationProfile(
 
   console.log("Seeding Pokemon TCG catalog integration structure...");
 
-  const [dimensions, fields] = await Promise.all([
-    seedDimensions(services),
-    seedFields(services),
-  ]);
+  const [dimensions, fields] = await Promise.all([seedDimensions(services), seedFields(services)]);
 
   const references = await seedReferenceData(services);
   const components = await seedComponents(services, dimensions, fields);
-  const blueprints = await seedBlueprints(
-    services,
-    components,
-    dimensions,
-    fields,
-  );
+  const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
   await drainProjectors("catalog", services.projectors);
 
@@ -115,13 +93,7 @@ async function seedCatalogScenarioData(
   }
 
   console.log("Seeding non-production Catalog scenario items...");
-  await seedCatalogItems(
-    services,
-    authoring.blueprints,
-    authoring.fields,
-    authoring.categories,
-    authoring.references,
-  );
+  await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references);
   await drainProjectors("catalog", services.projectors);
 }
 
@@ -138,11 +110,9 @@ function profileEnabled(
   options: BcSeedOptions | undefined,
   profile: "catalog-integration-bootstrap" | "scenario-seed",
 ) {
-  return (options?.enabledDataProfiles ?? [
-    "critical-bootstrap",
-    "catalog-integration-bootstrap",
-    "scenario-seed",
-  ]).includes(profile);
+  return (
+    options?.enabledDataProfiles ?? ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]
+  ).includes(profile);
 }
 
 async function tableHasRows(
@@ -230,25 +200,20 @@ function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
       "base-set": catalogSeedIds.referenceRecords.expansions.baseSet,
       jungle: catalogSeedIds.referenceRecords.expansions.jungle,
       "neo-genesis": catalogSeedIds.referenceRecords.expansions.neoGenesis,
-      "wizards-black-star-promos":
-        catalogSeedIds.referenceRecords.expansions.wizardsBlackStarPromos,
-      "prismatic-evolutions":
-        catalogSeedIds.referenceRecords.expansions.prismaticEvolutions,
+      "wizards-black-star-promos": catalogSeedIds.referenceRecords.expansions.wizardsBlackStarPromos,
+      "prismatic-evolutions": catalogSeedIds.referenceRecords.expansions.prismaticEvolutions,
       "surging-sparks": catalogSeedIds.referenceRecords.expansions.surgingSparks,
-      "twilight-masquerade":
-        catalogSeedIds.referenceRecords.expansions.twilightMasquerade,
+      "twilight-masquerade": catalogSeedIds.referenceRecords.expansions.twilightMasquerade,
     },
   };
   const components: ComponentIds = {
     "single-card-identity": catalogSeedIds.components.singleCardIdentity as ComponentId,
-    "single-card-product-resolution":
-      catalogSeedIds.components.singleCardProductResolution as ComponentId,
+    "single-card-product-resolution": catalogSeedIds.components.singleCardProductResolution as ComponentId,
     "sealed-product-identity": catalogSeedIds.components.sealedProductIdentity as ComponentId,
   };
   const blueprints: BlueprintIds = {
     "pokemon-card-single": catalogSeedIds.blueprints.pokemonCardSingle as BlueprintId,
-    "pokemon-sealed-product":
-      catalogSeedIds.blueprints.pokemonSealedProduct as BlueprintId,
+    "pokemon-sealed-product": catalogSeedIds.blueprints.pokemonSealedProduct as BlueprintId,
   };
   const categories: CategoryIds = {
     "pokemon-tcg": catalogSeedIds.categories.pokemonTcg as CategoryId,
@@ -256,8 +221,7 @@ function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
     "sealed-products": catalogSeedIds.categories.sealedProducts as CategoryId,
     "booster-packs": catalogSeedIds.categories.boosterPacks as CategoryId,
     "booster-boxes": catalogSeedIds.categories.boosterBoxes as CategoryId,
-    "elite-trainer-boxes":
-      catalogSeedIds.categories.eliteTrainerBoxes as CategoryId,
+    "elite-trainer-boxes": catalogSeedIds.categories.eliteTrainerBoxes as CategoryId,
     "by-generation": catalogSeedIds.categories.byGeneration as CategoryId,
     "gen-1": catalogSeedIds.categories.gen1 as CategoryId,
     "gen-2": catalogSeedIds.categories.gen2 as CategoryId,

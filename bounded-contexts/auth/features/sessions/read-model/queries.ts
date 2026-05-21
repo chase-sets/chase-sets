@@ -12,12 +12,7 @@ type ListResult<T> = Readonly<{
   total: number;
 }>;
 
-function buildFilteredQuery(
-  baseTable: string,
-  params: ListParams,
-  searchColumns: readonly string[],
-  orderBy: string,
-) {
+function buildFilteredQuery(baseTable: string, params: ListParams, searchColumns: readonly string[], orderBy: string) {
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
@@ -74,10 +69,7 @@ export type SessionRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listSessions(
-  db: PgQueryable,
-  params: ListParams = {},
-) {
+export async function listSessions(db: PgQueryable, params: ListParams = {}) {
   const query = buildFilteredQuery(
     "identity_sessions",
     params,
@@ -88,9 +80,6 @@ export async function listSessions(
 }
 
 export async function getSession(db: PgQueryable, sessionId: string) {
-  const result = await db.query<SessionRow>(
-    `SELECT * FROM identity_sessions WHERE session_id = $1`,
-    [sessionId],
-  );
+  const result = await db.query<SessionRow>(`SELECT * FROM identity_sessions WHERE session_id = $1`, [sessionId]);
   return result.rows[0] ?? null;
 }

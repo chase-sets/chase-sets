@@ -17,4 +17,3 @@ export default function MembershipsRoute() {
   const data = useLoaderData<typeof loader>();
   return <MembershipListPage initialData={data} />;
 }
-

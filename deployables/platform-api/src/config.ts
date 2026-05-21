@@ -96,10 +96,11 @@ export type PlatformApiBaseConfig = Readonly<{
   dataProfiles?: readonly EnvironmentDataProfile[];
 }>;
 
-export type PlatformApiBootstrapConfig = PlatformApiBaseConfig & Readonly<{
-  listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
-  platformAdmin: PlatformApiPlatformAdminConfig | null;
-}>;
+export type PlatformApiBootstrapConfig = PlatformApiBaseConfig &
+  Readonly<{
+    listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
+    platformAdmin: PlatformApiPlatformAdminConfig | null;
+  }>;
 
 export type PlatformApiPlatformAdminConfig = Readonly<{
   email: string;
@@ -146,18 +147,19 @@ export type PlatformApiRealtimeStreamLimiterConfig =
       leaseTtlSeconds?: number;
     }>;
 
-export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readonly<{
-  realtime: PlatformApiRealtimeConfig;
-  paymentProcessor: PlatformApiPaymentProcessorConfig;
-  moneyMovement: PlatformApiMoneyMovementConfig;
-  mobileMessaging: PlatformApiMobileMessagingConfig;
-  postage: PlatformApiPostageConfig;
-  socialLogin: PlatformApiSocialLoginConfig;
-  catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
-  listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
-  stripeGoLive: StripeGoLiveCheckReport;
-  ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
-}>;
+export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
+  Readonly<{
+    realtime: PlatformApiRealtimeConfig;
+    paymentProcessor: PlatformApiPaymentProcessorConfig;
+    moneyMovement: PlatformApiMoneyMovementConfig;
+    mobileMessaging: PlatformApiMobileMessagingConfig;
+    postage: PlatformApiPostageConfig;
+    socialLogin: PlatformApiSocialLoginConfig;
+    catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
+    listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
+    stripeGoLive: StripeGoLiveCheckReport;
+    ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
+  }>;
 
 export type PlatformApiMobileMessagingConfig =
   | Readonly<{ kind: "noop" }>
@@ -279,9 +281,7 @@ function loadDataProfiles(environmentName: string): readonly EnvironmentDataProf
     ]);
     for (const profile of explicitProfiles) {
       if (!allowedProfiles.has(profile as EnvironmentDataProfile)) {
-        throw new Error(
-          `PLATFORM_DATA_PROFILES contains unsupported data profile '${profile}'.`,
-        );
+        throw new Error(`PLATFORM_DATA_PROFILES contains unsupported data profile '${profile}'.`);
       }
     }
 
@@ -304,9 +304,7 @@ function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
   }
 
   if (!email || !password) {
-    throw new Error(
-      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.",
-    );
+    throw new Error("PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.");
   }
 
   return {
@@ -317,26 +315,18 @@ function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
   };
 }
 
-function loadCatalogAssetStorageConfig(
-  port: number,
-  productionLike: boolean,
-): PlatformApiCatalogAssetStorageConfig {
-  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ??
-    (productionLike ? "s3" : "filesystem");
+function loadCatalogAssetStorageConfig(port: number, productionLike: boolean): PlatformApiCatalogAssetStorageConfig {
+  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ?? (productionLike ? "s3" : "filesystem");
 
   if (kind === "filesystem") {
     if (productionLike) {
-      throw new Error(
-        "CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.",
-      );
+      throw new Error("CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.");
     }
 
     return {
       kind: "filesystem",
-      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ??
-        "artifacts/catalog-assets",
-      publicBaseUrl: getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ??
-        `http://localhost:${port}/catalog-assets`,
+      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ?? "artifacts/catalog-assets",
+      publicBaseUrl: getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ?? `http://localhost:${port}/catalog-assets`,
     };
   }
 
@@ -394,9 +384,9 @@ function loadListingPhotoStorageConfig(
 
     return {
       kind: "filesystem",
-      rootDir: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT") ??
-        "artifacts/marketplace-listing-photos",
-      publicBaseUrl: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL") ??
+      rootDir: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT") ?? "artifacts/marketplace-listing-photos",
+      publicBaseUrl:
+        getOptionalEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL") ??
         `http://localhost:${port}/marketplace-listing-photos`,
     };
   }
@@ -434,9 +424,7 @@ function loadListingPhotoStorageConfig(
   };
 }
 
-function loadUcpBusinessSigningKeys(
-  productionLike: boolean,
-): UcpBusinessSigningKeySet | undefined {
+function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigningKeySet | undefined {
   const privateJwk = getOptionalJsonEnv<JsonWebKey>("UCP_BUSINESS_SIGNING_PRIVATE_JWK");
   const kid = getOptionalEnv("UCP_BUSINESS_SIGNING_KEY_ID");
   const alg = getOptionalEnv("UCP_BUSINESS_SIGNING_ALG") ?? "ES256";
@@ -447,9 +435,7 @@ function loadUcpBusinessSigningKeys(
     return undefined;
   }
   if (!privateJwk || !kid) {
-    throw new Error(
-      "UCP_BUSINESS_SIGNING_PRIVATE_JWK and UCP_BUSINESS_SIGNING_KEY_ID must be configured together.",
-    );
+    throw new Error("UCP_BUSINESS_SIGNING_PRIVATE_JWK and UCP_BUSINESS_SIGNING_KEY_ID must be configured together.");
   }
   if (alg !== "ES256" && alg !== "ES384" && alg !== "ES512") {
     throw new Error("UCP_BUSINESS_SIGNING_ALG must be ES256, ES384, or ES512.");
@@ -484,9 +470,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     );
   }
   if (productionLike && !explicitControlDatabaseUrl) {
-    throw new Error(
-      "PLATFORM_CONTROL_DATABASE_URL is required for platform control-plane coordination in production.",
-    );
+    throw new Error("PLATFORM_CONTROL_DATABASE_URL is required for platform control-plane coordination in production.");
   }
   const contextDatabaseUrls = Object.fromEntries(
     platformApiContexts.flatMap((contextName) => {
@@ -529,28 +513,14 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       maxConsecutiveFullBatches: getPositiveNumberEnv("REALTIME_MAX_CONSECUTIVE_FULL_BATCHES", 3),
       maxTopicsPerStream: getPositiveNumberEnv("REALTIME_MAX_TOPICS_PER_STREAM", 16),
       maxActiveStreams: getPositiveNumberEnv("REALTIME_MAX_ACTIVE_STREAMS", 1_000),
-      maxActiveStreamsPerConnectionKey: getPositiveNumberEnv(
-        "REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY",
-        6,
-      ),
+      maxActiveStreamsPerConnectionKey: getPositiveNumberEnv("REALTIME_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY", 6),
       cursorSigningSecret: getOptionalEnv("REALTIME_CURSOR_SIGNING_SECRET") ?? undefined,
-      previousCursorSigningSecrets: getOptionalCsvEnv(
-        "REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS",
-      ),
+      previousCursorSigningSecrets: getOptionalCsvEnv("REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS"),
       streamLimiter: loadRealtimeStreamLimiterConfig(),
     },
-    paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv(
-      "PAYMENT_RECONCILIATION_INTERVAL_MS",
-      300_000,
-    ),
-    sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv(
-      "SELLER_FUNDS_RELEASE_INTERVAL_MS",
-      300_000,
-    ),
-    payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv(
-      "PAYOUT_RECONCILIATION_INTERVAL_MS",
-      300_000,
-    ),
+    paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
+    sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
+    payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
   };
@@ -559,18 +529,11 @@ function loadBaseConfig(): PlatformApiBaseConfig {
 export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
   const baseConfig = loadBaseConfig();
   const productionLike = isProductionDeployment();
-  const catalogAssetStorage = loadCatalogAssetStorageConfig(
-    baseConfig.port,
-    productionLike,
-  );
+  const catalogAssetStorage = loadCatalogAssetStorageConfig(baseConfig.port, productionLike);
 
   return {
     ...baseConfig,
-    listingPhotoStorage: loadListingPhotoStorageConfig(
-      baseConfig.port,
-      productionLike,
-      catalogAssetStorage,
-    ),
+    listingPhotoStorage: loadListingPhotoStorageConfig(baseConfig.port, productionLike, catalogAssetStorage),
     platformAdmin: loadPlatformAdminConfig(),
   };
 }
@@ -584,54 +547,39 @@ export function loadConfig(): PlatformApiConfig {
   const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
   const stripeApiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
   const stripeCheckoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
-  const stripeConnectReturnUrl =
-    getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
-  const stripeConnectRefreshUrl =
-    getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
+  const stripeConnectReturnUrl = getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
+  const stripeConnectRefreshUrl = getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
-  const easyPostMode =
-    getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
+  const easyPostMode = getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
   const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
   const googleSocialLoginClientSecret = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET");
   const facebookSocialLoginClientId = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_ID");
   const facebookSocialLoginClientSecret = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET");
   const mobileMessagingProvider = getOptionalEnv("MOBILE_MESSAGING_PROVIDER");
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
-  const twilioRequireWebhookSignature = getBooleanEnv(
-    "TWILIO_WEBHOOK_SIGNATURE_REQUIRED",
-    true,
-  );
+  const twilioRequireWebhookSignature = getBooleanEnv("TWILIO_WEBHOOK_SIGNATURE_REQUIRED", true);
   const productionLike = isProductionDeployment();
   const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
 
   if (
     productionLike &&
-    (baseConfig.realtime.streamLimiter.kind !== "postgres" ||
-      !baseConfig.realtime.wakeSignalEnabled)
+    (baseConfig.realtime.streamLimiter.kind !== "postgres" || !baseConfig.realtime.wakeSignalEnabled)
   ) {
     throw new Error(
       "REALTIME_STREAM_LIMITER=postgres, REALTIME_WAKE_SIGNAL_ENABLED=true, and PLATFORM_CONTROL_DATABASE_URL are required for horizontally scalable SSE in production.",
     );
   }
 
-  if (
-    productionLike &&
-    (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret)
-  ) {
+  if (productionLike && (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret)) {
     throw new Error(
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
     );
   }
   if (productionLike && !easyPostApiKey) {
-    throw new Error(
-      "EASYPOST_API_KEY is required for USPS postage label purchasing in production.",
-    );
+    throw new Error("EASYPOST_API_KEY is required for USPS postage label purchasing in production.");
   }
-  if (
-    productionLike &&
-    (!stripeConnectReturnUrl || !stripeConnectRefreshUrl)
-  ) {
+  if (productionLike && (!stripeConnectReturnUrl || !stripeConnectRefreshUrl)) {
     throw new Error(
       "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for hosted payout setup in production.",
     );
@@ -641,36 +589,19 @@ export function loadConfig(): PlatformApiConfig {
       `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     );
   }
-  if (
-    productionLike &&
-    Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)
-  ) {
-    throw new Error(
-      "GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.",
-    );
+  if (productionLike && Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)) {
+    throw new Error("GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.");
   }
-  if (
-    productionLike &&
-    Boolean(facebookSocialLoginClientId) !== Boolean(facebookSocialLoginClientSecret)
-  ) {
+  if (productionLike && Boolean(facebookSocialLoginClientId) !== Boolean(facebookSocialLoginClientSecret)) {
     throw new Error(
       "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID and FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.",
     );
   }
   if (mobileMessagingProvider === "twilio" && !twilioAuthToken) {
-    throw new Error(
-      "TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.",
-    );
+    throw new Error("TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.");
   }
-  const catalogAssetStorage = loadCatalogAssetStorageConfig(
-    baseConfig.port,
-    productionLike,
-  );
-  const listingPhotoStorage = loadListingPhotoStorageConfig(
-    baseConfig.port,
-    productionLike,
-    catalogAssetStorage,
-  );
+  const catalogAssetStorage = loadCatalogAssetStorageConfig(baseConfig.port, productionLike);
+  const listingPhotoStorage = loadListingPhotoStorageConfig(baseConfig.port, productionLike, catalogAssetStorage);
 
   const socialLogin: PlatformApiSocialLoginConfig = {
     ...(googleSocialLoginClientId && googleSocialLoginClientSecret
@@ -691,27 +622,29 @@ export function loadConfig(): PlatformApiConfig {
       : {}),
   };
 
-  const moneyMovement = stripeSecretKey && stripeWebhookSecret
-    ? {
-        kind: "stripe" as const,
-        secretKey: stripeSecretKey,
-        webhookSecret: stripeWebhookSecret,
-        apiBaseUrl: stripeApiBaseUrl,
-        onboardingReturnUrl: stripeConnectReturnUrl,
-        onboardingRefreshUrl: stripeConnectRefreshUrl,
-      }
-    : {
-        kind: "fake" as const,
-      };
-  const mobileMessaging = mobileMessagingProvider === "twilio"
-    ? {
-        kind: "twilio" as const,
-        authToken: twilioAuthToken as string,
-        requireWebhookSignature: twilioRequireWebhookSignature,
-      }
-    : {
-        kind: "noop" as const,
-      };
+  const moneyMovement =
+    stripeSecretKey && stripeWebhookSecret
+      ? {
+          kind: "stripe" as const,
+          secretKey: stripeSecretKey,
+          webhookSecret: stripeWebhookSecret,
+          apiBaseUrl: stripeApiBaseUrl,
+          onboardingReturnUrl: stripeConnectReturnUrl,
+          onboardingRefreshUrl: stripeConnectRefreshUrl,
+        }
+      : {
+          kind: "fake" as const,
+        };
+  const mobileMessaging =
+    mobileMessagingProvider === "twilio"
+      ? {
+          kind: "twilio" as const,
+          authToken: twilioAuthToken as string,
+          requireWebhookSignature: twilioRequireWebhookSignature,
+        }
+      : {
+          kind: "noop" as const,
+        };
 
   if (stripeSecretKey && stripePublishableKey && stripeWebhookSecret) {
     return {
@@ -745,8 +678,7 @@ export function loadConfig(): PlatformApiConfig {
         publishableKey: stripePublishableKey,
         webhookSecret: stripeWebhookSecret,
         apiBaseUrl: stripeApiBaseUrl,
-        checkoutUiMode:
-          stripeCheckoutUiMode === "hosted" ? "hosted" : "elements",
+        checkoutUiMode: stripeCheckoutUiMode === "hosted" ? "hosted" : "elements",
       },
     };
   }

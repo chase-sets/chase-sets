@@ -54,33 +54,73 @@ import type {
 function buildColumns(): DataColumn<CatalogItemListItem>[] {
   return [
     { key: "title", header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"), cell: (row) => row.title },
-    { key: "subtitle", header: t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle"), cell: (row) => row.subtitle ?? "—" },
-    { key: "language", header: t("catalog.features.catalogItems.ui.catalogItemListPage.language"), cell: (row) => formatLanguageCodeLabel(row.language_code) },
-    { key: "blueprint", header: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint"), cell: (row) => row.blueprint?.name ?? "—" },
+    {
+      key: "subtitle",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle"),
+      cell: (row) => row.subtitle ?? "—",
+    },
+    {
+      key: "language",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.language"),
+      cell: (row) => formatLanguageCodeLabel(row.language_code),
+    },
+    {
+      key: "blueprint",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint"),
+      cell: (row) => row.blueprint?.name ?? "—",
+    },
     {
       key: "source",
       header: t("catalog.features.catalogItems.ui.catalogItemListPage.source"),
-      cell: (row) => row.source_providers.length > 0 ? row.source_providers.join(", ") : "—",
+      cell: (row) => (row.source_providers.length > 0 ? row.source_providers.join(", ") : "—"),
     },
-    { key: "status", header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
+    {
+      key: "status",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"),
+      cell: (row) => <StatusPill>{row.status}</StatusPill>,
+    },
   ];
 }
 
 function buildBulkPreviewColumns(): DataColumn<BulkPublishCandidate>[] {
   return [
     { key: "title", header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"), cell: (row) => row.title },
-    { key: "source", header: t("catalog.features.catalogItems.ui.catalogItemListPage.source"), cell: (row) => row.source_providers.join(", ") || "—" },
-    { key: "status", header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"), cell: (row) => row.status },
-    { key: "outcome", header: t("catalog.features.catalogItems.ui.catalogItemListPage.result"), cell: (row) => <StatusPill>{row.outcome}</StatusPill> },
-    { key: "reason", header: t("catalog.features.catalogItems.ui.catalogItemListPage.reason"), cell: (row) => row.reason ?? "—" },
+    {
+      key: "source",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.source"),
+      cell: (row) => row.source_providers.join(", ") || "—",
+    },
+    {
+      key: "status",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"),
+      cell: (row) => row.status,
+    },
+    {
+      key: "outcome",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.result"),
+      cell: (row) => <StatusPill>{row.outcome}</StatusPill>,
+    },
+    {
+      key: "reason",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.reason"),
+      cell: (row) => row.reason ?? "—",
+    },
   ];
 }
 
 function buildBulkEditColumns(): DataColumn<BulkEditCatalogItemCandidate>[] {
   return [
     { key: "title", header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"), cell: (row) => row.title },
-    { key: "status", header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"), cell: (row) => row.status },
-    { key: "blueprint", header: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id"), cell: (row) => row.blueprint_id ?? "—" },
+    {
+      key: "status",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"),
+      cell: (row) => row.status,
+    },
+    {
+      key: "blueprint",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.blueprint.id"),
+      cell: (row) => row.blueprint_id ?? "—",
+    },
     {
       key: "categories",
       header: t("catalog.features.catalogItems.ui.catalogItemListPage.category.ids"),
@@ -91,17 +131,41 @@ function buildBulkEditColumns(): DataColumn<BulkEditCatalogItemCandidate>[] {
       header: t("catalog.features.catalogItems.ui.catalogItemListPage.tags"),
       cell: (row) => row.tags.join(", ") || "—",
     },
-    { key: "outcome", header: t("catalog.features.catalogItems.ui.catalogItemListPage.result"), cell: (row) => <StatusPill>{row.outcome}</StatusPill> },
-    { key: "reason", header: t("catalog.features.catalogItems.ui.catalogItemListPage.reason"), cell: (row) => row.reason ?? "—" },
+    {
+      key: "outcome",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.result"),
+      cell: (row) => <StatusPill>{row.outcome}</StatusPill>,
+    },
+    {
+      key: "reason",
+      header: t("catalog.features.catalogItems.ui.catalogItemListPage.reason"),
+      cell: (row) => row.reason ?? "—",
+    },
   ];
 }
 
 function buildBulkLifecycleColumns(): DataColumn<BulkLifecycleCandidate>[] {
   return [
-    { key: "label", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.record"), cell: (row) => row.label },
-    { key: "status", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.status"), cell: (row) => row.status },
-    { key: "outcome", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.outcome"), cell: (row) => <StatusPill>{row.outcome}</StatusPill> },
-    { key: "reason", header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.reason"), cell: (row) => row.reason ?? "—" },
+    {
+      key: "label",
+      header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.record"),
+      cell: (row) => row.label,
+    },
+    {
+      key: "status",
+      header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.status"),
+      cell: (row) => row.status,
+    },
+    {
+      key: "outcome",
+      header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.outcome"),
+      cell: (row) => <StatusPill>{row.outcome}</StatusPill>,
+    },
+    {
+      key: "reason",
+      header: t("catalog.support.shellSupport.ui.bulkLifecycleActions.reason"),
+      cell: (row) => row.reason ?? "—",
+    },
   ];
 }
 
@@ -133,18 +197,24 @@ const lifecycleActions = [
   { value: "archive", label: t("catalog.features.catalogItems.ui.catalogItemDetailPage.archive") },
 ];
 const bulkEditActions = [
-  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.assign.blueprint"), value: "assignBlueprint" },
-  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.assign.category"), value: "assignCategory" },
-  { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.remove.category"), value: "removeCategory" },
+  {
+    label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.assign.blueprint"),
+    value: "assignBlueprint",
+  },
+  {
+    label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.assign.category"),
+    value: "assignCategory",
+  },
+  {
+    label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.remove.category"),
+    value: "removeCategory",
+  },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.set.tags"), value: "setTags" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.merge.tags"), value: "mergeTags" },
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.clear.tags"), value: "clearTags" },
 ];
 
-type CatalogItemBulkOperation =
-  | "publish"
-  | "archive"
-  | BulkEditCatalogItemOperation["action"];
+type CatalogItemBulkOperation = "publish" | "archive" | BulkEditCatalogItemOperation["action"];
 
 const catalogItemBulkOperationOptions = [
   { label: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.publish"), value: "publish" },
@@ -153,12 +223,14 @@ const catalogItemBulkOperationOptions = [
 ];
 
 function isBulkEditOperation(action: CatalogItemBulkOperation): action is BulkEditCatalogItemOperation["action"] {
-  return action === "assignBlueprint"
-    || action === "assignCategory"
-    || action === "removeCategory"
-    || action === "setTags"
-    || action === "mergeTags"
-    || action === "clearTags";
+  return (
+    action === "assignBlueprint" ||
+    action === "assignCategory" ||
+    action === "removeCategory" ||
+    action === "setTags" ||
+    action === "mergeTags" ||
+    action === "clearTags"
+  );
 }
 
 function isLifecycleOperation(action: CatalogItemBulkOperation): action is "archive" {
@@ -187,11 +259,8 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     () => data.items.filter((item) => selectedKeys.has(item.catalog_item_id)),
     [data.items, selectedKeys],
   );
-  const selectedDraftIds = selectedItems
-    .filter((item) => item.status === "draft")
-    .map((item) => item.catalog_item_id);
-  const canRemoveSelectedDrafts =
-    selectedKeys.size > 0 && selectedDraftIds.length === selectedKeys.size;
+  const selectedDraftIds = selectedItems.filter((item) => item.status === "draft").map((item) => item.catalog_item_id);
+  const canRemoveSelectedDrafts = selectedKeys.size > 0 && selectedDraftIds.length === selectedKeys.size;
   const [bulkOperation, setBulkOperation] = useState<CatalogItemBulkOperation>("publish");
   const [bulkLifecycleSelection, setBulkLifecycleSelection] = useState<BulkLifecycleSelection | null>(null);
   const [bulkLifecyclePreview, setBulkLifecyclePreview] = useState<BulkLifecyclePreview | null>(null);
@@ -209,15 +278,19 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   const [bulkEditBusy, setBulkEditBusy] = useState(false);
   const bulkEditColumns = useMemo(() => buildBulkEditColumns(), []);
   const bulkEditRows = (bulkEditResult?.candidates ?? bulkEditPreview?.candidates ?? []).slice(0, 20);
-  const dialogBulkEditAction = bulkEditResult?.action ?? bulkEditPreview?.action ?? bulkEditOperation?.action ?? "assignBlueprint";
+  const dialogBulkEditAction =
+    bulkEditResult?.action ?? bulkEditPreview?.action ?? bulkEditOperation?.action ?? "assignBlueprint";
   const bulkEditActionLabel = getBulkEditActionLabel(dialogBulkEditAction);
-  const canPreviewBulkOperation = bulkOperation === "publish"
-    || isLifecycleOperation(bulkOperation)
-    || (isBulkEditOperation(bulkOperation) && canPreviewBulkEditAction(bulkOperation));
+  const canPreviewBulkOperation =
+    bulkOperation === "publish" ||
+    isLifecycleOperation(bulkOperation) ||
+    (isBulkEditOperation(bulkOperation) && canPreviewBulkEditAction(bulkOperation));
   const bulkOperationBusy = bulkBusy || bulkLifecycleBusy || bulkEditBusy;
-  const bulkLifecycleActionLabel = lifecycleActions.find((action) => action.value === (bulkLifecycleResult?.action ?? bulkLifecyclePreview?.action))?.label
-    ?? bulkLifecyclePreview?.action
-    ?? bulkOperation;
+  const bulkLifecycleActionLabel =
+    lifecycleActions.find((action) => action.value === (bulkLifecycleResult?.action ?? bulkLifecyclePreview?.action))
+      ?.label ??
+    bulkLifecyclePreview?.action ??
+    bulkOperation;
   const activeFilterCount = [
     listControls.search,
     listControls.status,
@@ -236,10 +309,12 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   }
 
   function canPreviewBulkEditAction(action: BulkEditCatalogItemOperation["action"]) {
-    return action === "clearTags"
-      || (action === "assignBlueprint" && bulkEditBlueprintId.trim().length > 0)
-      || ((action === "assignCategory" || action === "removeCategory") && bulkEditCategoryId.trim().length > 0)
-      || ((action === "setTags" || action === "mergeTags") && tagsFromInput(bulkEditTags).length > 0);
+    return (
+      action === "clearTags" ||
+      (action === "assignBlueprint" && bulkEditBlueprintId.trim().length > 0) ||
+      ((action === "assignCategory" || action === "removeCategory") && bulkEditCategoryId.trim().length > 0) ||
+      ((action === "setTags" || action === "mergeTags") && tagsFromInput(bulkEditTags).length > 0)
+    );
   }
 
   function getBulkOperationPreviewLabel(action: CatalogItemBulkOperation) {
@@ -445,9 +520,8 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
   }
 
   async function handlePreviewBulkOperation(scope: "selected" | "matching") {
-    const selection = scope === "selected"
-      ? { mode: "ids" as const, ids: [...selectedKeys] }
-      : { mode: "filter" as const, query };
+    const selection =
+      scope === "selected" ? { mode: "ids" as const, ids: [...selectedKeys] } : { mode: "filter" as const, query };
 
     if (bulkOperation === "publish") {
       await handlePreviewBulkPublish(
@@ -504,12 +578,14 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
 
   function renderBulkActionPanel(scope: "selected" | "matching") {
     const fields = isBulkEditOperation(bulkOperation) ? renderBulkEditFields(bulkOperation) : null;
-    const disabled = scope === "selected"
-      ? selectedKeys.size === 0 || !canPreviewBulkOperation
-      : data.total === 0 || !canPreviewBulkOperation;
-    const scopeDescription = scope === "selected"
-      ? t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count: selectedKeys.size })
-      : t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count: data.total });
+    const disabled =
+      scope === "selected"
+        ? selectedKeys.size === 0 || !canPreviewBulkOperation
+        : data.total === 0 || !canPreviewBulkOperation;
+    const scopeDescription =
+      scope === "selected"
+        ? t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count: selectedKeys.size })
+        : t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count: data.total });
 
     return (
       <BulkActionPanel
@@ -543,7 +619,9 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
     return (
       <BulkActionBar
         count={selectedKeys.size}
-        formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count })}
+        formatSelectedLabel={(count) =>
+          t("catalog.features.catalogItems.ui.catalogItemListPage.items.selected", { count })
+        }
         primaryActions={renderBulkActionPanel("selected")}
         secondaryActions={
           <>
@@ -551,9 +629,12 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
               open={showRemoveDrafts}
               onOpenChange={setShowRemoveDrafts}
               title={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items")}
-              description={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items.description", {
-                count: selectedDraftIds.length,
-              })}
+              description={t(
+                "catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items.description",
+                {
+                  count: selectedDraftIds.length,
+                },
+              )}
               confirmLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected")}
               cancelLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.cancel")}
               tone="danger"
@@ -603,7 +684,10 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
               value={listControls.language || ALL_LANGUAGES}
               onValueChange={(value) => listControls.setLanguage(value === ALL_LANGUAGES ? "" : value)}
               items={[
-                { label: t("catalog.features.catalogItems.ui.catalogItemListPage.all.languages"), value: ALL_LANGUAGES },
+                {
+                  label: t("catalog.features.catalogItems.ui.catalogItemListPage.all.languages"),
+                  value: ALL_LANGUAGES,
+                },
                 ...languageOptions,
               ]}
             />
@@ -654,10 +738,14 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         selectedKeys={selectedKeys}
         onSelectionChange={setSelectedKeys}
         bulkActionBar={
-          selectedKeys.size > 0 ? renderSelectedBulkActionBar() : data.total > 0 ? (
+          selectedKeys.size > 0 ? (
+            renderSelectedBulkActionBar()
+          ) : data.total > 0 ? (
             <BulkActionBar
               count={data.total}
-              formatSelectedLabel={(count) => t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count })}
+              formatSelectedLabel={(count) =>
+                t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count })
+              }
               primaryActions={renderBulkActionPanel("matching")}
             />
           ) : null
@@ -666,20 +754,40 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
         createButton={
-          <Button onClick={() => setShowCreate(true)}>{t("catalog.features.catalogItems.ui.catalogItemListPage.new.catalog.item")}</Button>
+          <Button onClick={() => setShowCreate(true)}>
+            {t("catalog.features.catalogItems.ui.catalogItemListPage.new.catalog.item")}
+          </Button>
         }
       />
       <Dialog
         open={showCreate}
         onOpenChange={setShowCreate}
         title={t("catalog.features.catalogItems.ui.catalogItemListPage.create.catalog.item")}
-        footer={<Button onClick={handleCreate}>{t("catalog.features.catalogItems.ui.catalogItemListPage.create")}</Button>}
+        footer={
+          <Button onClick={handleCreate}>{t("catalog.features.catalogItems.ui.catalogItemListPage.create")}</Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.title.2")} value={title} onChange={(e) => setTitle(e.target.value)} />
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle.optional")} value={subtitle} onChange={(e) => setSubtitle(e.target.value)} />
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.language.code")} value={languageCode} onChange={(e) => setLanguageCode(e.target.value)} />
-          <TextInput label={t("catalog.features.catalogItems.ui.catalogItemListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemListPage.title.2")}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle.optional")}
+            value={subtitle}
+            onChange={(e) => setSubtitle(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemListPage.language.code")}
+            value={languageCode}
+            onChange={(e) => setLanguageCode(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemListPage.description")}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
         </Stack>
       </Dialog>
       <Dialog
@@ -691,7 +799,11 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
             setBulkScopeLabel("");
           }
         }}
-        title={bulkResult ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.result") : t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.preview")}
+        title={
+          bulkResult
+            ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.result")
+            : t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.preview")
+        }
         description={
           bulkResult
             ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.result.description", {
@@ -709,18 +821,23 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         }
         footer={
           bulkResult ? (
-            <Button onClick={() => {
-              setBulkPreview(null);
-              setBulkResult(null);
-              setBulkScopeLabel("");
-            }}>{t("catalog.features.catalogItems.ui.catalogItemListPage.close")}</Button>
+            <Button
+              onClick={() => {
+                setBulkPreview(null);
+                setBulkResult(null);
+                setBulkScopeLabel("");
+              }}
+            >
+              {t("catalog.features.catalogItems.ui.catalogItemListPage.close")}
+            </Button>
           ) : (
             <Inline gap={2}>
               <Button
                 onClick={handleConfirmBulkPublish}
                 disabled={bulkBusy || !bulkPreview || bulkPreview.ready_count === 0}
               >
-                {t("catalog.features.catalogItems.ui.catalogItemListPage.publish.ready.items")}</Button>
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.publish.ready.items")}
+              </Button>
               <Button
                 tone="secondary"
                 onClick={() => {
@@ -728,7 +845,8 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
                   setBulkScopeLabel("");
                 }}
               >
-                {t("catalog.features.catalogItems.ui.catalogItemListPage.cancel")}</Button>
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.cancel")}
+              </Button>
             </Inline>
           )
         }
@@ -765,8 +883,12 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         }}
         title={
           bulkLifecycleResult
-            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.title", { action: bulkLifecycleActionLabel })
-            : t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.title", { action: bulkLifecycleActionLabel })
+            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.title", {
+                action: bulkLifecycleActionLabel,
+              })
+            : t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.title", {
+                action: bulkLifecycleActionLabel,
+              })
         }
         description={
           bulkLifecycleResult
@@ -811,7 +933,8 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
             density="compact"
             emptyTitle={t("catalog.support.shellSupport.ui.bulkLifecycleActions.no.records")}
           />
-          {(bulkLifecycleResult?.candidates.length ?? bulkLifecyclePreview?.candidates.length ?? 0) > bulkLifecycleRows.length && (
+          {(bulkLifecycleResult?.candidates.length ?? bulkLifecyclePreview?.candidates.length ?? 0) >
+            bulkLifecycleRows.length && (
             <Text tone="secondary">
               {t("catalog.support.shellSupport.ui.bulkLifecycleActions.truncated", {
                 shown: bulkLifecycleRows.length,
@@ -830,8 +953,12 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
         }}
         title={
           bulkEditResult
-            ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.result.title", { action: bulkEditActionLabel })
-            : t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.title", { action: bulkEditActionLabel })
+            ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.result.title", {
+                action: bulkEditActionLabel,
+              })
+            : t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.edit.preview.title", {
+                action: bulkEditActionLabel,
+              })
         }
         description={
           bulkEditResult
