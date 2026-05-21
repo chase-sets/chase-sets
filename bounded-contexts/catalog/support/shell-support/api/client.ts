@@ -49,6 +49,14 @@ export type CatalogBulkActionProgressOptions = Readonly<{
   onProgress?: (progress: CatalogBulkActionProgress) => void;
 }>;
 
+export type CatalogBulkReviewJob<T = unknown> = Readonly<{
+  jobId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: CatalogBulkActionProgress;
+  result: T | null;
+  errorMessage: string | null;
+}>;
+
 function queryFromString(query: string) {
   return Object.fromEntries(new URLSearchParams(query).entries());
 }
@@ -905,12 +913,19 @@ export function createCatalogApiClient({
       options: CatalogBulkActionProgressOptions = {},
     ): Promise<T> {
       if (options.onProgress) {
-        return streamBulkAction<T>({
+        const job = await startBulkJob<T>({
           baseUrl,
-          path: "/source-observations/bulk-promote/progress",
           fetch: configuredFetch,
           headers,
+          path: "/source-observations/bulk-promote/jobs",
           body: { observationIds },
+          errorMessage: "Bulk Source Observation promotion failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
           onProgress: options.onProgress,
           errorMessage: "Bulk Source Observation promotion failed.",
         });
@@ -934,12 +949,19 @@ export function createCatalogApiClient({
       options: CatalogBulkActionProgressOptions = {},
     ): Promise<T> {
       if (options.onProgress) {
-        return streamBulkAction<T>({
+        const job = await startBulkJob<T>({
           baseUrl,
-          path: "/source-observations/bulk-promote/progress",
           fetch: configuredFetch,
           headers,
+          path: "/source-observations/bulk-promote/jobs",
           body: { scope },
+          errorMessage: "Bulk Source Observation promotion failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
           onProgress: options.onProgress,
           errorMessage: "Bulk Source Observation promotion failed.",
         });
@@ -972,12 +994,19 @@ export function createCatalogApiClient({
       options: CatalogBulkActionProgressOptions = {},
     ): Promise<T> {
       if (options.onProgress) {
-        return streamBulkAction<T>({
+        const job = await startBulkJob<T>({
           baseUrl,
-          path: "/source-observations/bulk-reject/progress",
           fetch: configuredFetch,
           headers,
+          path: "/source-observations/bulk-reject/jobs",
           body: { observationIds, reason },
+          errorMessage: "Bulk Source Observation rejection failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
           onProgress: options.onProgress,
           errorMessage: "Bulk Source Observation rejection failed.",
         });
@@ -995,12 +1024,19 @@ export function createCatalogApiClient({
       options: CatalogBulkActionProgressOptions = {},
     ): Promise<T> {
       if (options.onProgress) {
-        return streamBulkAction<T>({
+        const job = await startBulkJob<T>({
           baseUrl,
-          path: "/source-observations/bulk-reject/progress",
           fetch: configuredFetch,
           headers,
+          path: "/source-observations/bulk-reject/jobs",
           body: { scope, reason },
+          errorMessage: "Bulk Source Observation rejection failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
           onProgress: options.onProgress,
           errorMessage: "Bulk Source Observation rejection failed.",
         });
@@ -1093,15 +1129,14 @@ async function streamImportTcgdexSet<T>(input: {
   return result;
 }
 
-async function streamBulkAction<T>(input: {
+async function startBulkJob<T>(input: {
   baseUrl: string;
   path: string;
   fetch: typeof globalThis.fetch;
   headers?: HeadersInit;
   body: unknown;
-  onProgress: (progress: CatalogBulkActionProgress) => void;
   errorMessage: string;
-}): Promise<T> {
+}): Promise<CatalogBulkReviewJob<T>> {
   const response = await input.fetch(
     `${input.baseUrl.replace(/\/$/, "")}${input.path}`,
     {
@@ -1119,8 +1154,35 @@ async function streamBulkAction<T>(input: {
     throw new ApiError(response.status, errorBody);
   }
 
+  return response.json() as Promise<CatalogBulkReviewJob<T>>;
+}
+
+async function streamBulkJob<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  jobId: string;
+  onProgress: (progress: CatalogBulkActionProgress) => void;
+  errorMessage: string;
+}): Promise<T> {
+  const response = await input.fetch(
+    `${input.baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(input.jobId)}/events`,
+    {
+      method: "GET",
+      headers: {
+        accept: "text/event-stream",
+        ...headersToRecord(input.headers),
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new ApiError(response.status, errorBody);
+  }
+
   if (!response.body) {
-    throw new Error(`${input.errorMessage} Progress stream was not available.`);
+    throw new Error(`${input.errorMessage} Status stream was not available.`);
   }
 
   const reader = response.body.getReader();
@@ -1139,23 +1201,19 @@ async function streamBulkAction<T>(input: {
         continue;
       }
 
-      const event = JSON.parse(line) as {
-        type?: string;
-        progress?: CatalogBulkActionProgress;
-        result?: T;
-        message?: string;
-      };
-
-      if (event.type === "progress" && event.progress) {
-        input.onProgress(event.progress);
+      if (!line.startsWith("data:")) {
+        continue;
       }
 
-      if (event.type === "result" && event.result) {
-        result = event.result;
+      const job = JSON.parse(line.slice("data:".length).trim()) as CatalogBulkReviewJob<T>;
+      input.onProgress(job.progress);
+
+      if (job.status === "completed" && job.result) {
+        result = job.result;
       }
 
-      if (event.type === "error") {
-        throw new Error(event.message ?? input.errorMessage);
+      if (job.status === "failed") {
+        throw new Error(job.errorMessage ?? input.errorMessage);
       }
     }
 

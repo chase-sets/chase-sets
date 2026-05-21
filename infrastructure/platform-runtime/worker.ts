@@ -1,8 +1,9 @@
 import {
   collectProjectors,
+  resetProjectionGroup,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
-  type ContextSubscriptionRunner,
+  type ContextProjectionGroup,
   type MountedContextRuntimeEntry,
 } from "@chase-sets/bounded-context-runtime";
 import type {
@@ -11,6 +12,7 @@ import type {
   BcProjector,
 } from "@chase-sets/bounded-context-module";
 import type { ProjectorRunResult } from "@chase-sets/event-core/projector";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type {
   PlatformControlPlane,
@@ -46,7 +48,7 @@ export type WorkerHostRuntime = Readonly<{
 
 export type WorkerRunner = Readonly<{
   name: string;
-  kind: "projector" | "subscription" | "job";
+  kind: "projector" | "projection-group" | "subscription" | "job";
   runOnce: () => Promise<ProjectorRunResult>;
 }>;
 
@@ -161,7 +163,7 @@ export function collectWorkerRunners(
         createProjectorRunner(entry.contextName, projector, index),
       ),
     ),
-    ...runtime.subscriptionRunners.map(createSubscriptionWorkerRunner),
+    ...runtime.projectionGroups.map(createProjectionGroupWorkerRunner),
   ];
 }
 
@@ -309,13 +311,48 @@ function createProjectorRunner(
   };
 }
 
-function createSubscriptionWorkerRunner(
-  runner: ContextSubscriptionRunner,
+function createProjectionGroupWorkerRunner(
+  group: ContextProjectionGroup,
 ): WorkerRunner {
+  let rebuildingRevision: number | null = null;
+
   return {
-    name: `${runner.targetContextName}.${runner.checkpointKey}`,
-    kind: "subscription",
-    runOnce: runner.runOnce,
+    name: `${group.targetContextName}.${group.projectionName}`,
+    kind: "projection-group",
+    runOnce: async () => {
+      try {
+        const status = await group.refreshStatus();
+        if (
+          status.revisionStale &&
+          rebuildingRevision !== group.projectionRevision
+        ) {
+          await resetProjectionGroup(group);
+          rebuildingRevision = group.projectionRevision;
+        }
+
+        let processed = 0;
+        let lastGlobalPosition = ZERO_GLOBAL_POSITION;
+
+        for (const runner of group.subscriptionRunners) {
+          const result = await runner.runOnce();
+          processed += result.processed;
+          lastGlobalPosition = result.lastGlobalPosition;
+        }
+
+        if (processed === 0) {
+          await group.markRevisionSynced();
+          rebuildingRevision = null;
+        }
+
+        return {
+          processed,
+          lastGlobalPosition,
+        };
+      } catch (error) {
+        rebuildingRevision = null;
+        throw error;
+      }
+    },
   };
 }
 

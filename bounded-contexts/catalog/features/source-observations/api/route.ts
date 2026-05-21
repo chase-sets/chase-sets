@@ -125,6 +125,21 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result);
   });
 
+  app.post("/bulk-promote/jobs", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+    };
+    const job = await services.enqueueBulkReviewJob({
+      action: "promote",
+      observationIds: parseObservationIds(body.observationIds),
+      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      context: c.get("context"),
+    });
+
+    return c.json(job, 202);
+  });
+
   app.post("/bulk-promote", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
@@ -156,28 +171,19 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       observationIds?: unknown;
       scope?: unknown;
     };
-    const context = c.get("context");
+    const job = await services.enqueueBulkReviewJob({
+      action: "promote",
+      observationIds: parseObservationIds(body.observationIds),
+      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      context: c.get("context"),
+    });
 
-    return streamBulkAction(async (write) => {
-      const onProgress = (progress: unknown) => write({ type: "progress", progress });
-
-      if (body.scope) {
-        return services.promoteObservationScope({
-          scope: parsePromotionScope(body.scope),
-          context,
-          onProgress,
-        });
-      }
-
-      const observationIds = Array.isArray(body.observationIds)
-        ? body.observationIds.map((observationId: unknown) => String(observationId))
-        : [];
-      return services.promoteObservations({
-        observationIds,
-        context,
-        onProgress,
-      });
-    }, "Bulk Source Observation promotion failed.");
+    return streamBulkJobNdjson(
+      services,
+      job.jobId,
+      "Bulk Source Observation promotion failed.",
+      c.req.raw.signal,
+    );
   });
 
   app.post("/bulk-reject", async (c) => {
@@ -216,6 +222,31 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result);
   });
 
+  app.post("/bulk-reject/jobs", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+      reason?: unknown;
+    };
+    const reason = String(body.reason ?? "").trim();
+
+    if (!reason) {
+      return c.json({
+        error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+      }, 400);
+    }
+
+    const job = await services.enqueueBulkReviewJob({
+      action: "reject",
+      observationIds: parseObservationIds(body.observationIds),
+      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      reason,
+      context: c.get("context"),
+    });
+
+    return c.json(job, 202);
+  });
+
   app.post("/bulk-reject/progress", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
@@ -231,29 +262,49 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     }
 
     const context = c.get("context");
+    const job = await services.enqueueBulkReviewJob({
+      action: "reject",
+      observationIds: parseObservationIds(body.observationIds),
+      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      reason,
+      context,
+    });
 
-    return streamBulkAction(async (write) => {
-      const onProgress = (progress: unknown) => write({ type: "progress", progress });
+    return streamBulkJobNdjson(
+      services,
+      job.jobId,
+      "Bulk Source Observation rejection failed.",
+      c.req.raw.signal,
+    );
+  });
 
-      if (body.scope) {
-        return services.rejectObservationScope({
-          scope: parsePromotionScope(body.scope),
-          reason,
-          context,
-          onProgress,
-        });
-      }
+  app.get("/bulk-jobs/:jobId", async (c) => {
+    const job = await services.getBulkReviewJob(c.req.param("jobId"));
+    if (!job) {
+      return c.json({
+        error: {
+          code: "not_found",
+          message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+        },
+      }, 404);
+    }
 
-      const observationIds = Array.isArray(body.observationIds)
-        ? body.observationIds.map((observationId: unknown) => String(observationId))
-        : [];
-      return services.rejectObservations({
-        observationIds,
-        reason,
-        context,
-        onProgress,
-      });
-    }, "Bulk Source Observation rejection failed.");
+    return c.json(job);
+  });
+
+  app.get("/bulk-jobs/:jobId/events", async (c) => {
+    const jobId = c.req.param("jobId");
+    const job = await services.getBulkReviewJob(jobId);
+    if (!job) {
+      return c.json({
+        error: {
+          code: "not_found",
+          message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+        },
+      }, 404);
+    }
+
+    return streamBulkJobEvents(services, jobId, c.req.raw.signal);
   });
 
   app.get("/:id", async (c) => {
@@ -316,29 +367,71 @@ function stringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function streamBulkAction<T>(
-  run: (write: (event: unknown) => void) => Promise<T>,
+function parseObservationIds(input: unknown): string[] {
+  return Array.isArray(input)
+    ? input.map((observationId: unknown) => String(observationId))
+    : [];
+}
+
+function streamBulkJobNdjson(
+  services: SourceObservationServices,
+  jobId: string,
   fallbackMessage: string,
+  signal?: AbortSignal,
 ) {
   const encoder = new TextEncoder();
+  let closed = false;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const write = (event: unknown) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
+      let lastProgress = "";
 
       try {
-        const result = await run(write);
-        write({ type: "result", result });
-      } catch (error) {
-        write({
-          type: "error",
-          message: error instanceof Error ? error.message : fallbackMessage,
-        });
+        for (;;) {
+          if (signal?.aborted || closed) {
+            break;
+          }
+
+          const job = await services.getBulkReviewJob(jobId);
+          if (!job) {
+            write({
+              type: "error",
+              message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+            });
+            break;
+          }
+
+          const progressKey = JSON.stringify(job.progress);
+          if (progressKey !== lastProgress) {
+            write({ type: "progress", progress: job.progress, jobId });
+            lastProgress = progressKey;
+          }
+
+          if (job.status === "completed") {
+            if (job.result) {
+              write({ type: "result", result: job.result, jobId });
+            } else {
+              write({ type: "error", message: fallbackMessage, jobId });
+            }
+            break;
+          }
+
+          if (job.status === "failed") {
+            write({ type: "error", message: job.errorMessage ?? fallbackMessage, jobId });
+            break;
+          }
+
+          await sleep(500);
+        }
       } finally {
         controller.close();
       }
+    },
+    cancel() {
+      closed = true;
     },
   });
 
@@ -349,4 +442,71 @@ function streamBulkAction<T>(
       "cache-control": "no-store",
     },
   });
+}
+
+function streamBulkJobEvents(
+  services: SourceObservationServices,
+  jobId: string,
+  signal?: AbortSignal,
+) {
+  const encoder = new TextEncoder();
+  let closed = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (event: string, data: unknown) => {
+        controller.enqueue(
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+        );
+      };
+      let lastStatus = "";
+
+      try {
+        for (;;) {
+          if (signal?.aborted || closed) {
+            break;
+          }
+
+          const job = await services.getBulkReviewJob(jobId);
+          if (!job) {
+            write("error", {
+              message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+              jobId,
+            });
+            break;
+          }
+
+          const statusKey = JSON.stringify(job);
+          if (statusKey !== lastStatus) {
+            write("status", job);
+            lastStatus = statusKey;
+          }
+
+          if (job.status === "completed" || job.status === "failed") {
+            break;
+          }
+
+          await sleep(500);
+        }
+      } finally {
+        controller.close();
+      }
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-store",
+      connection: "keep-alive",
+    },
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

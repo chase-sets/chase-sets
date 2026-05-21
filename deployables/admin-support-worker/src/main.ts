@@ -5,6 +5,7 @@ import {
   collectWorkerRunners,
   createWorkerHost,
   createWorkerRunnerLoop,
+  type WorkerRunner,
 } from "@chase-sets/platform-runtime/worker";
 import {
   bootstrapPlatformControlPlane,
@@ -27,7 +28,10 @@ const controlPlane = createPostgresPlatformControlPlane(pools.control);
 const runtime = createWorkerHost(workerContextRegistry, "admin-support-worker", {
   pools,
 });
-const runners = collectWorkerRunners(runtime);
+const runners = [
+  ...collectWorkerRunners(runtime),
+  ...createCatalogBulkJobRunners(runtime.services, config),
+];
 const runnerLoop = createWorkerRunnerLoop({
   workerId: config.workerId,
   controlPlane,
@@ -99,4 +103,40 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
       .finally(() => observability.shutdown())
       .finally(() => process.exit(0));
   });
+}
+
+function createCatalogBulkJobRunners(
+  services: Readonly<Record<string, unknown>>,
+  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+): readonly WorkerRunner[] {
+  const catalog = services.catalog as
+    | {
+        sourceObservations?: {
+          processNextBulkReviewJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const processNextBulkReviewJob =
+    catalog?.sourceObservations?.processNextBulkReviewJob;
+
+  if (!processNextBulkReviewJob) {
+    return [];
+  }
+
+  return [
+    {
+      name: "catalog.source-observation-bulk-jobs",
+      kind: "job",
+      runOnce: async () => ({
+        processed: await processNextBulkReviewJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+        }),
+        lastGlobalPosition: "0" as never,
+      }),
+    },
+  ];
 }

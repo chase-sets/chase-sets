@@ -167,6 +167,7 @@ export const englishTranslations = {
   "catalog.features.referenceData.ui.referenceTypeListPage.reference.types": "Reference Types",
   "catalog.features.referenceData.ui.referenceTypeListPage.status": "Status",
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
+  "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
   "catalog.features.sourceObservations.ui.detail.card.illustrator": "Card Illustrator",
   "catalog.features.sourceObservations.ui.detail.card.image": "Card image",
   "catalog.features.sourceObservations.ui.detail.card.number": "Card Number",

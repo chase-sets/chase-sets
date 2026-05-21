@@ -75,11 +75,36 @@ export type BulkSourceObservationPromotionResult = Readonly<{
 }>;
 
 export type BulkSourceObservationProgress = Readonly<{
-  phase: "processing" | "completed";
+  phase: "queued" | "processing" | "completed" | "failed";
   completed: number;
   total: number;
   currentName: string | null;
   status: BulkSourceObservationPromotionOutcome["status"] | null;
+}>;
+
+export type SourceObservationBulkJobAction = "promote" | "reject";
+
+export type SourceObservationBulkJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed";
+
+export type SourceObservationBulkJob = Readonly<{
+  jobId: string;
+  action: SourceObservationBulkJobAction;
+  selectionMode: "ids" | "filter";
+  observationIds: readonly string[];
+  scope: SourceObservationFilterScope;
+  reason: string | null;
+  status: SourceObservationBulkJobStatus;
+  progress: BulkSourceObservationProgress;
+  result: BulkSourceObservationPromotionResult | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
 }>;
 
 export type SourceObservationIntegrationOption = Readonly<{
@@ -153,6 +178,20 @@ export type SourceObservationServices = Readonly<{
     reason: string;
     context: EventStoreContext;
   }) => Promise<{ observationId: string; status: "rejected" }>;
+  enqueueBulkReviewJob: (input: {
+    action: SourceObservationBulkJobAction;
+    observationIds?: readonly string[];
+    scope?: SourceObservationFilterScope;
+    reason?: string | null;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationBulkJob>;
+  getBulkReviewJob: (
+    jobId: string,
+  ) => Promise<SourceObservationBulkJob | null>;
+  processNextBulkReviewJob: (input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+  }) => Promise<number>;
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
@@ -401,6 +440,110 @@ export function createSourceObservationRuntime(
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
 
+  async function enqueueBulkReviewJob(input: {
+    action: SourceObservationBulkJobAction;
+    observationIds?: readonly string[];
+    scope?: SourceObservationFilterScope;
+    reason?: string | null;
+    context: EventStoreContext;
+  }): Promise<SourceObservationBulkJob> {
+    const observationIds = uniqueObservationIds(input.observationIds ?? []);
+    const selectionMode = observationIds.length > 0 ? "ids" : "filter";
+    const scope = selectionMode === "filter" ? normalizeBulkJobScope(input.scope ?? {}) : {};
+    const jobId = createId("job");
+    const progress = bulkProgress(0, 0, null, null, "queued");
+
+    await deps.db.query(
+      `INSERT INTO catalog_source_observation_bulk_jobs (
+         job_id,
+         action,
+         selection_mode,
+         observation_ids,
+         scope,
+         reason,
+         event_context,
+         status,
+         progress,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb, 'queued', $8::jsonb, now(), now())`,
+      [
+        jobId,
+        input.action,
+        selectionMode,
+        JSON.stringify(observationIds),
+        JSON.stringify(scope),
+        input.reason?.trim() || null,
+        JSON.stringify(input.context),
+        JSON.stringify(progress),
+      ],
+    );
+
+    const job = await getBulkReviewJob(deps.db, jobId);
+    if (!job) {
+      throw new Error("Bulk review job was not created.");
+    }
+
+    return job;
+  }
+
+  async function processNextBulkReviewJob(input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+  }): Promise<number> {
+    const claimed = await claimNextBulkReviewJob(deps.db, input);
+    if (!claimed) {
+      return 0;
+    }
+
+    try {
+      const context = claimed.eventContext;
+      let progressWrite = Promise.resolve();
+      const progressHandler = (progress: BulkSourceObservationProgress) => {
+        progressWrite = progressWrite.then(() =>
+          updateBulkReviewJobProgress(deps.db, claimed.jobId, progress, input.claimTtlMs),
+        );
+      };
+      const result =
+        claimed.action === "promote"
+          ? claimed.selectionMode === "ids"
+            ? await promoteObservationIds({
+                observationIds: claimed.observationIds,
+                context,
+                onProgress: progressHandler,
+              })
+            : await promoteObservationIds({
+                observationIds: await listSourceObservationIdsForPromotion(deps.db, claimed.scope),
+                context,
+                onProgress: progressHandler,
+              })
+          : claimed.selectionMode === "ids"
+            ? await rejectObservationIds({
+                observationIds: claimed.observationIds,
+                reason: claimed.reason ?? "Rejected during review.",
+                context,
+                onProgress: progressHandler,
+              })
+            : await rejectObservationIds({
+                observationIds: await listSourceObservationIdsForPromotion(deps.db, claimed.scope),
+                reason: claimed.reason ?? "Rejected during review.",
+                context,
+                onProgress: progressHandler,
+              });
+
+      await progressWrite;
+      await completeBulkReviewJob(deps.db, claimed.jobId, result);
+      return 1;
+    } catch (error) {
+      await failBulkReviewJob(
+        deps.db,
+        claimed.jobId,
+        error instanceof Error ? error.message : "Bulk review job failed.",
+      );
+      return 1;
+    }
+  }
+
   return {
     commandHandler,
     importTcgdexSet: async ({ languageCode, setId, context, onProgress }) => {
@@ -499,6 +642,9 @@ export function createSourceObservationRuntime(
 
       return { observationId, status: "rejected" };
     },
+    enqueueBulkReviewJob,
+    getBulkReviewJob: (jobId) => getBulkReviewJob(deps.db, jobId),
+    processNextBulkReviewJob,
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) =>
       listSourceObservationIntegrationScopes(deps.db, params),
@@ -1266,6 +1412,222 @@ function localizedJsonText(value: string): JsonObject {
 
 function sourceObservationStreamId(observationId: string): string {
   return `catalog.source-observation-${observationId}`;
+}
+
+type SourceObservationBulkJobRow = Readonly<{
+  job_id: string;
+  action: SourceObservationBulkJobAction;
+  selection_mode: "ids" | "filter";
+  observation_ids: unknown;
+  scope: unknown;
+  reason: string | null;
+  event_context: unknown;
+  status: SourceObservationBulkJobStatus;
+  progress: unknown;
+  result: unknown;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+}>;
+
+type ClaimedSourceObservationBulkJob = SourceObservationBulkJob & Readonly<{
+  eventContext: EventStoreContext;
+}>;
+
+async function getBulkReviewJob(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+): Promise<SourceObservationBulkJob | null> {
+  const result = await db.query<SourceObservationBulkJobRow>(
+    `SELECT
+       job_id,
+       action,
+       selection_mode,
+       observation_ids,
+       scope,
+       reason,
+       event_context,
+       status,
+       progress,
+       result,
+       error_message,
+       created_at::text,
+       started_at::text,
+       completed_at::text,
+       updated_at::text
+     FROM catalog_source_observation_bulk_jobs
+     WHERE job_id = $1`,
+    [jobId],
+  );
+
+  return result.rows[0] ? mapBulkReviewJobRow(result.rows[0]) : null;
+}
+
+async function claimNextBulkReviewJob(
+  db: CatalogRuntimeDeps["db"],
+  input: { claimOwnerId: string; claimTtlMs: number },
+): Promise<ClaimedSourceObservationBulkJob | null> {
+  const result = await db.query<SourceObservationBulkJobRow>(
+    `WITH next_job AS (
+       SELECT job_id
+       FROM catalog_source_observation_bulk_jobs
+       WHERE status = 'queued'
+          OR (status = 'running' AND claim_expires_at < now())
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE catalog_source_observation_bulk_jobs AS job
+     SET
+       status = 'running',
+       claim_owner_id = $1,
+       claim_expires_at = now() + ($2::integer * interval '1 millisecond'),
+       started_at = coalesce(job.started_at, now()),
+       updated_at = now()
+     FROM next_job
+     WHERE job.job_id = next_job.job_id
+     RETURNING
+       job.job_id,
+       job.action,
+       job.selection_mode,
+       job.observation_ids,
+       job.scope,
+       job.reason,
+       job.event_context,
+       job.status,
+       job.progress,
+       job.result,
+       job.error_message,
+       job.created_at::text,
+       job.started_at::text,
+       job.completed_at::text,
+       job.updated_at::text`,
+    [input.claimOwnerId, Math.max(1_000, Math.floor(input.claimTtlMs))],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...mapBulkReviewJobRow(row),
+    eventContext: parseJsonField<EventStoreContext>(row.event_context, "event_context"),
+  };
+}
+
+async function updateBulkReviewJobProgress(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  progress: BulkSourceObservationProgress,
+  claimTtlMs: number,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_bulk_jobs
+     SET
+       progress = $2::jsonb,
+       claim_expires_at = now() + ($3::integer * interval '1 millisecond'),
+       updated_at = now()
+     WHERE job_id = $1
+       AND status = 'running'`,
+    [jobId, JSON.stringify(progress), Math.max(1_000, Math.floor(claimTtlMs))],
+  );
+}
+
+async function completeBulkReviewJob(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  result: BulkSourceObservationPromotionResult,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_bulk_jobs
+     SET
+       status = 'completed',
+       progress = $2::jsonb,
+       result = $3::jsonb,
+       error_message = NULL,
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       completed_at = now(),
+       updated_at = now()
+     WHERE job_id = $1`,
+    [
+      jobId,
+      JSON.stringify(bulkProgress(result.requested, result.requested, null, null, "completed")),
+      JSON.stringify(result),
+    ],
+  );
+}
+
+async function failBulkReviewJob(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  message: string,
+): Promise<void> {
+  const current = await getBulkReviewJob(db, jobId);
+  const progress = {
+    ...(current?.progress ?? bulkProgress(0, 0)),
+    phase: "failed" as const,
+  };
+  await db.query(
+    `UPDATE catalog_source_observation_bulk_jobs
+     SET
+       status = 'failed',
+       progress = $2::jsonb,
+       error_message = $3,
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       completed_at = now(),
+       updated_at = now()
+     WHERE job_id = $1`,
+    [jobId, JSON.stringify(progress), message],
+  );
+}
+
+function mapBulkReviewJobRow(row: SourceObservationBulkJobRow): SourceObservationBulkJob {
+  return {
+    jobId: row.job_id,
+    action: row.action,
+    selectionMode: row.selection_mode,
+    observationIds: parseJsonField<string[]>(row.observation_ids, "observation_ids"),
+    scope: normalizeBulkJobScope(parseJsonField<SourceObservationFilterScope>(row.scope, "scope")),
+    reason: row.reason,
+    status: row.status,
+    progress: parseJsonField<BulkSourceObservationProgress>(row.progress, "progress"),
+    result: row.result
+      ? parseJsonField<BulkSourceObservationPromotionResult>(row.result, "result")
+      : null,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function parseJsonField<T>(value: unknown, fieldName: string): T {
+  if (typeof value === "string") {
+    return JSON.parse(value) as T;
+  }
+
+  if (value && typeof value === "object") {
+    return value as T;
+  }
+
+  throw new Error(`Bulk review job ${fieldName} is not valid JSON.`);
+}
+
+function normalizeBulkJobScope(
+  scope: SourceObservationFilterScope,
+): SourceObservationFilterScope {
+  return {
+    search: scope.search?.trim() || undefined,
+    status: scope.status?.trim() || undefined,
+    provider: scope.provider?.trim() || undefined,
+    language: scope.language?.trim() || undefined,
+    setId: scope.setId?.trim() || undefined,
+  };
 }
 
 function uniqueObservationIds(observationIds: readonly string[]): string[] {
