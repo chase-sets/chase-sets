@@ -37,6 +37,7 @@ describe("health routes", () => {
         initializedGroups: 1,
         caughtUpGroups: 1,
         behindGroups: 0,
+        staleGroups: 0,
         runningGroups: 0,
         errorGroups: 0,
         contexts: [],

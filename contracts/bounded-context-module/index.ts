@@ -69,6 +69,7 @@ export type BcEventSubscriptionDeclaration = Readonly<{
 
 export type BcProjectionGroupDeclaration = Readonly<{
   readonly projectionName: string;
+  readonly projectionRevision?: number;
   readonly sourceContextNames: readonly string[];
   readonly ownedTables: readonly string[];
   readonly requiredDuringBootstrap?: boolean;

@@ -40,6 +40,7 @@ describe("platform api app", () => {
               initializedGroups: 0,
               caughtUpGroups: 0,
               behindGroups: 0,
+              staleGroups: 0,
               runningGroups: 0,
               errorGroups: 0,
               contexts: [],

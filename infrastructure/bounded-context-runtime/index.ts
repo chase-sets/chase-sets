@@ -29,6 +29,7 @@ import {
 const RETRY_DELAY_MS = 1_000;
 const MAX_RETRIES = 30;
 const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
+const PROJECTION_GROUP_REVISIONS_TABLE = "event_projection_group_revisions";
 const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export const allEnvironmentDataProfiles: readonly EnvironmentDataProfile[] = [
@@ -69,7 +70,15 @@ export const eventSubscriptionSchemaSql = `CREATE TABLE IF NOT EXISTS ${SUBSCRIP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS ${SUBSCRIPTION_CHECKPOINTS_TABLE}_projection_source_version_idx
-  ON ${SUBSCRIPTION_CHECKPOINTS_TABLE} (projection_name, source_context_name, subscription_version);`;
+  ON ${SUBSCRIPTION_CHECKPOINTS_TABLE} (projection_name, source_context_name, subscription_version);
+
+CREATE TABLE IF NOT EXISTS ${PROJECTION_GROUP_REVISIONS_TABLE} (
+  target_context_name text NOT NULL,
+  projection_name text NOT NULL,
+  projection_revision integer NOT NULL CHECK (projection_revision >= 1),
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (target_context_name, projection_name)
+);`;
 
 export type SubscriptionReplayState = "idle" | "running" | "caught-up" | "error";
 
@@ -91,6 +100,9 @@ export type ContextSubscriptionStatus = Readonly<{
 
 export type ContextProjectionGroupStatus = Readonly<{
   projectionName: string;
+  projectionRevision: number;
+  storedProjectionRevision: number | null;
+  revisionStale: boolean;
   targetContextName: string;
   sourceContextNames: readonly string[];
   ownedTables: readonly string[];
@@ -110,6 +122,7 @@ export type ProjectionReplayContextSummary = Readonly<{
   initializedGroups: number;
   caughtUpGroups: number;
   behindGroups: number;
+  staleGroups: number;
   runningGroups: number;
   errorGroups: number;
 }>;
@@ -121,6 +134,7 @@ export type ProjectionReplaySummary = Readonly<{
   initializedGroups: number;
   caughtUpGroups: number;
   behindGroups: number;
+  staleGroups: number;
   runningGroups: number;
   errorGroups: number;
   contexts: readonly ProjectionReplayContextSummary[];
@@ -128,6 +142,10 @@ export type ProjectionReplaySummary = Readonly<{
 
 type SubscriptionCheckpointRow = Readonly<{
   last_global_position: string | number | bigint;
+}>;
+
+type ProjectionGroupRevisionRow = Readonly<{
+  projection_revision: string | number | bigint;
 }>;
 
 function assertSqlIdentifier(identifier: string): string {
@@ -138,6 +156,16 @@ function assertSqlIdentifier(identifier: string): string {
   }
 
   return identifier;
+}
+
+function assertProjectionRevision(value: number | undefined): number {
+  const revision = value ?? 1;
+
+  if (!Number.isInteger(revision) || revision < 1) {
+    throw new Error("projectionRevision must be a positive integer.");
+  }
+
+  return revision;
 }
 
 function createCheckpointKey(
@@ -198,6 +226,53 @@ async function saveSubscriptionCheckpoint(
       subscription.sourceContextName,
       subscription.subscriptionVersion,
       lastGlobalPosition,
+    ],
+  );
+}
+
+async function loadProjectionGroupRevision(
+  db: PgTransactionalPool,
+  targetContextName: string,
+  projectionName: string,
+): Promise<number | null> {
+  const result = await db.query<ProjectionGroupRevisionRow>(
+    `SELECT projection_revision
+     FROM ${PROJECTION_GROUP_REVISIONS_TABLE}
+     WHERE target_context_name = $1
+       AND projection_name = $2`,
+    [targetContextName, projectionName],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  const revision = Number(row.projection_revision);
+  return assertProjectionRevision(revision);
+}
+
+async function saveProjectionGroupRevision(
+  db: PgTransactionalPool,
+  targetContextName: string,
+  projectionName: string,
+  projectionRevision: number,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO ${PROJECTION_GROUP_REVISIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       projection_revision,
+       updated_at
+     ) VALUES ($1, $2, $3, now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       projection_revision = EXCLUDED.projection_revision,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      targetContextName,
+      projectionName,
+      assertProjectionRevision(projectionRevision),
     ],
   );
 }
@@ -294,6 +369,7 @@ export type ContextSubscriptionRunner = Readonly<{
 
 export type ContextProjectionGroup = Readonly<{
   projectionName: string;
+  projectionRevision: number;
   targetContextName: string;
   sourceContextNames: readonly string[];
   ownedTables: readonly string[];
@@ -302,6 +378,8 @@ export type ContextProjectionGroup = Readonly<{
   subscriptionRunners: readonly ContextSubscriptionRunner[];
   reset: () => Promise<void>;
   getStatus: () => ContextProjectionGroupStatus;
+  refreshStatus: () => Promise<ContextProjectionGroupStatus>;
+  markRevisionSynced: () => Promise<void>;
 }>;
 
 export type MountedContextRuntimeEntry = Readonly<{
@@ -589,9 +667,21 @@ function resolveContextProjectionGroups(
 
     const sourceContextNames = [...new Set(group.sourceContextNames)];
     const ownedTables = [...new Set(group.ownedTables)];
+    const projectionRevision = assertProjectionRevision(group.projectionRevision);
+    const revisionState: {
+      storedProjectionRevision: number | null;
+      updatedAt: string;
+    } = {
+      storedProjectionRevision: null,
+      updatedAt: new Date(0).toISOString(),
+    };
+    const revisionStale = () =>
+      revisionState.storedProjectionRevision !== null &&
+      revisionState.storedProjectionRevision !== projectionRevision;
 
     return {
       projectionName: group.projectionName,
+      projectionRevision,
       targetContextName: entry.contextName,
       sourceContextNames,
       ownedTables,
@@ -601,6 +691,9 @@ function resolveContextProjectionGroups(
       reset: group.reset ?? createDefaultProjectionGroupReset(entry.pool, ownedTables),
       getStatus: () => ({
         projectionName: group.projectionName,
+        projectionRevision,
+        storedProjectionRevision: revisionState.storedProjectionRevision,
+        revisionStale: revisionStale(),
         targetContextName: entry.contextName,
         sourceContextNames,
         ownedTables,
@@ -609,9 +702,43 @@ function resolveContextProjectionGroups(
         caughtUp: sourceContextNames.length === 0,
         state: "caught-up",
         lastError: null,
-        updatedAt: new Date(0).toISOString(),
+        updatedAt: revisionState.updatedAt,
         subscriptions: [],
       }),
+      refreshStatus: async () => {
+        revisionState.storedProjectionRevision = await loadProjectionGroupRevision(
+          entry.pool,
+          entry.contextName,
+          group.projectionName,
+        );
+        revisionState.updatedAt = new Date().toISOString();
+        return {
+          projectionName: group.projectionName,
+          projectionRevision,
+          storedProjectionRevision: revisionState.storedProjectionRevision,
+          revisionStale: revisionStale(),
+          targetContextName: entry.contextName,
+          sourceContextNames,
+          ownedTables,
+          requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
+          initialized: sourceContextNames.length === 0,
+          caughtUp: sourceContextNames.length === 0,
+          state: "caught-up",
+          lastError: null,
+          updatedAt: revisionState.updatedAt,
+          subscriptions: [],
+        };
+      },
+      markRevisionSynced: async () => {
+        await saveProjectionGroupRevision(
+          entry.pool,
+          entry.contextName,
+          group.projectionName,
+          projectionRevision,
+        );
+        revisionState.storedProjectionRevision = projectionRevision;
+        revisionState.updatedAt = new Date().toISOString();
+      },
     };
   });
 }
@@ -673,6 +800,7 @@ export function resolveModuleProjectionGroups(
         ...group,
         subscriptionRunners: groupRunners,
         getStatus: () => {
+          const baseStatus = group.getStatus();
           const subscriptions = groupRunners.map((runner) => runner.getStatus());
           const initialized =
             subscriptions.length > 0 &&
@@ -704,6 +832,9 @@ export function resolveModuleProjectionGroups(
 
           return {
             projectionName: group.projectionName,
+            projectionRevision: group.projectionRevision,
+            storedProjectionRevision: baseStatus.storedProjectionRevision,
+            revisionStale: baseStatus.revisionStale,
             targetContextName: entry.contextName,
             sourceContextNames: group.sourceContextNames,
             ownedTables: group.ownedTables,
@@ -712,7 +843,8 @@ export function resolveModuleProjectionGroups(
             caughtUp,
             state,
             lastError,
-            updatedAt,
+            updatedAt:
+              updatedAt > baseStatus.updatedAt ? updatedAt : baseStatus.updatedAt,
             subscriptions,
           };
         },
@@ -773,10 +905,18 @@ export async function drainContextProcesses(
 export async function syncProjectionGroup(
   group: ContextProjectionGroup,
 ): Promise<void> {
+  const status = await group.refreshStatus();
+
+  if (status.revisionStale) {
+    await rebuildProjectionGroup(group);
+    return;
+  }
+
   await drainContextProcesses({
     projectors: group.projectors,
     subscriptionRunners: group.subscriptionRunners,
   });
+  await group.markRevisionSynced();
 }
 
 export async function resetProjectionGroup(
@@ -793,7 +933,11 @@ export async function rebuildProjectionGroup(
   group: ContextProjectionGroup,
 ): Promise<void> {
   await resetProjectionGroup(group);
-  await syncProjectionGroup(group);
+  await drainContextProcesses({
+    projectors: group.projectors,
+    subscriptionRunners: group.subscriptionRunners,
+  });
+  await group.markRevisionSynced();
 }
 
 export async function bootstrapContextDatabase(
@@ -949,6 +1093,8 @@ export async function refreshProjectionGroupStatuses(
   );
 
   for (const group of groups) {
+    await group.refreshStatus();
+
     for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
       await runner.refreshStatus();
     }
@@ -974,6 +1120,7 @@ export function summarizeProjectionReplayStatuses(
         initializedGroups: contextStatuses.filter((status) => status.initialized).length,
         caughtUpGroups: contextStatuses.filter((status) => status.caughtUp).length,
         behindGroups: contextStatuses.filter((status) => !status.caughtUp).length,
+        staleGroups: contextStatuses.filter((status) => status.revisionStale).length,
         runningGroups: contextStatuses.filter((status) => status.state === "running").length,
         errorGroups: contextStatuses.filter((status) => status.state === "error").length,
       } satisfies ProjectionReplayContextSummary;
@@ -984,11 +1131,14 @@ export function summarizeProjectionReplayStatuses(
   const initializedGroups = statuses.filter((status) => status.initialized).length;
   const caughtUpGroups = statuses.filter((status) => status.caughtUp).length;
   const behindGroups = statuses.filter((status) => !status.caughtUp).length;
+  const staleGroups = statuses.filter((status) => status.revisionStale).length;
   const runningGroups = statuses.filter((status) => status.state === "running").length;
   const errorGroups = statuses.filter((status) => status.state === "error").length;
   const requiredStatuses = statuses.filter((status) => status.requiredDuringBootstrap);
   const status =
-    requiredStatuses.some((entry) => !entry.caughtUp || entry.state === "error")
+    requiredStatuses.some(
+      (entry) => !entry.caughtUp || entry.revisionStale || entry.state === "error",
+    )
       ? "degraded"
       : "ok";
 
@@ -999,6 +1149,7 @@ export function summarizeProjectionReplayStatuses(
     initializedGroups,
     caughtUpGroups,
     behindGroups,
+    staleGroups,
     runningGroups,
     errorGroups,
     contexts,

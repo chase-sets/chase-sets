@@ -7,6 +7,7 @@ export type HealthProjectionReplaySummary = Readonly<{
   initializedGroups: number;
   caughtUpGroups: number;
   behindGroups: number;
+  staleGroups: number;
   runningGroups: number;
   errorGroups: number;
   contexts: readonly Readonly<{
@@ -16,6 +17,7 @@ export type HealthProjectionReplaySummary = Readonly<{
     initializedGroups: number;
     caughtUpGroups: number;
     behindGroups: number;
+    staleGroups: number;
     runningGroups: number;
     errorGroups: number;
   }>[];
