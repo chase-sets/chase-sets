@@ -592,6 +592,9 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
     devDependencies:
       vitest:
         specifier: ^4.1.4

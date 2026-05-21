@@ -9,3 +9,8 @@ export type {
   MarketplaceListingTermsPreview,
   MarketplaceMarketSummary,
 } from "../ui/contracts";
+export type {
+  MarketplaceListingPhoto,
+  MarketplaceListingPhotoAssetSet,
+  MarketplaceListingPhotoAssetVariant,
+} from "../domain/domain";

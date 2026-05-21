@@ -159,6 +159,11 @@
       "portName": "commercialTermsResolver",
       "providedBy": "commercial-terms",
       "purpose": "Resolve account listing terms without making Marketplace own commercial terms policy."
+    },
+    {
+      "portName": "listingPhotoStorage",
+      "providedBy": "platform-api",
+      "purpose": "Store normalized Marketplace Listing Photo WebP assets in the environment asset bucket without making Marketplace own object-storage infrastructure."
     }
   ],
   "apiDeployables": [

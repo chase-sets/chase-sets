@@ -1,5 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
   BulkActionBar,
@@ -18,6 +18,7 @@ import {
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
 import type { CatalogBulkActionProgress } from "../../../support/shell-support/api/client";
+import type { CatalogBulkReviewJob } from "../../../support/shell-support/api/client";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type { SourceObservationListItem } from "./contracts";
@@ -28,11 +29,14 @@ import {
   bulkPromoteSourceObservations,
   importTcgdexSet,
   previewBulkPromoteSourceObservations,
+  useActiveSourceObservationBulkJobs,
   useTcgdexExpansions,
   useTcgdexLanguages,
   useTcgdexSeries,
+  watchSourceObservationBulkJob,
 } from "./use-source-observations";
 import type {
+  BulkSourceObservationPromotionResult,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
 } from "./contracts";
@@ -102,6 +106,8 @@ export function SourceObservationListPage({
     useState<CatalogBulkActionProgress | null>(null);
   const [runningBulkAction, setRunningBulkAction] =
     useState<RunningBulkAction | null>(null);
+  const [resumedBulkJobId, setResumedBulkJobId] = useState<string | null>(null);
+  const watchedBulkJobIdRef = useRef<string | null>(null);
   const [promoteAllScope, setPromoteAllScope] =
     useState<SourceObservationPromotionScope>({});
   const [promoteAllPreview, setPromoteAllPreview] =
@@ -114,6 +120,7 @@ export function SourceObservationListPage({
   const tcgdexLanguages = useTcgdexLanguages();
   const tcgdexSeries = useTcgdexSeries(languageCode);
   const tcgdexExpansions = useTcgdexExpansions(languageCode, seriesId);
+  const activeBulkJobs = useActiveSourceObservationBulkJobs();
   const importLanguageOptions = useMemo(
     () =>
       (tcgdexLanguages.data?.items ?? []).map((item) => ({
@@ -157,6 +164,13 @@ export function SourceObservationListPage({
     listControls.source,
     listControls.setId,
   ].filter(Boolean).length;
+  const activeBulkJob = useMemo(
+    () =>
+      (activeBulkJobs.data?.items ?? []).find((job) =>
+        job.status === "queued" || job.status === "running",
+      ) ?? null,
+    [activeBulkJobs.data],
+  );
 
   useEffect(() => {
     setSelectedKeys((current) =>
@@ -199,6 +213,77 @@ export function SourceObservationListPage({
       setExpansionId(expansionOptions[0].value);
     }
   }, [expansionOptions, expansionId]);
+
+  useEffect(() => {
+    if (!activeBulkJob || watchedBulkJobIdRef.current === activeBulkJob.jobId) {
+      return;
+    }
+
+    watchedBulkJobIdRef.current = activeBulkJob.jobId;
+    setResumedBulkJobId(activeBulkJob.jobId);
+    setRunningBulkAction(runningBulkActionFromJob(activeBulkJob));
+    setBulkActionProgress(activeBulkJob.progress);
+    setBulkPromoting(activeBulkJob.action === "promote");
+    setBulkRejecting(activeBulkJob.action === "reject");
+    setPromoteAllRunning(
+      activeBulkJob.action === "promote" && activeBulkJob.selectionMode === "filter",
+    );
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    watchSourceObservationBulkJob(activeBulkJob.jobId, {
+      signal: controller.signal,
+      onProgress: (progress) => {
+        if (!cancelled) {
+          setBulkActionProgress(progress);
+        }
+      },
+    })
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        addBulkCompletionToast(activeBulkJob.action, result, addToast);
+        setSelectedKeys(new Set());
+        setRejectReason("");
+        setShowPromoteAll(false);
+        setPromoteAllPreview(null);
+        revalidator.revalidate();
+        activeBulkJobs.refresh();
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        addToast(
+          error instanceof Error
+            ? error.message
+            : t("catalog.features.sourceObservations.ui.list.bulk.job.failed"),
+          "danger",
+        );
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setBulkPromoting(false);
+        setBulkRejecting(false);
+        setPromoteAllRunning(false);
+        setRunningBulkAction(null);
+        setBulkActionProgress(null);
+        setResumedBulkJobId(null);
+        watchedBulkJobIdRef.current = null;
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [activeBulkJob?.jobId]);
 
   function handleSelectionChange(keys: Set<string>) {
     setSelectedKeys(
@@ -424,6 +509,27 @@ export function SourceObservationListPage({
     );
   }
 
+  function renderResumedBulkJobProgress() {
+    if (!resumedBulkJobId || !runningBulkAction || !bulkActionProgress) {
+      return null;
+    }
+
+    return (
+      <BulkActionBar
+        count={bulkActionProgress.total}
+        formatSelectedLabel={() => formatRunningBulkActionLabel(runningBulkAction)}
+        primaryActions={
+          <div className="min-w-[14rem] max-w-full flex-1">
+            <ProgressBar
+              value={bulkActionProgressPercent(bulkActionProgress)}
+              formatLabel={() => formatBulkActionProgress(bulkActionProgress)}
+            />
+          </div>
+        }
+      />
+    );
+  }
+
   return (
     <>
       <EntityListPage
@@ -446,6 +552,7 @@ export function SourceObservationListPage({
         onSelectionChange={handleSelectionChange}
         isRowSelectable={(row) => row.status === "observed" || row.status === "changed"}
         bulkActionBar={
+          renderResumedBulkJobProgress() ?? (
           selectedKeys.size > 0 ? (
             <BulkActionBar
               count={selectedKeys.size}
@@ -532,7 +639,7 @@ export function SourceObservationListPage({
                 </>
               }
             />
-          ) : null
+          ) : null)
         }
         extraFilters={
           <>
@@ -701,6 +808,51 @@ function bulkActionProgressPercent(progress: CatalogBulkActionProgress): number 
   }
 
   return (progress.completed / progress.total) * 100;
+}
+
+function runningBulkActionFromJob(
+  job: CatalogBulkReviewJob<BulkSourceObservationPromotionResult>,
+): RunningBulkAction {
+  if (job.action === "promote") {
+    return job.selectionMode === "ids" ? "selected-promote" : "matching-promote";
+  }
+
+  return job.selectionMode === "ids" ? "selected-reject" : "matching-reject";
+}
+
+function formatRunningBulkActionLabel(action: RunningBulkAction): string {
+  if (action === "selected-promote" || action === "matching-promote") {
+    return t("catalog.features.sourceObservations.ui.list.bulk.promote.running");
+  }
+
+  return t("catalog.features.sourceObservations.ui.list.bulk.reject.running");
+}
+
+function addBulkCompletionToast(
+  action: CatalogBulkReviewJob<BulkSourceObservationPromotionResult>["action"],
+  result: BulkSourceObservationPromotionResult,
+  addToast: (message: string, tone: "success" | "warning" | "danger") => void,
+) {
+  if (action === "promote") {
+    addToast(
+      t("catalog.features.sourceObservations.ui.list.bulk.promote.completed", {
+        promoted: String(result.promoted),
+        skipped: String(result.skipped),
+        failed: String(result.failed),
+      }),
+      result.failed > 0 ? "warning" : "success",
+    );
+    return;
+  }
+
+  addToast(
+    t("catalog.features.sourceObservations.ui.list.bulk.reject.completed", {
+      rejected: String(result.rejected ?? 0),
+      skipped: String(result.skipped),
+      failed: String(result.failed),
+    }),
+    result.failed > 0 ? "warning" : "success",
+  );
 }
 
 function formatBulkActionProgress(progress: CatalogBulkActionProgress): string {

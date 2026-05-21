@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   DataTable,
+  FileDropzone,
   Inline,
   LinkButton,
   MarketplaceDashboardPanel,
@@ -450,7 +451,7 @@ export function MarketplaceListingListPage({
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.create.listing")}>
         <Card>
-          <form method="post">
+          <form method="post" encType="multipart/form-data">
             <Stack gap={3}>
               <Banner
                 title={t("marketplace.features.listings.ui.listingListPage.list.without.managing.inventory")}
@@ -525,6 +526,15 @@ export function MarketplaceListingListPage({
               <Text size="sm" tone="secondary">
                 {t("marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy")}
               </Text>
+              <FileDropzone
+                label={t("marketplace.features.listings.ui.listingListPage.listing.photos")}
+                description={t("marketplace.features.listings.ui.listingListPage.listing.photos.description")}
+                name="listingPhotos"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                dropLabel={t("marketplace.features.listings.ui.listingListPage.drop.listing.photos")}
+                browseLabel={t("marketplace.features.listings.ui.listingListPage.choose.photos")}
+              />
               {!hasListingStockLocation ? (
                 <Stack gap={3}>
                   <Text weight="semibold">{t("marketplace.features.listings.ui.listingListPage.ship.from")}</Text>
@@ -683,6 +693,13 @@ export function MarketplaceListingListPage({
                       {t("marketplace.features.listings.ui.listingListPage.shipping.measure.missing")}
                     </Badge>
                   )}
+                  {row.listing_photos.length > 0 ? (
+                    <Text tone="secondary" size="sm">
+                      {t("marketplace.features.listings.ui.listingListPage.photo.count", {
+                        count: row.listing_photos.length,
+                      })}
+                    </Text>
+                  ) : null}
                 </Stack>
               ),
             },

@@ -1,6 +1,40 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
+export type MarketplaceListingPhotoAssetRole =
+  | "source"
+  | "thumbnail"
+  | "search-card"
+  | "catalog-detail";
+
+export interface MarketplaceListingPhotoAssetVariant {
+  role: MarketplaceListingPhotoAssetRole;
+  width: number;
+  height: number;
+  density: 1 | 2 | null;
+  mediaType: "image/webp";
+  storageKey: string;
+  publicUrl: string;
+  byteSize: number;
+  generatedAt: string;
+}
+
+export interface MarketplaceListingPhotoAssetSet {
+  kind: "listing-photo";
+  sourceHash: string;
+  source: MarketplaceListingPhotoAssetVariant;
+  variants: MarketplaceListingPhotoAssetVariant[];
+}
+
+export interface MarketplaceListingPhoto {
+  photoId: string;
+  originalFilename: string | null;
+  altText: string | null;
+  sortOrder: number;
+  uploadedAt: string;
+  assetSet: MarketplaceListingPhotoAssetSet;
+}
+
 export interface MarketplaceListingListItem {
   listing_id: string;
   account_id: string;
@@ -29,6 +63,7 @@ export interface MarketplaceListingListItem {
   max_units_per_order?: number | null;
   max_units_per_day?: number | null;
   max_units_per_customer_account?: number | null;
+  listing_photos: readonly MarketplaceListingPhoto[];
   status: string;
   created_at: string;
   updated_at: string;

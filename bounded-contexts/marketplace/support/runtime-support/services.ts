@@ -5,6 +5,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
+import type { ListingPhotoStorage } from ".";
 import {
   createMarketplaceCommercialTermsResolver,
   type CommercialTermsResolver,
@@ -14,6 +15,7 @@ import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime
 
 export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
+  listingPhotoStorage?: ListingPhotoStorage;
 }>;
 
 export type MarketplaceServices = Readonly<{
@@ -37,6 +39,7 @@ export function createMarketplaceServices(
     db,
     commercialTermsResolver:
       options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db),
+    ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
   const offers = createMarketplaceOfferRuntime(deps);

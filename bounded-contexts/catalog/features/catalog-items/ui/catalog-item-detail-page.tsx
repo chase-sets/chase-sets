@@ -7,6 +7,7 @@ import {
   Dialog,
   Inline,
   KeyValueList,
+  LinkText,
   PageSection,
   ProgressiveDisclosure,
   Stack,
@@ -156,7 +157,7 @@ function formatRelationshipType(value: string): string {
     .join(" ");
 }
 
-function ReferenceValueButton({
+function ReferenceValueCue({
   row,
   onSelectReference,
 }: {
@@ -167,19 +168,24 @@ function ReferenceValueButton({
     return <>{formatFieldValue(row.value)}</>;
   }
 
+  const reference = row.reference;
+
   return (
-    <Button
-      type="button"
-      size="sm"
-      tone="ghost"
-      onClick={() => onSelectReference(row.reference!)}
+    <LinkText
+      href={`/reference-records/${reference.referenceId}`}
+      trailingIcon="info"
+      onClick={(event) => {
+        event.preventDefault();
+        onSelectReference(reference);
+      }}
       aria-label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.value.aria", {
         label: row.label,
-        value: row.reference.name,
+        value: reference.name,
       })}
+      aria-haspopup="dialog"
     >
-      {row.reference.name}
-    </Button>
+      {reference.name}
+    </LinkText>
   );
 }
 
@@ -531,7 +537,7 @@ export function CatalogItemDetailPage({ id, initialData }: { id: string; initial
       key: "value",
       header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.value"),
       cell: (row) => (
-        <ReferenceValueButton
+        <ReferenceValueCue
           row={row}
           onSelectReference={setSelectedReference}
         />

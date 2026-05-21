@@ -47,14 +47,24 @@ export type CatalogBulkActionProgress = Readonly<{
 
 export type CatalogBulkActionProgressOptions = Readonly<{
   onProgress?: (progress: CatalogBulkActionProgress) => void;
+  signal?: AbortSignal;
 }>;
 
 export type CatalogBulkReviewJob<T = unknown> = Readonly<{
   jobId: string;
+  action: "promote" | "reject";
+  selectionMode: "ids" | "filter";
+  observationIds: readonly string[];
+  scope: Readonly<Record<string, string | undefined>>;
+  reason: string | null;
   status: "queued" | "running" | "completed" | "failed";
   progress: CatalogBulkActionProgress;
   result: T | null;
   errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
 }>;
 
 function queryFromString(query: string) {
@@ -927,6 +937,7 @@ export function createCatalogApiClient({
           headers,
           jobId: job.jobId,
           onProgress: options.onProgress,
+          signal: options.signal,
           errorMessage: "Bulk Source Observation promotion failed.",
         });
       }
@@ -963,6 +974,7 @@ export function createCatalogApiClient({
           headers,
           jobId: job.jobId,
           onProgress: options.onProgress,
+          signal: options.signal,
           errorMessage: "Bulk Source Observation promotion failed.",
         });
       }
@@ -1008,6 +1020,7 @@ export function createCatalogApiClient({
           headers,
           jobId: job.jobId,
           onProgress: options.onProgress,
+          signal: options.signal,
           errorMessage: "Bulk Source Observation rejection failed.",
         });
       }
@@ -1038,6 +1051,7 @@ export function createCatalogApiClient({
           headers,
           jobId: job.jobId,
           onProgress: options.onProgress,
+          signal: options.signal,
           errorMessage: "Bulk Source Observation rejection failed.",
         });
       }
@@ -1047,6 +1061,30 @@ export function createCatalogApiClient({
         header: headers,
       });
       return parseJsonResponse<T>(response);
+    },
+    async listActiveSourceObservationBulkJobs<T>(): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/active`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async watchSourceObservationBulkJob<T>(
+      jobId: string,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      return streamBulkJob<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        onProgress: options.onProgress ?? (() => {}),
+        signal: options.signal,
+        errorMessage: "Bulk Source Observation job failed.",
+      });
     },
   };
 }
@@ -1163,12 +1201,14 @@ async function streamBulkJob<T>(input: {
   headers?: HeadersInit;
   jobId: string;
   onProgress: (progress: CatalogBulkActionProgress) => void;
+  signal?: AbortSignal;
   errorMessage: string;
 }): Promise<T> {
   const response = await input.fetch(
     `${input.baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(input.jobId)}/events`,
     {
       method: "GET",
+      signal: input.signal,
       headers: {
         accept: "text/event-stream",
         ...headersToRecord(input.headers),

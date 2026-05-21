@@ -85,6 +85,10 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return attachResponseMetadata(await response.json(), response) as T;
 }
 
+function joinApiPath(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
 export function createMarketplaceApiClient({
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
@@ -196,6 +200,24 @@ export function createMarketplaceApiClient({
         await client.account.listings.$post({
           json: body,
           header: headers,
+        }),
+      );
+    },
+    async createListingWithPhotos(formData: FormData) {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings"), {
+          method: "POST",
+          headers,
+          body: formData,
+        }),
+      );
+    },
+    async addListingPhotos(id: string, formData: FormData) {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/photos`), {
+          method: "POST",
+          headers,
+          body: formData,
         }),
       );
     },

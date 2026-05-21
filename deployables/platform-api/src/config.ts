@@ -76,6 +76,8 @@ export type PlatformApiCatalogAssetStorageConfig =
       forcePathStyle?: boolean;
     }>;
 
+export type PlatformApiListingPhotoStorageConfig = PlatformApiCatalogAssetStorageConfig;
+
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
 
 export type PlatformApiBaseConfig = Readonly<{
@@ -95,6 +97,7 @@ export type PlatformApiBaseConfig = Readonly<{
 }>;
 
 export type PlatformApiBootstrapConfig = PlatformApiBaseConfig & Readonly<{
+  listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
   platformAdmin: PlatformApiPlatformAdminConfig | null;
 }>;
 
@@ -151,6 +154,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> & Readon
   postage: PlatformApiPostageConfig;
   socialLogin: PlatformApiSocialLoginConfig;
   catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
+  listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
   stripeGoLive: StripeGoLiveCheckReport;
   ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
 }>;
@@ -369,6 +373,67 @@ function loadCatalogAssetStorageConfig(
   };
 }
 
+function loadListingPhotoStorageConfig(
+  port: number,
+  productionLike: boolean,
+  fallbackStorage?: PlatformApiCatalogAssetStorageConfig,
+): PlatformApiListingPhotoStorageConfig {
+  const explicitKind = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND");
+  if (!explicitKind && productionLike && fallbackStorage) {
+    return fallbackStorage;
+  }
+
+  const kind = explicitKind ?? (productionLike ? "s3" : "filesystem");
+
+  if (kind === "filesystem") {
+    if (productionLike) {
+      throw new Error(
+        "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND=s3 is required for Marketplace listing photo storage in production.",
+      );
+    }
+
+    return {
+      kind: "filesystem",
+      rootDir: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT") ??
+        "artifacts/marketplace-listing-photos",
+      publicBaseUrl: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL") ??
+        `http://localhost:${port}/marketplace-listing-photos`,
+    };
+  }
+
+  if (kind !== "s3") {
+    throw new Error("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND must be filesystem or s3.");
+  }
+
+  const bucket = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_BUCKET");
+  const region = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_REGION");
+  const publicBaseUrl = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL");
+  const accessKeyId = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID");
+  const secretAccessKey = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY");
+
+  if (!bucket || !region || !publicBaseUrl) {
+    throw new Error(
+      "MARKETPLACE_LISTING_PHOTO_S3_BUCKET, MARKETPLACE_LISTING_PHOTO_S3_REGION, and MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL are required when MARKETPLACE_LISTING_PHOTO_STORAGE_KIND=s3.",
+    );
+  }
+  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
+    throw new Error(
+      "MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID and MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY must be configured together.",
+    );
+  }
+
+  return {
+    kind: "s3",
+    bucket,
+    region,
+    publicBaseUrl,
+    endpoint: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT") ?? undefined,
+    accessKeyId: accessKeyId ?? undefined,
+    secretAccessKey: secretAccessKey ?? undefined,
+    forcePathStyle: getBooleanEnv("MARKETPLACE_LISTING_PHOTO_S3_FORCE_PATH_STYLE", false),
+  };
+}
+
 function loadUcpBusinessSigningKeys(
   productionLike: boolean,
 ): UcpBusinessSigningKeySet | undefined {
@@ -492,8 +557,20 @@ function loadBaseConfig(): PlatformApiBaseConfig {
 }
 
 export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
+  const baseConfig = loadBaseConfig();
+  const productionLike = isProductionDeployment();
+  const catalogAssetStorage = loadCatalogAssetStorageConfig(
+    baseConfig.port,
+    productionLike,
+  );
+
   return {
-    ...loadBaseConfig(),
+    ...baseConfig,
+    listingPhotoStorage: loadListingPhotoStorageConfig(
+      baseConfig.port,
+      productionLike,
+      catalogAssetStorage,
+    ),
     platformAdmin: loadPlatformAdminConfig(),
   };
 }
@@ -589,6 +666,11 @@ export function loadConfig(): PlatformApiConfig {
     baseConfig.port,
     productionLike,
   );
+  const listingPhotoStorage = loadListingPhotoStorageConfig(
+    baseConfig.port,
+    productionLike,
+    catalogAssetStorage,
+  );
 
   const socialLogin: PlatformApiSocialLoginConfig = {
     ...(googleSocialLoginClientId && googleSocialLoginClientSecret
@@ -654,6 +736,7 @@ export function loadConfig(): PlatformApiConfig {
         liveSecretKeyLikely: stripeSecretKey.startsWith("sk_live"),
       },
       catalogAssetStorage,
+      listingPhotoStorage,
       socialLogin,
       ucpBusinessSigningKeys,
       paymentProcessor: {
@@ -690,6 +773,7 @@ export function loadConfig(): PlatformApiConfig {
       liveSecretKeyLikely: Boolean(stripeSecretKey?.startsWith("sk_live")),
     },
     catalogAssetStorage,
+    listingPhotoStorage,
     socialLogin,
     ucpBusinessSigningKeys,
     paymentProcessor: {

@@ -278,6 +278,14 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     );
   });
 
+  app.get("/bulk-jobs/active", async (c) => {
+    const items = await services.listActiveBulkReviewJobs({
+      context: c.get("context"),
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
   app.get("/bulk-jobs/:jobId", async (c) => {
     const job = await services.getBulkReviewJob(c.req.param("jobId"));
     if (!job) {

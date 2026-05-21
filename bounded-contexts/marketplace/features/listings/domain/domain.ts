@@ -55,6 +55,40 @@ export type MarketplaceListingPurchaseLimits = Readonly<{
   maxUnitsPerCustomerAccount: number | null;
 }>;
 
+export type MarketplaceListingPhotoAssetRole =
+  | "source"
+  | "thumbnail"
+  | "search-card"
+  | "catalog-detail";
+
+export type MarketplaceListingPhotoAssetVariant = Readonly<{
+  role: MarketplaceListingPhotoAssetRole;
+  width: number;
+  height: number;
+  density: 1 | 2 | null;
+  mediaType: "image/webp";
+  storageKey: string;
+  publicUrl: string;
+  byteSize: number;
+  generatedAt: string;
+}>;
+
+export type MarketplaceListingPhotoAssetSet = Readonly<{
+  kind: "listing-photo";
+  sourceHash: string;
+  source: MarketplaceListingPhotoAssetVariant;
+  variants: readonly MarketplaceListingPhotoAssetVariant[];
+}>;
+
+export type MarketplaceListingPhoto = Readonly<{
+  photoId: string;
+  originalFilename: string | null;
+  altText: string | null;
+  sortOrder: number;
+  uploadedAt: string;
+  assetSet: MarketplaceListingPhotoAssetSet;
+}>;
+
 export type MarketplaceGradedCardDetails = Readonly<{
   gradingCompany: string;
   grade: string;
@@ -94,6 +128,7 @@ export type MarketplaceListingState = Readonly<{
   feeQuoteFingerprint: string | null;
   quantityCap: number;
   purchaseLimits: MarketplaceListingPurchaseLimits;
+  listingPhotos: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
 }>;
 
@@ -127,6 +162,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
     maxUnitsPerDay: null,
     maxUnitsPerCustomerAccount: null,
   },
+  listingPhotos: [],
   status: "draft",
 };
 
@@ -157,6 +193,7 @@ export type CreateListingCommand = Readonly<{
   feeQuoteFingerprint: string;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+  listingPhotos?: readonly MarketplaceListingPhoto[] | null;
 }>;
 
 export type UpdateListingPriceCommand = Readonly<{
@@ -189,6 +226,11 @@ export type UpdateListingPurchaseLimitsCommand = Readonly<{
   purchaseLimits: Partial<MarketplaceListingPurchaseLimits> | null;
 }>;
 
+export type AddListingPhotosCommand = Readonly<{
+  type: "AddListingPhotos";
+  photos: readonly MarketplaceListingPhoto[];
+}>;
+
 export type PublishListingCommand = Readonly<{
   type: "PublishListing";
   marketplaceSalesFeeUnitAmount: string;
@@ -207,6 +249,7 @@ export type MarketplaceListingCommand =
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
+  | AddListingPhotosCommand
   | PublishListingCommand
   | PauseListingCommand
   | WithdrawListingCommand;
@@ -239,6 +282,7 @@ export type ListingCreatedEvent = DomainEvent<
     feeQuoteFingerprint: string;
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
+    listingPhotos: MarketplaceListingPhoto[];
   }>
 >;
 export type ListingPriceUpdatedEvent = DomainEvent<
@@ -274,6 +318,12 @@ export type ListingPurchaseLimitsUpdatedEvent = DomainEvent<
     purchaseLimits: MarketplaceListingPurchaseLimits;
   }>
 >;
+export type ListingPhotosAddedEvent = DomainEvent<
+  "marketplace.listing.photos-added",
+  Readonly<{
+    listingPhotos: MarketplaceListingPhoto[];
+  }>
+>;
 export type ListingPublishedEvent = DomainEvent<
   "marketplace.listing.published",
   Readonly<{
@@ -300,6 +350,7 @@ export type MarketplaceListingEvent =
   | ListingPriceUpdatedEvent
   | ListingQuantityCapUpdatedEvent
   | ListingPurchaseLimitsUpdatedEvent
+  | ListingPhotosAddedEvent
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingWithdrawnEvent;
@@ -365,6 +416,7 @@ export const decideMarketplaceListing: AggregateDecider<
               command.purchaseLimits,
               command.quantityCap,
             ),
+            listingPhotos: normalizeListingPhotos(command.listingPhotos ?? []),
           },
         },
       ];
@@ -449,10 +501,28 @@ export const decideMarketplaceListing: AggregateDecider<
           },
         },
       ];
+    case "AddListingPhotos":
+      assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
+      return [
+        {
+          type: "marketplace.listing.photos-added",
+          data: {
+            listingPhotos: mergeListingPhotos(
+              state.listingPhotos,
+              normalizeListingPhotos(command.photos),
+            ),
+          },
+        },
+      ];
     case "PublishListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
       assert(state.status !== "active", "Listing is already active.");
+      assert(
+        !requiresListingPhotoEvidence(state) || state.listingPhotos.length > 0,
+        "Pristine and Mint listings require at least one listing photo before publication.",
+      );
       return [
         {
           type: "marketplace.listing.published",
@@ -527,6 +597,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         feeQuoteFingerprint: event.data.feeQuoteFingerprint,
         quantityCap: event.data.quantityCap,
         purchaseLimits: event.data.purchaseLimits ?? initialMarketplaceListingState.purchaseLimits,
+        listingPhotos: event.data.listingPhotos ?? [],
         status: "draft",
       };
     case "marketplace.listing.price-updated":
@@ -545,6 +616,11 @@ export const evolveMarketplaceListing: AggregateEvolver<
       return {
         ...state,
         purchaseLimits: event.data.purchaseLimits,
+      };
+    case "marketplace.listing.photos-added":
+      return {
+        ...state,
+        listingPhotos: event.data.listingPhotos,
       };
     case "marketplace.listing.quantity-cap-updated":
       return {
@@ -582,6 +658,20 @@ export const evolveMarketplaceListing: AggregateEvolver<
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
+}
+
+export function requiresListingPhotoEvidence(
+  listing: Pick<MarketplaceListingState, "selectedOptions" | "productSummary">,
+): boolean {
+  const values = [
+    listing.productSummary ?? "",
+    ...listing.selectedOptions.flatMap((selection) => [
+      selection.dimensionId,
+      selection.optionId,
+    ]),
+  ];
+
+  return values.some((value) => highConditionTokenRequiresPhoto(value));
 }
 
 function normalizeRequiredText(value: string, message: string): string {
@@ -661,6 +751,122 @@ function normalizePurchaseLimits(
   }
 
   return normalized;
+}
+
+function normalizeListingPhotos(
+  photos: readonly MarketplaceListingPhoto[],
+): MarketplaceListingPhoto[] {
+  return photos.map((photo, index) => {
+    const photoId = normalizeRequiredText(photo.photoId, "Listing photo id is required.");
+    const uploadedAt = normalizeRequiredText(
+      photo.uploadedAt,
+      "Listing photo upload timestamp is required.",
+    );
+    assert(
+      Number.isInteger(photo.sortOrder) && photo.sortOrder >= 0,
+      "Listing photo sort order must be zero or greater.",
+    );
+
+    return {
+      photoId,
+      originalFilename: normalizeOptionalText(photo.originalFilename),
+      altText: normalizeOptionalText(photo.altText),
+      sortOrder: photo.sortOrder ?? index,
+      uploadedAt,
+      assetSet: normalizeListingPhotoAssetSet(photo.assetSet),
+    };
+  });
+}
+
+function mergeListingPhotos(
+  existing: readonly MarketplaceListingPhoto[],
+  next: readonly MarketplaceListingPhoto[],
+): MarketplaceListingPhoto[] {
+  const byKey = new Map(existing.map((photo) => [photo.photoId, photo]));
+  for (const photo of next) {
+    byKey.set(photo.photoId, photo);
+  }
+
+  return [...byKey.values()].sort((left, right) =>
+    left.sortOrder === right.sortOrder
+      ? left.photoId.localeCompare(right.photoId)
+      : left.sortOrder - right.sortOrder,
+  );
+}
+
+function normalizeListingPhotoAssetSet(
+  assetSet: MarketplaceListingPhoto["assetSet"],
+): MarketplaceListingPhotoAssetSet {
+  assert(assetSet.kind === "listing-photo", "Listing photo asset set kind is invalid.");
+  const sourceHash = normalizeRequiredText(
+    assetSet.sourceHash,
+    "Listing photo source hash is required.",
+  );
+
+  return {
+    kind: "listing-photo",
+    sourceHash,
+    source: normalizeListingPhotoAssetVariant(assetSet.source),
+    variants: assetSet.variants.map(normalizeListingPhotoAssetVariant),
+  };
+}
+
+function normalizeListingPhotoAssetVariant(
+  variant: MarketplaceListingPhotoAssetVariant,
+): MarketplaceListingPhotoAssetVariant {
+  assert(
+    ["source", "thumbnail", "search-card", "catalog-detail"].includes(variant.role),
+    "Listing photo asset role is invalid.",
+  );
+  assert(variant.mediaType === "image/webp", "Listing photo assets must be stored as WebP.");
+  assert(Number.isInteger(variant.width) && variant.width > 0, "Listing photo width is required.");
+  assert(Number.isInteger(variant.height) && variant.height > 0, "Listing photo height is required.");
+  assert(Number.isInteger(variant.byteSize) && variant.byteSize > 0, "Listing photo byte size is required.");
+  assert(
+    variant.density === null || variant.density === 1 || variant.density === 2,
+    "Listing photo density is invalid.",
+  );
+
+  return {
+    role: variant.role,
+    width: variant.width,
+    height: variant.height,
+    density: variant.density,
+    mediaType: "image/webp",
+    storageKey: normalizeRequiredText(
+      variant.storageKey,
+      "Listing photo storage key is required.",
+    ),
+    publicUrl: normalizeRequiredText(
+      variant.publicUrl,
+      "Listing photo public URL is required.",
+    ),
+    byteSize: variant.byteSize,
+    generatedAt: normalizeRequiredText(
+      variant.generatedAt,
+      "Listing photo generation timestamp is required.",
+    ),
+  };
+}
+
+function highConditionTokenRequiresPhoto(value: string): boolean {
+  const tokens = value
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter(Boolean);
+
+  return tokens.some((token, index) => {
+    if (token === "pristine") {
+      return true;
+    }
+
+    if (token !== "mint") {
+      return false;
+    }
+
+    return tokens[index - 1] !== "near";
+  });
 }
 
 function normalizeGradedCardDetails(

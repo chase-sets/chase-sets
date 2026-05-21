@@ -188,6 +188,9 @@ export type SourceObservationServices = Readonly<{
   getBulkReviewJob: (
     jobId: string,
   ) => Promise<SourceObservationBulkJob | null>;
+  listActiveBulkReviewJobs: (input: {
+    context: EventStoreContext;
+  }) => Promise<readonly SourceObservationBulkJob[]>;
   processNextBulkReviewJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
@@ -644,6 +647,8 @@ export function createSourceObservationRuntime(
     },
     enqueueBulkReviewJob,
     getBulkReviewJob: (jobId) => getBulkReviewJob(deps.db, jobId),
+    listActiveBulkReviewJobs: ({ context }) =>
+      listActiveBulkReviewJobs(deps.db, context),
     processNextBulkReviewJob,
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) =>
@@ -1463,6 +1468,38 @@ async function getBulkReviewJob(
   );
 
   return result.rows[0] ? mapBulkReviewJobRow(result.rows[0]) : null;
+}
+
+async function listActiveBulkReviewJobs(
+  db: CatalogRuntimeDeps["db"],
+  context: EventStoreContext,
+): Promise<readonly SourceObservationBulkJob[]> {
+  const result = await db.query<SourceObservationBulkJobRow>(
+    `SELECT
+       job_id,
+       action,
+       selection_mode,
+       observation_ids,
+       scope,
+       reason,
+       event_context,
+       status,
+       progress,
+       result,
+       error_message,
+       created_at::text,
+       started_at::text,
+       completed_at::text,
+       updated_at::text
+     FROM catalog_source_observation_bulk_jobs
+     WHERE status IN ('queued', 'running')
+       AND event_context ->> 'tenantId' = $1
+       AND event_context #>> '{audit,performedByUserId}' = $2
+     ORDER BY created_at ASC`,
+    [context.tenantId, context.audit.performedByUserId],
+  );
+
+  return result.rows.map(mapBulkReviewJobRow);
 }
 
 async function claimNextBulkReviewJob(
