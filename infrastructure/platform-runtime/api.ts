@@ -215,6 +215,10 @@ export function getApiHostSeedOrder(registry: ApiContextRegistry, hostName: ApiH
   return orderedNames;
 }
 
+function shouldRunFullBootstrapDrain(options: BcSeedOptions): boolean {
+  return options.enabledDataProfiles.includes("scenario-seed");
+}
+
 export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
@@ -225,6 +229,7 @@ export async function seedApiHostIfEmpty(
   },
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
+  const runFullDrain = shouldRunFullBootstrapDrain(options);
 
   for (const context of runtime.mountedContexts) {
     await bootstrapContextDatabase(context.module, context.pool);
@@ -240,9 +245,15 @@ export async function seedApiHostIfEmpty(
       requiredOnly: true,
     });
     await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
-    await syncContextProjectionGroups(runtime, contextName);
-    await drainContextRuntime(runtime);
+    await syncContextProjectionGroups(runtime, contextName, {
+      requiredOnly: !runFullDrain,
+    });
+    if (runFullDrain) {
+      await drainContextRuntime(runtime);
+    }
   }
 
-  await drainContextRuntime(runtime);
+  if (runFullDrain) {
+    await drainContextRuntime(runtime);
+  }
 }

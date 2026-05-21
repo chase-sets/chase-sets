@@ -1,10 +1,53 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApiHost, getApiHostContextNames, getApiHostSeedOrder, type ApiContextRegistry } from "./api";
+import {
+  createApiHost,
+  getApiHostContextNames,
+  getApiHostSeedOrder,
+  nonProductionDataProfiles,
+  productionLikeDataProfiles,
+  seedApiHostIfEmpty,
+  type ApiContextRegistry,
+} from "./api";
 import { createWorkerRunnerLoop, type WorkerRunner } from "./worker";
 import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
 
-function createModule(contextName: string) {
+type FakeQueryResult = Readonly<{
+  rows: readonly Readonly<Record<string, unknown>>[];
+}>;
+
+type FakePool = Readonly<{
+  query: (sql: string, params?: readonly unknown[]) => Promise<FakeQueryResult>;
+}>;
+
+function createPool(): FakePool {
+  return {
+    query: async (sql) => ({
+      rows: sql.includes("COUNT(*) AS count") ? [{ count: "0" }] : [],
+    }),
+  };
+}
+
+function createCountingProjector() {
+  const runOnce = vi.fn(async () => ({
+    processed: 0,
+    lastGlobalPosition: "0" as never,
+  }));
+
+  return {
+    projector: {
+      runOnce,
+    },
+    runOnce,
+  };
+}
+
+function createModule(
+  contextName: string,
+  options: Readonly<{
+    projectors?: readonly ReturnType<typeof createCountingProjector>["projector"][];
+  }> = {},
+) {
   return {
     contextName,
     routePrefix: `/${contextName}`,
@@ -13,7 +56,7 @@ function createModule(contextName: string) {
     apiMounts: [],
     createServices: () => ({ contextName }),
     buildApis: () => [],
-    projectors: () => [],
+    projectors: () => options.projectors ?? [],
   };
 }
 
@@ -188,6 +231,86 @@ describe("platform host api registry", () => {
         },
       }),
     ).toThrow(/missing a pool for context 'auth'/);
+  });
+
+  it("keeps production-like bootstrap bounded to context-local projection drains", async () => {
+    const identityProjector = createCountingProjector();
+    const authProjector = createCountingProjector();
+    const registry = [
+      {
+        contextName: "identity",
+        packageName: "@test/identity",
+        manifest: {
+          contextName: "identity",
+          apiDeployables: ["platform-api"],
+        },
+        module: createModule("identity", { projectors: [identityProjector.projector] }),
+      },
+      {
+        contextName: "auth",
+        packageName: "@test/auth",
+        manifest: {
+          contextName: "auth",
+          apiDeployables: ["platform-api"],
+          seedRequirements: ["identity"],
+        },
+        module: createModule("auth", { projectors: [authProjector.projector] }),
+      },
+    ] as const satisfies ApiContextRegistry;
+    const runtime = createApiHost(registry, "platform-api", {
+      pools: {
+        identity: createPool() as never,
+        auth: createPool() as never,
+      },
+    });
+
+    await seedApiHostIfEmpty(registry, "platform-api", runtime, {
+      enabledDataProfiles: productionLikeDataProfiles,
+      environmentName: "staging",
+    });
+
+    expect(identityProjector.runOnce).toHaveBeenCalledTimes(2);
+    expect(authProjector.runOnce).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps full runtime drains for scenario bootstrap", async () => {
+    const identityProjector = createCountingProjector();
+    const authProjector = createCountingProjector();
+    const registry = [
+      {
+        contextName: "identity",
+        packageName: "@test/identity",
+        manifest: {
+          contextName: "identity",
+          apiDeployables: ["platform-api"],
+        },
+        module: createModule("identity", { projectors: [identityProjector.projector] }),
+      },
+      {
+        contextName: "auth",
+        packageName: "@test/auth",
+        manifest: {
+          contextName: "auth",
+          apiDeployables: ["platform-api"],
+          seedRequirements: ["identity"],
+        },
+        module: createModule("auth", { projectors: [authProjector.projector] }),
+      },
+    ] as const satisfies ApiContextRegistry;
+    const runtime = createApiHost(registry, "platform-api", {
+      pools: {
+        identity: createPool() as never,
+        auth: createPool() as never,
+      },
+    });
+
+    await seedApiHostIfEmpty(registry, "platform-api", runtime, {
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: "preview",
+    });
+
+    expect(identityProjector.runOnce).toHaveBeenCalledTimes(5);
+    expect(authProjector.runOnce).toHaveBeenCalledTimes(5);
   });
 });
 
