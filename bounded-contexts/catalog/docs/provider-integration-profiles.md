@@ -18,6 +18,8 @@ The TCGdex Pokemon TCG profile installs the Pokemon card and sealed-product stru
 - Pokemon TCG Categories
 - Reference Types and Reference Records for Manufacturer, Product Line, Series, and Expansion
 
+Expansion Reference Records may carry `printed-card-count` when the number printed on cards differs from the provider's official count or when promo-style numbering should omit a denominator.
+
 TCGdex imports still write Source Observations. Promotion remains a Catalog review action. Staging and production do not auto-import provider content during bootstrap.
 
 ## Future Integrations

@@ -59,6 +59,7 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
       "abbreviation",
       "card-count",
       "parallel-set-card-count",
+      "printed-card-count",
       "release-date",
       "tcgdex-set-id",
     ],
