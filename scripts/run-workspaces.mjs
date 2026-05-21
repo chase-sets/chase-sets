@@ -70,20 +70,38 @@ export function parseRunWorkspacesArgs(argv) {
   const concurrency = concurrencyArg ? parsePositiveInteger(concurrencyArg.split("=")[1] ?? "", "--concurrency") : 1;
   const includeTestProfile = runnerArgs.find((arg) => arg.startsWith("--test-profile="))?.split("=")[1];
   const excludeTestProfile = runnerArgs.find((arg) => arg.startsWith("--exclude-test-profile="))?.split("=")[1];
+  const workspaceNames = new Set(
+    runnerArgs
+      .filter((arg) => arg.startsWith("--workspace="))
+      .map((arg) => arg.slice("--workspace=".length))
+      .concat(
+        runnerArgs
+          .find((arg) => arg.startsWith("--workspace-list="))
+          ?.slice("--workspace-list=".length)
+          .split(",") ?? [],
+      )
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
 
   return {
     scriptName,
     passthroughArgs,
     includeTestProfile,
     excludeTestProfile,
+    workspaceNames,
     concurrency,
   };
 }
 
 function filterWorkspaces(workspaces, options) {
-  const { scriptName, includeTestProfile, excludeTestProfile } = options;
+  const { scriptName, includeTestProfile, excludeTestProfile, workspaceNames } = options;
 
   return workspaces.filter((workspace) => {
+    if (workspaceNames?.size > 0 && !workspaceNames.has(workspace.name)) {
+      return false;
+    }
+
     if (typeof workspace.packageJson.scripts?.[scriptName] !== "string") {
       return false;
     }
@@ -138,6 +156,11 @@ async function runConcurrent(workspaces, options) {
   }
 
   const workerCount = Math.min(options.concurrency, workspaces.length);
+  if (workerCount === 0) {
+    console.log(`No workspaces matched ${options.scriptName}.`);
+    return;
+  }
+
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   if (failures.length > 0) {
