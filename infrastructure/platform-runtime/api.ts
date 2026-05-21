@@ -6,6 +6,7 @@ import {
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
   seedApiModuleIfEmpty,
+  seedProfilesOverlap,
   syncContextProjectionGroups,
   type MountedContextRuntimeEntry,
 } from "../bounded-context-runtime/index";
@@ -219,6 +220,10 @@ function shouldRunFullBootstrapDrain(options: BcSeedOptions): boolean {
   return options.enabledDataProfiles.includes("scenario-seed");
 }
 
+function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module">, options: BcSeedOptions): boolean {
+  return Boolean(context.module.seed && seedProfilesOverlap(context.module.seedProfiles, options));
+}
+
 export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
@@ -239,6 +244,12 @@ export async function seedApiHostIfEmpty(
     const context = mountedContextsByName.get(contextName);
     if (!context) {
       throw new Error(`API host '${hostName}' is missing mounted context '${contextName}' during seed.`);
+    }
+
+    const runContextSeed = shouldRunContextSeed(context, options);
+    if (!runContextSeed) {
+      await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+      continue;
     }
 
     await syncContextProjectionGroups(runtime, contextName, {
