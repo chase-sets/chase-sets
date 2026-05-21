@@ -97,7 +97,7 @@ jobs:
   deploy-staging:
     name: Deploy Staging
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 180
     needs: resolve-release
     environment: staging
     concurrency:
@@ -113,6 +113,7 @@ jobs:
       TF_VAR_stripe_connect_refresh_url: https://marketplace.staging.chasesets.com/account/payouts/setup
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -323,7 +324,7 @@ jobs:
             exit 0
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Terraform apply
         working-directory: infrastructure/digitalocean/platform
@@ -364,7 +365,7 @@ jobs:
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Deploy App Platform image
         if: steps.terraform_plan.outputs.app_changed != 'true'
@@ -457,7 +458,7 @@ jobs:
   deploy-production:
     name: Deploy Production
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 180
     needs:
       - resolve-release
       - deploy-staging
@@ -472,6 +473,7 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
       DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
     steps:
       - name: Configure Git defaults
@@ -666,7 +668,7 @@ jobs:
             exit 0
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Terraform apply
         working-directory: infrastructure/digitalocean/platform
@@ -700,7 +702,7 @@ jobs:
         run: |
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
-          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds=1800 --poll-seconds=30
+          node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Deploy App Platform image
         if: steps.terraform_plan.outputs.app_changed != 'true'
