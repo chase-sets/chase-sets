@@ -7,7 +7,13 @@ import { normalizeAuthPhoneNumber } from "../auth-support/identity-projection";
 import { consumePhoneCodeToken, insertPhoneCodeToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  createOwnedUserDisplayName,
+  getBootstrapContext,
+  readIdentityMutationConflict,
+  type AuthApiApp,
+} from "./support";
 
 const PHONE_CODE_NOTIFICATION_PROJECTION = "auth-phone-code-notification-intent";
 
@@ -74,13 +80,23 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
       : await services.identity.getUserByPhone(record.phone);
 
     if (!user) {
-      const identity = await identityMutations.createPersonalIdentity({
-        phone: record.phone,
-        displayName:
-          typeof body.displayName === "string" && body.displayName.trim()
-            ? body.displayName.trim()
-            : createOwnedUserDisplayName(record.phone),
-      });
+      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+      try {
+        identity = await identityMutations.createPersonalIdentity({
+          phone: record.phone,
+          displayName:
+            typeof body.displayName === "string" && body.displayName.trim()
+              ? body.displayName.trim()
+              : createOwnedUserDisplayName(record.phone),
+        });
+      } catch (error) {
+        const conflict = readIdentityMutationConflict(error);
+        if (conflict) {
+          return c.json(conflict, 409);
+        }
+
+        throw error;
+      }
       const authResult = await startInteractiveAuth(services, {
         userId: identity.userId,
         accountId: identity.accountId,

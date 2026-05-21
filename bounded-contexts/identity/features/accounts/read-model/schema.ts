@@ -9,4 +9,11 @@ export const identityAccountSchemaSql = `CREATE TABLE IF NOT EXISTS identity_acc
 );
 
 ALTER TABLE identity_accounts
-  ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb;`;
+  ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS identity_account_display_name_reservations (
+  display_name_key text PRIMARY KEY,
+  account_id text NOT NULL UNIQUE,
+  display_name text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);`;

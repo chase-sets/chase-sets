@@ -2,7 +2,13 @@ import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  createOwnedUserDisplayName,
+  getBootstrapContext,
+  readIdentityMutationConflict,
+  type AuthApiApp,
+} from "./support";
 
 export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/invitations/accept", async (c) => {
@@ -15,10 +21,20 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
 
     let user = await services.identity.getUserByEmail(invitation.email);
     if (!user) {
-      const identity = await identityMutations.createPersonalIdentity({
-        email: invitation.email,
-        displayName: createOwnedUserDisplayName(invitation.email),
-      });
+      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+      try {
+        identity = await identityMutations.createPersonalIdentity({
+          email: invitation.email,
+          displayName: createOwnedUserDisplayName(invitation.email),
+        });
+      } catch (error) {
+        const conflict = readIdentityMutationConflict(error);
+        if (conflict) {
+          return c.json(conflict, 409);
+        }
+
+        throw error;
+      }
       user = await services.identity.getUser(identity.userId);
     }
 

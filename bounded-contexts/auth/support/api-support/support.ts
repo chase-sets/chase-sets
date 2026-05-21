@@ -40,6 +40,24 @@ export function createIdentityMutations(c: AuthApiContext) {
   return createIdentityAuthRequestClient(c.req.raw);
 }
 
+export function readIdentityMutationConflict(error: unknown) {
+  if (!error || typeof error !== "object" || !("status" in error) || Number(error.status) !== 409) {
+    return null;
+  }
+
+  const body = "body" in error ? error.body : null;
+  const message = error instanceof Error ? error.message : "Identity mutation conflict.";
+
+  return body && typeof body === "object"
+    ? body
+    : {
+        error: {
+          code: "identity_mutation_conflict",
+          message,
+        },
+      };
+}
+
 export function createPermissionGuard(permission: string): MiddlewareHandler<AuthApiEnv> {
   return async (c, next) => {
     const actor = c.var.actor;

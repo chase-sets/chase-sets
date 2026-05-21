@@ -13,7 +13,13 @@ import {
 import { consumeSocialLoginState, insertSocialLoginState } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import type { SocialLoginProviderName } from "../social-login-support/providers";
-import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  createOwnedUserDisplayName,
+  getBootstrapContext,
+  readIdentityMutationConflict,
+  type AuthApiApp,
+} from "./support";
 
 const SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH = "/sign-in";
 const SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH = "/register";
@@ -163,12 +169,22 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     let accountId: string | undefined;
 
     if (!user) {
-      const identity = await identityMutations.createPersonalIdentity({
-        email,
-        displayName: profile.displayName?.trim() || createOwnedUserDisplayName(email),
-        givenName: profile.givenName?.trim() || undefined,
-        familyName: profile.familyName?.trim() || undefined,
-      });
+      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+      try {
+        identity = await identityMutations.createPersonalIdentity({
+          email,
+          displayName: profile.displayName?.trim() || createOwnedUserDisplayName(email),
+          givenName: profile.givenName?.trim() || undefined,
+          familyName: profile.familyName?.trim() || undefined,
+        });
+      } catch (error) {
+        const conflict = readIdentityMutationConflict(error);
+        if (conflict) {
+          return redirectToFallback(t("identity.api.display.name.already.taken"), journey);
+        }
+
+        throw error;
+      }
       accountId = identity.accountId;
       user = await services.identity.getUser(identity.userId);
     }

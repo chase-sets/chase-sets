@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_CHALLENGE_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   consumeChallenge,
   getPasskeyCredentialByExternalId,
@@ -8,7 +9,13 @@ import {
   upsertPasskeyCredential,
 } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  createOwnedUserDisplayName,
+  getBootstrapContext,
+  readIdentityMutationConflict,
+  type AuthApiApp,
+} from "./support";
 
 export function passkeyMatchesChallengeUser(challengeUserId: string | null, passkeyUserId: string) {
   return challengeUserId === null || challengeUserId === passkeyUserId;
@@ -79,16 +86,28 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
 
     let userId = resolvedUser.userId;
     let accountId: string | undefined;
+    let membershipId: string | undefined;
     if (!userId && challenge.email) {
-      const identity = await identityMutations.createPersonalIdentity({
-        email: challenge.email,
-        displayName:
-          typeof body.displayName === "string" && body.displayName.trim()
-            ? body.displayName
-            : createOwnedUserDisplayName(challenge.email),
-      });
+      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+      try {
+        identity = await identityMutations.createPersonalIdentity({
+          email: challenge.email,
+          displayName:
+            typeof body.displayName === "string" && body.displayName.trim()
+              ? body.displayName
+              : createOwnedUserDisplayName(challenge.email),
+        });
+      } catch (error) {
+        const conflict = readIdentityMutationConflict(error);
+        if (conflict) {
+          return c.json(conflict, 409);
+        }
+
+        throw error;
+      }
       userId = identity.userId;
       accountId = identity.accountId;
+      membershipId = identity.membershipId;
     }
 
     if (!userId) {
@@ -118,6 +137,17 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
             accountId,
             authenticationMethod: "passkey",
             context: getBootstrapContext(c),
+            membershipsOverride: membershipId
+              ? [
+                  {
+                    membershipId,
+                    accountId,
+                    roleKey: "owner",
+                    status: "active",
+                    rolePermissions: AUTH_ROLE_PERMISSIONS.owner,
+                  },
+                ]
+              : undefined,
           })
         : null;
 

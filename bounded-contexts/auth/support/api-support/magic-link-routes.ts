@@ -4,7 +4,13 @@ import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/se
 import { consumeMagicLinkToken, insertMagicLinkToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
+import {
+  createIdentityMutations,
+  createOwnedUserDisplayName,
+  getBootstrapContext,
+  readIdentityMutationConflict,
+  type AuthApiApp,
+} from "./support";
 
 export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/magic-link/request", async (c) => {
@@ -57,10 +63,20 @@ export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices)
       : await services.identity.getUserByEmail(record.email);
 
     if (!user) {
-      const identity = await identityMutations.createPersonalIdentity({
-        email: record.email,
-        displayName: createOwnedUserDisplayName(record.email),
-      });
+      let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+      try {
+        identity = await identityMutations.createPersonalIdentity({
+          email: record.email,
+          displayName: createOwnedUserDisplayName(record.email),
+        });
+      } catch (error) {
+        const conflict = readIdentityMutationConflict(error);
+        if (conflict) {
+          return c.json(conflict, 409);
+        }
+
+        throw error;
+      }
       const authResult = await startInteractiveAuth(services, {
         userId: identity.userId,
         accountId: identity.accountId,

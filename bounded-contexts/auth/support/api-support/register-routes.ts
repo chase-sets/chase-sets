@@ -3,7 +3,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import { createIdentityMutations, getBootstrapContext, type AuthApiApp } from "./support";
+import { createIdentityMutations, getBootstrapContext, readIdentityMutationConflict, type AuthApiApp } from "./support";
 
 export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/register", async (c) => {
@@ -15,13 +15,23 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
       return c.json({ error: t("auth.support.apiSupport.registerRoutes.a.user.already.exists.for.that") }, 409);
     }
 
-    const identity = await identityMutations.createPersonalIdentity({
-      email,
-      displayName: String(body.displayName ?? ""),
-      givenName: body.givenName ? String(body.givenName) : undefined,
-      familyName: body.familyName ? String(body.familyName) : undefined,
-      consents: Array.isArray(body.consents) ? body.consents : undefined,
-    });
+    let identity: Awaited<ReturnType<typeof identityMutations.createPersonalIdentity>>;
+    try {
+      identity = await identityMutations.createPersonalIdentity({
+        email,
+        displayName: String(body.displayName ?? ""),
+        givenName: body.givenName ? String(body.givenName) : undefined,
+        familyName: body.familyName ? String(body.familyName) : undefined,
+        consents: Array.isArray(body.consents) ? body.consents : undefined,
+      });
+    } catch (error) {
+      const conflict = readIdentityMutationConflict(error);
+      if (conflict) {
+        return c.json(conflict, 409);
+      }
+
+      throw error;
+    }
 
     if (body.password) {
       const credentialId = createId("crd");
