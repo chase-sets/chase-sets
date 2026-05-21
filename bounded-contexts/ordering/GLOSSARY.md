@@ -67,3 +67,9 @@ An **Order Split** is the decomposition of a checkout session into one or more o
 ## Shipping Quote Policy
 
 A **Shipping Quote Policy** is the Ordering-owned rule that estimates provisional shipping charges and discounts while checkout compares seller split plans.
+
+Notes:
+
+- Shipping quotes use Catalog-provided product measure snapshots, seller origin, destination address, item value, requested shipping option, and package-planning policy.
+- Letter eligibility is part of Shipping Quote Policy, not Catalog product truth.
+- Orders store an immutable shipping plan snapshot so later profile or carrier-policy changes do not rewrite committed order economics.

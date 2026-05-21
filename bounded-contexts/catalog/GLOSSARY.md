@@ -19,6 +19,8 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Reference Type`
 - `Reference Record`
 - `Catalog Item Image Fallback`
+- `Product Measure Profile`
+- `Resolved Product Measure`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -46,6 +48,8 @@ The current implementation also uses four supporting authoring concepts:
 - `Reference Type` — a reusable kind of rich descriptive value, such as Expansion, Series, or Product Line
 - `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Expansion
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
+- `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
+- `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
 
@@ -79,6 +83,8 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Reference Record` may be selected as a Field value on many Catalog Items.
 - A `Reference Record` may relate to other Reference Records.
 - A `Catalog Item Image Fallback` belongs to one Catalog Item and may point at a shared Catalog-owned asset used by many items.
+- A `Product Measure Profile` may apply to many Products through Blueprint, Category, and selected Option rules.
+- A `Resolved Product Measure` belongs to exactly one Product.
 
 ## Identity and IDs
 
@@ -105,6 +111,8 @@ Notes:
 - A reference-shaped Field value must point at one Catalog-owned Reference Record.
 - A Reference Record enriches item information but does not change `product_id`.
 - A Catalog Item Image Fallback never changes `product_id`; it only describes fallback imagery for item presentation.
+- Product weight, dimensions, physical flags, and stack behavior are Catalog-owned product facts.
+- Shipping price, letter eligibility, and carrier service selection are not Catalog facts; downstream contexts derive them from Resolved Product Measures and their own policies.
 
 ## API Guidance
 
@@ -177,13 +185,16 @@ Catalog defines:
 - the authoring relationship between Blueprints, Fields, Components, Categories, Reference Records, and Catalog Items
 - the review and promotion policy for provider Source Observations
 - the normalized product imagery contract published as Product Asset Sets
+- reusable Product Measure Profiles and Resolved Product Measures
 
 Catalog does not define:
 
 - listing aggregation
 - multi-select filtering
 - faceted search behavior
+- shipping quote policy
+- package execution
 
 ## One-Line Summary
 
-A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, and Reference Records support authoring, enriching, and organizing that truth.
+A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, and Product Measure Profiles support authoring, enriching, organizing, and measuring that truth.

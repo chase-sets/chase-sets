@@ -26,6 +26,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Seller | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Transaction role played by an Account. |
 | Catalog Item | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Canonical parent definition of a thing. |
 | Product | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Valid sellable option combination under a Catalog Item. |
+| Product Measure Profile | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable physical measurement rule for Products that share size, weight, stack behavior, and physical flags. |
+| Resolved Product Measure | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Per-Product measurement snapshot published for shipping quote and fulfillment use. |
 | Reference Type | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Reusable kind of rich descriptive catalog value, such as Expansion, Series, or Product Line. |
 | Reference Record | [Catalog](../bounded-contexts/catalog/GLOSSARY.md) | Rich reusable catalog value that can be selected by item fields and carry attributes or relationships. |
 | Inventory Item | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) | Account-owned stock for one resolved product and storage location. |
@@ -43,6 +45,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Sale | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Seller-facing order projection. |
 | Self-Service Purchase Cancellation | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Buyer-initiated cancellation of a paid purchase before Fulfillment starts package preparation. |
 | Shipment | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Physical delivery execution for an order. |
+| Package Plan | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Immutable package dimensions, weight, mailpiece class, and measurement-version snapshot executed by Fulfillment. |
+| Letter Mailpiece | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Non-parcel shipment path for eligible low-risk raw-card orders. |
 | Cancellation Cutoff | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Shipment state boundary that closes self-service purchase cancellation. |
 | Review | [Reputation](../bounded-contexts/reputation/GLOSSARY.md) | Post-transaction account evaluation. |
 | Payment | [Payments](../bounded-contexts/payments/GLOSSARY.md) | External charge or refund workflow. |

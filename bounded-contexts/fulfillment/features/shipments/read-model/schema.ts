@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipping_option text NOT NULL,
   shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  shipping_plan_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   shipping_method text NULL,
   carrier_name text NULL,
   label_reference text NULL,
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_exception_pages (
 ALTER TABLE IF EXISTS fulfillment_shipment_pages
   ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS shipping_plan_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS label_document_url text NULL,
   ADD COLUMN IF NOT EXISTS postage_provider_name text NULL,
   ADD COLUMN IF NOT EXISTS postage_provider_mode text NULL,

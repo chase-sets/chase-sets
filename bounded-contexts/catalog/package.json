@@ -24,6 +24,7 @@
     "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "hono": "^4.12.12",
     "sharp": "^0.34.5"

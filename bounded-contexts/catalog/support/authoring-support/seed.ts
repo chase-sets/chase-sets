@@ -12,6 +12,7 @@ import { seedDimensions } from "../../features/dimensions/api/seed";
 import type { DimensionIds } from "../../features/dimensions/api/seed";
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
+import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { PokemonReferenceIds } from "../../features/reference-data/api/seed";
 import { catalogSeedIds } from "../seed-support/ids";
@@ -50,6 +51,10 @@ export async function seedCatalogDatabase(
 
   if (shouldSeedScenarioData) {
     await seedCatalogScenarioData(pool, authoring);
+  }
+
+  if (shouldSeedIntegrationProfile || shouldSeedScenarioData) {
+    await seedProductMeasures(createCatalogServices(pool));
   }
 
   console.log("\nCatalog seed reconciliation complete!");

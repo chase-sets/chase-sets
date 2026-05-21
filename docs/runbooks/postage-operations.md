@@ -18,6 +18,14 @@ Platform API settings:
 - `EASYPOST_MODE`: `test` or `production`; defaults to `test`.
 - `EASYPOST_API_BASE_URL`: optional override for non-default environments.
 
+## Package Plan Defaults
+
+Ordering commits a package plan when an order is created. Fulfillment projects that plan onto the shipment and uses it as the default source of package dimensions and weight for USPS label purchase.
+
+Manual package fields are an override path. Operators should only use them when the physical package differs from the committed plan; normal seller fulfillment follows the shared marketplace packaging policy.
+
+Letter mailpieces are not parcel labels. If an order is planned as a letter, Fulfillment should use the letter preparation path instead of buying a USPS parcel label.
+
 ## Label Flow
 
 The EasyPost adapter creates shipments from sender and recipient addresses plus package dimensions and weight, returns USPS rates, buys the selected rate, and provides the tracking number and label document URL.

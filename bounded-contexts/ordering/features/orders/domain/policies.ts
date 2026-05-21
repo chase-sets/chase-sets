@@ -1,5 +1,6 @@
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { PackagePlan, ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import {
   assert,
   buildDemandSignature,
@@ -30,6 +31,7 @@ export type MarketplaceSupplyCandidate = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly VersionSelectedOptionEntry[];
   productSummary: string | null;
+  productMeasureSnapshot: ProductMeasureSnapshot | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
   shipFromAddress: AddressSnapshot;
@@ -52,6 +54,7 @@ export type ShippingQuoteResult = Readonly<{
   baseAmount: string;
   discountAmount?: string;
   chargeAmount?: string;
+  packagePlan?: PackagePlan;
 }>;
 
 export interface ShippingQuotePolicy {
@@ -61,17 +64,41 @@ export interface ShippingQuotePolicy {
     itemSubtotalAmount: string;
     quantity: number;
     listingCount: number;
+    packagePlan?: PackagePlan;
   }>): ShippingQuoteResult;
 }
 
 export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
-  quote({ shippingOption, itemSubtotalAmount, quantity, listingCount }) {
+  quote({ shippingOption, itemSubtotalAmount, quantity, listingCount, packagePlan }) {
     const subtotal = Number.parseFloat(
       normalizeMoneyAmount(itemSubtotalAmount, {
         allowZero: true,
         fieldName: "Item subtotal",
       }),
     );
+    if (packagePlan && packagePlan.packageCount > 0) {
+      const baseAmount = packagePlan.packages.reduce((sum, pkg) => {
+        if (pkg.mailpieceClass === "letter") {
+          return sum + 1.49;
+        }
+        const perPackageBase =
+          shippingOption === "priority"
+            ? 9.99
+            : shippingOption === "expedited"
+              ? 7.49
+              : 4.99;
+        return sum + perPackageBase + Math.max(0, pkg.billableWeightOunces - 4) * 0.32;
+      }, 0);
+
+      return {
+        shippingOption,
+        baseAmount: numberToMoneyAmount(baseAmount),
+        discountAmount: "0.00",
+        chargeAmount: numberToMoneyAmount(baseAmount),
+        packagePlan,
+      };
+    }
+
     const perOrderBase =
       shippingOption === "priority"
         ? 19.99

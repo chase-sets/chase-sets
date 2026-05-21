@@ -53,6 +53,7 @@
         "catalog.catalog-item.published",
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived",
+        "catalog.catalog-item.product-measures-resolved",
         "catalog.blueprint.created",
         "catalog.blueprint.revised",
         "catalog.blueprint.dimensions-set",

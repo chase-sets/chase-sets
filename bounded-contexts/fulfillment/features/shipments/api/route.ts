@@ -79,6 +79,24 @@ function hasAddressInput(body: Record<string, unknown>, prefix: string) {
   ].some((field) => typeof body[`${prefix}${field}`] === "string");
 }
 
+function readPackageInput(body: Record<string, unknown>) {
+  const fields = [
+    "packageLengthInches",
+    "packageWidthInches",
+    "packageHeightInches",
+    "packageWeightOunces",
+  ];
+  if (!fields.some((field) => body[field] !== undefined)) {
+    return null;
+  }
+  return {
+    lengthInches: Number(body.packageLengthInches),
+    widthInches: Number(body.packageWidthInches),
+    heightInches: Number(body.packageHeightInches),
+    weightOunces: Number(body.packageWeightOunces),
+  };
+}
+
 function parseShipmentIds(value: string | undefined) {
   return Array.from(
     new Set(
@@ -298,12 +316,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
             typeof body.overrideReason === "string"
               ? body.overrideReason
               : null,
-          package: {
-            lengthInches: Number(body.packageLengthInches ?? 7),
-            widthInches: Number(body.packageWidthInches ?? 5),
-            heightInches: Number(body.packageHeightInches ?? 1),
-            weightOunces: Number(body.packageWeightOunces ?? 4),
-          },
+          package: readPackageInput(body),
         },
         context,
       );

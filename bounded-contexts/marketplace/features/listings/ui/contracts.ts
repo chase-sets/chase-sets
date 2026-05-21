@@ -1,4 +1,5 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
 export interface MarketplaceListingListItem {
   listing_id: string;
@@ -11,6 +12,7 @@ export interface MarketplaceListingListItem {
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  product_measure_snapshot: ProductMeasureSnapshot | null;
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
@@ -100,6 +102,7 @@ export interface MarketplaceListingInventoryItemOption {
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  product_measure_snapshot: ProductMeasureSnapshot | null;
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string;
   ship_from_code: string;

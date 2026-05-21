@@ -19,6 +19,7 @@ export function buildOrderingOrderProjectionHandlers(
         shippingAllowanceAmount?: string;
         shippingOverageAmount?: string;
         shippingChargeAmount: string;
+        shippingPlanSnapshot?: unknown;
         totalAmount: string;
         salesTaxAmount: string;
         taxSnapshot: {
@@ -103,6 +104,7 @@ export function buildOrderingOrderProjectionHandlers(
            terms_resolved_at,
            shipping_destination_snapshot,
            shipping_origin_snapshot,
+           shipping_plan_snapshot,
            status,
            created_at,
            updated_at,
@@ -110,7 +112,7 @@ export function buildOrderingOrderProjectionHandlers(
            cancellation_reason,
            ready_for_fulfillment_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, 'pending-reservation', $32, $32, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, 'pending-reservation', $33, $33, NULL, NULL, NULL
          )
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
@@ -143,6 +145,7 @@ export function buildOrderingOrderProjectionHandlers(
              terms_resolved_at = EXCLUDED.terms_resolved_at,
              shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
              shipping_origin_snapshot = EXCLUDED.shipping_origin_snapshot,
+             shipping_plan_snapshot = EXCLUDED.shipping_plan_snapshot,
              status = EXCLUDED.status,
              updated_at = EXCLUDED.updated_at,
              cancellation_reason = EXCLUDED.cancellation_reason,
@@ -188,6 +191,7 @@ export function buildOrderingOrderProjectionHandlers(
           data.commercialTermsSnapshot.termsResolvedAt,
           JSON.stringify(data.shippingDestinationSnapshot),
           JSON.stringify(data.shippingOriginSnapshot),
+          JSON.stringify(data.shippingPlanSnapshot ?? {}),
           event.timing.recordedAt,
         ],
       );

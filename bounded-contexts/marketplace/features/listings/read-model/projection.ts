@@ -16,6 +16,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     item_subtitle: string | null;
     selected_options: unknown;
     product_summary: string | null;
+    product_measure_snapshot: unknown;
     graded_card: unknown;
     storage_location_name: string | null;
     ship_from_code: string | null;
@@ -42,6 +43,10 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     ? {
         ...row,
         selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
+        product_measure_snapshot:
+          typeof row.product_measure_snapshot === "object" && row.product_measure_snapshot !== null
+            ? row.product_measure_snapshot
+            : null,
         graded_card:
           typeof row.graded_card === "object" && row.graded_card !== null
             ? row.graded_card
@@ -88,6 +93,7 @@ export function buildMarketplaceListingProjectionHandlers(
         itemLanguageCode?: string | null;
         selectedOptions: unknown;
         productSummary: string | null;
+        productMeasureSnapshot?: unknown;
         gradedCard: unknown;
         storageLocationName: string | null;
         shipFromCode: string | null;
@@ -120,6 +126,7 @@ export function buildMarketplaceListingProjectionHandlers(
           item_subtitle,
           selected_options,
           product_summary,
+          product_measure_snapshot,
           graded_card,
           storage_location_name,
           ship_from_code,
@@ -140,7 +147,7 @@ export function buildMarketplaceListingProjectionHandlers(
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 'draft', $27, $27
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'draft', $28, $28
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -152,6 +159,7 @@ export function buildMarketplaceListingProjectionHandlers(
           item_subtitle = EXCLUDED.item_subtitle,
           selected_options = EXCLUDED.selected_options,
           product_summary = EXCLUDED.product_summary,
+          product_measure_snapshot = EXCLUDED.product_measure_snapshot,
           graded_card = EXCLUDED.graded_card,
           storage_location_name = EXCLUDED.storage_location_name,
           ship_from_code = EXCLUDED.ship_from_code,
@@ -180,6 +188,10 @@ export function buildMarketplaceListingProjectionHandlers(
           data.itemSubtitle,
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
+          data.productMeasureSnapshot &&
+          typeof data.productMeasureSnapshot === "object"
+            ? JSON.stringify(data.productMeasureSnapshot)
+            : null,
           data.gradedCard === null || typeof data.gradedCard !== "object"
             ? null
             : JSON.stringify(data.gradedCard),

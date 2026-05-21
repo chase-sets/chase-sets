@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { MarketplaceGradedCardDetails } from "../domain/domain";
 
 export type MarketplaceListingListRow = Readonly<{
@@ -13,6 +14,7 @@ export type MarketplaceListingListRow = Readonly<{
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  product_measure_snapshot: ProductMeasureSnapshot | null;
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string | null;
   ship_from_code: string | null;
@@ -90,6 +92,7 @@ type MarketplaceListingPageRow = Readonly<{
   item_subtitle: string | null;
   selected_options: unknown;
   product_summary: string | null;
+  product_measure_snapshot: unknown;
   graded_card: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
@@ -121,6 +124,7 @@ export type MarketplaceInventoryItemSupply = Readonly<{
   item_subtitle: string | null;
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
+  product_measure_snapshot: ProductMeasureSnapshot | null;
   graded_card: MarketplaceGradedCardDetails | null;
   storage_location_name: string;
   ship_from_code: string;
@@ -145,6 +149,10 @@ function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRo
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as MarketplaceListingListRow["selected_options"])
       : [],
+    product_measure_snapshot:
+      typeof row.product_measure_snapshot === "object" && row.product_measure_snapshot !== null
+        ? (row.product_measure_snapshot as ProductMeasureSnapshot)
+        : null,
     graded_card:
       typeof row.graded_card === "object" && row.graded_card !== null
         ? (row.graded_card as MarketplaceGradedCardDetails)
@@ -173,6 +181,7 @@ export async function getInventoryItemSupply(
     item_subtitle: string | null;
     selected_options: unknown;
     product_summary: string | null;
+    product_measure_snapshot: unknown;
     graded_card: unknown;
     storage_location_name: string;
     ship_from_code: string;
@@ -218,6 +227,12 @@ export async function getInventoryItemSupply(
            )
          END
        ) AS product_summary,
+       (
+         SELECT measure
+         FROM jsonb_array_elements(COALESCE(catalog_item.product_measure_snapshots, '[]'::jsonb)) AS measure
+         WHERE measure->>'productId' = item.product_id
+         LIMIT 1
+       ) AS product_measure_snapshot,
        location.name AS storage_location_name,
        location.ship_from_code,
        location.ship_from_address,
@@ -249,6 +264,10 @@ export async function getInventoryItemSupply(
     selected_options: Array.isArray(row.selected_options)
       ? (row.selected_options as MarketplaceInventoryItemSupply["selected_options"])
       : [],
+    product_measure_snapshot:
+      typeof row.product_measure_snapshot === "object" && row.product_measure_snapshot !== null
+        ? (row.product_measure_snapshot as ProductMeasureSnapshot)
+        : null,
     graded_card:
       typeof row.graded_card === "object" && row.graded_card !== null
         ? (row.graded_card as MarketplaceGradedCardDetails)
@@ -323,6 +342,12 @@ export async function listSellerInventoryItemSupply(
           )
         END
       ) AS product_summary,
+      (
+        SELECT measure
+        FROM jsonb_array_elements(COALESCE(catalog_item.product_measure_snapshots, '[]'::jsonb)) AS measure
+        WHERE measure->>'productId' = item.product_id
+        LIMIT 1
+      ) AS product_measure_snapshot,
       location.name AS storage_location_name,
       location.ship_from_code,
       location.ship_from_address,
@@ -369,6 +394,7 @@ export async function listSellerInventoryItemSupply(
       item_subtitle: string | null;
       selected_options: unknown;
       product_summary: string | null;
+      product_measure_snapshot: unknown;
       graded_card: unknown;
       storage_location_name: string;
       ship_from_code: string;
@@ -388,6 +414,10 @@ export async function listSellerInventoryItemSupply(
       selected_options: Array.isArray(row.selected_options)
         ? (row.selected_options as MarketplaceInventoryItemSupply["selected_options"])
         : [],
+      product_measure_snapshot:
+        typeof row.product_measure_snapshot === "object" && row.product_measure_snapshot !== null
+          ? (row.product_measure_snapshot as ProductMeasureSnapshot)
+          : null,
       graded_card:
         typeof row.graded_card === "object" && row.graded_card !== null
           ? (row.graded_card as MarketplaceGradedCardDetails)

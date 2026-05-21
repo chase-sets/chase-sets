@@ -110,6 +110,7 @@ export function buildFulfillmentOrderProjectionHandlers(
         shippingOption: string;
         shippingDestinationSnapshot: unknown;
         shippingOriginSnapshot: unknown;
+        shippingPlanSnapshot?: unknown;
         lines: Array<{
           lineId: string;
           catalogItemId: string;
@@ -129,18 +130,20 @@ export function buildFulfillmentOrderProjectionHandlers(
            shipping_option,
            shipping_destination_snapshot,
            shipping_origin_snapshot,
+           shipping_plan_snapshot,
            status,
            created_at,
            updated_at,
            ready_for_fulfillment_at,
            cancelled_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'pending-reservation', $7, $7, NULL, NULL)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending-reservation', $8, $8, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE SET
            buyer_account_id = EXCLUDED.buyer_account_id,
            seller_account_id = EXCLUDED.seller_account_id,
            shipping_option = EXCLUDED.shipping_option,
            shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
            shipping_origin_snapshot = EXCLUDED.shipping_origin_snapshot,
+           shipping_plan_snapshot = EXCLUDED.shipping_plan_snapshot,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at,
            cancelled_at = EXCLUDED.cancelled_at`,
@@ -151,6 +154,7 @@ export function buildFulfillmentOrderProjectionHandlers(
           data.shippingOption,
           JSON.stringify(data.shippingDestinationSnapshot),
           JSON.stringify(data.shippingOriginSnapshot),
+          JSON.stringify(data.shippingPlanSnapshot ?? {}),
           event.timing.recordedAt,
         ],
       );
