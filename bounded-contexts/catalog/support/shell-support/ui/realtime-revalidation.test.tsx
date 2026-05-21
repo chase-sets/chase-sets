@@ -11,11 +11,12 @@ import { useCatalogRealtimeRevalidation } from "./realtime-revalidation";
 const mocks = vi.hoisted(() => ({
   close: vi.fn(),
   revalidate: vi.fn(),
+  activeRevalidate: vi.fn(),
   subscribeRealtimePatches: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
-  useRevalidator: () => ({ revalidate: mocks.revalidate }),
+  useRevalidator: () => ({ revalidate: mocks.activeRevalidate }),
 }));
 
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
@@ -36,6 +37,7 @@ describe("useCatalogRealtimeRevalidation", () => {
     vi.useFakeTimers();
     mocks.close.mockReset();
     mocks.revalidate.mockReset();
+    mocks.activeRevalidate = mocks.revalidate;
     mocks.subscribeRealtimePatches.mockReset();
     mocks.subscribeRealtimePatches.mockReturnValue({ close: mocks.close });
   });
@@ -110,5 +112,38 @@ describe("useCatalogRealtimeRevalidation", () => {
     });
 
     expect(mocks.revalidate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the subscription open when the route rerenders with a new revalidator object", () => {
+    const nextRevalidate = vi.fn();
+    const { rerender } = render(<Probe />);
+
+    mocks.activeRevalidate = nextRevalidate;
+    rerender(<Probe />);
+
+    expect(mocks.subscribeRealtimePatches).toHaveBeenCalledOnce();
+    expect(mocks.close).not.toHaveBeenCalled();
+
+    const options = mocks.subscribeRealtimePatches.mock.calls[0]?.[0];
+    act(() => {
+      options.onPatch({
+        kind: "projection.patch",
+        context: "catalog",
+        projection: "catalog-admin-catalog-item-projection",
+        topics: ["catalog:admin:catalog-items"],
+        changes: [
+          {
+            op: "summary",
+            entity: "catalog.adminProjection",
+            id: "catalog-items:catalog.item-cat_1",
+            value: {},
+          },
+        ],
+      } satisfies RealtimeProjectionPatch);
+      vi.advanceTimersByTime(25);
+    });
+
+    expect(mocks.revalidate).not.toHaveBeenCalled();
+    expect(nextRevalidate).toHaveBeenCalledOnce();
   });
 });

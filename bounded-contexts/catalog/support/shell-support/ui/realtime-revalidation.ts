@@ -12,8 +12,11 @@ export function useCatalogRealtimeRevalidation(
   debounceMs = DEFAULT_REVALIDATION_DEBOUNCE_MS,
 ) {
   const revalidator = useRevalidator();
+  const revalidateRef = useRef(revalidator.revalidate);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionKey = preset.topics.join("\n");
+
+  revalidateRef.current = revalidator.revalidate;
 
   useEffect(() => {
     function scheduleRevalidation() {
@@ -23,7 +26,7 @@ export function useCatalogRealtimeRevalidation(
 
       timeoutRef.current = setTimeout(() => {
         timeoutRef.current = null;
-        revalidator.revalidate();
+        revalidateRef.current();
       }, debounceMs);
     }
 
@@ -41,5 +44,5 @@ export function useCatalogRealtimeRevalidation(
       }
       subscription.close();
     };
-  }, [subscriptionKey, debounceMs, revalidator]);
+  }, [subscriptionKey, debounceMs]);
 }
