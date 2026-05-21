@@ -1,8 +1,45 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { extractIdFromStreamId } from "../../../support/read-model-support/extract-id-from-stream";
+import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 
 const STREAM_PREFIX = "identity.account-";
+
+function readAccountBadgeKeys(value: unknown): AccountBadgeKey[] {
+  const values = Array.isArray(value) ? value : [];
+  return values.filter((badgeKey): badgeKey is AccountBadgeKey =>
+    typeof badgeKey === "string" && accountBadgeKeys.includes(badgeKey as AccountBadgeKey),
+  );
+}
+
+function addAccountBadge(
+  badges: readonly AccountBadgeKey[],
+  badgeKey: AccountBadgeKey,
+) {
+  return [...new Set([...badges, badgeKey])].sort((left, right) => left.localeCompare(right));
+}
+
+async function updateAccountBadges(
+  db: PgQueryable,
+  params: Readonly<{
+    accountId: string;
+    recordedAt: string;
+    update: (badges: readonly AccountBadgeKey[]) => readonly AccountBadgeKey[];
+  }>,
+) {
+  const result = await db.query<{ badges: unknown }>(
+    `SELECT badges FROM identity_accounts WHERE account_id = $1`,
+    [params.accountId],
+  );
+  const current = readAccountBadgeKeys(result.rows[0]?.badges);
+  await db.query(
+    `UPDATE identity_accounts
+     SET badges = $2::jsonb,
+         updated_at = $3
+     WHERE account_id = $1`,
+    [params.accountId, JSON.stringify(params.update(current)), params.recordedAt],
+  );
+}
 
 export function buildAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -20,9 +57,10 @@ export function buildAccountProjectionHandlers(db: PgQueryable): ProjectorHandle
            display_name,
            account_type,
            status,
+           badges,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, 'active', $5)
+         VALUES ($1, $2, $3, $4, 'active', '[]'::jsonb, $5)
          ON CONFLICT (account_id) DO UPDATE
          SET name = $2,
              display_name = $3,
@@ -76,6 +114,24 @@ export function buildAccountProjectionHandlers(db: PgQueryable): ProjectorHandle
          WHERE account_id = $1`,
         [accountId, event.timing.recordedAt],
       );
+    },
+    "identity.account.badge-assigned": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { badgeKey } = event.data as { badgeKey: AccountBadgeKey };
+      await updateAccountBadges(db, {
+        accountId,
+        recordedAt: event.timing.recordedAt,
+        update: (badges) => addAccountBadge(badges, badgeKey),
+      });
+    },
+    "identity.account.badge-removed": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { badgeKey } = event.data as { badgeKey: AccountBadgeKey };
+      await updateAccountBadges(db, {
+        accountId,
+        recordedAt: event.timing.recordedAt,
+        update: (badges) => badges.filter((assignedBadgeKey) => assignedBadgeKey !== badgeKey),
+      });
     },
   };
 }

@@ -8,6 +8,7 @@ const account = {
   display_name: "Card Vault",
   name: "Card Vault LLC",
   status: "active",
+  badges: ["founding-account"],
   updated_at: "2026-05-13T12:00:00.000Z",
 };
 
@@ -16,6 +17,7 @@ const actorDisplay = {
     account_id: "acc_card_vault",
     display_name: "Card Vault",
     name: "Card Vault LLC",
+    badges: ["founding-account"],
   },
   membership: {
     membership_id: "mbr_card_vault_alex",
@@ -39,6 +41,7 @@ describe("AccountProfilePage", () => {
     expect(html).toContain("Alex Clerk");
     expect(html).toContain("alex@example.com");
     expect(html).toContain("Fulfillment Manager");
+    expect(html).toContain("Founding Account");
     expect(html.indexOf("Signed-In Identity")).toBeLessThan(
       html.indexOf("Marketplace Readiness"),
     );

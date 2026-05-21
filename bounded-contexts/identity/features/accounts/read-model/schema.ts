@@ -4,5 +4,9 @@ export const identityAccountSchemaSql = `CREATE TABLE IF NOT EXISTS identity_acc
   display_name text NOT NULL,
   account_type text NOT NULL,
   status text NOT NULL,
+  badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
-);`;
+);
+
+ALTER TABLE identity_accounts
+  ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb;`;

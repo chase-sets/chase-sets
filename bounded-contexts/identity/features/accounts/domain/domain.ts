@@ -20,6 +20,7 @@ export type AccountState = Readonly<{
   accountType: AccountType | null;
   displayName: string;
   status: AccountStatus;
+  badges: readonly AccountBadgeKey[];
 }>;
 
 export const initialAccountState: AccountState = {
@@ -28,7 +29,11 @@ export const initialAccountState: AccountState = {
   accountType: null,
   displayName: "",
   status: "active",
+  badges: [],
 };
+
+export const accountBadgeKeys = ["founding-account"] as const;
+export type AccountBadgeKey = typeof accountBadgeKeys[number];
 
 export type CreateAccountCommand = Readonly<{
   type: "CreateAccount";
@@ -47,13 +52,23 @@ export type UpdateAccountProfileCommand = Readonly<{
 export type SuspendAccountCommand = Readonly<{ type: "SuspendAccount" }>;
 export type ReactivateAccountCommand = Readonly<{ type: "ReactivateAccount" }>;
 export type CloseAccountCommand = Readonly<{ type: "CloseAccount" }>;
+export type AssignAccountBadgeCommand = Readonly<{
+  type: "AssignAccountBadge";
+  badgeKey: AccountBadgeKey;
+}>;
+export type RemoveAccountBadgeCommand = Readonly<{
+  type: "RemoveAccountBadge";
+  badgeKey: AccountBadgeKey;
+}>;
 
 export type AccountCommand =
   | CreateAccountCommand
   | UpdateAccountProfileCommand
   | SuspendAccountCommand
   | ReactivateAccountCommand
-  | CloseAccountCommand;
+  | CloseAccountCommand
+  | AssignAccountBadgeCommand
+  | RemoveAccountBadgeCommand;
 
 type AccountProfile = Readonly<{
   name: string;
@@ -86,13 +101,23 @@ export type AccountClosedEvent = DomainEvent<
   "identity.account.closed",
   EmptyEventData
 >;
+export type AccountBadgeAssignedEvent = DomainEvent<
+  "identity.account.badge-assigned",
+  Readonly<{ badgeKey: AccountBadgeKey }>
+>;
+export type AccountBadgeRemovedEvent = DomainEvent<
+  "identity.account.badge-removed",
+  Readonly<{ badgeKey: AccountBadgeKey }>
+>;
 
 export type AccountEvent =
   | AccountCreatedEvent
   | AccountProfileUpdatedEvent
   | AccountSuspendedEvent
   | AccountReactivatedEvent
-  | AccountClosedEvent;
+  | AccountClosedEvent
+  | AccountBadgeAssignedEvent
+  | AccountBadgeRemovedEvent;
 
 export const decideAccount: AggregateDecider<
   AccountState,
@@ -140,6 +165,27 @@ export const decideAccount: AggregateDecider<
       requireCreatedAccount(state);
       assert(state.status !== "closed", "Account has already been closed.");
       return [{ type: "identity.account.closed", data: EMPTY_EVENT_DATA }];
+    case "AssignAccountBadge":
+      requireCreatedAccount(state);
+      assert(state.status !== "closed", "Closed accounts cannot receive badges.");
+      assertValidAccountBadge(command.badgeKey);
+      if (state.badges.includes(command.badgeKey)) {
+        return [];
+      }
+      return [{
+        type: "identity.account.badge-assigned",
+        data: { badgeKey: command.badgeKey },
+      }];
+    case "RemoveAccountBadge":
+      requireCreatedAccount(state);
+      assertValidAccountBadge(command.badgeKey);
+      if (!state.badges.includes(command.badgeKey)) {
+        return [];
+      }
+      return [{
+        type: "identity.account.badge-removed",
+        data: { badgeKey: command.badgeKey },
+      }];
     default:
       return assertNever(command);
   }
@@ -157,6 +203,7 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (
         accountType: event.data.accountType,
         displayName: event.data.displayName,
         status: "active",
+        badges: [],
       };
     case "identity.account.profile-updated":
       return {
@@ -170,6 +217,16 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (
       return { ...state, status: "active" };
     case "identity.account.closed":
       return { ...state, status: "closed" };
+    case "identity.account.badge-assigned":
+      return {
+        ...state,
+        badges: sortAccountBadges([...state.badges, event.data.badgeKey]),
+      };
+    case "identity.account.badge-removed":
+      return {
+        ...state,
+        badges: state.badges.filter((badgeKey) => badgeKey !== event.data.badgeKey),
+      };
     default:
       return assertNever(event);
   }
@@ -177,4 +234,15 @@ export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (
 
 function requireCreatedAccount(state: AccountState) {
   assert(state.id !== null, "Account must be created first.");
+}
+
+function assertValidAccountBadge(badgeKey: string): asserts badgeKey is AccountBadgeKey {
+  assert(
+    accountBadgeKeys.includes(badgeKey as AccountBadgeKey),
+    "Account badge is not supported.",
+  );
+}
+
+function sortAccountBadges(badgeKeys: readonly AccountBadgeKey[]) {
+  return [...new Set(badgeKeys)].sort((left, right) => left.localeCompare(right));
 }

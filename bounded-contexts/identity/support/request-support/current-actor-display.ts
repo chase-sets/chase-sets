@@ -4,6 +4,7 @@ type AccountDisplaySource = Readonly<{
   account_id: string;
   display_name: string;
   name: string;
+  badges?: readonly string[] | null;
 }> | null;
 
 type MembershipDisplaySource = Readonly<{
@@ -22,6 +23,7 @@ export type CurrentActorDisplay = Readonly<{
     account_id: string;
     display_name: string | null;
     name: string | null;
+    badges: readonly string[];
   }>;
   membership: Readonly<{
     membership_id: string;
@@ -47,6 +49,7 @@ export function buildCurrentActorDisplay(
       account_id: actor.accountId,
       display_name: facts.account?.display_name ?? null,
       name: facts.account?.name ?? null,
+      badges: facts.account?.badges ?? [],
     },
     membership: {
       membership_id: facts.membership?.membership_id ?? actor.membershipId,

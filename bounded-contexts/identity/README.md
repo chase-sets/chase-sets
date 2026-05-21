@@ -57,6 +57,8 @@ Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossa
 - `UserCreated`
 - `AccountCreated`
 - `AccountProfileUpdated`
+- `AccountBadgeAssigned`
+- `AccountBadgeRemoved`
 - `MembershipGranted`
 - `MembershipRevoked`
 - `ContactMethodVerified`

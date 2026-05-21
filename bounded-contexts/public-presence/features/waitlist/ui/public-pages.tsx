@@ -714,6 +714,7 @@ function LaunchPriorityPanel() {
           </BadgeRow>
           <List
             items={[
+              t("publicPresence.home.promise.foundingBadge"),
               t("publicPresence.home.promise.lowValue"),
               t("publicPresence.home.promise.sellerTools"),
               t("publicPresence.home.promise.earlyAccess"),
@@ -723,16 +724,16 @@ function LaunchPriorityPanel() {
         <Surface tone="subtle">
           <Stack gap={3}>
             <Inline gap={2}>
-              <Badge tone="success">{t("publicPresence.home.betaFee.badge")}</Badge>
+              <Badge tone="accent">{t("publicPresence.home.foundingBadge.badge")}</Badge>
               <Text size="sm" weight="semibold">{t("publicPresence.home.stat.status.value")}</Text>
             </Inline>
-            <Heading level={3}>{t("publicPresence.home.betaFee.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.betaFee.description")}</Text>
+            <Heading level={3}>{t("publicPresence.home.foundingBadge.title")}</Heading>
+            <Text tone="secondary">{t("publicPresence.home.foundingBadge.description")}</Text>
             <Grid columns={{ base: 1, md: 3 }} gap={3}>
               {[
-                ["publicPresence.home.betaFee.rate", "publicPresence.home.betaFee.rateLabel"],
-                ["publicPresence.home.betaFee.scope", "publicPresence.home.betaFee.scopeLabel"],
-                ["publicPresence.home.betaFee.lock", "publicPresence.home.betaFee.lockLabel"],
+                ["publicPresence.home.foundingBadge.visibility", "publicPresence.home.foundingBadge.visibilityLabel"],
+                ["publicPresence.home.foundingBadge.criteria", "publicPresence.home.foundingBadge.criteriaLabel"],
+                ["publicPresence.home.foundingBadge.assignment", "publicPresence.home.foundingBadge.assignmentLabel"],
               ].map(([value, label]) => (
                 <Stack key={value} gap={1}>
                   <Text weight="bold">{t(value)}</Text>
@@ -918,6 +919,7 @@ function FinalCtaSection({
           </Stack>
           <List
             items={[
+              t("publicPresence.home.finalCta.point.foundingBadge"),
               t("publicPresence.home.finalCta.point.sellers"),
               t("publicPresence.home.finalCta.point.buyers"),
               t("publicPresence.home.finalCta.point.terms"),

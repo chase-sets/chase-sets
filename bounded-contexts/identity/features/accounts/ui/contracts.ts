@@ -4,5 +4,6 @@ export type Account = Readonly<{
   display_name: string;
   account_type: string;
   status: string;
+  badges: readonly string[];
   updated_at: string;
 }>;
