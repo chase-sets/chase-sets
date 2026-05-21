@@ -25,6 +25,7 @@ type MockPool = {
 
 const sourceEventsByPool = new Map<object, MockStoredEvent[]>();
 const checkpointsByPool = new Map<object, Map<string, string>>();
+const projectionRevisionsByPool = new Map<object, Map<string, number>>();
 const truncatedTablesByPool = new Map<object, string[][]>();
 
 function getCheckpointStore(pool: object) {
@@ -32,6 +33,16 @@ function getCheckpointStore(pool: object) {
   if (!store) {
     store = new Map();
     checkpointsByPool.set(pool, store);
+  }
+
+  return store;
+}
+
+function getProjectionRevisionStore(pool: object) {
+  let store = projectionRevisionsByPool.get(pool);
+  if (!store) {
+    store = new Map();
+    projectionRevisionsByPool.set(pool, store);
   }
 
   return store;
@@ -70,6 +81,14 @@ function createMockPool(): MockPool {
         };
       }
 
+      if (sql.includes("SELECT projection_revision")) {
+        const key = `${params[0]}:${params[1]}`;
+        const value = getProjectionRevisionStore(pool).get(key);
+        return {
+          rows: value ? [{ projection_revision: value }] : [],
+        };
+      }
+
       if (sql.includes("INSERT INTO event_subscription_checkpoints")) {
         const checkpointKey = String(params[0]);
         const lastGlobalPosition = String(params[4]);
@@ -81,6 +100,12 @@ function createMockPool(): MockPool {
             ? lastGlobalPosition
             : previous,
         );
+        return { rows: [] };
+      }
+
+      if (sql.includes("INSERT INTO event_projection_group_revisions")) {
+        const key = `${params[0]}:${params[1]}`;
+        getProjectionRevisionStore(pool).set(key, Number(params[2]));
         return { rows: [] };
       }
 
@@ -234,6 +259,7 @@ describe("bounded context projection replay", () => {
   beforeEach(() => {
     sourceEventsByPool.clear();
     checkpointsByPool.clear();
+    projectionRevisionsByPool.clear();
     truncatedTablesByPool.clear();
   });
 
@@ -485,6 +511,192 @@ describe("bounded context projection replay", () => {
       ["inventory_catalog_items", "inventory_catalog_blueprints"],
     ]);
     expect(group.getStatus().caughtUp).toBe(true);
+  });
+
+  it("marks a projection revision after a successful sync without rebuilding unchanged projections", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+    ]);
+    getProjectionRevisionStore(targetPool).set(
+      "inventory:inventory-catalog-item-projection",
+      2,
+    );
+
+    const seenPositions: string[] = [];
+    const runner = createSubscriptionRunner(
+      "inventory",
+      targetPool as never,
+      sourcePool as never,
+      {
+        subscriptionName: "inventory.catalog-item-projection",
+        sourceContextName: "catalog",
+        projectionName: "inventory-catalog-item-projection",
+        subscriptionVersion: 1,
+        handlers: {
+          "catalog.catalog-item.published": async (event) => {
+            seenPositions.push(event.globalPosition);
+          },
+        },
+        eventTypes: ["catalog.catalog-item.published"],
+      },
+    );
+    const runtime = createMountedRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          projectionRevision: 2,
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          requiredDuringBootstrap: true,
+        },
+      ],
+      [runner],
+    );
+
+    await syncContextProjectionGroups(runtime, "inventory");
+
+    expect(seenPositions).toEqual(["1"]);
+    expect(getTruncateLog(targetPool)).toEqual([]);
+    expect(
+      getProjectionRevisionStore(targetPool).get(
+        "inventory:inventory-catalog-item-projection",
+      ),
+    ).toBe(2);
+    expect(runtime.projectionGroups[0].getStatus().revisionStale).toBe(false);
+  });
+
+  it("automatically rebuilds a projection group when the declared projection revision changes", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" }),
+    ]);
+    getCheckpointStore(targetPool).set(
+      "inventory-catalog-item-projection:catalog:v1",
+      "2",
+    );
+    getProjectionRevisionStore(targetPool).set(
+      "inventory:inventory-catalog-item-projection",
+      1,
+    );
+
+    const seenPositions: string[] = [];
+    const runner = createSubscriptionRunner(
+      "inventory",
+      targetPool as never,
+      sourcePool as never,
+      {
+        subscriptionName: "inventory.catalog-item-projection",
+        sourceContextName: "catalog",
+        projectionName: "inventory-catalog-item-projection",
+        subscriptionVersion: 1,
+        handlers: {
+          "catalog.catalog-item.published": async (event) => {
+            seenPositions.push(event.globalPosition);
+          },
+        },
+        eventTypes: ["catalog.catalog-item.published"],
+      },
+    );
+    const runtime = createMountedRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          projectionRevision: 2,
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          requiredDuringBootstrap: true,
+        },
+      ],
+      [runner],
+    );
+
+    await syncContextProjectionGroups(runtime, "inventory");
+
+    expect(seenPositions).toEqual(["1", "2"]);
+    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
+    expect(
+      getProjectionRevisionStore(targetPool).get(
+        "inventory:inventory-catalog-item-projection",
+      ),
+    ).toBe(2);
+    expect(
+      getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1"),
+    ).toBe("2");
+    expect(runtime.projectionGroups[0].getStatus().revisionStale).toBe(false);
+  });
+
+  it("does not mark the new projection revision when automatic rebuild fails", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+    ]);
+    getCheckpointStore(targetPool).set(
+      "inventory-catalog-item-projection:catalog:v1",
+      "1",
+    );
+    getProjectionRevisionStore(targetPool).set(
+      "inventory:inventory-catalog-item-projection",
+      1,
+    );
+
+    const runner = createSubscriptionRunner(
+      "inventory",
+      targetPool as never,
+      sourcePool as never,
+      {
+        subscriptionName: "inventory.catalog-item-projection",
+        sourceContextName: "catalog",
+        projectionName: "inventory-catalog-item-projection",
+        subscriptionVersion: 1,
+        handlers: {
+          "catalog.catalog-item.published": async () => {
+            throw new Error("projection handler failed");
+          },
+        },
+        eventTypes: ["catalog.catalog-item.published"],
+      },
+    );
+    const runtime = createMountedRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          projectionRevision: 2,
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          requiredDuringBootstrap: true,
+        },
+      ],
+      [runner],
+    );
+
+    await expect(syncContextProjectionGroups(runtime, "inventory")).rejects.toThrow(
+      "projection handler failed",
+    );
+
+    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
+    expect(
+      getProjectionRevisionStore(targetPool).get(
+        "inventory:inventory-catalog-item-projection",
+      ),
+    ).toBe(1);
+
+    await refreshProjectionGroupStatuses(runtime);
+    expect(runtime.projectionGroups[0].getStatus()).toMatchObject({
+      revisionStale: true,
+      state: "error",
+      lastError: "projection handler failed",
+    });
   });
 
   it("reports degraded replay status while a required projection group is still catching up", async () => {
