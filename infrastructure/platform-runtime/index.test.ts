@@ -46,6 +46,8 @@ function createModule(
   contextName: string,
   options: Readonly<{
     projectors?: readonly ReturnType<typeof createCountingProjector>["projector"][];
+    seedProfiles?: readonly ("critical-bootstrap" | "catalog-integration-bootstrap" | "scenario-seed")[];
+    seed?: () => Promise<void>;
   }> = {},
 ) {
   return {
@@ -57,6 +59,8 @@ function createModule(
     createServices: () => ({ contextName }),
     buildApis: () => [],
     projectors: () => options.projectors ?? [],
+    seedProfiles: options.seedProfiles,
+    seed: options.seed,
   };
 }
 
@@ -233,9 +237,10 @@ describe("platform host api registry", () => {
     ).toThrow(/missing a pool for context 'auth'/);
   });
 
-  it("keeps production-like bootstrap bounded to context-local projection drains", async () => {
+  it("keeps production-like bootstrap bounded to seeded contexts", async () => {
     const identityProjector = createCountingProjector();
-    const authProjector = createCountingProjector();
+    const catalogProjector = createCountingProjector();
+    const checkoutProjector = createCountingProjector();
     const registry = [
       {
         contextName: "identity",
@@ -247,20 +252,38 @@ describe("platform host api registry", () => {
         module: createModule("identity", { projectors: [identityProjector.projector] }),
       },
       {
-        contextName: "auth",
-        packageName: "@test/auth",
+        contextName: "catalog",
+        packageName: "@test/catalog",
         manifest: {
-          contextName: "auth",
+          contextName: "catalog",
           apiDeployables: ["platform-api"],
-          seedRequirements: ["identity"],
         },
-        module: createModule("auth", { projectors: [authProjector.projector] }),
+        module: createModule("catalog", {
+          projectors: [catalogProjector.projector],
+          seedProfiles: ["catalog-integration-bootstrap"],
+          seed: async () => undefined,
+        }),
+      },
+      {
+        contextName: "checkout",
+        packageName: "@test/checkout",
+        manifest: {
+          contextName: "checkout",
+          apiDeployables: ["platform-api"],
+          seedRequirements: ["catalog"],
+        },
+        module: createModule("checkout", {
+          projectors: [checkoutProjector.projector],
+          seedProfiles: ["scenario-seed"],
+          seed: async () => undefined,
+        }),
       },
     ] as const satisfies ApiContextRegistry;
     const runtime = createApiHost(registry, "platform-api", {
       pools: {
         identity: createPool() as never,
-        auth: createPool() as never,
+        catalog: createPool() as never,
+        checkout: createPool() as never,
       },
     });
 
@@ -269,8 +292,9 @@ describe("platform host api registry", () => {
       environmentName: "staging",
     });
 
-    expect(identityProjector.runOnce).toHaveBeenCalledTimes(2);
-    expect(authProjector.runOnce).toHaveBeenCalledTimes(2);
+    expect(identityProjector.runOnce).not.toHaveBeenCalled();
+    expect(catalogProjector.runOnce).toHaveBeenCalledTimes(2);
+    expect(checkoutProjector.runOnce).not.toHaveBeenCalled();
   });
 
   it("keeps full runtime drains for scenario bootstrap", async () => {
@@ -284,7 +308,11 @@ describe("platform host api registry", () => {
           contextName: "identity",
           apiDeployables: ["platform-api"],
         },
-        module: createModule("identity", { projectors: [identityProjector.projector] }),
+        module: createModule("identity", {
+          projectors: [identityProjector.projector],
+          seedProfiles: ["scenario-seed"],
+          seed: async () => undefined,
+        }),
       },
       {
         contextName: "auth",
@@ -294,7 +322,11 @@ describe("platform host api registry", () => {
           apiDeployables: ["platform-api"],
           seedRequirements: ["identity"],
         },
-        module: createModule("auth", { projectors: [authProjector.projector] }),
+        module: createModule("auth", {
+          projectors: [authProjector.projector],
+          seedProfiles: ["scenario-seed"],
+          seed: async () => undefined,
+        }),
       },
     ] as const satisfies ApiContextRegistry;
     const runtime = createApiHost(registry, "platform-api", {
