@@ -1,5 +1,73 @@
-import { describe, expect, it } from "vitest";
-import { passkeyMatchesChallengeUser, resolvePasskeyRegistrationUserId } from "./passkey-routes";
+import { Hono } from "hono";
+import { describe, expect, it, vi } from "vitest";
+import type { AuthServices } from "../runtime-support/services";
+import { passkeyMatchesChallengeUser, registerPasskeyRoutes, resolvePasskeyRegistrationUserId } from "./passkey-routes";
+import type { AuthApiEnv } from "./support";
+
+const { mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockRegisterPasskeyCredential } = vi.hoisted(
+  () => ({
+    mockCreateIdentityAuthRequestClient: vi.fn(),
+    mockCreatePersonalIdentity: vi.fn(),
+    mockRegisterPasskeyCredential: vi.fn(),
+  }),
+);
+
+vi.mock("@chase-sets/identity/server", () => ({
+  createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
+  IdentityApiError: class IdentityApiError extends Error {
+    public constructor(
+      public readonly status: number,
+      public readonly body: unknown,
+    ) {
+      super(`API error ${status}`);
+    }
+  },
+}));
+
+function buildApp(services: AuthServices) {
+  const app = new Hono<AuthApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", null);
+    c.set("context", { causationId: "test" } as AuthApiEnv["Variables"]["context"]);
+    await next();
+  });
+  registerPasskeyRoutes(app, services);
+  return app;
+}
+
+function createServices() {
+  const db = {
+    query: vi.fn(async () => ({ rows: [] })),
+  };
+
+  return {
+    db,
+    auth: {
+      issueChallenge: vi.fn(() => "challenge_value"),
+      issueOpaqueToken: vi.fn(() => "session_token"),
+      hashSecret: vi.fn((value: string) => `hashed:${value}`),
+    },
+    identity: {
+      normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
+      getUserByEmail: vi.fn(async () => null),
+      listActiveMembershipsForUser: vi.fn(async () => []),
+    },
+    sessions: {
+      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
+      getSession: vi.fn(async (sessionId: string) => ({
+        session_id: sessionId,
+        user_id: "usr_new",
+        account_id: "acc_new",
+        available_account_ids: ["acc_new"],
+        authentication_method: "passkey",
+        status: "active",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        updated_at: new Date().toISOString(),
+      })),
+    },
+    projectors: [],
+  } as unknown as AuthServices;
+}
 
 describe("passkey route security", () => {
   it("allows discoverable credentials only when they match the challenged user", () => {
@@ -26,5 +94,86 @@ describe("passkey route security", () => {
         challengeUserId: null,
       }),
     ).toEqual({ status: "forbidden" });
+  });
+
+  it("creates a personal identity, stores the passkey lookup, and starts the first session", async () => {
+    const services = createServices();
+    const dbQuery = vi.mocked(services.db.query);
+    dbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            challenge_id: "cmd_1",
+            purpose: "passkey-register",
+            email: "owner@pokebash.example",
+            user_id: null,
+            challenge_value: "challenge_value",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            consumed_at: new Date().toISOString(),
+          },
+        ],
+      })
+      .mockResolvedValue({ rows: [] });
+    mockCreatePersonalIdentity.mockResolvedValue({
+      userId: "usr_new",
+      accountId: "acc_new",
+      membershipId: "mbr_new",
+    });
+    mockRegisterPasskeyCredential.mockResolvedValue(undefined);
+    mockCreateIdentityAuthRequestClient.mockReturnValue({
+      createPersonalIdentity: mockCreatePersonalIdentity,
+      registerPasskeyCredential: mockRegisterPasskeyCredential,
+    });
+    const app = buildApp(services);
+
+    const response = await app.request("/passkeys/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challengeId: "cmd_1",
+        challenge: "challenge_value",
+        displayName: "PokeBash TCG",
+        externalCredentialId: "external_credential",
+        label: "Passkey",
+        publicKey: "public_key",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        userId: "usr_new",
+        authResult: expect.objectContaining({
+          type: "session-started",
+          sessionToken: "session_token",
+        }),
+      }),
+    );
+    expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
+      email: "owner@pokebash.example",
+      displayName: "PokeBash TCG",
+    });
+    expect(mockRegisterPasskeyCredential).toHaveBeenCalledWith({
+      userId: "usr_new",
+      credentialId: expect.stringMatching(/^crd_/),
+    });
+    expect(dbQuery).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO identity_passkey_credentials"),
+      expect.arrayContaining(["usr_new", "external_credential", "Passkey", "public_key"]),
+    );
+    expect(dbQuery).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO identity_passkey_lookup"),
+      expect.arrayContaining(["external_credential", "usr_new", "Passkey"]),
+    );
+    expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "StartSession",
+          userId: "usr_new",
+          accountId: "acc_new",
+          availableAccountIds: ["acc_new"],
+        }),
+      }),
+    );
   });
 });

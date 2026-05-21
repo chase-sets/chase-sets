@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { t } from "@chase-sets/localization";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, ApiKeyId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -44,6 +45,57 @@ function getRequiredContext(c: Context<IdentityApiEnv>) {
   return context;
 }
 
+export class IdentityDisplayNameConflictError extends Error {
+  constructor() {
+    super("Display name is already taken.");
+    this.name = "IdentityDisplayNameConflictError";
+  }
+}
+
+export function normalizeAccountDisplayNameKey(displayName: string) {
+  return displayName.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+async function reservePersonalAccountDisplayName(
+  services: IdentityServices,
+  params: Readonly<{
+    accountId: AccountId;
+    displayName: string;
+  }>,
+) {
+  const displayNameKey = normalizeAccountDisplayNameKey(params.displayName);
+  if (!displayNameKey) {
+    return;
+  }
+
+  const existingAccount = await services.db.query<{ account_id: string }>(
+    `SELECT account_id
+     FROM identity_accounts
+     WHERE lower(regexp_replace(btrim(display_name), '[[:space:]]+', ' ', 'g')) = $1
+     LIMIT 1`,
+    [displayNameKey],
+  );
+  if (existingAccount.rows.some((row) => row.account_id !== params.accountId)) {
+    throw new IdentityDisplayNameConflictError();
+  }
+
+  const reservation = await services.db.query<{ display_name_key: string }>(
+    `INSERT INTO identity_account_display_name_reservations (
+       display_name_key,
+       account_id,
+       display_name,
+       created_at
+     )
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (display_name_key) DO NOTHING
+     RETURNING display_name_key`,
+    [displayNameKey, params.accountId, params.displayName],
+  );
+  if (reservation.rows.length === 0) {
+    throw new IdentityDisplayNameConflictError();
+  }
+}
+
 async function drainProjectors(services: IdentityServices) {
   let processed = 0;
   do {
@@ -82,12 +134,17 @@ async function createPersonalIdentityForAuth(
       }
     : undefined;
 
+  await reservePersonalAccountDisplayName(services, {
+    accountId,
+    displayName,
+  });
+
   await services.accounts.commandHandler({
     streamId: `identity.account-${accountId}`,
     command: {
       type: "CreateAccount",
       accountId,
-      name: displayName,
+      name: "",
       accountType: "personal",
       displayName,
     },
@@ -166,7 +223,7 @@ async function createGuestAccountForAuth(
     command: {
       type: "CreateAccount",
       accountId,
-      name: displayName,
+      name: "",
       accountType: "personal",
       displayName,
     },
@@ -466,15 +523,32 @@ export function buildIdentityApi(services: IdentityServices) {
 
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();
-    const identity = await createPersonalIdentityForAuth(services, {
-      email: typeof body.email === "string" && body.email.trim() ? body.email : null,
-      phone: typeof body.phone === "string" && body.phone.trim() ? body.phone : null,
-      displayName: String(body.displayName ?? ""),
-      givenName: typeof body.givenName === "string" ? body.givenName : undefined,
-      familyName: typeof body.familyName === "string" ? body.familyName : undefined,
-      consents: Array.isArray(body.consents) ? body.consents : undefined,
-      context: getBootstrapContext(c),
-    });
+    let identity: Awaited<ReturnType<typeof createPersonalIdentityForAuth>>;
+    try {
+      identity = await createPersonalIdentityForAuth(services, {
+        email: typeof body.email === "string" && body.email.trim() ? body.email : null,
+        phone: typeof body.phone === "string" && body.phone.trim() ? body.phone : null,
+        displayName: String(body.displayName ?? ""),
+        givenName: typeof body.givenName === "string" ? body.givenName : undefined,
+        familyName: typeof body.familyName === "string" ? body.familyName : undefined,
+        consents: Array.isArray(body.consents) ? body.consents : undefined,
+        context: getBootstrapContext(c),
+      });
+    } catch (error) {
+      if (error instanceof IdentityDisplayNameConflictError) {
+        return c.json(
+          {
+            error: {
+              code: "display_name_already_taken",
+              message: t("identity.api.display.name.already.taken"),
+            },
+          },
+          409,
+        );
+      }
+
+      throw error;
+    }
 
     return c.json(identity, 201);
   });
@@ -502,7 +576,7 @@ export function buildIdentityApi(services: IdentityServices) {
     await registerPasskeyCredentialForAuth(services, {
       userId: c.req.param("id"),
       credentialId: String(body.credentialId ?? ""),
-      context: getRequiredContext(c),
+      context: getBootstrapContext(c),
     });
     return c.json({ ok: true });
   });

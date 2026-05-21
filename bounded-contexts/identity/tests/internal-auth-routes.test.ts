@@ -1,0 +1,107 @@
+import { describe, expect, it, vi } from "vitest";
+import type { IdentityServices } from "../support/runtime-support/services";
+import { buildIdentityApi, normalizeAccountDisplayNameKey } from "../api";
+
+function createServices() {
+  return {
+    db: {
+      query: vi.fn(),
+    },
+    accounts: {
+      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
+    },
+    users: {
+      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
+    },
+    memberships: {
+      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
+    },
+    consents: {
+      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "recorded" } })),
+    },
+    projectors: [],
+  } as unknown as IdentityServices;
+}
+
+describe("identity internal auth routes", () => {
+  it("normalizes account display names for uniqueness checks", () => {
+    expect(normalizeAccountDisplayNameKey("  PokeBash   TCG  ")).toBe("pokebash tcg");
+  });
+
+  it("does not copy a personal display name into the account legal name", async () => {
+    const services = createServices();
+    vi.mocked(services.db.query)
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ display_name_key: "pokebash tcg" }] });
+    const app = buildIdentityApi(services);
+
+    const response = await app.request("/internal/auth/personal-identities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "owner@pokebash.example",
+        displayName: "PokeBash TCG",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(services.accounts.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "CreateAccount",
+          name: "",
+          displayName: "PokeBash TCG",
+        }),
+      }),
+    );
+  });
+
+  it("rejects duplicate personal account display names before writing identity records", async () => {
+    const services = createServices();
+    vi.mocked(services.db.query).mockResolvedValueOnce({ rows: [{ account_id: "acc_existing" }] });
+    const app = buildIdentityApi(services);
+
+    const response = await app.request("/internal/auth/personal-identities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "owner@pokebash.example",
+        displayName: "PokeBash TCG",
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "display_name_already_taken",
+        message: "Display name is already taken.",
+      },
+    });
+    expect(services.accounts.commandHandler).not.toHaveBeenCalled();
+    expect(services.users.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("registers passkey credential facts without requiring an actor request context", async () => {
+    const services = createServices();
+    const app = buildIdentityApi(services);
+
+    const response = await app.request("/internal/auth/users/usr_1/passkey-credential", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credentialId: "crd_1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(services.users.commandHandler).toHaveBeenCalledTimes(2);
+    expect(services.users.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: { type: "EnableAuthMethod", authMethod: "passkey" },
+      }),
+    );
+    expect(services.users.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: { type: "RegisterPasskeyCredential", credentialId: "crd_1" },
+      }),
+    );
+  });
+});
