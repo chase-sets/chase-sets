@@ -109,6 +109,19 @@ describe("source observation runtime", () => {
         command: expect.objectContaining({ type: "CreateCatalogItem" }),
       }),
     );
+    expect(harness.itemCommands[0]?.command).toMatchObject({
+      type: "ReviseCatalogItemMetadata",
+      title: {
+        values: {
+          en: "Furret 136/217",
+        },
+      },
+      subtitle: {
+        values: {
+          en: "Ascended Heroes Updated • Parallel Set - Reverse Foil • Uncommon",
+        },
+      },
+    });
     expect(harness.itemCommands).toContainEqual(
       expect.objectContaining({
         command: expect.objectContaining({
@@ -127,28 +140,161 @@ describe("source observation runtime", () => {
       }),
     );
   });
+
+  it("uses the Expansion printed-card-count attribute as the displayed card number denominator", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      expansionAttributes: {
+        "printed-card-count": 102,
+      },
+      normalized: pokemonObservation({
+        cardNumber: "43",
+        expansionCardCount: 110,
+        expansionName: "Base Set",
+        name: "Abra",
+        rarity: "Common",
+        seriesName: "Base",
+      }),
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      harness.items,
+      harness.referenceData,
+    );
+
+    await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(harness.itemCommands[0]?.command).toMatchObject({
+      type: "ReviseCatalogItemMetadata",
+      title: {
+        values: {
+          en: "Abra 43/102",
+        },
+      },
+      subtitle: {
+        values: {
+          en: "Base Set • Parallel Set - Reverse Foil • Common",
+        },
+      },
+    });
+  });
+
+  it("omits the card count denominator when the Expansion printed-card-count attribute is null", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      expansionAttributes: {
+        "printed-card-count": null,
+      },
+      normalized: pokemonObservation({
+        cardNumber: "SM01",
+        expansionCardCount: 200,
+        expansionName: "Sun & Moon Promos",
+        name: "Rowlet",
+        rarity: "Promo",
+        seriesName: "Sun & Moon",
+        cardVariantKey: "standard",
+        cardVariantLabel: "Standard Set",
+        cardVariantSourceKey: "normal",
+        parallelSet: false,
+      }),
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      harness.items,
+      harness.referenceData,
+    );
+
+    await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(harness.itemCommands[0]?.command).toMatchObject({
+      type: "ReviseCatalogItemMetadata",
+      title: {
+        values: {
+          en: "Rowlet SM01",
+        },
+      },
+      subtitle: {
+        values: {
+          en: "Sun & Moon Promos • Promo",
+        },
+      },
+    });
+  });
+
+  it("uses the bare card number when no official or configured card count is available", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      normalized: pokemonObservation({
+        cardNumber: "XY01",
+        expansionCardCount: null,
+        expansionName: "XY Promos",
+        name: "Pikachu",
+        rarity: "Promo",
+        seriesName: "XY",
+        cardVariantKey: "standard",
+        cardVariantLabel: "Standard Set",
+        cardVariantSourceKey: "normal",
+        parallelSet: false,
+      }),
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      harness.items,
+      harness.referenceData,
+    );
+
+    await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(harness.itemCommands[0]?.command).toMatchObject({
+      type: "ReviseCatalogItemMetadata",
+      title: {
+        values: {
+          en: "Pikachu XY01",
+        },
+      },
+      subtitle: {
+        values: {
+          en: "XY Promos • Promo",
+        },
+      },
+    });
+  });
 });
 
 function pokemonObservation(input: {
   expansionName: string;
   seriesName: string;
+  cardNumber?: string;
+  expansionCardCount?: number | null;
+  name?: string;
+  rarity?: string | null;
+  cardVariantKey?: string;
+  cardVariantLabel?: string;
+  cardVariantSourceKey?: string | null;
+  parallelSet?: boolean;
 }): SourceObservationNormalized {
   return {
     kind: "pokemon-card",
     tcg: "pokemon",
     languageCode: "en",
-    name: "Furret",
-    cardNumber: "136",
+    name: input.name ?? "Furret",
+    cardNumber: input.cardNumber ?? "136",
     setId: "me02.5",
     setName: input.expansionName,
     expansionId: "me02.5",
     expansionName: input.expansionName,
     expansionAbbreviation: "MEH",
-    expansionCardCount: 217,
+    expansionCardCount: input.expansionCardCount === undefined ? 217 : input.expansionCardCount,
     expansionParallelSetCardCount: 78,
     seriesId: "me",
     seriesName: input.seriesName,
-    rarity: "Uncommon",
+    rarity: input.rarity ?? "Uncommon",
     illustrator: "tetsuya koizumi",
     releaseDate: "2026-05-18",
     releaseYear: 2026,
@@ -156,10 +302,10 @@ function pokemonObservation(input: {
     imageBaseUrl: null,
     imageUrls: [],
     productAssetSet: null,
-    parallelSet: true,
-    cardVariantKey: "reverse-holo",
-    cardVariantLabel: "Parallel Set - Reverse Foil",
-    cardVariantSourceKey: "reverse",
+    parallelSet: input.parallelSet ?? true,
+    cardVariantKey: input.cardVariantKey ?? "reverse-holo",
+    cardVariantLabel: input.cardVariantLabel ?? "Parallel Set - Reverse Foil",
+    cardVariantSourceKey: input.cardVariantSourceKey ?? "reverse",
     cardVariantIsPrimaryImage: false,
     imageDisclaimer:
       "TCGDex provides one image for this card number. This Catalog Item represents the Parallel Set - Reverse Foil variant, so the image may not show the exact foil or pattern.",
@@ -264,10 +410,13 @@ function createReferencePreloadHarness() {
   };
 }
 
-function createChangedObservationRefreshHarness() {
+function createChangedObservationRefreshHarness(input: {
+  normalized?: SourceObservationNormalized;
+  expansionAttributes?: Readonly<Record<string, JsonValue>>;
+} = {}) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
-  const normalized = pokemonObservation({
+  const normalized = input.normalized ?? pokemonObservation({
     expansionName: "Ascended Heroes Updated",
     seriesName: "Mega Evolution",
   });
@@ -304,6 +453,13 @@ function createChangedObservationRefreshHarness() {
           return {
             rowCount: 1,
             rows: [{ reference_type_id: String(values[0]) }] as T[],
+          };
+        }
+
+        if (sql.includes("WHERE reference_record_id = $1")) {
+          return {
+            rowCount: 1,
+            rows: [{ attributes: input.expansionAttributes ?? {} }] as T[],
           };
         }
 
