@@ -58,6 +58,8 @@ import {
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
 
+const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
+
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
   status: "promoted" | "rejected" | "skipped" | "failed";
@@ -775,13 +777,17 @@ async function createCatalogDraftFromObservation(input: {
   context: EventStoreContext;
 }) {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const subtitle = formatPokemonCardSubtitle(input.normalized);
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
     normalized: input.normalized,
     context: input.context,
+  });
+  const metadata = await formatPokemonCardPromotionMetadata({
+    deps: input.deps,
+    normalized: input.normalized,
+    expansionReferenceId,
   });
 
   await input.items.commandHandler({
@@ -790,8 +796,8 @@ async function createCatalogDraftFromObservation(input: {
       type: "CreateCatalogItem",
       itemId: input.catalogItemId,
       languageCode: input.normalized.languageCode,
-      title: localizedText(input.normalized.name),
-      subtitle: localizedText(subtitle),
+      title: localizedText(metadata.title),
+      subtitle: localizedText(metadata.subtitle),
       description: localizedText(input.normalized.imageDisclaimer ?? ""),
     },
     context: input.context,
@@ -888,7 +894,6 @@ async function refreshCatalogItemFromObservation(input: {
   context: EventStoreContext;
 }) {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const subtitle = formatPokemonCardSubtitle(input.normalized);
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
@@ -896,14 +901,19 @@ async function refreshCatalogItemFromObservation(input: {
     normalized: input.normalized,
     context: input.context,
   });
+  const metadata = await formatPokemonCardPromotionMetadata({
+    deps: input.deps,
+    normalized: input.normalized,
+    expansionReferenceId,
+  });
 
   await input.items.commandHandler({
     streamId,
     command: {
       type: "ReviseCatalogItemMetadata",
       languageCode: input.normalized.languageCode,
-      title: localizedText(input.normalized.name),
-      subtitle: localizedText(subtitle),
+      title: localizedText(metadata.title),
+      subtitle: localizedText(metadata.subtitle),
       description: localizedText(input.normalized.imageDisclaimer ?? ""),
     },
     context: input.context,
@@ -971,15 +981,88 @@ async function refreshCatalogItemFromObservation(input: {
   });
 }
 
+async function formatPokemonCardPromotionMetadata(input: {
+  deps: CatalogRuntimeDeps;
+  normalized: SourceObservationNormalized;
+  expansionReferenceId: ReferenceRecordId;
+}): Promise<{ title: string; subtitle: string }> {
+  const printedCardCount = await loadExpansionPrintedCardCountOverride(
+    input.deps,
+    input.expansionReferenceId,
+  );
+  const cardNumber = formatPokemonCardNumber(input.normalized, printedCardCount);
+  const title = [input.normalized.name, cardNumber]
+    .filter((part) => part.trim().length > 0)
+    .join(" ");
+
+  return {
+    title,
+    subtitle: formatPokemonCardSubtitle(input.normalized),
+  };
+}
+
+async function loadExpansionPrintedCardCountOverride(
+  deps: CatalogRuntimeDeps,
+  expansionReferenceId: ReferenceRecordId,
+): Promise<string | null | undefined> {
+  const result = await deps.db.query<{ attributes: unknown }>(
+    `SELECT attributes
+     FROM catalog_reference_records
+     WHERE reference_record_id = $1
+     LIMIT 1`,
+    [expansionReferenceId],
+  );
+  const attributes = result.rows[0]?.attributes;
+  if (!isJsonRecord(attributes) || !(PRINTED_CARD_COUNT_ATTRIBUTE in attributes)) {
+    return undefined;
+  }
+
+  const value = attributes[PRINTED_CARD_COUNT_ATTRIBUTE];
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  return undefined;
+}
+
+function formatPokemonCardNumber(
+  normalized: SourceObservationNormalized,
+  printedCardCountOverride: string | null | undefined,
+): string {
+  const denominator = printedCardCountOverride === undefined
+    ? countToDisplayValue(normalized.expansionCardCount)
+    : printedCardCountOverride;
+
+  return denominator ? `${normalized.cardNumber}/${denominator}` : normalized.cardNumber;
+}
+
+function countToDisplayValue(value: number | null): string | null {
+  return value === null ? null : String(value);
+}
+
 function formatPokemonCardSubtitle(normalized: SourceObservationNormalized): string {
   return [
     normalized.expansionName,
-    normalized.cardNumber,
-    normalized.cardVariantLabel,
+    shouldIncludeCardVariantInSubtitle(normalized.cardVariantLabel)
+      ? normalized.cardVariantLabel
+      : null,
     normalized.rarity,
   ]
     .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-    .join(" ");
+    .join(" • ");
+}
+
+function shouldIncludeCardVariantInSubtitle(cardVariantLabel: string): boolean {
+  return cardVariantLabel.trim() !== "Standard Set";
 }
 
 function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string[] {
@@ -1065,6 +1148,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
       "abbreviation",
       "card-count",
       "parallel-set-card-count",
+      "printed-card-count",
       "release-date",
       "tcgdex-set-id",
     ],
@@ -1413,6 +1497,10 @@ function localizedJsonText(value: string): JsonObject {
       en: value,
     },
   };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function sourceObservationStreamId(observationId: string): string {
