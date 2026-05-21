@@ -14,10 +14,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  change-scope:
+    name: Change Scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      affected_workspaces: ${{ steps.scope.outputs.affected_workspaces }}
+      build: ${{ steps.scope.outputs.build }}
+      db_tests: ${{ steps.scope.outputs.db_tests }}
+      deploy: ${{ steps.scope.outputs.deploy }}
+      docker_image: ${{ steps.scope.outputs.docker_image }}
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+      e2e_tests: ${{ steps.scope.outputs.e2e_tests }}
+      local_checks: ${{ steps.scope.outputs.local_checks }}
+      terraform: ${{ steps.scope.outputs.terraform }}
+      typecheck: ${{ steps.scope.outputs.typecheck }}
+      unit_tests: ${{ steps.scope.outputs.unit_tests }}
+      workflow_lint: ${{ steps.scope.outputs.workflow_lint }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Resolve changed surface
+        id: scope
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+
+          if [[ "$base" =~ ^0+$ ]]; then
+            base="$(git rev-list --max-parents=0 "$head")"
+          fi
+
+          node ./scripts/change-scope.mjs github-output --base="${base}" --head="${head}"
+
   static:
     name: Static Checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.local_checks == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -36,6 +80,8 @@ jobs:
     name: Typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.typecheck == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -45,12 +91,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck repository
-        run: pnpm run verify:typecheck
+        run: |
+          pnpm run check:no-any
+          pnpm exec tsc -p ./tsconfig.json --noEmit
+          node ./scripts/run-workspaces.mjs typecheck --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.unit_tests == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -60,12 +111,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run non-DB tests
-        run: pnpm run verify:test
+        run: node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   db-tests:
     name: DB Profile Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.db_tests == 'true'
     services:
       postgres:
         image: postgres:16
@@ -91,12 +144,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run DB-profile fast tests
-        run: pnpm run verify:test-db
+        run: node ./scripts/run-workspaces.mjs test:fast --test-profile=db --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: change-scope
+    if: needs['change-scope'].outputs.e2e_tests == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -126,6 +181,8 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.build == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -135,12 +192,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build workspaces
-        run: pnpm run verify:build
+        run: node ./scripts/run-workspaces.mjs build --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   docker-image:
     name: Docker Image Build
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: change-scope
+    if: needs['change-scope'].outputs.docker_image == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -160,6 +219,8 @@ jobs:
     name: Workflow Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: change-scope
+    if: needs['change-scope'].outputs.workflow_lint == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -181,6 +242,8 @@ jobs:
     name: Terraform Preview Plan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.terraform == 'true'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -275,6 +338,8 @@ jobs:
     name: Terraform Production Plan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.terraform == 'true'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -337,6 +402,8 @@ jobs:
     name: Terraform Staging Plan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.terraform == 'true'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -407,11 +474,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     if: >
+      always() &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(github.event.pull_request.labels.*.name, 'preview')
+      contains(github.event.pull_request.labels.*.name, 'preview') &&
+      needs['change-scope'].outputs.deploy == 'true' &&
+      needs.static.result == 'success' &&
+      needs.typecheck.result == 'success' &&
+      needs['unit-tests'].result == 'success' &&
+      (needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success') &&
+      needs['e2e-tests'].result == 'success' &&
+      needs.build.result == 'success' &&
+      needs['docker-image'].result == 'success' &&
+      (needs['change-scope'].outputs.workflow_lint != 'true' || needs['workflow-lint'].result == 'success') &&
+      (needs['change-scope'].outputs.terraform != 'true' ||
+       (needs['terraform-preview-plan'].result == 'success' &&
+        needs['terraform-staging-plan'].result == 'success' &&
+        needs['terraform-production-plan'].result == 'success'))
     environment: preview
     needs:
+      - change-scope
       - static
       - typecheck
       - unit-tests
@@ -756,6 +838,7 @@ jobs:
     timeout-minutes: 5
     if: always()
     needs:
+      - change-scope
       - static
       - typecheck
       - unit-tests
@@ -773,27 +856,40 @@ jobs:
         run: |
           set -euo pipefail
 
-          for result in \
-            "${{ needs.static.result }}" \
-            "${{ needs.typecheck.result }}" \
-            "${{ needs['unit-tests'].result }}" \
-            "${{ needs['db-tests'].result }}" \
-            "${{ needs['e2e-tests'].result }}" \
-            "${{ needs.build.result }}" \
-            "${{ needs['docker-image'].result }}" \
-            "${{ needs['workflow-lint'].result }}" \
-            "${{ needs['terraform-preview-plan'].result }}" \
-            "${{ needs['terraform-staging-plan'].result }}" \
-            "${{ needs['terraform-production-plan'].result }}"
-          do
-            if [ "$result" != "success" ]; then
-              echo "At least one required CI job failed or was skipped." >&2
+          require_job() {
+            local name="$1"
+            local result="$2"
+            local required="$3"
+
+            if [ "$required" = "true" ]; then
+              if [ "$result" != "success" ]; then
+                echo "${name} was required but finished with result '${result}'." >&2
+                exit 1
+              fi
+              return
+            fi
+
+            if [ "$result" != "skipped" ] && [ "$result" != "success" ]; then
+              echo "${name} was not required but finished with unexpected result '${result}'." >&2
               exit 1
             fi
-          done
+          }
+
+          require_job "Change Scope" "${{ needs['change-scope'].result }}" "true"
+          require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.local_checks }}"
+          require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck }}"
+          require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests }}"
+          require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests }}"
+          require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests }}"
+          require_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build }}"
+          require_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image }}"
+          require_job "Workflow Lint" "${{ needs['workflow-lint'].result }}" "${{ needs['change-scope'].outputs.workflow_lint }}"
+          require_job "Terraform Preview Plan" "${{ needs['terraform-preview-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
+          require_job "Terraform Staging Plan" "${{ needs['terraform-staging-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
+          require_job "Terraform Production Plan" "${{ needs['terraform-production-plan'].result }}" "${{ needs['change-scope'].outputs.terraform }}"
 
           preview_result="${{ needs['preview-deploy-smoke'].result }}"
-          preview_required="${{ contains(github.event.pull_request.labels.*.name, 'preview') }}"
+          preview_required="${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'preview') && needs['change-scope'].outputs.deploy == 'true' }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             if [ "$preview_required" = "true" ] && [ "$preview_result" != "success" ]; then
               echo "Preview deployment and smoke must pass when the preview label is present." >&2

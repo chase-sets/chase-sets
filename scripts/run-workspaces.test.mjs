@@ -129,8 +129,28 @@ describe("run-workspaces", () => {
       passthroughArgs: ["--coverage"],
       includeTestProfile: undefined,
       excludeTestProfile: undefined,
+      workspaceNames: new Set(),
       concurrency: 4,
     });
+  });
+
+  it("filters by explicit workspace names", async () => {
+    const runs = [];
+
+    await runWorkspaceScripts({
+      argv: ["build", "--workspace-list=@test/b,@test/c"],
+      buildInvocation,
+      listWorkspaces: () => [
+        workspace("@test/a", { build: "build" }),
+        workspace("@test/b", { build: "build" }),
+        workspace("@test/c", { test: "test" }),
+      ],
+      run: async (_command, args) => {
+        runs.push(args[1]);
+      },
+    });
+
+    expect(runs).toEqual(["@test/b"]);
   });
 
   it("lets sandbox test env override checked-in local test defaults without replacing inherited shell values", () => {
