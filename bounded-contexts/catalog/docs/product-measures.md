@@ -33,3 +33,5 @@ The seeded profiles cover common Pokemon products:
 - Elite trainer box.
 
 Irregular products such as metal cards, jumbo cards, and collection boxes should receive a more specific profile or override before checkout is allowed.
+
+In staging and production, bootstrap seeds the reusable profiles but does not resolve every existing Catalog Item during deployment. Bulk backfill of existing items is operational work outside App Platform pre-deploy. Dev, preview, and tests may resolve existing scenario Catalog Items during `scenario-seed` bootstrap.

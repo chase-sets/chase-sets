@@ -18,6 +18,7 @@ Date: 2026-05-21
 - `infrastructure/platform-runtime/api.ts` still drains the entire API runtime after each context seed and once more at the end, even when the environment is staging or production.
 - The first bounded-drain fix still allowed staging to begin bootstrap-required projection synchronization for later contexts whose seeds are skipped under long-lived data profiles. The live deployment remained stopped after Catalog seed logs.
 - The second bounded-drain fix skipped unseeded contexts, but the live deployment still stopped after Catalog seed logs, which points to host-level projection sync around a seeded long-lived context.
+- The seed-only host fix showed the remaining pause is inside Catalog's own seed after `catalog projections up to date.` Product Measures then calls `resolveAllCatalogItemMeasures`, which can recalculate every existing Catalog Item and emit events during staging/prod pre-deploy.
 
 ## Decision
 
@@ -35,6 +36,7 @@ Use the existing data profile split as the policy boundary:
 - [x] Skip projection synchronization entirely for contexts whose seed does not run under the active data profiles.
 - [x] Skip host-level projection synchronization around long-lived context seeds.
 - [x] Add focused platform-runtime tests proving production-like profiles avoid host-level drains while scenario profiles still run full drains.
+- [x] Keep Product Measure profile seeding in long-lived environments while moving all-existing-item resolution behind `scenario-seed`.
 - [x] Update the DigitalOcean deployment runbook with the bounded bootstrap behavior.
 - [x] Run targeted and static verification.
 - [ ] Submit PR, wait for CI, merge, and verify staging then production deployments green.
