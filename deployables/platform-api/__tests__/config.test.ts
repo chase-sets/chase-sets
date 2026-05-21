@@ -182,6 +182,9 @@ describe("platform api config", () => {
   it("loads long-lived environment data profiles for staging and production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
 
     expect(loadBootstrapConfig().dataProfiles).toEqual([
       "critical-bootstrap",

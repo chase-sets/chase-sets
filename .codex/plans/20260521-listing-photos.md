@@ -55,6 +55,10 @@ Accounts can add seller photos to Marketplace listings. Publication must reject 
 - `pnpm run verify:static` passed.
 - `pnpm run verify:build` passed.
 - `pnpm run verify:test` passed.
+- PR #244 initial CI failed in `E2E Tests` because platform-api bootstrap published seeded Mint/Pristine listings without evidence photos.
+- Updated Marketplace seed data to upload a normalized evidence photo for seeded listings that require it, and wired listing photo storage into platform-api bootstrap.
+- `pnpm run dev:db:refresh` passed from a clean sandbox after the seed/bootstrap fix.
+- `pnpm run test:e2e -- --workers=1` passed locally, matching CI's serial worker mode. A local parallel run had one sign-in transition failure while the web server and other flows passed.
 
 ## Documentation To Promote
 

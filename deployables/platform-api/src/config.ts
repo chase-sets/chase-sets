@@ -97,6 +97,7 @@ export type PlatformApiBaseConfig = Readonly<{
 }>;
 
 export type PlatformApiBootstrapConfig = PlatformApiBaseConfig & Readonly<{
+  listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
   platformAdmin: PlatformApiPlatformAdminConfig | null;
 }>;
 
@@ -556,8 +557,20 @@ function loadBaseConfig(): PlatformApiBaseConfig {
 }
 
 export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
+  const baseConfig = loadBaseConfig();
+  const productionLike = isProductionDeployment();
+  const catalogAssetStorage = loadCatalogAssetStorageConfig(
+    baseConfig.port,
+    productionLike,
+  );
+
   return {
-    ...loadBaseConfig(),
+    ...baseConfig,
+    listingPhotoStorage: loadListingPhotoStorageConfig(
+      baseConfig.port,
+      productionLike,
+      catalogAssetStorage,
+    ),
     platformAdmin: loadPlatformAdminConfig(),
   };
 }

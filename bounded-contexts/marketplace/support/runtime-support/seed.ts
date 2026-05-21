@@ -15,10 +15,13 @@ import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
+import { requiresListingPhotoEvidence } from "../../features/listings/domain/domain";
+import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import {
   createMarketplaceServices,
   type MarketplaceServices,
 } from "./services";
+import sharp from "sharp";
 
 type ListingSeed = Readonly<{
   listingId: ListingId;
@@ -575,6 +578,36 @@ const defaultOfferDestination: AddressSnapshot = {
   email: "buyer@chasesets.test",
 };
 
+let seedListingPhotoBodyPromise: Promise<Buffer> | null = null;
+
+async function getSeedListingPhotoBody() {
+  seedListingPhotoBodyPromise ??= sharp({
+    create: {
+      width: 720,
+      height: 1008,
+      channels: 3,
+      background: { r: 245, g: 247, b: 250 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+  return seedListingPhotoBodyPromise;
+}
+
+async function buildSeedListingPhotoUpload(
+  listing: ListingSeed,
+): Promise<readonly MarketplaceListingPhotoUpload[]> {
+  return [
+    {
+      body: await getSeedListingPhotoBody(),
+      contentType: "image/png",
+      originalFilename: `${listing.listingId}-condition-evidence.png`,
+      altText: "Seed listing condition evidence photo",
+    },
+  ];
+}
+
 async function drainProjectors(projectors: ReturnType<typeof createMarketplaceServices>["projectors"]) {
   let processed = 0;
 
@@ -672,6 +705,12 @@ export async function seedMarketplaceDatabase(
         priceAmount: listing.priceAmount,
         quantityCap: listing.quantityCap,
         listingIdOverride: seededListingId,
+        listingPhotoUploads: requiresListingPhotoEvidence({
+          selectedOptions: supply.selected_options,
+          productSummary: supply.product_summary,
+        })
+          ? await buildSeedListingPhotoUpload(listing)
+          : [],
       },
       listingContext,
     );
