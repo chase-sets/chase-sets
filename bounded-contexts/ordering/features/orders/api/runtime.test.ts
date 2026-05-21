@@ -9,6 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createOrderingOrderRuntime } from "./runtime";
 
 function createInMemoryEventStore() {
@@ -140,8 +141,26 @@ type SupplyCandidate = Readonly<{
   maxUnitsPerOrder?: number | null;
   maxUnitsPerDay?: number | null;
   maxUnitsPerCustomerAccount?: number | null;
+  productMeasureSnapshot?: ProductMeasureSnapshot | null;
   updatedAt: string;
 }>;
+
+function productMeasureForCandidate(candidate: SupplyCandidate): ProductMeasureSnapshot {
+  return {
+    catalogItemId: candidate.catalogItemId,
+    productId: candidate.productId,
+    selectedOptions: [],
+    measureVersion: "test-raw-card-v1",
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.012,
+    unitWeightOunces: 0.064,
+    physicalFlags: ["raw-card"],
+    stackBehavior: "stackable-thickness",
+    source: "profile",
+    confidence: "measured",
+  };
+}
 
 function createSupplyDb(
   resolver: (params: readonly unknown[] | undefined) => readonly SupplyCandidate[],
@@ -177,6 +196,8 @@ function createSupplyDb(
         max_units_per_order: candidate.maxUnitsPerOrder ?? null,
         max_units_per_day: candidate.maxUnitsPerDay ?? null,
         max_units_per_customer_account: candidate.maxUnitsPerCustomerAccount ?? null,
+        product_measure_snapshot:
+          candidate.productMeasureSnapshot ?? productMeasureForCandidate(candidate),
         updated_at: candidate.updatedAt,
       })),
     };

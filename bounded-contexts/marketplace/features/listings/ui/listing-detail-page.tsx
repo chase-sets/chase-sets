@@ -199,7 +199,19 @@ export function MarketplaceListingDetailPage({
                       {t("marketplace.features.listings.ui.listingDetailPage.verified.seller")}
                     </Badge>
                   ) : null}
+                  {listing.product_measure_snapshot ? null : (
+                    <Badge tone="warning">
+                      {t("marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing")}
+                    </Badge>
+                  )}
                 </Inline>
+                {listing.product_measure_snapshot ? null : (
+                  <MarketplaceNotice
+                    tone="warning"
+                    title={t("marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing")}
+                    description={t("marketplace.features.listings.ui.listingDetailPage.shipping.measure.missing.description")}
+                  />
+                )}
                 <Text size="lg" weight="semibold">
                   {listing.item_title ?? listing.catalog_catalog_item_id}
                 </Text>

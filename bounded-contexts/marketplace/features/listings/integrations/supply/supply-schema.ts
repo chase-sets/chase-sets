@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS marketplace_catalog_items (
   subtitle text NULL,
   blueprint_id text NULL,
   status text NOT NULL,
+  product_measure_snapshots jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_schema jsonb NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -75,7 +76,8 @@ ALTER TABLE marketplace_catalog_dimension_options
   ADD COLUMN IF NOT EXISTS label text NOT NULL DEFAULT '';
 
 ALTER TABLE marketplace_catalog_items
-  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en';
+  ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
+  ADD COLUMN IF NOT EXISTS product_measure_snapshots jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS marketplace_supply_locations (
   storage_location_id text PRIMARY KEY,

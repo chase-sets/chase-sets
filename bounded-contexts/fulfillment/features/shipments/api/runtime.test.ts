@@ -9,6 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
+import type { PackagePlan } from "@chase-sets/product-measures";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createFulfillmentShipmentRuntime } from "./runtime";
 
@@ -97,6 +98,27 @@ const shippingOriginSnapshot = {
   phone: null,
   email: null,
 } as const;
+
+const parcelShippingPlan: PackagePlan = {
+  packagePlanVersion: "measured-package-plan-v1",
+  packageCount: 1,
+  missingProductIds: [],
+  letterEligibility: {
+    eligible: false,
+    reasons: ["declared-value-requires-parcel"],
+  },
+  packages: [{
+    packageId: "pkg_1",
+    mailpieceClass: "parcel",
+    lengthInches: 8,
+    widthInches: 6,
+    heightInches: 2,
+    weightOunces: 5.25,
+    billableWeightOunces: 6,
+    serviceLevel: "standard-parcel",
+    productMeasureVersions: ["test-measure-v1"],
+  }],
+};
 
 describe("fulfillment shipment runtime", () => {
   it("creates a shipment from a ready local order source", async () => {
@@ -214,6 +236,7 @@ describe("fulfillment shipment runtime", () => {
                 package_status: "packed",
                 shipping_destination_snapshot: shippingDestinationSnapshot,
                 shipping_origin_snapshot: shippingOriginSnapshot,
+                shipping_plan_snapshot: parcelShippingPlan,
               },
             ],
           };
@@ -247,6 +270,7 @@ describe("fulfillment shipment runtime", () => {
         shippingOption: "standard",
         shippingDestinationSnapshot,
         shippingOriginSnapshot,
+        shippingPlanSnapshot: parcelShippingPlan,
         lines: [
           {
             lineId: "spl_1" as never,
@@ -278,12 +302,6 @@ describe("fulfillment shipment runtime", () => {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
         serviceLevel: "USPS_GROUND_ADVANTAGE",
-        package: {
-          lengthInches: 7,
-          widthInches: 5,
-          heightInches: 1,
-          weightOunces: 4,
-        },
       },
       context,
     );
@@ -300,6 +318,12 @@ describe("fulfillment shipment runtime", () => {
           street1: "2 Market St",
           postalCode: "60601",
         }),
+        package: {
+          lengthInches: 8,
+          widthInches: 6,
+          heightInches: 2,
+          weightOunces: 5.25,
+        },
       }),
     );
     const attachedEvent = readAllEvents().find(

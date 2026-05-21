@@ -26,6 +26,7 @@ import type {
   OrderId,
   ShipmentId,
 } from "@chase-sets/primitives/typed-ids";
+import type { PackagePlan } from "@chase-sets/product-measures";
 import { FulfillmentDomainError } from "../domain/common";
 import {
   getBuyerShipment,
@@ -68,6 +69,7 @@ type ReadyOrderSnapshot = Readonly<{
   shipping_option: string;
   shipping_destination_snapshot: AddressSnapshot;
   shipping_origin_snapshot: AddressSnapshot;
+  shipping_plan_snapshot: PackagePlan | null;
   lines: readonly ReadyOrderLineSnapshot[];
 }>;
 
@@ -104,7 +106,7 @@ export type FulfillmentShipmentServices = Readonly<{
       sender?: PostageAddress | null;
       recipient?: PostageAddress | null;
       overrideReason?: string | null;
-      package: PostagePackage;
+      package?: PostagePackage | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number; trackingIdentifier: string }>;
@@ -194,6 +196,7 @@ async function loadReadyOrderSnapshot(
     shipping_option: string;
     shipping_destination_snapshot: AddressSnapshot;
     shipping_origin_snapshot: AddressSnapshot;
+    shipping_plan_snapshot: PackagePlan | null;
     status: string;
   }>(
     `SELECT
@@ -203,6 +206,7 @@ async function loadReadyOrderSnapshot(
        shipping_option,
        shipping_destination_snapshot,
        shipping_origin_snapshot,
+       shipping_plan_snapshot,
        status
      FROM fulfillment_order_sources
      WHERE order_id = $1`,
@@ -236,6 +240,7 @@ async function loadReadyOrderSnapshot(
     shipping_option: order.shipping_option,
     shipping_destination_snapshot: order.shipping_destination_snapshot,
     shipping_origin_snapshot: order.shipping_origin_snapshot,
+    shipping_plan_snapshot: normalizePackagePlanSnapshot(order.shipping_plan_snapshot),
     lines: linesResult.rows,
   };
 }
@@ -290,6 +295,41 @@ function addressSnapshotFromPostage(address: PostageAddress): AddressSnapshot {
     phone: address.phone ?? null,
     email: address.email ?? null,
   });
+}
+
+function normalizePackagePlanSnapshot(value: PackagePlan | null | undefined) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !Array.isArray(value.packages) ||
+    value.packages.length === 0
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function postagePackageFromShippingPlan(plan: PackagePlan | null): PostagePackage {
+  const selectedPackage =
+    plan?.packages.find((candidate) => candidate.mailpieceClass === "parcel") ??
+    plan?.packages[0] ??
+    null;
+  if (!selectedPackage) {
+    throw new FulfillmentDomainError(
+      "Shipment does not have a package plan for label purchase.",
+    );
+  }
+  if (selectedPackage.mailpieceClass === "letter") {
+    throw new FulfillmentDomainError(
+      "Letter mailpieces do not use USPS parcel label purchase.",
+    );
+  }
+  return {
+    lengthInches: selectedPackage.lengthInches,
+    widthInches: selectedPackage.widthInches,
+    heightInches: selectedPackage.heightInches,
+    weightOunces: selectedPackage.weightOunces,
+  };
 }
 
 export function createFulfillmentShipmentRuntime(
@@ -347,6 +387,7 @@ export function createFulfillmentShipmentRuntime(
           shippingOption: order.shipping_option,
           shippingDestinationSnapshot: order.shipping_destination_snapshot,
           shippingOriginSnapshot: order.shipping_origin_snapshot,
+          shippingPlanSnapshot: order.shipping_plan_snapshot,
           lines: order.lines.map((line) => ({
             lineId: createId("spl"),
             orderLineId: line.order_line_id,
@@ -478,6 +519,8 @@ export function createFulfillmentShipmentRuntime(
         : null;
       const sender = postageAddressFromSnapshot(submittedSender);
       const recipient = postageAddressFromSnapshot(submittedRecipient);
+      const labelPackage =
+        params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
 
       let purchasedLabel;
       try {
@@ -487,7 +530,7 @@ export function createFulfillmentShipmentRuntime(
           serviceLevel: params.serviceLevel,
           sender,
           recipient,
-          package: params.package,
+          package: labelPackage,
         });
       } catch (error) {
         await commandHandler({

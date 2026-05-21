@@ -83,6 +83,9 @@ function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
     inventoryItem.item_title ?? inventoryItem.catalog_catalog_item_id,
     inventoryItem.item_subtitle,
     inventoryItem.product_summary?.replaceAll(" | ", ", "),
+    inventoryItem.product_measure_snapshot
+      ? null
+      : t("marketplace.features.listings.ui.listingListPage.shipping.measure.missing"),
     t("marketplace.features.listings.ui.listingListPage.quantity.available", {
       quantity: inventoryItem.available_quantity,
     }),
@@ -685,6 +688,11 @@ export function MarketplaceListingListPage({
                   {row.product_summary ? (
                     <ProductOptions options={productOptionsFromSummary(row.product_summary)} variant="chips" />
                   ) : null}
+                  {row.product_measure_snapshot ? null : (
+                    <Badge tone="warning">
+                      {t("marketplace.features.listings.ui.listingListPage.shipping.measure.missing")}
+                    </Badge>
+                  )}
                   {row.listing_photos.length > 0 ? (
                     <Text tone="secondary" size="sm">
                       {t("marketplace.features.listings.ui.listingListPage.photo.count", {

@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { PackagePlan } from "@chase-sets/product-measures";
 
 export type FulfillmentShipmentLineRow = Readonly<{
   line_id: string;
@@ -39,6 +40,7 @@ export type FulfillmentShipmentListRow = Readonly<{
   shipping_option: string;
   shipping_destination_snapshot: AddressSnapshot;
   shipping_origin_snapshot: AddressSnapshot | null;
+  shipping_plan_snapshot: PackagePlan | null;
   shipping_method: string | null;
   carrier_name: string | null;
   label_reference: string | null;
@@ -96,6 +98,7 @@ const baseShipmentSelect = `
     page.shipping_option,
     page.shipping_destination_snapshot,
     page.shipping_origin_snapshot,
+    page.shipping_plan_snapshot,
     page.shipping_method,
     page.carrier_name,
     page.label_reference,

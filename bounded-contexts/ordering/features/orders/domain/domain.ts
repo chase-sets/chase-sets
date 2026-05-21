@@ -8,6 +8,7 @@ import {
   type AddressSnapshot,
 } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
+import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   assert,
   assertNever,
@@ -91,6 +92,7 @@ export type OrderingOrderState = Readonly<{
   shippingAllowanceAmount: string | null;
   shippingOverageAmount: string | null;
   shippingChargeAmount: string | null;
+  shippingPlanSnapshot: PackagePlan | null;
   salesTaxAmount: string | null;
   totalAmount: string | null;
   taxSnapshot: OrderingTaxSnapshot | null;
@@ -118,6 +120,7 @@ export const initialOrderingOrderState: OrderingOrderState = {
   shippingAllowanceAmount: null,
   shippingOverageAmount: null,
   shippingChargeAmount: null,
+  shippingPlanSnapshot: null,
   salesTaxAmount: null,
   totalAmount: null,
   taxSnapshot: null,
@@ -146,6 +149,7 @@ export type CreateOrderCommand = Readonly<{
   shippingAllowanceAmount?: string;
   shippingOverageAmount?: string;
   shippingChargeAmount: string;
+  shippingPlanSnapshot: PackagePlan;
   salesTaxAmount: string;
   totalAmount: string;
   taxSnapshot: OrderingTaxSnapshot;
@@ -218,6 +222,7 @@ export type OrderCreatedEvent = DomainEvent<
     shippingAllowanceAmount: string;
     shippingOverageAmount: string;
     shippingChargeAmount: string;
+    shippingPlanSnapshot: PackagePlan;
     salesTaxAmount: string;
     totalAmount: string;
     taxSnapshot: OrderingTaxSnapshot;
@@ -543,6 +548,7 @@ export const decideOrderingOrder: AggregateDecider<
               fieldName: "Shipping charge amount",
               allowZero: true,
             }),
+            shippingPlanSnapshot: command.shippingPlanSnapshot,
             salesTaxAmount: normalizeMoneyAmount(command.salesTaxAmount, {
               fieldName: "Sales tax amount",
               allowZero: true,
@@ -854,6 +860,7 @@ export const evolveOrderingOrder: AggregateEvolver<
         shippingAllowanceAmount: event.data.shippingAllowanceAmount,
         shippingOverageAmount: event.data.shippingOverageAmount,
         shippingChargeAmount: event.data.shippingChargeAmount,
+        shippingPlanSnapshot: event.data.shippingPlanSnapshot,
         salesTaxAmount: event.data.salesTaxAmount,
         totalAmount: event.data.totalAmount,
         taxSnapshot: event.data.taxSnapshot,

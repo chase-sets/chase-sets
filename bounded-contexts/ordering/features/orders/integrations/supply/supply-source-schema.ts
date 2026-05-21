@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   item_subtitle text NULL,
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
+  product_measure_snapshot jsonb NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
   ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
 
 ALTER TABLE ordering_market_listing_inputs
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
+  ADD COLUMN IF NOT EXISTS product_measure_snapshot jsonb NULL,
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,

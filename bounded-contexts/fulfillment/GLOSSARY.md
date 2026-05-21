@@ -15,6 +15,25 @@ Notes:
 
 A **Package** is the packed unit prepared for carrier handoff within a shipment workflow.
 
+## Package Plan
+
+A **Package Plan** is the immutable package, mailpiece class, dimensions, weight, and measurement-version snapshot committed by Ordering and executed by Fulfillment.
+
+Notes:
+
+- Fulfillment stores the Package Plan on the shipment.
+- USPS label purchase defaults to the planned parcel package.
+- Operator-supplied package dimensions are an override path, not the normal fulfillment path.
+
+## Letter Mailpiece
+
+A **Letter Mailpiece** is a non-parcel shipment path for eligible low-risk raw-card orders.
+
+Notes:
+
+- Ordering determines letter eligibility.
+- Fulfillment records letter preparation honestly instead of forcing letter shipments through parcel-label purchase.
+
 ## Packing Slip
 
 A **Packing Slip** is a seller-facing shipment document that lists what should be included in a package.

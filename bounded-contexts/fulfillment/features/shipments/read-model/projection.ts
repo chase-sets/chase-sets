@@ -14,6 +14,7 @@ export function buildFulfillmentShipmentProjectionHandlers(
         shippingOption: string;
         shippingDestinationSnapshot: unknown;
         shippingOriginSnapshot: unknown;
+        shippingPlanSnapshot?: unknown;
         lines: Array<{
           lineId: string;
           orderLineId: string;
@@ -36,6 +37,7 @@ export function buildFulfillmentShipmentProjectionHandlers(
            shipping_option,
            shipping_destination_snapshot,
            shipping_origin_snapshot,
+           shipping_plan_snapshot,
            shipping_method,
            carrier_name,
            label_reference,
@@ -70,7 +72,7 @@ export function buildFulfillmentShipmentProjectionHandlers(
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $8, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $9, $9, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
@@ -79,6 +81,7 @@ export function buildFulfillmentShipmentProjectionHandlers(
              shipping_option = EXCLUDED.shipping_option,
              shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
              shipping_origin_snapshot = EXCLUDED.shipping_origin_snapshot,
+             shipping_plan_snapshot = EXCLUDED.shipping_plan_snapshot,
              updated_at = EXCLUDED.updated_at`,
         [
           data.shipmentId,
@@ -88,6 +91,7 @@ export function buildFulfillmentShipmentProjectionHandlers(
           data.shippingOption,
           JSON.stringify(data.shippingDestinationSnapshot),
           JSON.stringify(data.shippingOriginSnapshot),
+          JSON.stringify(data.shippingPlanSnapshot ?? {}),
           data.createdAt,
         ],
       );

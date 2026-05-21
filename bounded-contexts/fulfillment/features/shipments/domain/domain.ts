@@ -12,6 +12,7 @@ import type {
   OrderId,
   ShipmentId,
 } from "@chase-sets/primitives/typed-ids";
+import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   assert,
   assertNever,
@@ -66,6 +67,7 @@ export type FulfillmentShipmentState = Readonly<{
   shippingOption: string | null;
   shippingDestinationSnapshot: AddressSnapshot | null;
   shippingOriginSnapshot: AddressSnapshot | null;
+  shippingPlanSnapshot: PackagePlan | null;
   shippingMethod: ShippingMethod | null;
   carrierName: string | null;
   labelReference: string | null;
@@ -111,6 +113,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   shippingOption: null,
   shippingDestinationSnapshot: null,
   shippingOriginSnapshot: null,
+  shippingPlanSnapshot: null,
   shippingMethod: null,
   carrierName: null,
   labelReference: null,
@@ -157,6 +160,7 @@ export type CreateShipmentCommand = Readonly<{
   shippingOption: string;
   shippingDestinationSnapshot: AddressSnapshot;
   shippingOriginSnapshot: AddressSnapshot;
+  shippingPlanSnapshot?: PackagePlan | null;
   lines: readonly FulfillmentShipmentLine[];
   createdAt: string;
 }>;
@@ -252,6 +256,7 @@ export type ShipmentCreatedEvent = DomainEvent<
     shippingOption: string;
     shippingDestinationSnapshot: AddressSnapshot;
     shippingOriginSnapshot: AddressSnapshot;
+    shippingPlanSnapshot: PackagePlan | null;
     lines: FulfillmentShipmentLine[];
     createdAt: string;
   }>
@@ -429,6 +434,7 @@ export const decideFulfillmentShipment: AggregateDecider<
               command.shippingOriginSnapshot,
               "Shipping origin",
             ),
+            shippingPlanSnapshot: command.shippingPlanSnapshot ?? null,
             lines: normalizeShipmentLines(command.lines),
             createdAt: ensureIsoTimestamp(
               command.createdAt,
@@ -749,6 +755,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<
         shippingOption: event.data.shippingOption,
         shippingDestinationSnapshot: event.data.shippingDestinationSnapshot,
         shippingOriginSnapshot: event.data.shippingOriginSnapshot,
+        shippingPlanSnapshot: event.data.shippingPlanSnapshot,
         shippingMethod: null,
         carrierName: null,
         labelReference: null,

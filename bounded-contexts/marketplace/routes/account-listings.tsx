@@ -49,6 +49,7 @@ function toInventoryOption(
     item_subtitle: inventoryItem.item_subtitle,
     selected_options: inventoryItem.selected_options,
     product_summary: inventoryItem.product_summary,
+    product_measure_snapshot: null,
     graded_card: inventoryItem.graded_card,
     storage_location_name: inventoryItem.storage_location_name,
     ship_from_code: inventoryItem.ship_from_code,

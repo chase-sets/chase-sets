@@ -28,6 +28,7 @@
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/reputation": "workspace:*",
     "@chase-sets/ucp": "workspace:*",

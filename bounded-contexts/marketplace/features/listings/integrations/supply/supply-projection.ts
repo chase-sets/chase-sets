@@ -502,6 +502,24 @@ export function buildMarketplaceCatalogProjectionHandlers(
         [itemId, event.timing.recordedAt],
       );
     },
+    "catalog.catalog-item.product-measures-resolved": async (event) => {
+      const data = event.data as {
+        catalogItemId: string;
+        products?: unknown;
+      };
+
+      await db.query(
+        `UPDATE marketplace_catalog_items
+         SET product_measure_snapshots = $2,
+             updated_at = $3
+         WHERE catalog_item_id = $1`,
+        [
+          data.catalogItemId,
+          JSON.stringify(Array.isArray(data.products) ? data.products : []),
+          event.timing.recordedAt,
+        ],
+      );
+    },
     "catalog.blueprint.created": async (event) => {
       const { blueprintId, name } = event.data as {
         blueprintId: string;

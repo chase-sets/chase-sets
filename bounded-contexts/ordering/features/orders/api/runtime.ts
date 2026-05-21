@@ -9,6 +9,7 @@ import { createProjector, type Projector } from "@chase-sets/event-core/projecto
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { buildPackagePlan, type PackagePlan, type ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeAddressSnapshot,
@@ -147,6 +148,7 @@ type SellerOrderDraft = Readonly<{
   shippingOverageAmount: string;
   sellerShippingPayoutAmount: string;
   shippingChargeAmount: string;
+  shippingPlanSnapshot: PackagePlan;
   salesTaxAmount: string;
   totalAmount: string;
   taxQuote: TaxQuote;
@@ -161,6 +163,7 @@ type SellerOrderDraft = Readonly<{
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
     productSummary: string | null;
+    productMeasureSnapshot: ProductMeasureSnapshot | null;
     unitPriceAmount: string;
     quantity: number;
     lineTotalAmount: string;
@@ -997,6 +1000,7 @@ function quotePlan(
         itemSubtitle: allocation.candidate.itemSubtitle,
         selectedOptions: [...allocation.candidate.selectedOptions],
         productSummary: allocation.candidate.productSummary,
+        productMeasureSnapshot: allocation.candidate.productMeasureSnapshot,
         unitPriceAmount,
         quantity: allocation.quantity,
         lineTotalAmount,
@@ -1029,12 +1033,25 @@ function quotePlan(
 
   for (const draft of groupedBySellerAndOrigin.values()) {
     const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
+    const packagePlan = buildPackagePlan({
+      shippingOption,
+      itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
+      lines: draft.lines.map((line) => ({
+        productId: line.productId,
+        quantity: line.quantity,
+        measure: line.productMeasureSnapshot,
+      })),
+    });
+    if (packagePlan.missingProductIds.length > 0) {
+      throw new OrderingDomainError("Product measurements are required before checkout can be confirmed.");
+    }
     const quote = shippingQuotePolicy.quote({
       sellerAccountId: draft.sellerAccountId,
       shippingOption,
       itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
       quantity: draft.quantity,
       listingCount: draft.listingIds.size,
+      packagePlan,
     });
     const shippingEconomics = calculateShippingIncentive({
       sourceType,
@@ -1059,6 +1076,7 @@ function quotePlan(
       shippingOverageAmount: shippingEconomics.shippingOverageAmount,
       sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
       shippingChargeAmount: shippingEconomics.shippingChargeAmount,
+      shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
       salesTaxAmount: "0.00",
       totalAmount: numberToMoneyAmount(orderTotal),
       taxQuote: {
@@ -1480,6 +1498,7 @@ export function createOrderingOrderRuntime(
           shippingAllowanceAmount: draft.shippingAllowanceAmount,
           shippingOverageAmount: draft.shippingOverageAmount,
           shippingChargeAmount: draft.shippingChargeAmount,
+          shippingPlanSnapshot: draft.shippingPlanSnapshot,
           salesTaxAmount: draft.salesTaxAmount,
           totalAmount: draft.totalAmount,
           taxSnapshot: {
@@ -1702,12 +1721,25 @@ export function createOrderingOrderRuntime(
           );
           const listingIds = new Set(lines.map((line) => line.listingId));
           const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+          const packagePlan = buildPackagePlan({
+            shippingOption: draft.shippingOption,
+            itemSubtotalAmount,
+            lines: lines.map((line) => ({
+              productId: line.productId,
+              quantity: line.quantity,
+              measure: line.productMeasureSnapshot,
+            })),
+          });
+          if (packagePlan.missingProductIds.length > 0) {
+            throw new OrderingDomainError("Product measurements are required before checkout can be confirmed.");
+          }
           const quote = deps.shippingQuotePolicy.quote({
             sellerAccountId: draft.sellerAccountId,
             shippingOption: draft.shippingOption,
             itemSubtotalAmount,
             quantity,
             listingCount: listingIds.size,
+            packagePlan,
           });
           const shippingAllowancePercentageBps = planShippingAllowanceBps(lines);
           const shippingEconomics = calculateShippingIncentive({
@@ -1725,6 +1757,7 @@ export function createOrderingOrderRuntime(
             shippingOverageAmount: shippingEconomics.shippingOverageAmount,
             sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
             shippingChargeAmount: shippingEconomics.shippingChargeAmount,
+            shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
             salesTaxAmount: "0.00",
             totalAmount: numberToMoneyAmount(
               moneyToNumber(itemSubtotalAmount) +

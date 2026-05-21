@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { MarketplaceDemand, MarketplaceSupplyCandidate } from "../../domain/policies";
 
 type VersionSelectedOptionEntry = Readonly<{
@@ -19,6 +20,7 @@ type OrderingSupplyCandidateRow = Readonly<{
   item_subtitle: string | null;
   selected_options: unknown;
   product_summary: string | null;
+  product_measure_snapshot: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
   ship_from_address: unknown;
@@ -75,6 +77,7 @@ export async function listOrderingSupplyCandidates(
        listing.item_subtitle,
        listing.selected_options,
        listing.product_summary,
+       listing.product_measure_snapshot,
        listing.storage_location_name,
        listing.ship_from_code,
        listing.ship_from_address,
@@ -133,6 +136,7 @@ export async function listOrderingSupplyCandidates(
         ? normalizeVersionSelection(row.selected_options as VersionSelectedOptionEntry[])
         : normalizedSelection,
       productSummary: normalizeOptionalText(row.product_summary ?? demand.productSummary),
+      productMeasureSnapshot: productMeasureFromUnknown(row.product_measure_snapshot),
       storageLocationName: row.storage_location_name,
       shipFromCode: row.ship_from_code,
       shipFromAddress:
@@ -178,6 +182,7 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.item_subtitle,
        listing.selected_options,
        listing.product_summary,
+       listing.product_measure_snapshot,
        listing.storage_location_name,
        listing.ship_from_code,
        listing.ship_from_address,
@@ -235,6 +240,7 @@ export async function getOrderingSupplyCandidateByListingId(
       ? normalizeVersionSelection(row.selected_options as VersionSelectedOptionEntry[])
       : [],
     productSummary: normalizeOptionalText(row.product_summary),
+    productMeasureSnapshot: productMeasureFromUnknown(row.product_measure_snapshot),
     storageLocationName: row.storage_location_name,
     shipFromCode: row.ship_from_code,
     shipFromAddress:
@@ -261,6 +267,12 @@ export async function getOrderingSupplyCandidateByListingId(
     maxUnitsPerCustomerAccount: row.max_units_per_customer_account,
     updatedAt: row.updated_at,
   };
+}
+
+function productMeasureFromUnknown(value: unknown) {
+  return typeof value === "object" && value !== null
+    ? (value as ProductMeasureSnapshot)
+    : null;
 }
 
 export type OrderingAcceptedOfferBatchInputRow = Readonly<{

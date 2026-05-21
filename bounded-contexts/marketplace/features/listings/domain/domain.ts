@@ -8,6 +8,7 @@ import {
   type AddressSnapshot,
 } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -112,6 +113,7 @@ export type MarketplaceListingState = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
+  productMeasureSnapshot: ProductMeasureSnapshot | null;
   gradedCard: MarketplaceGradedCardDetails | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
@@ -141,6 +143,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   itemSubtitle: null,
   selectedOptions: [],
   productSummary: null,
+  productMeasureSnapshot: null,
   gradedCard: null,
   storageLocationName: null,
   shipFromCode: null,
@@ -175,6 +178,7 @@ export type CreateListingCommand = Readonly<{
   itemSubtitle: string | null;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
+  productMeasureSnapshot?: ProductMeasureSnapshot | null;
   gradedCard?: MarketplaceGradedCardDetails | null;
   storageLocationName: string | null;
   shipFromCode: string | null;
@@ -263,6 +267,7 @@ export type ListingCreatedEvent = DomainEvent<
     itemSubtitle: string | null;
     selectedOptions: { dimensionId: string; optionId: string }[];
     productSummary: string | null;
+    productMeasureSnapshot: ProductMeasureSnapshot | null;
     gradedCard: MarketplaceGradedCardDetails | null;
     storageLocationName: string | null;
     shipFromCode: string | null;
@@ -375,6 +380,7 @@ export const decideMarketplaceListing: AggregateDecider<
               optionId: selection.optionId.trim(),
             })),
             productSummary: command.productSummary?.trim() ?? null,
+            productMeasureSnapshot: command.productMeasureSnapshot ?? null,
             gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
@@ -576,6 +582,7 @@ export const evolveMarketplaceListing: AggregateEvolver<
         itemSubtitle: event.data.itemSubtitle,
         selectedOptions: event.data.selectedOptions,
         productSummary: event.data.productSummary,
+        productMeasureSnapshot: event.data.productMeasureSnapshot ?? null,
         gradedCard: event.data.gradedCard,
         storageLocationName: event.data.storageLocationName,
         shipFromCode: event.data.shipFromCode,

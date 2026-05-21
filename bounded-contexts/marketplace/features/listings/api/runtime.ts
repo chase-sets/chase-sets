@@ -595,6 +595,7 @@ export function createMarketplaceListingRuntime(
         itemSubtitle: supply.item_subtitle,
         selectedOptions: supply.selected_options,
         productSummary: supply.product_summary,
+        productMeasureSnapshot: supply.product_measure_snapshot,
         gradedCard: supply.graded_card,
         storageLocationName: supply.storage_location_name,
         shipFromCode: supply.ship_from_code,
