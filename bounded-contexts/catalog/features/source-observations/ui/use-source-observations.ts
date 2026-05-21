@@ -1,6 +1,7 @@
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type {
   CatalogBulkActionProgress,
+  CatalogBulkReviewJob,
   CatalogImportProgress,
 } from "../../../support/shell-support/api/client";
 import { api } from "../../../support/shell-support/api/client";
@@ -167,6 +168,29 @@ export function bulkRejectSourceObservationsByScope(
   return api.bulkRejectSourceObservationsByScope<BulkSourceObservationPromotionResult>(
     scope,
     reason,
+    options,
+  );
+}
+
+export function useActiveSourceObservationBulkJobs() {
+  return useFetch(
+    () =>
+      api.listActiveSourceObservationBulkJobs<
+        ListResponse<CatalogBulkReviewJob<BulkSourceObservationPromotionResult>>
+      >(),
+    [],
+  );
+}
+
+export function watchSourceObservationBulkJob(
+  jobId: string,
+  options: {
+    onProgress?: (progress: CatalogBulkActionProgress) => void;
+    signal?: AbortSignal;
+  } = {},
+) {
+  return api.watchSourceObservationBulkJob<BulkSourceObservationPromotionResult>(
+    jobId,
     options,
   );
 }
