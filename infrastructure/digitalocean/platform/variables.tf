@@ -264,6 +264,18 @@ variable "ses_aws_region" {
   default = ""
 }
 
+variable "ses_aws_access_key_id" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "ses_aws_secret_access_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
 variable "ses_from_email" {
   type    = string
   default = ""
