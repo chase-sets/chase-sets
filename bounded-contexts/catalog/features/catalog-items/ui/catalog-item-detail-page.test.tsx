@@ -110,9 +110,17 @@ describe("CatalogItemDetailPage", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", {
+    const referenceValueTrigger = screen.getAllByRole("link", {
       name: "View Expansion reference details for Perfect Order",
-    })[0]);
+    })[0];
+
+    expect(referenceValueTrigger.getAttribute("href")).toBe("/reference-records/ref_expansion");
+    expect(referenceValueTrigger.className).toContain("text-accent");
+    expect(referenceValueTrigger.className).toContain("hover:underline");
+    expect(referenceValueTrigger.className).not.toContain("min-h-8");
+    expect(referenceValueTrigger.className).not.toContain("text-xs");
+
+    fireEvent.click(referenceValueTrigger);
 
     const dialog = screen.getByRole("dialog", { name: "Perfect Order" });
     expect(within(dialog).getByText("Reference type")).toBeTruthy();
