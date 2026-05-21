@@ -40,7 +40,9 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   }
 
   if (shouldSeedIntegrationProfile || shouldSeedScenarioData) {
-    await seedProductMeasures(createCatalogServices(pool));
+    await seedProductMeasures(createCatalogServices(pool), {
+      resolveExistingCatalogItems: shouldSeedScenarioData,
+    });
   }
 
   console.log("\nCatalog seed reconciliation complete!");

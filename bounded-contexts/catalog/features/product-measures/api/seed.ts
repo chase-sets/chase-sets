@@ -2,7 +2,12 @@ import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { seedContext } from "../../../support/seed-support/context";
 
-export async function seedProductMeasures(services: CatalogServices) {
+export async function seedProductMeasures(
+  services: CatalogServices,
+  options: Readonly<{
+    resolveExistingCatalogItems?: boolean;
+  }> = {},
+) {
   await services.productMeasures.upsertProfile({
     profileId: "pmp_seed_pokemon_raw_single",
     key: "pokemon-raw-single",
@@ -97,5 +102,7 @@ export async function seedProductMeasures(services: CatalogServices) {
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.resolveAllCatalogItemMeasures(seedContext);
+  if (options.resolveExistingCatalogItems ?? true) {
+    await services.productMeasures.resolveAllCatalogItemMeasures(seedContext);
+  }
 }
