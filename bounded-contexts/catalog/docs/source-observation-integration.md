@@ -86,7 +86,9 @@ Operators may also promote all eligible Source Observations matching the current
 
 The Source Observations list exposes the TCGdex set ID as a durable filter so large set imports can be reviewed and promoted by explicit scope instead of page selection. TCGdex import sets the reviewed scope to the imported language, set ID, and `observed` status.
 
-The Catalog Integrations admin surface summarizes Source Observations by provider, language, Expansion, and Series. It is a read-model view over Catalog-owned observations, not a separate provider configuration aggregate. Operators use it to see what has already been pulled, how many records still need review, and to jump into the exact Source Observation scope for promotion or rejection. Future provider integrations should appear in the same summary once they record Source Observations with stable provider, language, and source-scope facts.
+Mapping-only integration changes, such as improved title/subtitle formatting, may not change the provider source hash. Re-import remains idempotent for unchanged provider facts and must not silently mutate promoted Catalog Items. Operators reapply the current integration mapping from the Catalog Integrations surface for an explicit provider, language, and Expansion scope. Reapply only targets Source Observations that are already `promoted`, requires an existing promoted Catalog Item link, uses the same Catalog Item refresh mapper as changed-observation promotion, and never creates replacement Catalog Items.
+
+The Catalog Integrations admin surface summarizes Source Observations by provider, language, Expansion, and Series. It is a read-model view over Catalog-owned observations, not a separate provider configuration aggregate. Operators use it to see what has already been pulled, how many records still need review, jump into the exact Source Observation scope for promotion or rejection, and reapply current integration mapping to promoted observations after mapping logic changes. Future provider integrations should appear in the same summary once they record Source Observations with stable provider, language, and source-scope facts.
 
 ## Conflict Pressure Tests
 
@@ -95,6 +97,8 @@ The Catalog Integrations admin surface summarizes Source Observations by provide
 - Re-importing a changed source hash for a promoted observation creates a `changed` review without mutating the Catalog Item.
 - Re-importing the same changed source hash remains idempotent while waiting for review.
 - Promoting a changed observation refreshes the existing promoted Catalog Item instead of creating a duplicate.
+- Reapplying promoted observations refreshes linked Catalog Items with current integration mapping without changing Source Observation status or creating duplicate Catalog Items.
+- Reapply skips observations that are not promoted and fails promoted observations that are missing their linked Catalog Item.
 - Rejected observations remain terminal in this pass; retrying a rejected source requires an intentional future new-observation workflow.
 - Provider IDs are scoped by provider, language, and external key.
 - Missing images are valid observations and should not block review or promotion.

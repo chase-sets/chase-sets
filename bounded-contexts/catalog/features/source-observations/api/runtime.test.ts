@@ -130,6 +130,70 @@ describe("source observation runtime", () => {
     );
   });
 
+  it("reapplies promoted observations by refreshing the linked Catalog Item without creating a replacement", async () => {
+    const harness = createChangedObservationRefreshHarness({ status: "promoted" });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      reapplied: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("fails reapply for promoted observations missing their linked Catalog Item", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "promoted",
+      promotedCatalogItemId: null,
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      reapplied: 0,
+      failed: 1,
+      outcomes: [
+        {
+          observationId: "obs_changed",
+          status: "failed",
+          reason: "Promoted source observation is missing its Catalog Item.",
+        },
+      ],
+    });
+    expect(harness.itemCommands).toEqual([]);
+  });
+
   it("uses the Expansion printed-card-count attribute as the displayed card number denominator", async () => {
     const harness = createChangedObservationRefreshHarness({
       expansionAttributes: {
@@ -376,6 +440,8 @@ function createChangedObservationRefreshHarness(
   input: {
     normalized?: SourceObservationNormalized;
     expansionAttributes?: Readonly<Record<string, JsonValue>>;
+    status?: string;
+    promotedCatalogItemId?: string | null;
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -397,9 +463,9 @@ function createChangedObservationRefreshHarness(
     observed_at: "2026-05-20T00:00:00.000Z",
     normalized,
     source_payload: { id: "me02.5-136" },
-    status: "changed",
+    status: input.status ?? "changed",
     status_reason: null,
-    promoted_catalog_item_id: "cat_existing",
+    promoted_catalog_item_id: input.promotedCatalogItemId === undefined ? "cat_existing" : input.promotedCatalogItemId,
     promoted_at: "2026-05-19T00:00:00.000Z",
     updated_at: "2026-05-20T00:00:00.000Z",
   };

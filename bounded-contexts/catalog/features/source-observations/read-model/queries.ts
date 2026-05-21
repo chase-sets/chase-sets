@@ -45,6 +45,13 @@ export type SourceObservationPromotionPreview = Readonly<{
   scope: Required<SourceObservationFilterScope>;
 }>;
 
+export type SourceObservationReapplyPreview = Readonly<{
+  matched: number;
+  eligible: number;
+  ineligible: number;
+  scope: Required<SourceObservationFilterScope>;
+}>;
+
 export type SourceObservationIntegrationScopeRow = Readonly<{
   provider_key: string;
   language_code: string;
@@ -165,6 +172,47 @@ export async function listSourceObservationIdsForPromotion(
   return result.rows.map((row) => row.observation_id);
 }
 
+export async function previewSourceObservationReapplyScope(
+  db: PgQueryable,
+  params: SourceObservationFilterScope = {},
+): Promise<SourceObservationReapplyPreview> {
+  const scope = normalizeSourceObservationFilterScope(params);
+  const eligibleStatuses = reapplyStatusesForScope(scope);
+  const eligibleCount =
+    eligibleStatuses.length === 0 ? Promise.resolve(0) : countSourceObservations(db, scope, eligibleStatuses);
+  const [matched, eligible] = await Promise.all([countSourceObservations(db, scope), eligibleCount]);
+
+  return {
+    matched,
+    eligible,
+    ineligible: Math.max(0, matched - eligible),
+    scope,
+  };
+}
+
+export async function listSourceObservationIdsForReapply(
+  db: PgQueryable,
+  params: SourceObservationFilterScope = {},
+): Promise<string[]> {
+  const scope = normalizeSourceObservationFilterScope(params);
+  const eligibleStatuses = reapplyStatusesForScope(scope);
+  if (eligibleStatuses.length === 0) {
+    return [];
+  }
+
+  const filter = buildSourceObservationFilter(scope, {
+    includeListFilters: true,
+    statuses: eligibleStatuses,
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  const result = await db.query<{ observation_id: string }>(
+    `SELECT observation_id FROM catalog_source_observations ${where} ORDER BY observed_at DESC`,
+    filter.values,
+  );
+
+  return result.rows.map((row) => row.observation_id);
+}
+
 export async function getSourceObservationDetail(
   db: PgQueryable,
   observationId: string,
@@ -258,4 +306,12 @@ function reviewableStatusesForScope(scope: SourceObservationFilterScope): readon
   }
 
   return scope.status === "observed" || scope.status === "changed" ? [scope.status] : [];
+}
+
+function reapplyStatusesForScope(scope: SourceObservationFilterScope): readonly string[] {
+  if (!scope.status) {
+    return ["promoted"];
+  }
+
+  return scope.status === "promoted" ? ["promoted"] : [];
 }

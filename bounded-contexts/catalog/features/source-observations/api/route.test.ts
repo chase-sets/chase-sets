@@ -360,6 +360,163 @@ describe("source observation routes", () => {
     });
   });
 
+  it("previews filter-scoped reapply for promoted observations", async () => {
+    const previewReapplyObservationScope = vi.fn(async () => ({
+      matched: 102,
+      eligible: 88,
+      ineligible: 14,
+      scope: {
+        search: "",
+        status: "",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+    }));
+    const services = {
+      previewReapplyObservationScope,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/reapply/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { source: "tcgdex", language: "en", setId: "base1" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      matched: 102,
+      eligible: 88,
+      ineligible: 14,
+    });
+    expect(previewReapplyObservationScope).toHaveBeenCalledWith({
+      scope: {
+        search: undefined,
+        status: undefined,
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+    });
+  });
+
+  it("reapplies promoted observations matching an explicit filter scope", async () => {
+    const reapplyObservationScope = vi.fn(async () => ({
+      requested: 88,
+      reapplied: 87,
+      skipped: 1,
+      failed: 0,
+      outcomes: [],
+    }));
+    const services = {
+      reapplyObservationScope,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/reapply", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { source: "tcgdex", language: "en", setId: "base1" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      requested: 88,
+      reapplied: 87,
+      skipped: 1,
+      failed: 0,
+    });
+    expect(reapplyObservationScope).toHaveBeenCalledWith({
+      scope: {
+        search: undefined,
+        status: undefined,
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+      context,
+    });
+  });
+
+  it("streams reapply progress events", async () => {
+    const reapplyObservationScope = vi.fn(
+      async (input: { onProgress?: (progress: Record<string, unknown>) => void }) => {
+        input.onProgress?.({
+          phase: "processing",
+          completed: 1,
+          total: 2,
+          currentName: "Bulbasaur",
+          status: "reapplied",
+        });
+
+        return {
+          requested: 2,
+          reapplied: 1,
+          skipped: 1,
+          failed: 0,
+          outcomes: [],
+        };
+      },
+    );
+    const services = {
+      reapplyObservationScope,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/reapply/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { source: "tcgdex", language: "en", setId: "base1" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(events).toEqual([
+      {
+        type: "progress",
+        progress: {
+          phase: "processing",
+          completed: 1,
+          total: 2,
+          currentName: "Bulbasaur",
+          status: "reapplied",
+        },
+      },
+      {
+        type: "result",
+        result: {
+          requested: 2,
+          reapplied: 1,
+          skipped: 1,
+          failed: 0,
+          outcomes: [],
+        },
+      },
+    ]);
+    expect(reapplyObservationScope).toHaveBeenCalledWith({
+      scope: {
+        search: undefined,
+        status: undefined,
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+      context,
+      onProgress: expect.any(Function),
+    });
+  });
+
   it("bulk promotes the explicit observation ids from the request body", async () => {
     const promoteObservations = vi.fn(async () => ({
       requested: 2,

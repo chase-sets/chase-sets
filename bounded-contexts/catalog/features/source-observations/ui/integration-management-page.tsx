@@ -23,9 +23,21 @@ import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
+import type { CatalogBulkActionProgress } from "../../../support/shell-support/api/client";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
-import type { SourceObservationIntegrationOption, SourceObservationIntegrationScope } from "./contracts";
-import { importTcgdexSet, useSourceObservationIntegrationOptions } from "./use-source-observations";
+import type {
+  BulkSourceObservationReapplyResult,
+  SourceObservationIntegrationOption,
+  SourceObservationIntegrationScope,
+  SourceObservationPromotionScope,
+  SourceObservationReapplyPreview,
+} from "./contracts";
+import {
+  importTcgdexSet,
+  previewReapplySourceObservations,
+  reapplySourceObservationsByScope,
+  useSourceObservationIntegrationOptions,
+} from "./use-source-observations";
 
 const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
@@ -45,6 +57,12 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   const [expansionId, setExpansionId] = useState("");
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [showReapply, setShowReapply] = useState(false);
+  const [reapplyScope, setReapplyScope] = useState<SourceObservationPromotionScope>({});
+  const [reapplyPreview, setReapplyPreview] = useState<SourceObservationReapplyPreview | null>(null);
+  const [previewingReapply, setPreviewingReapply] = useState(false);
+  const [reapplying, setReapplying] = useState(false);
+  const [reapplyProgress, setReapplyProgress] = useState<CatalogBulkActionProgress | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const columns = useMemo(() => buildColumns(), []);
   const importLanguages = useSourceObservationIntegrationOptions({
@@ -156,6 +174,61 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     }
   }
 
+  function currentReapplyScope(): SourceObservationPromotionScope {
+    return {
+      search: listControls.search,
+      provider: listControls.source,
+      language: listControls.language,
+      setId: listControls.setId,
+    };
+  }
+
+  async function handlePreviewReapply() {
+    const scope = currentReapplyScope();
+    setPreviewingReapply(true);
+
+    try {
+      const preview = await previewReapplySourceObservations(scope);
+      setReapplyScope(scope);
+      setReapplyPreview(preview);
+      setShowReapply(true);
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.integrations.reapply.failed"),
+        "danger",
+      );
+    } finally {
+      setPreviewingReapply(false);
+    }
+  }
+
+  async function handleReapplyMatching() {
+    setReapplying(true);
+    setReapplyProgress(null);
+
+    try {
+      const result = await reapplySourceObservationsByScope(reapplyScope, {
+        onProgress: setReapplyProgress,
+      });
+      addReapplyCompletionToast(result, addToast);
+      setShowReapply(false);
+      setReapplyPreview(null);
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.integrations.reapply.failed"),
+        "danger",
+      );
+    } finally {
+      setReapplying(false);
+      setReapplyProgress(null);
+    }
+  }
+
   return (
     <Page>
       <PageHeader title={t("catalog.features.sourceObservations.ui.integrations.title")} />
@@ -163,6 +236,15 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
         <ActionBar>
           <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
             {t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
+          </Button>
+          <Button
+            tone="secondary"
+            leadingIcon="badgeCheck"
+            loading={previewingReapply}
+            disabled={previewingReapply || reapplying || summary.promoted === 0}
+            onClick={handlePreviewReapply}
+          >
+            {t("catalog.features.sourceObservations.ui.integrations.reapply.promoted")}
           </Button>
         </ActionBar>
         <StatGrid columns={{ base: 1, md: 4 }}>
@@ -300,6 +382,49 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
           />
           {importing ? <ProgressBar value={importProgress} /> : null}
         </Stack>
+      </Dialog>
+      <Dialog
+        open={showReapply}
+        onOpenChange={setShowReapply}
+        title={t("catalog.features.sourceObservations.ui.integrations.reapply.confirm.title")}
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setShowReapply(false)} disabled={reapplying}>
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
+            </Button>
+            <Button
+              leadingIcon="badgeCheck"
+              onClick={handleReapplyMatching}
+              disabled={reapplying || !reapplyPreview || reapplyPreview.eligible === 0}
+              loading={reapplying}
+            >
+              {t("catalog.features.sourceObservations.ui.integrations.reapply.confirm")}
+            </Button>
+          </Inline>
+        }
+      >
+        {reapplyPreview ? (
+          <Stack gap={3}>
+            <p>
+              {t("catalog.features.sourceObservations.ui.integrations.reapply.confirm.body", {
+                eligible: String(reapplyPreview.eligible),
+                ineligible: String(reapplyPreview.ineligible),
+                matched: String(reapplyPreview.matched),
+              })}
+            </p>
+            <p>
+              {t("catalog.features.sourceObservations.ui.integrations.reapply.confirm.scope", {
+                scope: formatReapplyScope(reapplyPreview.scope),
+              })}
+            </p>
+            {reapplyProgress ? (
+              <ProgressBar
+                value={bulkActionProgressPercent(reapplyProgress)}
+                formatLabel={() => formatBulkActionProgress(reapplyProgress)}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
       </Dialog>
     </Page>
   );
@@ -447,4 +572,77 @@ function formatDateTime(value: string | null | undefined) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function bulkActionProgressPercent(progress: CatalogBulkActionProgress): number {
+  if (progress.phase === "completed") {
+    return 100;
+  }
+
+  if (progress.total <= 0) {
+    return 0;
+  }
+
+  return (progress.completed / progress.total) * 100;
+}
+
+function formatBulkActionProgress(progress: CatalogBulkActionProgress): string {
+  if (progress.total <= 0) {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.preparing");
+  }
+
+  if (progress.phase === "completed") {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.completed", {
+      completed: String(progress.completed),
+      total: String(progress.total),
+    });
+  }
+
+  return t("catalog.features.sourceObservations.ui.list.bulk.progress.processing", {
+    completed: String(progress.completed),
+    total: String(progress.total),
+  });
+}
+
+function formatReapplyScope(scope: Required<SourceObservationPromotionScope>): string {
+  const parts = [
+    scope.search
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.search", {
+          search: scope.search,
+        })
+      : "",
+    scope.language
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.language", {
+          language: formatLanguageCodeLabel(scope.language),
+        })
+      : "",
+    scope.provider
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.provider", {
+          provider: scope.provider,
+        })
+      : "",
+    scope.setId
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.expansion", {
+          setId: scope.setId,
+        })
+      : "",
+  ].filter(Boolean);
+
+  return parts.length > 0
+    ? parts.join(", ")
+    : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
+}
+
+function addReapplyCompletionToast(
+  result: BulkSourceObservationReapplyResult,
+  addToast: (message: string, tone: "success" | "warning" | "danger") => void,
+) {
+  addToast(
+    t("catalog.features.sourceObservations.ui.integrations.reapply.completed", {
+      reapplied: String(result.reapplied),
+      skipped: String(result.skipped),
+      failed: String(result.failed),
+    }),
+    result.failed > 0 ? "warning" : "success",
+  );
 }

@@ -7,6 +7,8 @@ import type { SourceObservationIntegrationScope } from "./contracts";
 
 const {
   mockImportTcgdexSet,
+  mockPreviewReapplySourceObservations,
+  mockReapplySourceObservationsByScope,
   mockRevalidate,
   mockUseSourceObservationIntegrationOptions,
   mockSetSearchParams,
@@ -14,6 +16,8 @@ const {
   mockUseSearchParams,
 } = vi.hoisted(() => ({
   mockImportTcgdexSet: vi.fn(),
+  mockPreviewReapplySourceObservations: vi.fn(),
+  mockReapplySourceObservationsByScope: vi.fn(),
   mockRevalidate: vi.fn(),
   mockUseSourceObservationIntegrationOptions: vi.fn(),
   mockSetSearchParams: vi.fn(),
@@ -29,6 +33,8 @@ vi.mock("react-router", () => ({
 
 vi.mock("./use-source-observations", () => ({
   importTcgdexSet: mockImportTcgdexSet,
+  previewReapplySourceObservations: mockPreviewReapplySourceObservations,
+  reapplySourceObservationsByScope: mockReapplySourceObservationsByScope,
   useSourceObservationIntegrationOptions: mockUseSourceObservationIntegrationOptions,
 }));
 
@@ -58,7 +64,12 @@ describe("IntegrationManagementPage", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
 
-    render(<IntegrationManagementPage data={{ items: [integrationScope()], total: 1, count: 1 }} query={query} />);
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
 
     expect(screen.getByText("Catalog Integrations")).toBeTruthy();
     expect(screen.getAllByText("Base Set").length).toBeGreaterThan(0);
@@ -99,6 +110,52 @@ describe("IntegrationManagementPage", () => {
       ),
     );
     expect(mockSetSearchParams).toHaveBeenCalled();
+    expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("previews and reapplies promoted observations in the current integration scope", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([
+      new URLSearchParams("source=tcgdex&language=en&setId=base1"),
+      mockSetSearchParams,
+    ]);
+    mockPreviewReapplySourceObservations.mockResolvedValue({
+      matched: 102,
+      eligible: 2,
+      ineligible: 100,
+      scope: {
+        search: "",
+        status: "",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+    });
+    mockReapplySourceObservationsByScope.mockResolvedValue({
+      requested: 2,
+      reapplied: 2,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    });
+
+    render(<IntegrationManagementPage data={{ items: [integrationScope()], total: 1, count: 1 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Reapply promoted/i })[0]);
+    await screen.findByText(/2 promoted observations will be reapplied/i);
+    fireEvent.click(screen.getByRole("button", { name: /^Reapply mapping$/i }));
+
+    await waitFor(() =>
+      expect(mockReapplySourceObservationsByScope).toHaveBeenCalledWith(
+        {
+          search: "",
+          provider: "tcgdex",
+          language: "en",
+          setId: "base1",
+        },
+        { onProgress: expect.any(Function) },
+      ),
+    );
     expect(mockRevalidate).toHaveBeenCalled();
   });
 });
