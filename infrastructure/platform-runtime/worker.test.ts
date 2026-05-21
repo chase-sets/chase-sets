@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PlatformControlPlane } from "./control-plane";
-import { createWorkerRunnerLoop, type WorkerRunner } from "./worker";
+import {
+  collectWorkerRunners,
+  createWorkerRunnerLoop,
+  type WorkerRunner,
+} from "./worker";
 
 describe("worker runner loop", () => {
   it("rotates through runners when concurrency is lower than the runner count", async () => {
@@ -39,7 +43,118 @@ describe("worker runner loop", () => {
       await loop.stop();
     }
   });
+
+  it("collects projection group runners instead of raw subscription runners", () => {
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+    });
+
+    const runners = collectWorkerRunners({
+      mountedContexts: [],
+      services: {},
+      projectors: [],
+      projectionGroups: [group],
+      subscriptionRunners: [subscriptionRunner],
+    } as never);
+
+    expect(runners).toHaveLength(1);
+    expect(runners[0]).toMatchObject({
+      name: "inventory.inventory-catalog-item-projection",
+      kind: "projection-group",
+    });
+  });
+
+  it("resets stale projection groups once and marks the revision after worker catch-up", async () => {
+    const processedByRun = [1, 1, 0];
+    const resets: string[] = [];
+    let markedRevision = false;
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => {
+        resets.push("subscription");
+      },
+      runOnce: async () => ({
+        processed: processedByRun.shift() ?? 0,
+        lastGlobalPosition: "2" as never,
+      }),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({
+        revisionStale: !markedRevision,
+      }),
+      markRevisionSynced: async () => {
+        markedRevision = true;
+      },
+      reset: async () => {
+        resets.push("group");
+      },
+    });
+    const [runner] = collectWorkerRunners({
+      mountedContexts: [],
+      services: {},
+      projectors: [],
+      projectionGroups: [group],
+      subscriptionRunners: [subscriptionRunner],
+    } as never);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1 });
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1 });
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0 });
+
+    expect(resets).toEqual(["group", "subscription"]);
+    expect(markedRevision).toBe(true);
+  });
 });
+
+function createProjectionGroup(
+  overrides: Readonly<{
+    subscriptionRunners?: readonly unknown[];
+    refreshStatus?: () => Promise<Readonly<{ revisionStale: boolean }>>;
+    markRevisionSynced?: () => Promise<void>;
+    reset?: () => Promise<void>;
+  }> = {},
+) {
+  return {
+    projectionName: "inventory-catalog-item-projection",
+    projectionRevision: 2,
+    targetContextName: "inventory",
+    sourceContextNames: ["catalog"],
+    ownedTables: ["inventory_catalog_items"],
+    requiredDuringBootstrap: true,
+    projectors: [],
+    subscriptionRunners: overrides.subscriptionRunners ?? [],
+    reset: overrides.reset ?? (async () => undefined),
+    getStatus: () => ({
+      projectionName: "inventory-catalog-item-projection",
+      projectionRevision: 2,
+      storedProjectionRevision: 1,
+      revisionStale: true,
+      targetContextName: "inventory",
+      sourceContextNames: ["catalog"],
+      ownedTables: ["inventory_catalog_items"],
+      requiredDuringBootstrap: true,
+      initialized: true,
+      caughtUp: false,
+      state: "idle",
+      lastError: null,
+      updatedAt: new Date(0).toISOString(),
+      subscriptions: [],
+    }),
+    refreshStatus:
+      overrides.refreshStatus ??
+      (async () => ({
+        revisionStale: true,
+      })),
+    markRevisionSynced: overrides.markRevisionSynced ?? (async () => undefined),
+  };
+}
 
 function createAlwaysLeasedControlPlane(): PlatformControlPlane {
   return {

@@ -43,6 +43,7 @@ Enable projections to rebuild themselves when their projection definition change
 - [x] Add runtime persistence for projection group revision state.
 - [x] Include the new schema in context database bootstrap.
 - [x] Teach sync/rebuild to detect stale revisions, rebuild first, and mark the revision only after successful replay.
+- [x] Teach worker projection catch-up to run projection groups through the same revision-aware rebuild path instead of bypassing it with raw subscription runners.
 - [x] Expose revision/stale state in projection group status and replay summaries.
 - [x] Add focused runtime tests for unchanged revision, changed revision, failed rebuild, and manual rebuild revision marking.
 - [x] Install worktree dependencies and run sandbox doctor.
@@ -54,6 +55,7 @@ Enable projections to rebuild themselves when their projection definition change
 - `pnpm run sandbox:doctor`
 - `pnpm --filter @chase-sets/bounded-context-runtime test`
 - `pnpm --filter @chase-sets/platform-runtime test`
+- `pnpm --filter @chase-sets/platform-runtime test -- worker.test.ts`
 - `pnpm --filter @chase-sets/app-platform-api test -- app.test.ts`
 - `pnpm exec tsc -p ./tsconfig.json --noEmit`
 - `pnpm --filter @chase-sets/bounded-context-runtime exec tsc --noEmit`

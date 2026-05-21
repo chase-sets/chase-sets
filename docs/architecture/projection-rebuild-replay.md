@@ -24,6 +24,8 @@ During projection-group sync, runtime compares the declared `projectionRevision`
 - Rebuild truncates the projection group's owned tables, resets its subscription checkpoints, replays source events through the group subscriptions, and stores the declared revision only after replay succeeds.
 - If replay fails, the old stored revision remains. Health status reports the projection group as stale until a later sync succeeds.
 
+Workers must run cross-context catch-up through projection group runners, not raw subscription runners. That keeps long-running catch-up on the same revision-aware path as bootstrap and explicit sync: stale groups reset once, replay batch-by-batch, and mark the new revision only after they catch up.
+
 ## Ownership Rules
 
 - The bounded context that owns the read model owns the revision bump.
