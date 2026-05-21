@@ -415,27 +415,39 @@ describe("source observation routes", () => {
   });
 
   it("streams bulk promotion progress events", async () => {
-    const promoteObservationScope = vi.fn(async (input: {
-      onProgress?: (progress: unknown) => void;
-    }) => {
-      input.onProgress?.({
+    const job = {
+      jobId: "job_1",
+      action: "promote",
+      selectionMode: "filter",
+      observationIds: [],
+      scope: {},
+      reason: null,
+      status: "completed",
+      progress: {
         phase: "processing",
         completed: 1,
         total: 2,
         currentName: "Bulbasaur",
         status: "promoted",
-      });
-
-      return {
+      },
+      result: {
         requested: 2,
         promoted: 1,
         skipped: 1,
         failed: 0,
         outcomes: [],
-      };
-    });
+      },
+      errorMessage: null,
+      createdAt: "2026-05-21T00:00:00.000Z",
+      startedAt: "2026-05-21T00:00:01.000Z",
+      completedAt: "2026-05-21T00:00:02.000Z",
+      updatedAt: "2026-05-21T00:00:02.000Z",
+    } as const;
+    const enqueueBulkReviewJob = vi.fn(async () => job);
+    const getBulkReviewJob = vi.fn(async () => job);
     const services = {
-      promoteObservationScope,
+      enqueueBulkReviewJob,
+      getBulkReviewJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -463,6 +475,7 @@ describe("source observation routes", () => {
           currentName: "Bulbasaur",
           status: "promoted",
         },
+        jobId: "job_1",
       },
       {
         type: "result",
@@ -473,9 +486,12 @@ describe("source observation routes", () => {
           failed: 0,
           outcomes: [],
         },
+        jobId: "job_1",
       },
     ]);
-    expect(promoteObservationScope).toHaveBeenCalledWith({
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "promote",
+      observationIds: [],
       scope: {
         search: undefined,
         status: "observed",
@@ -484,7 +500,6 @@ describe("source observation routes", () => {
         setId: "base1",
       },
       context,
-      onProgress: expect.any(Function),
     });
   });
 
@@ -581,28 +596,40 @@ describe("source observation routes", () => {
   });
 
   it("streams bulk rejection progress events", async () => {
-    const rejectObservations = vi.fn(async (input: {
-      onProgress?: (progress: unknown) => void;
-    }) => {
-      input.onProgress?.({
+    const job = {
+      jobId: "job_2",
+      action: "reject",
+      selectionMode: "ids",
+      observationIds: ["obs_1"],
+      scope: {},
+      reason: "Duplicate provider row.",
+      status: "completed",
+      progress: {
         phase: "processing",
         completed: 1,
         total: 1,
         currentName: "Ivysaur",
         status: "rejected",
-      });
-
-      return {
+      },
+      result: {
         requested: 1,
         promoted: 0,
         rejected: 1,
         skipped: 0,
         failed: 0,
         outcomes: [],
-      };
-    });
+      },
+      errorMessage: null,
+      createdAt: "2026-05-21T00:00:00.000Z",
+      startedAt: "2026-05-21T00:00:01.000Z",
+      completedAt: "2026-05-21T00:00:02.000Z",
+      updatedAt: "2026-05-21T00:00:02.000Z",
+    } as const;
+    const enqueueBulkReviewJob = vi.fn(async () => job);
+    const getBulkReviewJob = vi.fn(async () => job);
     const services = {
-      rejectObservations,
+      enqueueBulkReviewJob,
+      getBulkReviewJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -631,6 +658,7 @@ describe("source observation routes", () => {
           currentName: "Ivysaur",
           status: "rejected",
         },
+        jobId: "job_2",
       },
       {
         type: "result",
@@ -642,13 +670,15 @@ describe("source observation routes", () => {
           failed: 0,
           outcomes: [],
         },
+        jobId: "job_2",
       },
     ]);
-    expect(rejectObservations).toHaveBeenCalledWith({
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "reject",
       observationIds: ["obs_1"],
+      scope: undefined,
       reason: "Duplicate provider row.",
       context,
-      onProgress: expect.any(Function),
     });
   });
 });

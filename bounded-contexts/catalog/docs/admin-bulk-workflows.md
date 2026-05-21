@@ -49,6 +49,20 @@ Bulk results are intentionally mixed:
 
 Operators should expect mixed results when selections include multiple statuses or stale rows.
 
+## Server-Side Jobs And Status Streams
+
+Long-running Catalog admin bulk work is persisted as a Catalog-owned admin job before execution starts. Progress-capable client calls enqueue a job, then subscribe to a status stream for that job. The job is claimed and processed by the admin-support worker through the normal leased worker runner loop, so the operation is not tied to the browser tab or HTTP response that started it.
+
+The persisted job record owns:
+
+- action: promote or reject
+- selection: explicit Source Observation IDs or the current filter scope
+- review context: the original actor and tenant context used when commands are emitted
+- progress: phase, completed count, total count, current item name, and latest item outcome
+- result: mixed promoted/rejected/skipped/failed outcomes when complete
+
+The API exposes job start, status, and event-stream routes. Any API instance can serve status for a job because the status is stored in the Catalog schema. Disconnecting from the status stream stops only that stream; it does not cancel the worker-owned job. Operators can reconnect by job ID and continue reading the latest status.
+
 ## Realtime Projection Refresh
 
 Catalog admin bulk actions still return operation results immediately, but list pages do not rely on that response as read-model truth. Catalog projectors publish small `projection.patch` invalidations to Catalog-owned admin topics after the affected projection has updated. Admin routes subscribe to their surface topic and revalidate the current loader when a patch or `sync.required` message arrives.
