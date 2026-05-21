@@ -252,14 +252,14 @@ export async function seedApiHostIfEmpty(
       continue;
     }
 
-    await syncContextProjectionGroups(runtime, contextName, {
-      requiredOnly: true,
-    });
-    await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
-    await syncContextProjectionGroups(runtime, contextName, {
-      requiredOnly: !runFullDrain,
-    });
     if (runFullDrain) {
+      await syncContextProjectionGroups(runtime, contextName, {
+        requiredOnly: true,
+      });
+    }
+    await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+    if (runFullDrain) {
+      await syncContextProjectionGroups(runtime, contextName);
       await drainContextRuntime(runtime);
     }
   }
