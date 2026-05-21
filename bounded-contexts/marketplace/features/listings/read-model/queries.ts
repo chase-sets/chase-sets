@@ -1,6 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { MarketplaceGradedCardDetails } from "../domain/domain";
+import type {
+  MarketplaceGradedCardDetails,
+  MarketplaceListingPhoto,
+} from "../domain/domain";
 
 export type MarketplaceListingListRow = Readonly<{
   listing_id: string;
@@ -29,6 +32,7 @@ export type MarketplaceListingListRow = Readonly<{
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
+  listing_photos: readonly MarketplaceListingPhoto[];
   status: string;
   created_at: string;
   updated_at: string;
@@ -106,6 +110,7 @@ type MarketplaceListingPageRow = Readonly<{
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
+  listing_photos: unknown;
   status: string;
   created_at: string;
   updated_at: string;
@@ -149,6 +154,9 @@ function mapListingRow(row: MarketplaceListingPageRow): MarketplaceListingListRo
       typeof row.graded_card === "object" && row.graded_card !== null
         ? (row.graded_card as MarketplaceGradedCardDetails)
         : null,
+    listing_photos: Array.isArray(row.listing_photos)
+      ? (row.listing_photos as MarketplaceListingPhoto[])
+      : [],
   };
 }
 

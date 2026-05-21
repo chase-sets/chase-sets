@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import {
   Badge,
   Button,
+  FileDropzone,
+  ImageGallery,
   OrderProtectionModule,
   Card,
   Inline,
@@ -29,6 +31,25 @@ import type {
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
 } from "./contracts";
+
+function listingPhotoUrl(
+  photo: MarketplaceListingDetail["listing_photos"][number],
+  role: "thumbnail" | "search-card" | "catalog-detail",
+) {
+  return (
+    photo.assetSet.variants.find((variant) => variant.role === role && variant.density === 1)
+      ?.publicUrl ?? photo.assetSet.source.publicUrl
+  );
+}
+
+function listingPhotoImages(listing: MarketplaceListingDetail) {
+  return listing.listing_photos.map((photo, index) => ({
+    src: listingPhotoUrl(photo, "catalog-detail"),
+    thumbnailSrc: listingPhotoUrl(photo, "thumbnail"),
+    alt: photo.altText ?? `${listing.item_title ?? listing.catalog_catalog_item_id} photo ${index + 1}`,
+    label: photo.originalFilename ?? `Photo ${index + 1}`,
+  }));
+}
 
 function formatMoney(amount: string) {
   return `$${amount}`;
@@ -161,6 +182,12 @@ export function MarketplaceListingDetailPage({
         <Stack gap={4}>
           <Card>
             <Stack gap={4}>
+              {listing.listing_photos.length > 0 ? (
+                <ImageGallery
+                  images={listingPhotoImages(listing)}
+                  aspectRatio="3/4"
+                />
+              ) : null}
               <Stack gap={2}>
                 <Inline>
                   <Badge tone={statusTone(listing.status)}>{listing.status}</Badge>
@@ -314,6 +341,25 @@ export function MarketplaceListingDetailPage({
           })}
           tone={(feeHistory?.length ?? 0) > 0 ? "info" : "neutral"}
         >
+          <Card>
+            <form method="post" encType="multipart/form-data">
+              <Stack gap={3}>
+                <input type="hidden" name="intent" value="add-photos" />
+                <FileDropzone
+                  label={t("marketplace.features.listings.ui.listingDetailPage.listing.photos")}
+                  description={t("marketplace.features.listings.ui.listingDetailPage.listing.photos.description")}
+                  name="listingPhotos"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  dropLabel={t("marketplace.features.listings.ui.listingDetailPage.drop.listing.photos")}
+                  browseLabel={t("marketplace.features.listings.ui.listingDetailPage.choose.photos")}
+                />
+                <Button type="submit" tone="secondary">
+                  {t("marketplace.features.listings.ui.listingDetailPage.add.photos")}</Button>
+              </Stack>
+            </form>
+          </Card>
+
           <Card>
             <Stack gap={3}>
               {(feeHistory ?? []).length > 0 ? (

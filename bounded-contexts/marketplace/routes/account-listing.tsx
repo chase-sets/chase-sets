@@ -47,6 +47,17 @@ function optionalLimit(value: FormDataEntryValue | null) {
   return text === "" ? null : Number(text);
 }
 
+function listingPhotoFormData(formData: FormData) {
+  const apiForm = new FormData();
+  for (const entry of formData.getAll("listingPhotos")) {
+    if (entry instanceof File && entry.size > 0) {
+      apiForm.append("listingPhotos", entry);
+    }
+  }
+
+  return apiForm;
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const api = createMarketplaceRequestApiClient(request);
@@ -107,6 +118,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
             maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
           },
         });
+        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
+      case "add-photos":
+        await api.addListingPhotos(params.listingId!, listingPhotoFormData(formData));
         return redirect(`${pathname}?feedbackWorkflow=listing-update`);
       case "publish":
         await api.publishListing(params.listingId!, {

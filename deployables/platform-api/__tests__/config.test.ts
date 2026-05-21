@@ -87,6 +87,15 @@ function resetConfigEnv() {
   delete process.env.CATALOG_ASSET_S3_ACCESS_KEY_ID;
   delete process.env.CATALOG_ASSET_S3_SECRET_ACCESS_KEY;
   delete process.env.CATALOG_ASSET_S3_FORCE_PATH_STYLE;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_STORAGE_KIND;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_S3_BUCKET;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_S3_REGION;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY;
+  delete process.env.MARKETPLACE_LISTING_PHOTO_S3_FORCE_PATH_STYLE;
   delete process.env.UCP_BUSINESS_SIGNING_PRIVATE_JWK;
   delete process.env.UCP_BUSINESS_SIGNING_KEY_ID;
   delete process.env.UCP_BUSINESS_SIGNING_ALG;
@@ -221,9 +230,14 @@ describe("platform api config", () => {
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: "http://localhost:6182/catalog-assets",
     });
+    expect(loadConfig().listingPhotoStorage).toEqual({
+      kind: "filesystem",
+      rootDir: "artifacts/marketplace-listing-photos",
+      publicBaseUrl: "http://localhost:6182/marketplace-listing-photos",
+    });
   });
 
-  it("loads S3-compatible Catalog asset storage from environment variables", () => {
+  it("loads S3-compatible asset storage from environment variables", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
@@ -232,6 +246,13 @@ describe("platform api config", () => {
     process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
     process.env.CATALOG_ASSET_S3_ACCESS_KEY_ID = "spaces-key";
     process.env.CATALOG_ASSET_S3_SECRET_ACCESS_KEY = "spaces-secret";
+    process.env.MARKETPLACE_LISTING_PHOTO_STORAGE_KIND = "s3";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_BUCKET = "listing-photos";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_REGION = "nyc3";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
+    process.env.MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL = "https://listing-photos.chasesets.com";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID = "spaces-key";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY = "spaces-secret";
 
     expect(loadConfig().catalogAssetStorage).toEqual({
       kind: "s3",
@@ -239,6 +260,16 @@ describe("platform api config", () => {
       region: "nyc3",
       endpoint: "https://nyc3.digitaloceanspaces.com",
       publicBaseUrl: "https://assets.chasesets.com",
+      accessKeyId: "spaces-key",
+      secretAccessKey: "spaces-secret",
+      forcePathStyle: false,
+    });
+    expect(loadConfig().listingPhotoStorage).toEqual({
+      kind: "s3",
+      bucket: "listing-photos",
+      region: "nyc3",
+      endpoint: "https://nyc3.digitaloceanspaces.com",
+      publicBaseUrl: "https://listing-photos.chasesets.com",
       accessKeyId: "spaces-key",
       secretAccessKey: "spaces-secret",
       forcePathStyle: false,
@@ -352,6 +383,10 @@ describe("platform api config", () => {
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
     process.env.CATALOG_ASSET_S3_REGION = "nyc3";
     process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+    process.env.MARKETPLACE_LISTING_PHOTO_STORAGE_KIND = "s3";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_BUCKET = "listing-photos";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_REGION = "nyc3";
+    process.env.MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL = "https://listing-photos.chasesets.com";
 
     const config = loadConfig();
 
@@ -367,6 +402,11 @@ describe("platform api config", () => {
     expect(config.catalogAssetStorage).toMatchObject({
       kind: "s3",
       bucket: "catalog-assets",
+      region: "nyc3",
+    });
+    expect(config.listingPhotoStorage).toMatchObject({
+      kind: "s3",
+      bucket: "listing-photos",
       region: "nyc3",
     });
   });

@@ -57,7 +57,11 @@ import {
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
-import { loadConfig, type PlatformApiCatalogAssetStorageConfig } from "./config";
+import {
+  loadConfig,
+  type PlatformApiCatalogAssetStorageConfig,
+  type PlatformApiListingPhotoStorageConfig,
+} from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 
 const observability = getObservabilityRuntime();
@@ -127,6 +131,7 @@ const mobileMessageWebhookGateway = config.mobileMessaging.kind === "twilio"
     })
   : undefined;
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 
 if (config.paymentProcessor.kind === "fake") {
   logger.warn("Platform API is using the fake payment processor.", {
@@ -159,6 +164,7 @@ const runtime = createPlatformApiHost({
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
     catalogAssetStorage,
+    listingPhotoStorage,
     socialLoginProviders,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
@@ -386,6 +392,7 @@ const app = buildPlatformApiApp(runtime, {
   },
 });
 mountLocalCatalogAssetRoute(app, config.catalogAssetStorage);
+mountLocalListingPhotoRoute(app, config.listingPhotoStorage);
 const realtimeRetentionSweeper = config.realtime.backgroundMaintenanceEnabled
   ? createRealtimeRetentionSweeper({
       stores: realtimeStores,
@@ -411,6 +418,14 @@ function createCatalogAssetStorage(
     : createFilesystemObjectStorage(storageConfig);
 }
 
+function createListingPhotoStorage(
+  storageConfig: PlatformApiListingPhotoStorageConfig,
+): ObjectStorage {
+  return storageConfig.kind === "s3"
+    ? createS3ObjectStorage(storageConfig)
+    : createFilesystemObjectStorage(storageConfig);
+}
+
 function mountLocalCatalogAssetRoute(
   app: ReturnType<typeof buildPlatformApiApp>,
   storageConfig: PlatformApiCatalogAssetStorageConfig,
@@ -421,6 +436,31 @@ function mountLocalCatalogAssetRoute(
 
   const routePrefix = "/catalog-assets/";
   app.get("/catalog-assets/*", async (c) => {
+    const key = c.req.path.slice(routePrefix.length);
+    const object = await readFilesystemObject(storageConfig.rootDir, key);
+    if (!object) {
+      return c.notFound();
+    }
+
+    return new Response(toArrayBuffer(object.body), {
+      headers: {
+        "cache-control": "public, max-age=31536000, immutable",
+        "content-type": object.contentType,
+      },
+    });
+  });
+}
+
+function mountLocalListingPhotoRoute(
+  app: ReturnType<typeof buildPlatformApiApp>,
+  storageConfig: PlatformApiListingPhotoStorageConfig,
+) {
+  if (storageConfig.kind !== "filesystem") {
+    return;
+  }
+
+  const routePrefix = "/marketplace-listing-photos/";
+  app.get("/marketplace-listing-photos/*", async (c) => {
     const key = c.req.path.slice(routePrefix.length);
     const object = await readFilesystemObject(storageConfig.rootDir, key);
     if (!object) {

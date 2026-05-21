@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
   MarketplaceSalesFeeQuoteStaleError,
+  type MarketplaceListingPhotoUpload,
   type MarketplaceListingServices,
 } from "./runtime";
 
@@ -104,7 +105,9 @@ function parseSelectedOptions(value: unknown) {
 }
 
 function parseInventorySnapshot(body: Record<string, unknown>) {
-  const snapshot = body.inventorySnapshot;
+  const snapshot = typeof body.inventorySnapshot === "string"
+    ? parseJsonObject(body.inventorySnapshot)
+    : body.inventorySnapshot;
   if (!snapshot || typeof snapshot !== "object") {
     return null;
   }
@@ -139,6 +142,19 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
   };
 }
 
+function parseJsonObject(value: string): unknown {
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(normalized) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 function parseSellerListingAvailabilityReason(value: unknown) {
   const normalized = typeof value === "string" ? value.trim() : "";
 
@@ -161,6 +177,47 @@ function parseSellerListingAvailabilityReason(value: unknown) {
 function parseAvailableAgainOn(value: unknown) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized ? normalized : null;
+}
+
+function isMultipartRequest(c: { req: { header(name: string): string | undefined } }) {
+  return (c.req.header("content-type") ?? "").includes("multipart/form-data");
+}
+
+async function fileToPhotoUpload(
+  file: File,
+  altText?: string | null,
+): Promise<MarketplaceListingPhotoUpload | null> {
+  if (file.size <= 0) {
+    return null;
+  }
+
+  return {
+    body: new Uint8Array(await file.arrayBuffer()),
+    contentType: file.type,
+    originalFilename: file.name.trim() || null,
+    altText: altText?.trim() || null,
+  };
+}
+
+async function parseListingPhotoUploads(formData: FormData) {
+  const files = formData.getAll("listingPhotos").filter(
+    (entry): entry is File => entry instanceof File,
+  );
+  const altTexts = formData.getAll("listingPhotoAltText").map((entry) => String(entry ?? ""));
+  const uploads: MarketplaceListingPhotoUpload[] = [];
+
+  for (const [index, file] of files.entries()) {
+    const upload = await fileToPhotoUpload(file, altTexts[index]);
+    if (upload) {
+      uploads.push(upload);
+    }
+  }
+
+  return uploads;
+}
+
+function formValue(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "");
 }
 
 export function createAccountListingRoutes(services: MarketplaceListingServices) {
@@ -365,7 +422,19 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
     }
 
-    const body = await c.req.json();
+    const formData = isMultipartRequest(c) ? await c.req.formData() : null;
+    const body = formData
+      ? {
+          inventoryItemId: formValue(formData, "inventoryItemId"),
+          priceAmount: formValue(formData, "priceAmount"),
+          quantityCap: formValue(formData, "quantityCap"),
+          maxUnitsPerOrder: formValue(formData, "maxUnitsPerOrder"),
+          maxUnitsPerDay: formValue(formData, "maxUnitsPerDay"),
+          maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
+          inventorySnapshot: formValue(formData, "inventorySnapshot"),
+        }
+      : await c.req.json();
+    const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
 
     try {
       const inventorySnapshot = parseInventorySnapshot(body);
@@ -377,6 +446,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               priceAmount: String(body.priceAmount ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
+              listingPhotoUploads,
             },
             context,
           )
@@ -387,6 +457,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               priceAmount: String(body.priceAmount ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
+              listingPhotoUploads,
             },
             context,
           );
@@ -400,6 +471,37 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
         },
         201,
       );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/listings/:id/photos", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.listings.api.route.authentication.context.missing") } }, 401);
+    }
+
+    try {
+      if (!isMultipartRequest(c)) {
+        throw new Error("Listing photo uploads must use multipart/form-data.");
+      }
+      const formData = await c.req.formData();
+      const result = await services.addListingPhotos(
+        {
+          accountId: access.actor.accountId,
+          listingId: c.req.param("id"),
+          listingPhotoUploads: await parseListingPhotoUploads(formData),
+        },
+        context,
+      );
+
+      return c.json({ id: result.listingId, version: result.version, status: "photos-added" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

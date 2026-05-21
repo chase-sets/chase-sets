@@ -16,6 +16,17 @@ Notes:
 - Listings reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
 
+## Listing Photo
+
+A **Listing Photo** is seller-supplied evidence imagery attached to a Listing.
+
+Notes:
+
+- Listing Photos are owned by Marketplace.
+- Listing photo uploads are normalized into Chase Sets-owned WebP asset variants before storage.
+- Listing photo metadata is recorded on Marketplace Listing events; raw image bytes are stored in the environment asset bucket.
+- Pristine and Mint Listings require at least one Listing Photo before publication.
+
 ## Offer
 
 An **Offer** is an account-submitted purchase proposal for a specific product, price, and quantity submitted as marketplace-wide demand.

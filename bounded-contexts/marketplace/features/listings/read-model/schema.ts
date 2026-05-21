@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
   max_units_per_day integer NULL CHECK (max_units_per_day IS NULL OR max_units_per_day > 0),
   max_units_per_customer_account integer NULL CHECK (max_units_per_customer_account IS NULL OR max_units_per_customer_account > 0),
+  listing_photos jsonb NOT NULL DEFAULT '[]'::jsonb,
   status text NOT NULL DEFAULT 'draft',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -49,7 +50,8 @@ ALTER TABLE marketplace_listing_pages
   ADD COLUMN IF NOT EXISTS item_language_code text NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
-  ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL;
+  ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
+  ADD COLUMN IF NOT EXISTS listing_photos jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS marketplace_seller_listing_availability_pages (
   account_id text PRIMARY KEY,
