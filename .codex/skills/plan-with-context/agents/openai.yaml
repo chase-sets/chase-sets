@@ -1,4 +1,0 @@
-interface:
-  display_name: "Plan With Context"
-  short_description: "Plan changes with bounded-context evidence"
-  default_prompt: "Use $plan-with-context to plan this change in an embedded worktree, ask one blocking question at a time, record the dated plan, and create the implementation goal."
