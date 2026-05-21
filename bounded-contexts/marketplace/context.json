@@ -1,30 +1,12 @@
 {
   "contextName": "marketplace",
   "packageName": "@chase-sets/marketplace",
-  "ownedNouns": [
-    "listing",
-    "offer",
-    "seller-listing-availability"
-  ],
+  "ownedNouns": ["listing", "offer", "seller-listing-availability"],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "listings",
-    "offers"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "realtime-support",
-    "runtime-support",
-    "seed-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
+  "slices": ["listings", "offers"],
+  "allowedSupportDirectories": ["request-support", "realtime-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
@@ -32,20 +14,13 @@
     "@chase-sets/identity",
     "@chase-sets/inventory"
   ],
-  "seedRequirements": [
-    "catalog",
-    "commercial-terms",
-    "identity",
-    "inventory"
-  ],
+  "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
   "eventSubscriptions": [
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-catalog-item-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "marketplace-catalog-item-projection"
-      ],
+      "projectorNames": ["marketplace-catalog-item-projection"],
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
@@ -70,9 +45,7 @@
       "sourceContextName": "identity",
       "projectionName": "marketplace-identity-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "marketplace-identity-account-projection"
-      ],
+      "projectorNames": ["marketplace-identity-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -86,9 +59,7 @@
       "sourceContextName": "inventory",
       "projectionName": "marketplace-inventory-supply-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "marketplace-inventory-supply-projection"
-      ],
+      "projectorNames": ["marketplace-inventory-supply-projection"],
       "eventTypes": [
         "inventory.storage-location.created",
         "inventory.storage-location.updated",
@@ -104,23 +75,15 @@
       "sourceContextName": "reputation",
       "projectionName": "marketplace-identity-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "marketplace-identity-account-projection"
-      ],
-      "eventTypes": [
-        "reputation.review.submitted",
-        "reputation.review.updated",
-        "reputation.review.withdrawn"
-      ],
+      "projectorNames": ["marketplace-identity-account-projection"],
+      "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
       "order": 40
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "marketplace-catalog-item-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
+      "sourceContextNames": ["catalog"],
       "ownedTables": [
         "marketplace_catalog_items",
         "marketplace_catalog_blueprints",
@@ -131,26 +94,14 @@
     },
     {
       "projectionName": "marketplace-identity-account-projection",
-      "sourceContextNames": [
-        "identity",
-        "reputation"
-      ],
-      "ownedTables": [
-        "marketplace_account_pages",
-        "marketplace_account_reviews"
-      ],
+      "sourceContextNames": ["identity", "reputation"],
+      "ownedTables": ["marketplace_account_pages", "marketplace_account_reviews"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "marketplace-inventory-supply-projection",
-      "sourceContextNames": [
-        "inventory"
-      ],
-      "ownedTables": [
-        "marketplace_supply_locations",
-        "marketplace_supply_items",
-        "marketplace_supply_holds"
-      ],
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["marketplace_supply_locations", "marketplace_supply_items", "marketplace_supply_holds"],
       "requiredDuringBootstrap": true
     }
   ],
@@ -166,9 +117,7 @@
       "purpose": "Store normalized Marketplace Listing Photo WebP assets in the environment asset bucket without making Marketplace own object-storage infrastructure."
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -230,54 +179,38 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": [
-        "top-nav",
-        "bottom-nav"
-      ],
+      "placements": ["top-nav", "bottom-nav"],
       "key": "listings",
       "label": "Listings",
       "icon": "store",
       "href": "/account/listings",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "listings.view"
-      ]
+      "requiredPermissions": ["listings.view"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": [
-        "top-nav",
-        "bottom-nav"
-      ],
+      "placements": ["top-nav", "bottom-nav"],
       "key": "offer-matches",
       "label": "Offer Matches",
       "icon": "tag",
       "href": "/account/offers/matches",
       "order": 130,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "offers.view",
-        "listings.view"
-      ]
+      "requiredPermissions": ["offers.view", "listings.view"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": [
-        "top-nav",
-        "bottom-nav"
-      ],
+      "placements": ["top-nav", "bottom-nav"],
       "key": "submitted-offers",
       "label": "Submitted Offers",
       "icon": "message",
       "href": "/account/offers/submitted",
       "order": 140,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "offers.view"
-      ]
+      "requiredPermissions": ["offers.view"]
     }
   ],
   "directoryIntent": {
@@ -285,26 +218,19 @@
       "classification": "slice",
       "purpose": "Own listings feature behavior, read models, and UI contracts for the marketplace context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal marketplace module composition"
-      ]
+      "expectedConsumers": ["Internal marketplace module composition"]
     },
     "offers": {
       "classification": "slice",
       "purpose": "Own offers feature behavior, read models, and UI contracts for the marketplace context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal marketplace module composition"
-      ]
+      "expectedConsumers": ["Internal marketplace module composition"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by marketplace-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "listings",
-        "offers"
-      ],
+      "expectedConsumers": ["listings", "offers"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "marketplace workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -314,10 +240,7 @@
       "classification": "support",
       "purpose": "Provide marketplace-owned client realtime patch helpers shared by route modules.",
       "allowedWhen": "Allowed only for route-level realtime composition that cannot live inside one feature route.",
-      "expectedConsumers": [
-        "listings",
-        "offers"
-      ],
+      "expectedConsumers": ["listings", "offers"],
       "justification": "realtime-support centralizes small patch helpers shared by listings and offers routes.",
       "createdFor": "SSE projection patch handling on marketplace account pages.",
       "sunsetWhen": "Remove when route modules no longer share realtime client behavior."
@@ -326,10 +249,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "listings",
-        "offers"
-      ],
+      "expectedConsumers": ["listings", "offers"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "marketplace workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -338,10 +258,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by marketplace-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple marketplace slices",
-        "Deployable composition for marketplace"
-      ],
+      "expectedConsumers": ["Multiple marketplace slices", "Deployable composition for marketplace"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "marketplace workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -351,12 +268,8 @@
       "classification": "routes",
       "purpose": "Expose marketplace-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

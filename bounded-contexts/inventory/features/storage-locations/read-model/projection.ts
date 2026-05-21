@@ -1,19 +1,10 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildStorageLocationProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildStorageLocationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.storage-location.created": async (event) => {
-      const {
-        storageLocationId,
-        accountId,
-        name,
-        description,
-        shipFromCode,
-        shipFromAddress,
-      } = event.data as {
+      const { storageLocationId, accountId, name, description, shipFromCode, shipFromAddress } = event.data as {
         storageLocationId: string;
         accountId: string;
         name: string;
@@ -54,13 +45,7 @@ export function buildStorageLocationProjectionHandlers(
       );
     },
     "inventory.storage-location.updated": async (event) => {
-      const {
-        storageLocationId,
-        name,
-        description,
-        shipFromCode,
-        shipFromAddress,
-      } = event.data as {
+      const { storageLocationId, name, description, shipFromCode, shipFromAddress } = event.data as {
         storageLocationId: string;
         name: string;
         description: string | null;
@@ -76,14 +61,7 @@ export function buildStorageLocationProjectionHandlers(
              ship_from_address = $5,
              updated_at = $6
          WHERE storage_location_id = $1`,
-        [
-          storageLocationId,
-          name,
-          description,
-          shipFromCode,
-          JSON.stringify(shipFromAddress),
-          event.timing.recordedAt,
-        ],
+        [storageLocationId, name, description, shipFromCode, JSON.stringify(shipFromAddress), event.timing.recordedAt],
       );
     },
     "inventory.storage-location.archived": async (event) => {

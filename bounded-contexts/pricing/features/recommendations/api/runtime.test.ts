@@ -1,15 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type {
-  AppendToStreamInput,
-  EventStoreContext,
-  StoredEvent,
-} from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  createPricingRecommendationRuntime,
-  type PricingMarketplaceListingGateway,
-} from "./runtime";
+import { createPricingRecommendationRuntime, type PricingMarketplaceListingGateway } from "./runtime";
 import type { AccountRecommendationListItem } from "../read-model/queries";
 
 const context: EventStoreContext = {
@@ -75,7 +68,7 @@ function queryStub(
   }>,
 ): PgQueryable {
   return {
-    query: async <T,>(sql: string) => {
+    query: async <T>(sql: string) => {
       if (sql.includes("FROM pricing_inventory_item_inputs AS item")) {
         return { rows: (rowsByKind.inventory ?? []) as T[] };
       }
@@ -153,59 +146,58 @@ async function seedRecommendation(
 
 describe("pricing recommendation runtime", () => {
   it("refreshes active listing and draft create proposals from projected signals", async () => {
-    const { services, events } = createRuntime(queryStub({
-      listings: [
-        {
-          action_type: "active-listing-price-update",
-          seller_account_id: "acc_1",
-          catalog_catalog_item_id: "cat_1",
-          product_id: "prod_1",
-          listing_id: "lst_1",
-          inventory_item_id: "inv_1",
-          current_price_amount: "20.00",
-          quantity_cap: 1,
-          competitor_price_amount: "18.00",
-          offer_price_amount: null,
-        },
-        {
-          action_type: "draft-listing-price-update",
-          seller_account_id: "acc_1",
-          catalog_catalog_item_id: "cat_skip",
-          product_id: "prod_skip",
-          listing_id: "lst_skip",
-          inventory_item_id: "inv_skip",
-          current_price_amount: "11.99",
-          quantity_cap: 1,
-          competitor_price_amount: "12.00",
-          offer_price_amount: null,
-        },
-      ],
-      inventory: [
-        {
-          seller_account_id: "acc_1",
-          catalog_catalog_item_id: "cat_2",
-          product_id: "prod_2",
-          inventory_item_id: "inv_2",
-          available_quantity: 3,
-          competitor_price_amount: null,
-          offer_price_amount: "5.00",
-        },
-        {
-          seller_account_id: "acc_1",
-          catalog_catalog_item_id: "cat_no_signal",
-          product_id: "prod_no_signal",
-          inventory_item_id: "inv_no_signal",
-          available_quantity: 2,
-          competitor_price_amount: null,
-          offer_price_amount: null,
-        },
-      ],
-    }));
-
-    const result = await services.refreshRecommendations(
-      { accountId: "acc_1" },
-      context,
+    const { services, events } = createRuntime(
+      queryStub({
+        listings: [
+          {
+            action_type: "active-listing-price-update",
+            seller_account_id: "acc_1",
+            catalog_catalog_item_id: "cat_1",
+            product_id: "prod_1",
+            listing_id: "lst_1",
+            inventory_item_id: "inv_1",
+            current_price_amount: "20.00",
+            quantity_cap: 1,
+            competitor_price_amount: "18.00",
+            offer_price_amount: null,
+          },
+          {
+            action_type: "draft-listing-price-update",
+            seller_account_id: "acc_1",
+            catalog_catalog_item_id: "cat_skip",
+            product_id: "prod_skip",
+            listing_id: "lst_skip",
+            inventory_item_id: "inv_skip",
+            current_price_amount: "11.99",
+            quantity_cap: 1,
+            competitor_price_amount: "12.00",
+            offer_price_amount: null,
+          },
+        ],
+        inventory: [
+          {
+            seller_account_id: "acc_1",
+            catalog_catalog_item_id: "cat_2",
+            product_id: "prod_2",
+            inventory_item_id: "inv_2",
+            available_quantity: 3,
+            competitor_price_amount: null,
+            offer_price_amount: "5.00",
+          },
+          {
+            seller_account_id: "acc_1",
+            catalog_catalog_item_id: "cat_no_signal",
+            product_id: "prod_no_signal",
+            inventory_item_id: "inv_no_signal",
+            available_quantity: 2,
+            competitor_price_amount: null,
+            offer_price_amount: null,
+          },
+        ],
+      }),
     );
+
+    const result = await services.refreshRecommendations({ accountId: "acc_1" }, context);
 
     expect(result.proposedCount).toBe(2);
     expect(events.map((event) => event.eventType)).toEqual([
@@ -231,9 +223,11 @@ describe("pricing recommendation runtime", () => {
       updateListingPrice: vi.fn(async () => ({})),
       createListing: vi.fn(async () => ({ id: "lst_created" })),
     };
-    const { services, events } = createRuntime(queryStub({
-      recommendations: [proposedRecommendation],
-    }));
+    const { services, events } = createRuntime(
+      queryStub({
+        recommendations: [proposedRecommendation],
+      }),
+    );
     await seedRecommendation(services, proposedRecommendation);
 
     const result = await services.applyRecommendations(
@@ -260,20 +254,22 @@ describe("pricing recommendation runtime", () => {
       updateListingPrice: vi.fn(async () => ({})),
       createListing: vi.fn(async () => ({ id: "lst_created" })),
     };
-    const { services, events } = createRuntime(queryStub({
-      recommendations: [
-        {
-          ...proposedRecommendation,
-          recommendation_id: "rec_create",
-          action_type: "draft-listing-create",
-          listing_id: null,
-          inventory_item_id: "inv_2",
-          current_price_amount: null,
-          recommended_list_amount: 5,
-          quantity_cap: 3,
-        },
-      ],
-    }));
+    const { services, events } = createRuntime(
+      queryStub({
+        recommendations: [
+          {
+            ...proposedRecommendation,
+            recommendation_id: "rec_create",
+            action_type: "draft-listing-create",
+            listing_id: null,
+            inventory_item_id: "inv_2",
+            current_price_amount: null,
+            recommended_list_amount: 5,
+            quantity_cap: 3,
+          },
+        ],
+      }),
+    );
     await seedRecommendation(services, {
       ...proposedRecommendation,
       recommendation_id: "rec_create",
@@ -314,9 +310,11 @@ describe("pricing recommendation runtime", () => {
       createListing: vi.fn(async () => ({ id: "lst_created" })),
       staleFeeQuoteFingerprint: () => "fee_retry",
     };
-    const { services, events } = createRuntime(queryStub({
-      recommendations: [proposedRecommendation],
-    }));
+    const { services, events } = createRuntime(
+      queryStub({
+        recommendations: [proposedRecommendation],
+      }),
+    );
     await seedRecommendation(services, proposedRecommendation);
 
     const result = await services.applyRecommendations(
@@ -337,9 +335,11 @@ describe("pricing recommendation runtime", () => {
   });
 
   it("dismisses selected proposed recommendations", async () => {
-    const { services, events } = createRuntime(queryStub({
-      recommendations: [proposedRecommendation],
-    }));
+    const { services, events } = createRuntime(
+      queryStub({
+        recommendations: [proposedRecommendation],
+      }),
+    );
     await seedRecommendation(services, proposedRecommendation);
 
     const result = await services.dismissRecommendations(

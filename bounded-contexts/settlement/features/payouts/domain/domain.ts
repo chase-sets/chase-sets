@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -147,17 +143,9 @@ export type PayoutFailedEvent = DomainEvent<
   }>
 >;
 
-export type PayoutEvent =
-  | PayoutRequestedEvent
-  | PayoutInTransitEvent
-  | PayoutCompletedEvent
-  | PayoutFailedEvent;
+export type PayoutEvent = PayoutRequestedEvent | PayoutInTransitEvent | PayoutCompletedEvent | PayoutFailedEvent;
 
-export const decidePayout: AggregateDecider<
-  PayoutState,
-  PayoutCommand,
-  PayoutEvent
-> = (state, command) => {
+export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEvent> = (state, command) => {
   switch (command.type) {
     case "RequestPayout":
       assert(state.payoutId === null, "Payout has already been requested.");
@@ -174,10 +162,7 @@ export const decidePayout: AggregateDecider<
             destinationReference: normalizeOptionalText(command.destinationReference),
             note: normalizeOptionalText(command.note),
             notificationEmail: normalizeOptionalText(command.notificationEmail),
-            requestedAt: ensureIsoTimestamp(
-              command.requestedAt,
-              "Payout request must record a timestamp.",
-            ),
+            requestedAt: ensureIsoTimestamp(command.requestedAt, "Payout request must record a timestamp."),
           },
         },
       ];
@@ -192,17 +177,10 @@ export const decidePayout: AggregateDecider<
           type: "settlement.payout.in-transit-recorded",
           data: {
             payoutId: state.payoutId,
-            providerTransferReference: normalizeOptionalText(
-              command.providerTransferReference,
-            ),
-            providerPayoutReference: normalizeOptionalText(
-              command.providerPayoutReference,
-            ),
+            providerTransferReference: normalizeOptionalText(command.providerTransferReference),
+            providerPayoutReference: normalizeOptionalText(command.providerPayoutReference),
             providerStatus: normalizeOptionalText(command.providerStatus),
-            sentAt: ensureIsoTimestamp(
-              command.sentAt,
-              "Payout send must record a timestamp.",
-            ),
+            sentAt: ensureIsoTimestamp(command.sentAt, "Payout send must record a timestamp."),
           },
         },
       ];
@@ -226,10 +204,7 @@ export const decidePayout: AggregateDecider<
             providerStatus: normalizeOptionalText(command.providerStatus),
             amount: state.amount,
             notificationEmail: state.notificationEmail,
-            completedAt: ensureIsoTimestamp(
-              command.completedAt,
-              "Payout completion must record a timestamp.",
-            ),
+            completedAt: ensureIsoTimestamp(command.completedAt, "Payout completion must record a timestamp."),
           },
         },
       ];
@@ -247,13 +222,8 @@ export const decidePayout: AggregateDecider<
             failureReason: normalizeOptionalText(command.failureReason),
             providerStatus: normalizeOptionalText(command.providerStatus),
             providerFailureCode: normalizeOptionalText(command.providerFailureCode),
-            providerFailureMessage: normalizeOptionalText(
-              command.providerFailureMessage,
-            ),
-            failedAt: ensureIsoTimestamp(
-              command.failedAt,
-              "Payout failure must record a timestamp.",
-            ),
+            providerFailureMessage: normalizeOptionalText(command.providerFailureMessage),
+            failedAt: ensureIsoTimestamp(command.failedAt, "Payout failure must record a timestamp."),
           },
         },
       ];
@@ -262,10 +232,7 @@ export const decidePayout: AggregateDecider<
   }
 };
 
-export const evolvePayout: AggregateEvolver<
-  PayoutState,
-  PayoutEvent
-> = (state, event) => {
+export const evolvePayout: AggregateEvolver<PayoutState, PayoutEvent> = (state, event) => {
   switch (event.type) {
     case "settlement.payout.requested":
       return {
@@ -292,10 +259,8 @@ export const evolvePayout: AggregateEvolver<
       return {
         ...state,
         status: "in-transit",
-        providerTransferReference:
-          event.data.providerTransferReference ?? state.providerTransferReference,
-        providerPayoutReference:
-          event.data.providerPayoutReference ?? state.providerPayoutReference,
+        providerTransferReference: event.data.providerTransferReference ?? state.providerTransferReference,
+        providerPayoutReference: event.data.providerPayoutReference ?? state.providerPayoutReference,
         providerStatus: event.data.providerStatus ?? state.providerStatus,
         providerFailureCode: null,
         providerFailureMessage: null,

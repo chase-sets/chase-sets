@@ -15,44 +15,60 @@ function requireOrderAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("ordering.features.orders.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
-    if (
-      options.allowGuestCheckout &&
-      actor.permissions.includes("guest-checkout.manage")
-    ) {
+    if (options.allowGuestCheckout && actor.permissions.includes("guest-checkout.manage")) {
       return { actor, response: null };
     }
 
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("ordering.features.orders.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("ordering.features.orders.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   return { actor, response: null };
 }
 
-function requireCheckoutAccess(c: {
-  get(key: "actor"): OrderingApiEnv["Variables"]["actor"];
-}) {
+function requireCheckoutAccess(c: { get(key: "actor"): OrderingApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("ordering.features.orders.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -64,42 +80,22 @@ function errorMessage(error: unknown) {
 }
 
 function errorCode(error: unknown) {
-  return errorMessage(error).startsWith("Sign in is required")
-    ? "account_sign_in_required"
-    : "validation_failed";
+  return errorMessage(error).startsWith("Sign in is required") ? "account_sign_in_required" : "validation_failed";
 }
 
 function parseShippingAddress(value: unknown) {
-  const source =
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : {};
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
-    name:
-      source.name === null || source.name === undefined
-        ? ""
-        : String(source.name),
-    company:
-      source.company === null || source.company === undefined
-        ? null
-        : String(source.company),
+    name: source.name === null || source.name === undefined ? "" : String(source.name),
+    company: source.company === null || source.company === undefined ? null : String(source.company),
     line1: String(source.line1 ?? ""),
-    line2:
-      source.line2 === null || source.line2 === undefined
-        ? null
-        : String(source.line2),
+    line2: source.line2 === null || source.line2 === undefined ? null : String(source.line2),
     city: String(source.city ?? ""),
     state: String(source.state ?? ""),
     postalCode: String(source.postalCode ?? ""),
     country: String(source.country ?? "US"),
-    phone:
-      source.phone === null || source.phone === undefined
-        ? null
-        : String(source.phone),
-    email:
-      source.email === null || source.email === undefined
-        ? null
-        : String(source.email),
+    phone: source.phone === null || source.phone === undefined ? null : String(source.phone),
+    email: source.email === null || source.email === undefined ? null : String(source.email),
   };
 }
 
@@ -124,37 +120,21 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
           body.shippingAddress && typeof body.shippingAddress === "object"
             ? parseShippingAddress(body.shippingAddress)
             : null,
-        optimizationGoal:
-          body.optimizationGoal === "fewest-shipments"
-            ? "fewest-shipments"
-            : "lowest-total",
+        optimizationGoal: body.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
         lines: Array.isArray(body.lines)
           ? body.lines.map((line: Record<string, unknown>) => ({
-              listingId:
-                line.listingId === null || line.listingId === undefined
-                  ? null
-                  : String(line.listingId),
-              cartLineId:
-                line.cartLineId === null || line.cartLineId === undefined
-                  ? null
-                  : String(line.cartLineId),
+              listingId: line.listingId === null || line.listingId === undefined ? null : String(line.listingId),
+              cartLineId: line.cartLineId === null || line.cartLineId === undefined ? null : String(line.cartLineId),
               catalogItemId: String(line.catalogItemId ?? ""),
               productId: String(line.productId ?? ""),
               itemTitle: String(line.itemTitle ?? ""),
               itemSubtitle:
-                line.itemSubtitle === null || line.itemSubtitle === undefined
-                  ? null
-                  : String(line.itemSubtitle),
-              selectedOptions: Array.isArray(line.selectedOptions)
-                ? line.selectedOptions
-                : [],
+                line.itemSubtitle === null || line.itemSubtitle === undefined ? null : String(line.itemSubtitle),
+              selectedOptions: Array.isArray(line.selectedOptions) ? line.selectedOptions : [],
               productSummary:
-                line.productSummary === null || line.productSummary === undefined
-                  ? null
-                  : String(line.productSummary),
+                line.productSummary === null || line.productSummary === undefined ? null : String(line.productSummary),
               quantity: Number(line.quantity ?? 0),
-              fulfillmentMode:
-                line.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
+              fulfillmentMode: line.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
               lockedListingId:
                 line.lockedListingId === null || line.lockedListingId === undefined
                   ? null
@@ -181,7 +161,15 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("ordering.features.orders.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -194,45 +182,29 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
           sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
           shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
           shippingAddress: parseShippingAddress(body.shippingAddress),
-          optimizationGoal:
-            body.optimizationGoal === "fewest-shipments"
-              ? "fewest-shipments"
-              : "lowest-total",
+          optimizationGoal: body.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
           fulfillmentPreviewRevision:
-            typeof body.fulfillmentPreviewRevision === "string"
-              ? body.fulfillmentPreviewRevision
-              : null,
+            typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : null,
           acknowledgedMaterialChanges: body.acknowledgedMaterialChanges === true,
           customerAccountIsGuest:
             !access.actor.permissions.includes("orders.manage") &&
             access.actor.permissions.includes("guest-checkout.manage"),
           lines: Array.isArray(body.lines)
             ? body.lines.map((line: Record<string, unknown>) => ({
-                listingId:
-                  line.listingId === null || line.listingId === undefined
-                    ? null
-                    : String(line.listingId),
-                cartLineId:
-                  line.cartLineId === null || line.cartLineId === undefined
-                    ? null
-                    : String(line.cartLineId),
+                listingId: line.listingId === null || line.listingId === undefined ? null : String(line.listingId),
+                cartLineId: line.cartLineId === null || line.cartLineId === undefined ? null : String(line.cartLineId),
                 catalogItemId: String(line.catalogItemId ?? ""),
                 productId: String(line.productId ?? ""),
                 itemTitle: String(line.itemTitle ?? ""),
                 itemSubtitle:
-                  line.itemSubtitle === null || line.itemSubtitle === undefined
-                    ? null
-                    : String(line.itemSubtitle),
-                selectedOptions: Array.isArray(line.selectedOptions)
-                  ? line.selectedOptions
-                  : [],
+                  line.itemSubtitle === null || line.itemSubtitle === undefined ? null : String(line.itemSubtitle),
+                selectedOptions: Array.isArray(line.selectedOptions) ? line.selectedOptions : [],
                 productSummary:
                   line.productSummary === null || line.productSummary === undefined
                     ? null
                     : String(line.productSummary),
                 quantity: Number(line.quantity ?? 0),
-                fulfillmentMode:
-                  line.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
+                fulfillmentMode: line.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
                 lockedListingId:
                   line.lockedListingId === null || line.lockedListingId === undefined
                     ? null
@@ -284,7 +256,10 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const order = await services.getPurchase(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: { code: "not_found", message: t("ordering.features.orders.api.route.purchase.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("ordering.features.orders.api.route.purchase.not.found") } },
+        404,
+      );
     }
 
     return c.json(order);
@@ -298,7 +273,15 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("ordering.features.orders.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -350,7 +333,10 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
 
     const order = await services.getSale(c.req.param("id"), access.actor.accountId);
     if (!order) {
-      return c.json({ error: { code: "not_found", message: t("ordering.features.orders.api.route.sale.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("ordering.features.orders.api.route.sale.not.found") } },
+        404,
+      );
     }
 
     return c.json(order);
@@ -364,7 +350,15 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("ordering.features.orders.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("ordering.features.orders.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     try {

@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 
 type DimensionRule = Readonly<{
   dimensionId: string;
@@ -72,10 +68,7 @@ async function loadNameMap(
   return new Map(result.rows.map((row) => [row.id, row.name]));
 }
 
-async function buildVersionSchema(
-  db: PgQueryable,
-  blueprintId: string,
-): Promise<unknown | null> {
+async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise<unknown | null> {
   const blueprintResult = await db.query<CheckoutBlueprintRow>(
     `SELECT * FROM checkout_catalog_blueprints WHERE blueprint_id = $1`,
     [blueprintId],
@@ -91,9 +84,7 @@ async function buildVersionSchema(
   const dimensionIds = [
     ...new Set([
       ...dimensionRules.map((rule) => rule.dimensionId),
-      ...dimensionRules.flatMap((rule) =>
-        (rule.appliesWhen ?? []).map((clause) => clause.dimensionId),
-      ),
+      ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
       ...canonicalDimensionOrder,
     ]),
   ];
@@ -103,20 +94,16 @@ async function buildVersionSchema(
   ]);
 
   const [dimensionNames, choiceRows] = await Promise.all([
-    loadNameMap(
-      db,
-      "checkout_catalog_dimensions",
-      "dimension_id",
-      "name",
-      dimensionIds,
-    ),
+    loadNameMap(db, "checkout_catalog_dimensions", "dimension_id", "name", dimensionIds),
     optionIds.length > 0
-      ? db.query<CheckoutChoiceRow>(
-          `SELECT option_id, code, label_i18n, label
+      ? db
+          .query<CheckoutChoiceRow>(
+            `SELECT option_id, code, label_i18n, label
            FROM checkout_catalog_dimension_options
            WHERE option_id = ANY($1)`,
-          [optionIds],
-        ).then((result) => result.rows)
+            [optionIds],
+          )
+          .then((result) => result.rows)
       : Promise.resolve([] as CheckoutChoiceRow[]),
   ]);
 
@@ -173,10 +160,7 @@ function coerceDimensionOptionLabel(value: unknown): LocalizedTextMap {
   return coerceLocalizedTextMap(value);
 }
 
-async function refreshCheckoutCatalogItem(
-  db: PgQueryable,
-  itemId: string,
-): Promise<void> {
+async function refreshCheckoutCatalogItem(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<CheckoutCatalogItemRow>(
     `SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at
      FROM checkout_catalog_items
@@ -189,35 +173,24 @@ async function refreshCheckoutCatalogItem(
     return;
   }
 
-  const productSchema = item.blueprint_id
-    ? await buildVersionSchema(db, item.blueprint_id)
-    : null;
+  const productSchema = item.blueprint_id ? await buildVersionSchema(db, item.blueprint_id) : null;
 
   await db.query(
     `UPDATE checkout_catalog_items
      SET product_schema = $2,
          updated_at = $3
      WHERE catalog_item_id = $1`,
-    [
-      itemId,
-      productSchema === null ? null : JSON.stringify(productSchema),
-      item.updated_at,
-    ],
+    [itemId, productSchema === null ? null : JSON.stringify(productSchema), item.updated_at],
   );
 }
 
-async function refreshItemsByBlueprint(
-  db: PgQueryable,
-  blueprintId: string,
-): Promise<void> {
+async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT catalog_item_id FROM checkout_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
-  await Promise.all(
-    result.rows.map((row) => refreshCheckoutCatalogItem(db, row.catalog_item_id)),
-  );
+  await Promise.all(result.rows.map((row) => refreshCheckoutCatalogItem(db, row.catalog_item_id)));
 }
 
 async function refreshAllCheckoutCatalogItems(db: PgQueryable): Promise<void> {
@@ -225,14 +198,10 @@ async function refreshAllCheckoutCatalogItems(db: PgQueryable): Promise<void> {
     `SELECT catalog_item_id FROM checkout_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
-  await Promise.all(
-    result.rows.map((row) => refreshCheckoutCatalogItem(db, row.catalog_item_id)),
-  );
+  await Promise.all(result.rows.map((row) => refreshCheckoutCatalogItem(db, row.catalog_item_id)));
 }
 
-export function buildCheckoutCatalogProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildCheckoutCatalogProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
       const { itemId, languageCode, title, subtitle } = event.data as {
@@ -392,11 +361,7 @@ export function buildCheckoutCatalogProjectionHandlers(
          SET dimension_rules = $2,
              updated_at = $3
          WHERE blueprint_id = $1`,
-        [
-          blueprintId,
-          JSON.stringify(Array.isArray(dimensionRules) ? dimensionRules : []),
-          event.timing.recordedAt,
-        ],
+        [blueprintId, JSON.stringify(Array.isArray(dimensionRules) ? dimensionRules : []), event.timing.recordedAt],
       );
 
       await refreshItemsByBlueprint(db, blueprintId);
@@ -414,9 +379,7 @@ export function buildCheckoutCatalogProjectionHandlers(
          WHERE blueprint_id = $1`,
         [
           blueprintId,
-          JSON.stringify(
-            Array.isArray(canonicalDimensionOrder) ? canonicalDimensionOrder : [],
-          ),
+          JSON.stringify(Array.isArray(canonicalDimensionOrder) ? canonicalDimensionOrder : []),
           event.timing.recordedAt,
         ],
       );

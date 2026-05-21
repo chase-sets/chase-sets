@@ -90,7 +90,7 @@ import {
   formatProductOptionsAriaLabel,
   productOptionsFromSummary,
   formatMarketplaceNumber,
-  chaseTheme
+  chaseTheme,
 } from "../index";
 
 describe("design-system", () => {
@@ -103,7 +103,7 @@ describe("design-system", () => {
       ["Marketplace", "Ui", "Filter", "Bottom", "Sheet"],
       ["Commerce", "Drawer"],
       ["Notification", "Center", "Drawer"],
-      ["Dropdown", "Menu"]
+      ["Dropdown", "Menu"],
     ].map((parts) => parts.join(""));
 
     for (const aliasName of retiredAliasNames) {
@@ -131,7 +131,7 @@ describe("design-system", () => {
           <Input defaultValue="Charizard" />
           <Textarea defaultValue="Seller note" />
         </CardContent>
-      </Card>
+      </Card>,
     );
 
     expect(markup).toContain("Listing tools");
@@ -149,7 +149,7 @@ describe("design-system", () => {
         userName="Alex Clerk"
         membershipLabel="Membership"
         membershipName="Manager"
-      />
+      />,
     );
     const panelMarkup = renderToString(
       <ActorIdentityCue
@@ -165,7 +165,7 @@ describe("design-system", () => {
         membershipLabel="Membership"
         membershipName="Manager"
         membershipDetail="Active membership"
-      />
+      />,
     );
 
     expect(shellMarkup).toContain("Acting as");
@@ -267,7 +267,7 @@ describe("design-system", () => {
         reviewCount="824"
         protection="Order protected"
         primaryAction={<Button>Buy now</Button>}
-      />
+      />,
     );
 
     expect(markup).toContain("2020 Pikachu VMAX");
@@ -291,7 +291,7 @@ describe("design-system", () => {
         fulfillment="Arrives May 9-11"
         availability="1 available"
         primaryAction={<Button>Buy now</Button>}
-      />
+      />,
     );
 
     expect(markup).toContain('src="/assets/pikachu-vmax.webp"');
@@ -336,7 +336,7 @@ describe("design-system", () => {
         rating={4.9}
         reviewCount="824"
         primaryAction={<Button>Buy now</Button>}
-      />
+      />,
     );
 
     expect(screen.getByText("Vaulted Collectibles")).toBeTruthy();
@@ -357,7 +357,7 @@ describe("design-system", () => {
         fulfillment="Ships tomorrow"
         availability="1 available"
         primaryAction={<Button>Buy now</Button>}
-      />
+      />,
     );
 
     expect(markup).toContain('data-primary-action-count="1"');
@@ -376,7 +376,7 @@ describe("design-system", () => {
         fulfillment="Pickup or shipping confirmed before checkout"
         availability="4 available"
         primaryAction={<Button>View details</Button>}
-      />
+      />,
     );
 
     expect(markup).toContain("Account details visible");
@@ -389,7 +389,7 @@ describe("design-system", () => {
         <VerifiedAccountBadge label="Verified account" />
         <OrderProtectionBadge label="Order protected" />
         <SecurePaymentCue label="Secure payment" />
-      </div>
+      </div>,
     );
 
     expect(markup).toContain("Verified account");
@@ -424,7 +424,7 @@ describe("design-system", () => {
             />
           }
         />
-      </div>
+      </div>,
     );
 
     expect(markup).toContain("Account");
@@ -446,7 +446,7 @@ describe("design-system", () => {
           { dimensionLabel: "Form", optionLabel: "Raw" },
           { dimensionLabel: "Condition", optionLabel: "Near Mint" },
         ]}
-      />
+      />,
     );
 
     expect(screen.getByText("Raw")).toBeTruthy();
@@ -462,9 +462,7 @@ describe("design-system", () => {
     expect(formatProductOptionsAriaLabel(options)).toBe(
       "Product options: Form Graded, Grading Company PSA, Grade 10 Gem Mint",
     );
-    expect(formatProductImageAltText({ title: "Pikachu", options })).toBe(
-      "Pikachu, Graded, PSA, 10 Gem Mint",
-    );
+    expect(formatProductImageAltText({ title: "Pikachu", options })).toBe("Pikachu, Graded, PSA, 10 Gem Mint");
 
     render(<ProductOptions options={options} />);
 
@@ -475,13 +473,7 @@ describe("design-system", () => {
   });
 
   it("can render empty product options with fallback copy", () => {
-    render(
-      <ProductOptions
-        options={[]}
-        emptyLabel="All listings"
-        variant="chips"
-      />
-    );
+    render(<ProductOptions options={[]} emptyLabel="All listings" variant="chips" />);
 
     expect(screen.getByText("All listings")).toBeTruthy();
   });
@@ -502,9 +494,14 @@ describe("design-system", () => {
             ]}
           />
         }
-        quantityControl={<label>Quantity<input name="quantity" defaultValue="5" /></label>}
+        quantityControl={
+          <label>
+            Quantity
+            <input name="quantity" defaultValue="5" />
+          </label>
+        }
         actions={<Button>Update quantity</Button>}
-      />
+      />,
     );
 
     expect(markup).toContain("data-marketplace-cart-line");
@@ -528,7 +525,7 @@ describe("design-system", () => {
         reassurance="Final totals appear before payment."
         primaryAction={<Button>Buy now</Button>}
         secondaryAction={<Button variant="secondary">Compare market</Button>}
-      />
+      />,
     );
 
     expect(markup).toContain("Ready to buy this listing");
@@ -548,7 +545,7 @@ describe("design-system", () => {
         fulfillment="Ships from IL"
         protection="Order protection included"
         paymentStatus="Not charged yet"
-      />
+      />,
     );
 
     expect(markup).toContain("Charizard Base Set");
@@ -566,13 +563,9 @@ describe("design-system", () => {
         filterControlsVisibility="desktop"
         appliedFilters={<AppliedFilterChips filters={[{ id: "q", label: "Search: pikachu" }]} />}
         savedSearch={
-          <SavedSearchPrompt
-            title="Save this search"
-            description="Get alerts."
-            action={<Button>Save search</Button>}
-          />
+          <SavedSearchPrompt title="Save this search" description="Get alerts." action={<Button>Save search</Button>} />
         }
-      />
+      />,
     );
 
     expect(markup).toContain("Search: pikachu");
@@ -736,9 +729,7 @@ describe("design-system", () => {
   });
 
   it("does not reserve visible label spacing for hidden-label form controls", () => {
-    const markup = renderToString(
-      <SearchInput label="Search marketplace" hideLabel defaultValue="pikachu" />
-    );
+    const markup = renderToString(<SearchInput label="Search marketplace" hideLabel defaultValue="pikachu" />);
 
     expect(markup).toContain("Search marketplace");
     expect(markup).toContain("grid gap-2");
@@ -763,7 +754,7 @@ describe("design-system", () => {
           nextStep="Return to cart."
           primaryAction={<Button>Return to cart</Button>}
         />
-      </>
+      </>,
     );
 
     expect(markup).toContain("Card Vault");
@@ -774,21 +765,10 @@ describe("design-system", () => {
     const markup = renderToString(
       <div>
         <TrustBadge>Verified account</TrustBadge>
-        <AccountTrustCard
-          name="Vaulted Collectibles"
-          verified
-          completedSales="1,248"
-          responseTime="< 2 hours"
-        />
-        <OrderProtectionModule
-          items={[{ title: "Secure payment", description: "Funds are held safely." }]}
-        />
-        <PriceBreakdown
-          lines={[{ label: "Item price", value: "$1,250.00" }]}
-          total="$1,420.78"
-          totalLabel="Total"
-        />
-      </div>
+        <AccountTrustCard name="Vaulted Collectibles" verified completedSales="1,248" responseTime="< 2 hours" />
+        <OrderProtectionModule items={[{ title: "Secure payment", description: "Funds are held safely." }]} />
+        <PriceBreakdown lines={[{ label: "Item price", value: "$1,250.00" }]} total="$1,420.78" totalLabel="Total" />
+      </div>,
     );
 
     expect(markup).toContain("Verified account");
@@ -822,7 +802,7 @@ describe("design-system", () => {
           description="Get alerts when matching listings appear."
           action={<Button>Save search</Button>}
         />
-      </div>
+      </div>,
     );
 
     expect(screen.getByLabelText("Search marketplace")).toBeTruthy();
@@ -1038,7 +1018,7 @@ describe("design-system", () => {
           label="Workspace navigation"
           items={[
             { key: "dashboard", label: "Dashboard", href: "/dashboard" },
-            { key: "reports", label: "Reports", href: "/reports" }
+            { key: "reports", label: "Reports", href: "/reports" },
           ]}
           activeKey="dashboard"
         />
@@ -1064,7 +1044,7 @@ describe("design-system", () => {
         >
           Confirm delete
         </ModalDialog>
-      </div>
+      </div>,
     );
 
     await user.click(screen.getByRole("button", { name: "Open navigation" }));
@@ -1106,7 +1086,7 @@ describe("design-system", () => {
         >
           Address form
         </ResponsiveEditSheet>
-      </div>
+      </div>,
     );
 
     await user.click(screen.getByRole("button", { name: "Preview cart action" }));
@@ -1135,7 +1115,7 @@ describe("design-system", () => {
           { key: "pause", label: "Pause listing", onSelect: onPause },
           { key: "withdraw", label: "Withdraw listing", destructive: true },
         ]}
-      />
+      />,
     );
 
     await user.click(screen.getByRole("button", { name: "More actions" }));
@@ -1158,7 +1138,7 @@ describe("design-system", () => {
         <AssistantSheet open mobileModal={false} title="Marketplace assistant">
           Suggested next step
         </AssistantSheet>
-      </div>
+      </div>,
     );
 
     expect(markup).toContain("Listing activity");
@@ -1184,7 +1164,7 @@ describe("design-system", () => {
         <FullPage title="Create report" description="Build a marketplace report.">
           Report builder
         </FullPage>
-      </div>
+      </div>,
     );
 
     expect(markup).toContain("Admin navigation");
@@ -1202,7 +1182,7 @@ describe("design-system", () => {
         context="Final total before payment"
         primaryAction={<Button>Continue to payment</Button>}
         secondaryAction={<Button variant="outline">Edit cart</Button>}
-      />
+      />,
     );
 
     expect(markup).toContain("$472.19");
@@ -1222,7 +1202,7 @@ describe("design-system", () => {
         mobileActionBar={<section>Mobile buy sell panel</section>}
       >
         <section>Offers list</section>
-      </MarketplaceProductDetailLayout>
+      </MarketplaceProductDetailLayout>,
     );
 
     expect(markup).toContain("sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
@@ -1233,9 +1213,7 @@ describe("design-system", () => {
     expect(markup).toContain("xl:max-h-[calc(100dvh-5rem)]");
     expect(markup).toContain("xl:overflow-x-hidden");
     expect(markup).toContain("xl:[scrollbar-gutter:stable]");
-    expect(markup.indexOf("Offers list")).toBeLessThan(
-      markup.indexOf("Mobile buy sell panel")
-    );
+    expect(markup.indexOf("Offers list")).toBeLessThan(markup.indexOf("Mobile buy sell panel"));
   });
 
   it("renders marketplace detail, seller, review, and comparison templates", () => {
@@ -1247,17 +1225,12 @@ describe("design-system", () => {
           verified
           stats={[{ label: "Completed sales", value: "1,248" }]}
         />
-        <ReviewCard
-          author="Jordan M."
-          rating={5}
-          verified
-          body="Arrived as described."
-        />
+        <ReviewCard author="Jordan M." rating={5} verified body="Arrived as described." />
         <ComparisonModule
           columns={["Seller A", "Seller B"]}
           rows={[{ label: "Total price", values: ["$120", "$124"] }]}
         />
-      </div>
+      </div>,
     );
 
     expect(markup).toContain("Pikachu VMAX media");
@@ -1277,7 +1250,7 @@ describe("design-system", () => {
         <MarketplaceStatusTimeline
           steps={[
             { label: "Order confirmed", status: "complete" },
-            { label: "Delivery in progress", status: "current" }
+            { label: "Delivery in progress", status: "current" },
           ]}
         />
         <MessageThreadPreview
@@ -1292,11 +1265,11 @@ describe("design-system", () => {
               name: "Checkout",
               purpose: "Remove surprise costs.",
               criticalSignals: ["Final total", "Secure payment"],
-              primaryAction: "Confirm payment"
-            }
+              primaryAction: "Confirm payment",
+            },
           ]}
         />
-      </div>
+      </div>,
     );
 
     expect(markup).toContain("No exact matches");
@@ -1319,7 +1292,7 @@ describe("design-system", () => {
             <TableCell data-label="Name">Pikachu</TableCell>
           </TableRow>
         </TableBody>
-      </Table>
+      </Table>,
     );
 
     expect(markup).toContain("Name");
@@ -1336,9 +1309,9 @@ describe("design-system", () => {
         description="Marketplace operations"
         items={[
           { href: "/admin", label: "Admin", active: true },
-          { href: "/marketplace", label: "Marketplace" }
+          { href: "/marketplace", label: "Marketplace" },
         ]}
-      />
+      />,
     );
 
     expect(markup).toContain("Chase Sets");
@@ -1356,9 +1329,9 @@ describe("design-system", () => {
           { key: "components", label: "Components", href: "/components" },
           { key: "blueprints", label: "Blueprints", href: "/blueprints" },
           { key: "categories", label: "Categories", href: "/categories" },
-          { key: "catalog-items", label: "Catalog Items", href: "/catalog-items" }
+          { key: "catalog-items", label: "Catalog Items", href: "/catalog-items" },
         ]}
-      />
+      />,
     );
 
     expect(screen.getByRole("link", { name: "Catalog Items" })).toBeTruthy();
@@ -1381,7 +1354,7 @@ describe("design-system", () => {
             </form>
           </>
         }
-      />
+      />,
     );
 
     const trigger = screen.getByLabelText("Admin menu");
@@ -1394,25 +1367,25 @@ describe("design-system", () => {
     expect(details?.open).toBe(true);
     const menu = details?.querySelector(".modern-surface");
     expect(menu).toBeTruthy();
-    expect(within(menu as HTMLElement).getByRole("link", { name: "Experience" }).getAttribute("href")).toBe(
-      "/experience/waitlist"
-    );
-    expect(within(menu as HTMLElement).getByRole("link", { name: "Identity" }).getAttribute("href")).toBe(
-      "/identity/accounts"
-    );
-    expect(within(menu as HTMLElement).getByRole("button", { name: "Sign Out" }).getAttribute("type")).toBe(
-      "submit"
-    );
+    expect(
+      within(menu as HTMLElement)
+        .getByRole("link", { name: "Experience" })
+        .getAttribute("href"),
+    ).toBe("/experience/waitlist");
+    expect(
+      within(menu as HTMLElement)
+        .getByRole("link", { name: "Identity" })
+        .getAttribute("href"),
+    ).toBe("/identity/accounts");
+    expect(
+      within(menu as HTMLElement)
+        .getByRole("button", { name: "Sign Out" })
+        .getAttribute("type"),
+    ).toBe("submit");
   });
 
   it("keeps top navigation actions inline unless a mobile actions label is provided", () => {
-    render(
-      <TopNav
-        brand={<div>Chase Sets</div>}
-        items={[]}
-        actions={<a href="/sign-in">Sign In</a>}
-      />
-    );
+    render(<TopNav brand={<div>Chase Sets</div>} items={[]} actions={<a href="/sign-in">Sign In</a>} />);
 
     expect(screen.queryByLabelText("Admin menu")).toBeNull();
     expect(screen.getByRole("link", { name: "Sign In" }).getAttribute("href")).toBe("/sign-in");
@@ -1436,7 +1409,7 @@ describe("design-system", () => {
           ]}
         />
         <button type="button">Outside</button>
-      </div>
+      </div>,
     );
 
     const summary = screen.getByText("Sell").closest("summary");
@@ -1462,8 +1435,8 @@ describe("design-system", () => {
       value: {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
-        removeItem: (key: string) => storage.delete(key)
-      }
+        removeItem: (key: string) => storage.delete(key),
+      },
     });
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.removeAttribute("data-theme-preference");
@@ -1492,10 +1465,10 @@ describe("design-system", () => {
         label="Condition"
         items={[
           { value: "lp", label: "Lightly Played" },
-          { value: "nm", label: "Near Mint" }
+          { value: "nm", label: "Near Mint" },
         ]}
         onValueChange={onValueChange}
-      />
+      />,
     );
 
     await user.click(screen.getByRole("combobox", { name: "Condition" }));
@@ -1509,9 +1482,9 @@ describe("design-system", () => {
       <Tabs
         items={[
           { value: "summary", label: "Summary", content: <div>Summary content</div> },
-          { value: "activity", label: "Activity", content: <div>Activity content</div> }
+          { value: "activity", label: "Activity", content: <div>Activity content</div> },
         ]}
-      />
+      />,
     );
 
     expect(screen.getByRole("tab", { name: "Summary" })).toBeTruthy();
@@ -1523,9 +1496,9 @@ describe("design-system", () => {
       <ActionTabs
         items={[
           { value: "listings", label: "Listings", content: <div>Listings content</div> },
-          { value: "offers", label: "Offers", content: <div>Offers content</div> }
+          { value: "offers", label: "Offers", content: <div>Offers content</div> },
         ]}
-      />
+      />,
     );
 
     expect(markup).toContain("[overflow-anchor:none]");
@@ -1541,7 +1514,7 @@ describe("design-system", () => {
         description="Check pricing before publishing."
       >
         Dialog content
-      </Dialog>
+      </Dialog>,
     );
 
     await user.click(screen.getByRole("button", { name: "Open review" }));
@@ -1554,7 +1527,7 @@ describe("design-system", () => {
     render(
       <Tooltip content="Margin includes shipping credit.">
         <button type="button">Margin help</button>
-      </Tooltip>
+      </Tooltip>,
     );
 
     fireEvent.focus(screen.getByRole("button", { name: "Margin help" }));

@@ -1,7 +1,4 @@
-import type {
-  RealtimeProjectionPatch,
-  RealtimeProjectionPatchChange,
-} from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeProjectionPatch, RealtimeProjectionPatchChange } from "@chase-sets/platform-runtime/realtime";
 
 const DISCOVERY_MARKET_PROJECTION = "discovery-market-projection";
 
@@ -29,8 +26,7 @@ export function createDiscoveryListingPatch(
   summary: unknown,
 ): RealtimeProjectionPatch {
   return createDiscoveryProjectionPatch(topics, [
-    listing.status === "active" &&
-    (listing.seller_listing_availability_status ?? "available") === "available"
+    listing.status === "active" && (listing.seller_listing_availability_status ?? "available") === "available"
       ? {
           op: "upsert",
           entity: "discovery.marketListing",
@@ -93,7 +89,5 @@ export function createDiscoveryAccountRemovePatch(
   topics: readonly string[],
   accountId: string,
 ): RealtimeProjectionPatch {
-  return createDiscoveryProjectionPatch(topics, [
-    { op: "remove", entity: "discovery.publicAccount", id: accountId },
-  ]);
+  return createDiscoveryProjectionPatch(topics, [{ op: "remove", entity: "discovery.publicAccount", id: accountId }]);
 }

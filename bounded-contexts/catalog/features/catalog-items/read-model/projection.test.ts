@@ -17,10 +17,7 @@ describe("Catalog Item projections", () => {
 
     await handlers["catalog.catalog-item.draft-removed"]?.(event());
 
-    expect(query).toHaveBeenCalledWith(
-      "DELETE FROM catalog_items WHERE catalog_item_id = $1",
-      ["cat_1"],
-    );
+    expect(query).toHaveBeenCalledWith("DELETE FROM catalog_items WHERE catalog_item_id = $1", ["cat_1"]);
   });
 
   it("deletes removed drafts from admin list and detail pages", async () => {
@@ -29,10 +26,9 @@ describe("Catalog Item projections", () => {
 
     await handlers["catalog.catalog-item.draft-removed"]?.(event());
 
-    expect(query).toHaveBeenCalledWith(
-      "DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1",
-      ["cat_1"],
-    );
+    expect(query).toHaveBeenCalledWith("DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1", [
+      "cat_1",
+    ]);
     expect(query).toHaveBeenCalledWith(
       "DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1",
       ["cat_1"],

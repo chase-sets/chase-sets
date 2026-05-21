@@ -89,9 +89,7 @@ export function createPaymentsApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async createAccountPayment(
-      body: CreateAccountPaymentRequest,
-    ): Promise<PaymentsPaymentDetail> {
+    async createAccountPayment(body: CreateAccountPaymentRequest): Promise<PaymentsPaymentDetail> {
       return parseJsonResponse(
         await client.account.payments.$post({
           json: body,
@@ -115,12 +113,14 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async getCheckoutStatus(params: Readonly<{
-      orderIds: readonly string[];
-      currencyCode?: string;
-      requestedBalanceCreditAmount?: string | null;
-      paymentMethodCategory?: string | null;
-    }>): Promise<PaymentsCheckoutStatus> {
+    async getCheckoutStatus(
+      params: Readonly<{
+        orderIds: readonly string[];
+        currencyCode?: string;
+        requestedBalanceCreditAmount?: string | null;
+        paymentMethodCategory?: string | null;
+      }>,
+    ): Promise<PaymentsCheckoutStatus> {
       const query = {
         orderIds: params.orderIds.join(","),
         currencyCode: params.currencyCode ?? "usd",
@@ -134,9 +134,7 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async recoverCheckoutPayment(
-      body: CreateAccountPaymentRequest,
-    ): Promise<PaymentsPaymentDetail> {
+    async recoverCheckoutPayment(body: CreateAccountPaymentRequest): Promise<PaymentsPaymentDetail> {
       return parseJsonResponse(
         await client.account.checkout.recover.$post({
           json: body,
@@ -144,19 +142,20 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async getCheckoutRecoveryOptions(params: Readonly<{
-      orderIds: readonly string[];
-      currencyCode?: string;
-      requestedBalanceCreditAmount?: string | null;
-      paymentMethodCategory?: string | null;
-    }>): Promise<PaymentsCheckoutRecoveryOptions> {
+    async getCheckoutRecoveryOptions(
+      params: Readonly<{
+        orderIds: readonly string[];
+        currencyCode?: string;
+        requestedBalanceCreditAmount?: string | null;
+        paymentMethodCategory?: string | null;
+      }>,
+    ): Promise<PaymentsCheckoutRecoveryOptions> {
       return parseJsonResponse(
         await client.account.checkout.recovery.$get({
           query: {
             orderIds: params.orderIds.join(","),
             currencyCode: params.currencyCode ?? "usd",
-            requestedBalanceCreditAmount:
-              params.requestedBalanceCreditAmount ?? undefined,
+            requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
             paymentMethodCategory: params.paymentMethodCategory ?? undefined,
           },
           header: headers,
@@ -176,9 +175,7 @@ export function createPaymentsApiClient({
       );
     },
     async getProviderHealth() {
-      return parseJsonResponse(
-        await client.account["provider-health"].$get({ header: headers }),
-      );
+      return parseJsonResponse(await client.account["provider-health"].$get({ header: headers }));
     },
     async getMarketplaceCheckoutFeePolicy(): Promise<PaymentsMarketplaceCheckoutFeePolicy> {
       return parseJsonResponse(

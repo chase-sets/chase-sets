@@ -11,9 +11,7 @@ function extractAccountId(streamId: string) {
   return streamId.slice(ACCOUNT_STREAM_PREFIX.length);
 }
 
-export function buildOrderingAccountProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildOrderingAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {

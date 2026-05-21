@@ -1,7 +1,4 @@
-import type {
-  RealtimeTopicManifest,
-  RealtimeTopicPolicyManifest,
-} from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeTopicManifest, RealtimeTopicPolicyManifest } from "@chase-sets/platform-runtime/realtime";
 import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runtime/realtime-web";
 
 export const catalogAdminRealtimeSurfaces = [
@@ -16,7 +13,7 @@ export const catalogAdminRealtimeSurfaces = [
   "source-observations",
 ] as const;
 
-export type CatalogAdminRealtimeSurface = typeof catalogAdminRealtimeSurfaces[number];
+export type CatalogAdminRealtimeSurface = (typeof catalogAdminRealtimeSurfaces)[number];
 
 const catalogAdminRealtimeSurfaceSet = new Set<string>(catalogAdminRealtimeSurfaces);
 

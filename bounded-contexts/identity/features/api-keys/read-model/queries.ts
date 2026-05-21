@@ -1,9 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  buildFilteredQuery,
-  executeListQuery,
-  type ListParams,
-} from "../../../support/read-model-support/list-query";
+import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type ApiKeyRow = Readonly<{
   api_key_id: string;
@@ -15,23 +11,12 @@ export type ApiKeyRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listApiKeys(
-  db: PgQueryable,
-  params: ListParams = {},
-) {
-  const query = buildFilteredQuery(
-    "identity_api_keys",
-    params,
-    ["name", "user_id", "key_prefix"],
-    "updated_at DESC",
-  );
+export async function listApiKeys(db: PgQueryable, params: ListParams = {}) {
+  const query = buildFilteredQuery("identity_api_keys", params, ["name", "user_id", "key_prefix"], "updated_at DESC");
   return executeListQuery<ApiKeyRow>(db, query.countSql, query.listSql, query.values);
 }
 
 export async function getApiKey(db: PgQueryable, apiKeyId: string) {
-  const result = await db.query<ApiKeyRow>(
-    `SELECT * FROM identity_api_keys WHERE api_key_id = $1`,
-    [apiKeyId],
-  );
+  const result = await db.query<ApiKeyRow>(`SELECT * FROM identity_api_keys WHERE api_key_id = $1`, [apiKeyId]);
   return result.rows[0] ?? null;
 }

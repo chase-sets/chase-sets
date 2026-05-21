@@ -1,20 +1,13 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type {
-  AccountId,
-  OrderId,
-  SupportRequestId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeEvidenceType,
   normalizeFlowType,
@@ -62,11 +55,7 @@ export type SupportOrderSource = Readonly<{
 }>;
 
 export type SupportRequestServices = Readonly<{
-  commandHandler: CommandHandler<
-    SupportRequestCommand,
-    SupportRequestState,
-    SupportRequestEvent
-  >;
+  commandHandler: CommandHandler<SupportRequestCommand, SupportRequestState, SupportRequestEvent>;
   listFlowDefinitions: () => typeof supportFlowCatalog;
   openSupportRequest: (
     params: Readonly<{
@@ -145,10 +134,7 @@ export type SupportRequestServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-async function getOrderSource(
-  db: PgQueryable,
-  orderId: string,
-): Promise<SupportOrderSource | null> {
+async function getOrderSource(db: PgQueryable, orderId: string): Promise<SupportOrderSource | null> {
   const result = await db.query<SupportOrderSource>(
     `SELECT
        order_id,
@@ -163,11 +149,7 @@ async function getOrderSource(
   return result.rows[0] ?? null;
 }
 
-function assertParticipantRole(
-  order: SupportOrderSource,
-  accountId: string,
-  role: SupportRequesterRole,
-) {
+function assertParticipantRole(order: SupportOrderSource, accountId: string, role: SupportRequesterRole) {
   if (role === "buyer") {
     if (order.buyer_account_id !== accountId) {
       throw new SupportDomainError("Only the buyer can open this buyer support flow.");
@@ -187,11 +169,7 @@ function assertParticipantRole(
   }
 }
 
-async function requireAccountSupportRequest(
-  db: PgQueryable,
-  supportRequestId: string,
-  accountId: string,
-) {
+async function requireAccountSupportRequest(db: PgQueryable, supportRequestId: string, accountId: string) {
   const supportRequest = await getAccountSupportRequest(db, supportRequestId, accountId);
   if (!supportRequest) {
     throw new SupportDomainError("Support request not found.");
@@ -199,9 +177,7 @@ async function requireAccountSupportRequest(
   return supportRequest;
 }
 
-export function createSupportRequestRuntime(
-  deps: SupportRequestRuntimeDeps,
-): SupportRequestServices {
+export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): SupportRequestServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -389,8 +365,7 @@ export function createSupportRequestRuntime(
 
       return { escalated, skipped };
     },
-    listSupportOperationsQueue: (params) =>
-      listSupportOperationsQueue(deps.db, params),
+    listSupportOperationsQueue: (params) => listSupportOperationsQueue(deps.db, params),
     listBuyerSupportRequests: (params) => listBuyerSupportRequests(deps.db, params),
     listSellerSupportRequests: (params) => listSellerSupportRequests(deps.db, params),
     getAccountSupportRequest: (supportRequestId, accountId) =>

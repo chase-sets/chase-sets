@@ -93,15 +93,10 @@ export async function seedCommercialTermsDatabase(
   await drainProjectors(services.projectors);
 }
 
-function profileEnabled(
-  options: BcSeedOptions | undefined,
-  profile: "critical-bootstrap" | "scenario-seed",
-) {
-  return (options?.enabledDataProfiles ?? [
-    "critical-bootstrap",
-    "catalog-integration-bootstrap",
-    "scenario-seed",
-  ]).includes(profile);
+function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-bootstrap" | "scenario-seed") {
+  return (
+    options?.enabledDataProfiles ?? ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]
+  ).includes(profile);
 }
 
 async function seedDefaultScheduleIfMissing(
@@ -137,30 +132,22 @@ async function seedDefaultScheduleIfMissing(
   });
 }
 
-async function scheduleExists(
-  db: Pick<PgTransactionalPool, "query">,
-  scheduleId: string,
-): Promise<boolean> {
+async function scheduleExists(db: Pick<PgTransactionalPool, "query">, scheduleId: string): Promise<boolean> {
   try {
-    const existing = await db.query(
-      "SELECT 1 FROM commercial_terms_schedule_pages WHERE schedule_id = $1 LIMIT 1",
-      [scheduleId],
-    );
+    const existing = await db.query("SELECT 1 FROM commercial_terms_schedule_pages WHERE schedule_id = $1 LIMIT 1", [
+      scheduleId,
+    ]);
     return existing.rows.length > 0;
   } catch {
     return false;
   }
 }
 
-async function agreementExists(
-  db: PgTransactionalPool,
-  agreementId: string,
-): Promise<boolean> {
+async function agreementExists(db: PgTransactionalPool, agreementId: string): Promise<boolean> {
   try {
-    const existing = await db.query(
-      "SELECT 1 FROM commercial_terms_agreement_pages WHERE agreement_id = $1 LIMIT 1",
-      [agreementId],
-    );
+    const existing = await db.query("SELECT 1 FROM commercial_terms_agreement_pages WHERE agreement_id = $1 LIMIT 1", [
+      agreementId,
+    ]);
     return existing.rows.length > 0;
   } catch {
     return false;

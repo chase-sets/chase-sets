@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  RealtimeProjectionPatch,
-  RealtimeSyncRequired,
-} from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import { catalogRealtimeRouteTopics } from "../../realtime-support/topics";
 import { useCatalogRealtimeRevalidation } from "./realtime-revalidation";
 

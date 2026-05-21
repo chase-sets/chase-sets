@@ -1,15 +1,9 @@
 import { t } from "@chase-sets/localization";
-import type {
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  FulfillmentApiError,
-  type FulfillmentShipmentDetail,
-} from "../../support/request-support/api-client";
+import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../support/request-support/api-client";
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentDetailPage } from "../../features/shipments/ui/shipment-detail-page";
 

@@ -16,10 +16,7 @@ import {
   StatGrid,
   Text,
 } from "@chase-sets/design-system";
-import type {
-  WaitlistMetrics,
-  WaitlistSignupListItem,
-} from "../api/contracts";
+import type { WaitlistMetrics, WaitlistSignupListItem } from "../api/contracts";
 
 type ListResponse<T> = Readonly<{
   items: readonly T[];
@@ -87,11 +84,7 @@ export function WaitlistAdminPage({
       <PageSection title={t("publicPresence.admin.filters")}>
         <form method="get">
           <Grid columns={{ base: 1, md: 4 }} gap={3}>
-            <SearchInput
-              label={t("publicPresence.admin.search")}
-              name="search"
-              defaultValue={filters.search}
-            />
+            <SearchInput label={t("publicPresence.admin.search")} name="search" defaultValue={filters.search} />
             <NativeSelect
               label={t("publicPresence.admin.role")}
               name="role"
@@ -136,7 +129,9 @@ export function WaitlistAdminPage({
               cell: (item) => (
                 <Inline gap={1}>
                   {item.interests.map((interest) => (
-                    <Badge key={interest} tone="neutral">{interestLabel(interest)}</Badge>
+                    <Badge key={interest} tone="neutral">
+                      {interestLabel(interest)}
+                    </Badge>
                   ))}
                 </Inline>
               ),

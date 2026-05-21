@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildPlatformFeedbackProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPlatformFeedbackProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "experience.platform-feedback.submitted": async (event) => {
       const data = event.data as unknown as {

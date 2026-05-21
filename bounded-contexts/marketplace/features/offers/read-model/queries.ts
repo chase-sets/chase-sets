@@ -64,8 +64,7 @@ function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
   return {
     ...row,
     shipping_destination_snapshot:
-      typeof row.shipping_destination_snapshot === "object" &&
-      row.shipping_destination_snapshot !== null
+      typeof row.shipping_destination_snapshot === "object" && row.shipping_destination_snapshot !== null
         ? (row.shipping_destination_snapshot as AddressSnapshot)
         : {
             name: "",
@@ -305,9 +304,7 @@ export async function listOfferMatches(
            AND ${sellerVisibilitySql}
        ) AS seller_offer
        ORDER BY
-         ${sellerOfferOutcomeOrderSql(
-           "seller_offer.created_at ASC, seller_offer.offer_id ASC",
-         )}
+         ${sellerOfferOutcomeOrderSql("seller_offer.created_at ASC, seller_offer.offer_id ASC")}
        LIMIT $2 OFFSET $3`,
       [params.sellerAccountId, limit, offset],
     ),
@@ -366,10 +363,7 @@ export async function addOfferMatchSellListItem(
   );
 }
 
-export async function listOfferMatchSellList(
-  db: PgQueryable,
-  sellerAccountId: string,
-): Promise<OfferMatchRow[]> {
+export async function listOfferMatchSellList(db: PgQueryable, sellerAccountId: string): Promise<OfferMatchRow[]> {
   const result = await db.query<OfferMatchPageRow>(
     `SELECT *
      FROM (
@@ -430,12 +424,7 @@ export async function listOfferMatchesForSellers(
     [offerId, uniqueSellerAccountIds],
   );
 
-  return new Map(
-    result.rows.map((row) => [
-      row.seller_account_id,
-      mapOfferMatchRow(row),
-    ]),
-  );
+  return new Map(result.rows.map((row) => [row.seller_account_id, mapOfferMatchRow(row)]));
 }
 
 export async function removeOfferMatchSellListItems(

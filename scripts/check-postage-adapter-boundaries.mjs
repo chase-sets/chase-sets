@@ -5,11 +5,7 @@ import { repoRoot } from "./lib/repo.mjs";
 
 const fulfillmentRoot = path.join(repoRoot, "bounded-contexts", "fulfillment");
 const checkedExtensions = new Set([".json", ".ts", ".tsx"]);
-const forbiddenPatterns = [
-  "@chase-sets/easypost-postage",
-  "@chase-sets/postage-labels-testing",
-  "api.easypost.com",
-];
+const forbiddenPatterns = ["@chase-sets/easypost-postage", "@chase-sets/postage-labels-testing", "api.easypost.com"];
 const violations = [];
 
 for (const filePath of await collectFiles(fulfillmentRoot, {
@@ -27,11 +23,7 @@ for (const filePath of await collectFiles(fulfillmentRoot, {
 if (violations.length > 0) {
   console.error("Postage provider implementations must stay outside fulfillment.");
   for (const violation of violations) {
-    console.error(
-      `- ${path.relative(repoRoot, violation.filePath)} contains ${JSON.stringify(
-        violation.pattern,
-      )}`,
-    );
+    console.error(`- ${path.relative(repoRoot, violation.filePath)} contains ${JSON.stringify(violation.pattern)}`);
   }
   process.exit(1);
 }

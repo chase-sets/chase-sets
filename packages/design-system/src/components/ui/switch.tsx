@@ -7,7 +7,7 @@ export function Switch({
   checked,
   defaultChecked,
   onCheckedChange,
-  disabled
+  disabled,
 }: {
   label: string;
   description?: string;
@@ -27,17 +27,21 @@ export function Switch({
         defaultChecked={defaultChecked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
-        className={(state) => cn(
-          "ds-focus relative inline-flex h-7 w-12 items-center rounded-full bg-[var(--muted)] transition",
-          state.checked && "bg-[var(--primary)]",
-          state.disabled && "opacity-60"
-        )}
+        className={(state) =>
+          cn(
+            "ds-focus relative inline-flex h-7 w-12 items-center rounded-full bg-[var(--muted)] transition",
+            state.checked && "bg-[var(--primary)]",
+            state.disabled && "opacity-60",
+          )
+        }
       >
         <SwitchPrimitive.Thumb
-          className={(state) => cn(
-            "block h-5 w-5 translate-x-1 rounded-full bg-[var(--card)] shadow-[var(--shadow-sm)] transition",
-            state.checked && "translate-x-6"
-          )}
+          className={(state) =>
+            cn(
+              "block h-5 w-5 translate-x-1 rounded-full bg-[var(--card)] shadow-[var(--shadow-sm)] transition",
+              state.checked && "translate-x-6",
+            )
+          }
         />
       </SwitchPrimitive.Root>
     </label>

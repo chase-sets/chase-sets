@@ -1,7 +1,4 @@
-import type {
-  RealtimeTopicManifest,
-  RealtimeTopicPolicyManifest,
-} from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeTopicManifest, RealtimeTopicPolicyManifest } from "@chase-sets/platform-runtime/realtime";
 import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runtime/realtime-web";
 
 export const discoveryRealtimeTopics = {
@@ -12,21 +9,22 @@ export const discoveryRealtimeTopics = {
 } as const;
 
 export const discoveryRealtimeRouteTopics = {
-  search: () => createRealtimeRouteSubscriptionPreset("discovery.search", [
-    discoveryRealtimeTopics.publicMarket(),
-  ]),
-  itemDetail: (catalogItemId: string) => createRealtimeRouteSubscriptionPreset("discovery.itemDetail", [
-    discoveryRealtimeTopics.publicMarket(),
-    discoveryRealtimeTopics.item(catalogItemId),
-  ]),
-  publicListing: (listingId: string) => createRealtimeRouteSubscriptionPreset("discovery.publicListing", [
-    discoveryRealtimeTopics.publicMarket(),
-    discoveryRealtimeTopics.listing(listingId),
-  ]),
-  publicAccount: (accountId: string) => createRealtimeRouteSubscriptionPreset("discovery.publicAccount", [
-    discoveryRealtimeTopics.publicMarket(),
-    discoveryRealtimeTopics.account(accountId),
-  ]),
+  search: () => createRealtimeRouteSubscriptionPreset("discovery.search", [discoveryRealtimeTopics.publicMarket()]),
+  itemDetail: (catalogItemId: string) =>
+    createRealtimeRouteSubscriptionPreset("discovery.itemDetail", [
+      discoveryRealtimeTopics.publicMarket(),
+      discoveryRealtimeTopics.item(catalogItemId),
+    ]),
+  publicListing: (listingId: string) =>
+    createRealtimeRouteSubscriptionPreset("discovery.publicListing", [
+      discoveryRealtimeTopics.publicMarket(),
+      discoveryRealtimeTopics.listing(listingId),
+    ]),
+  publicAccount: (accountId: string) =>
+    createRealtimeRouteSubscriptionPreset("discovery.publicAccount", [
+      discoveryRealtimeTopics.publicMarket(),
+      discoveryRealtimeTopics.account(accountId),
+    ]),
 } as const;
 
 export const discoveryRealtimeManifest = {
@@ -43,9 +41,7 @@ export const discoveryRealtimeTopicPolicyManifest = {
   policies: [
     {
       name: "discovery-public-market",
-      match: (topic) => topic === discoveryRealtimeTopics.publicMarket()
-        ? { family: "public" }
-        : null,
+      match: (topic) => (topic === discoveryRealtimeTopics.publicMarket() ? { family: "public" } : null),
       authorize: () => true,
     },
     {

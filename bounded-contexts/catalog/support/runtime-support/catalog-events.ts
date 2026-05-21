@@ -1,10 +1,7 @@
 import { assert } from "./common";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { CatalogItemStatus, CatalogValue } from "./common";
-import type {
-  ProductDescriptor,
-  ProductSchema,
-} from "./versioning";
+import type { ProductDescriptor, ProductSchema } from "./versioning";
 import type { CatalogItemId } from "../../ids";
 
 export type CatalogItemFieldValueSnapshot = Readonly<{
@@ -24,20 +21,11 @@ export type CatalogItemSnapshot = Readonly<{
   sampleVersions?: ProductDescriptor[];
 }>;
 
-export type CatalogItemPublishedIntegrationEvent = DomainEvent<
-  "CatalogItemPublished",
-  CatalogItemSnapshot
->;
+export type CatalogItemPublishedIntegrationEvent = DomainEvent<"CatalogItemPublished", CatalogItemSnapshot>;
 
-export type CatalogItemUpdatedIntegrationEvent = DomainEvent<
-  "CatalogItemUpdated",
-  CatalogItemSnapshot
->;
+export type CatalogItemUpdatedIntegrationEvent = DomainEvent<"CatalogItemUpdated", CatalogItemSnapshot>;
 
-export type CatalogItemArchivedIntegrationEvent = DomainEvent<
-  "CatalogItemArchived",
-  CatalogItemSnapshot
->;
+export type CatalogItemArchivedIntegrationEvent = DomainEvent<"CatalogItemArchived", CatalogItemSnapshot>;
 
 export type CatalogIntegrationEvent =
   | CatalogItemPublishedIntegrationEvent
@@ -77,32 +65,25 @@ export function createCatalogItemSnapshot(input: {
     })),
     categoryIds: item.categoryIds.map((categoryId) => String(categoryId)),
     productSchema: input.productSchema,
-    sampleVersions:
-      input.sampleVersions === undefined ? undefined : [...input.sampleVersions],
+    sampleVersions: input.sampleVersions === undefined ? undefined : [...input.sampleVersions],
   };
 }
 
-export function createCatalogItemPublishedEvent(
-  snapshot: CatalogItemSnapshot,
-): CatalogItemPublishedIntegrationEvent {
+export function createCatalogItemPublishedEvent(snapshot: CatalogItemSnapshot): CatalogItemPublishedIntegrationEvent {
   return {
     type: "CatalogItemPublished",
     data: snapshot,
   };
 }
 
-export function createCatalogItemUpdatedEvent(
-  snapshot: CatalogItemSnapshot,
-): CatalogItemUpdatedIntegrationEvent {
+export function createCatalogItemUpdatedEvent(snapshot: CatalogItemSnapshot): CatalogItemUpdatedIntegrationEvent {
   return {
     type: "CatalogItemUpdated",
     data: snapshot,
   };
 }
 
-export function createCatalogItemArchivedEvent(
-  snapshot: CatalogItemSnapshot,
-): CatalogItemArchivedIntegrationEvent {
+export function createCatalogItemArchivedEvent(snapshot: CatalogItemSnapshot): CatalogItemArchivedIntegrationEvent {
   return {
     type: "CatalogItemArchived",
     data: snapshot,

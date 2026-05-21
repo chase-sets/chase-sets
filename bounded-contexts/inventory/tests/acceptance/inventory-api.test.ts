@@ -68,19 +68,16 @@ const shipFromAddress = {
 };
 
 async function countEvents(pool: PgTransactionalPool, prefix: string) {
-  const result = await pool.query(
-    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
-    [`${prefix}%`],
-  );
+  const result = await pool.query("SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1", [
+    `${prefix}%`,
+  ]);
 
   return Number(result.rows[0]?.count ?? 0);
 }
 
 describeWithDatabase("inventory api", () => {
   let databaseUrls: Readonly<Record<(typeof inventoryContextNames)[number], string>>;
-  let pools: Readonly<
-    Record<(typeof inventoryContextNames)[number], PgTransactionalPool>
-  >;
+  let pools: Readonly<Record<(typeof inventoryContextNames)[number], PgTransactionalPool>>;
   let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
   let runtime: InventoryAcceptanceRuntime;
   let services: ReturnType<typeof createInventoryServices>;
@@ -129,10 +126,7 @@ describeWithDatabase("inventory api", () => {
     };
     subscriptionRunners = resolveModuleSubscriptions(runtime.mountedContexts);
     runtime.subscriptionRunners = subscriptionRunners;
-    runtime.projectionGroups = resolveModuleProjectionGroups(
-      runtime.mountedContexts,
-      subscriptionRunners,
-    );
+    runtime.projectionGroups = resolveModuleProjectionGroups(runtime.mountedContexts, subscriptionRunners);
     app = new Hono<InventoryApiEnv>();
     app.onError((error, c) => {
       if (error instanceof InventoryDomainError) {
@@ -140,12 +134,15 @@ describeWithDatabase("inventory api", () => {
       }
 
       console.error(error);
-      return c.json({
-        error: {
-          code: "internal_error",
-          message: "Internal server error.",
+      return c.json(
+        {
+          error: {
+            code: "internal_error",
+            message: "Internal server error.",
+          },
         },
-      }, 500);
+        500,
+      );
     });
     app.use("/api/inventory/*", async (c, next) => {
       c.set("actor", {
@@ -218,18 +215,15 @@ describeWithDatabase("inventory api", () => {
     expect(itemResponse.status).toBe(201);
     const itemBody = await itemResponse.json();
 
-    const holdResponse = await app.request(
-      `/api/inventory/items/${itemBody.id}/holds`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          quantity: 3,
-          reason: "Checkout hold",
-          notes: "Cart",
-        }),
-      },
-    );
+    const holdResponse = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        reason: "Checkout hold",
+        notes: "Cart",
+      }),
+    });
     expect(holdResponse.status).toBe(201);
     const holdBody = await holdResponse.json();
 
@@ -253,19 +247,14 @@ describeWithDatabase("inventory api", () => {
       status: "active",
     });
 
-    const releaseResponse = await app.request(
-      `/api/inventory/holds/${holdBody.id}/release`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      },
-    );
+    const releaseResponse = await app.request(`/api/inventory/holds/${holdBody.id}/release`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     expect(releaseResponse.status).toBe(200);
 
-    const updatedDetailResponse = await app.request(
-      `/api/inventory/items/${itemBody.id}`,
-    );
+    const updatedDetailResponse = await app.request(`/api/inventory/items/${itemBody.id}`);
     const updatedDetailBody = await updatedDetailResponse.json();
     expect(updatedDetailBody).toMatchObject({
       held_quantity: 0,
@@ -327,17 +316,14 @@ describeWithDatabase("inventory api", () => {
     });
     expect(overHold.status).toBe(400);
 
-    const invalidAdjustment = await app.request(
-      `/api/inventory/items/${itemBody.id}/adjustments`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          quantityDelta: -4,
-          reason: "Bad cycle count",
-        }),
-      },
-    );
+    const invalidAdjustment = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -4,
+        reason: "Bad cycle count",
+      }),
+    });
     expect(invalidAdjustment.status).toBe(400);
   });
 
@@ -349,12 +335,15 @@ describeWithDatabase("inventory api", () => {
       }
 
       console.error(error);
-      return c.json({
-        error: {
-          code: "internal_error",
-          message: "Internal server error.",
+      return c.json(
+        {
+          error: {
+            code: "internal_error",
+            message: "Internal server error.",
+          },
         },
-      }, 500);
+        500,
+      );
     });
     unauthorizedApp.use("/api/inventory/*", async (c, next) => {
       c.set("actor", {
@@ -484,12 +473,8 @@ describeWithDatabase("inventory api", () => {
     ];
 
     expect(items.total).toBe(demoAccountInventoryItemIds.length);
-    expect(new Set(items.items.map((item) => item.item_id))).toEqual(
-      new Set(demoAccountInventoryItemIds),
-    );
-    expect(new Set(items.items.map((item) => item.account_id))).toEqual(
-      new Set([demoIdentitySeedIds.accountId]),
-    );
+    expect(new Set(items.items.map((item) => item.item_id))).toEqual(new Set(demoAccountInventoryItemIds));
+    expect(new Set(items.items.map((item) => item.account_id))).toEqual(new Set([demoIdentitySeedIds.accountId]));
     expect(new Set(items.items.map((item) => item.catalog_catalog_item_id))).toEqual(
       new Set(demoAccountCatalogItemIds),
     );

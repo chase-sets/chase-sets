@@ -3,17 +3,11 @@ import { buildCanonicalUrl } from "../seo";
 import { loader as accountLoader } from "@chase-sets/identity/routes/marketplace/account";
 import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
 import { loader as faviconLoader } from "./favicon";
-import {
-  loader as itemLoader,
-  meta as itemMeta,
-} from "@chase-sets/discovery/routes/item-detail";
+import { loader as itemLoader, meta as itemMeta } from "@chase-sets/discovery/routes/item-detail";
 import { loader as robotsLoader } from "./robots";
 import { loader as manifestLoader } from "./manifest";
 import { loader as serviceWorkerLoader } from "./service-worker";
-import {
-  loader as searchLoader,
-  meta as searchMeta,
-} from "@chase-sets/discovery/routes/search";
+import { loader as searchLoader, meta as searchMeta } from "@chase-sets/discovery/routes/search";
 import { meta as signInMeta } from "@chase-sets/auth/routes/marketplace/sign-in";
 import { loader as sitemapLoader } from "./sitemap";
 import { loader as healthReadyLoader } from "./health-ready";
@@ -320,9 +314,7 @@ describe("marketplace SSR routes", () => {
     } as never);
 
     expect(robots.headers.get("Content-Type")).toContain("text/plain");
-    await expect(robots.text()).resolves.toContain(
-      "Sitemap: https://marketplace.example/sitemap.xml",
-    );
+    await expect(robots.text()).resolves.toContain("Sitemap: https://marketplace.example/sitemap.xml");
     const favicon = faviconLoader({
       request: new Request("https://marketplace.example/favicon.ico"),
       params: {},
@@ -335,9 +327,7 @@ describe("marketplace SSR routes", () => {
     expect(body).toContain("<svg");
     expect(body).toContain("logoGradient");
     const devtools = chromeDevtoolsLoader({
-      request: new Request(
-        "https://marketplace.example/.well-known/appspecific/com.chrome.devtools.json",
-      ),
+      request: new Request("https://marketplace.example/.well-known/appspecific/com.chrome.devtools.json"),
       params: {},
       context: undefined,
     } as never);
@@ -363,9 +353,7 @@ describe("marketplace SSR routes", () => {
     } as never);
 
     expect(sitemap.headers.get("Content-Type")).toContain("application/xml");
-    await expect(sitemap.text()).resolves.toContain(
-      "<loc>https://marketplace.example/search</loc>",
-    );
+    await expect(sitemap.text()).resolves.toContain("<loc>https://marketplace.example/search</loc>");
     const manifest = manifestLoader({
       request: new Request("https://marketplace.example/manifest.webmanifest"),
       params: {},
@@ -400,7 +388,7 @@ describe("marketplace SSR routes", () => {
 
     expect(serviceWorker.headers.get("Content-Type")).toContain("application/javascript");
     expect(serviceWorker.headers.get("Service-Worker-Allowed")).toBe("/");
-    await expect(serviceWorker.text()).resolves.toContain("addEventListener(\"fetch\"");
+    await expect(serviceWorker.text()).resolves.toContain('addEventListener("fetch"');
   });
 
   it("can noindex marketplace staging through environment configuration", async () => {
@@ -417,8 +405,6 @@ describe("marketplace SSR routes", () => {
   });
 
   it("returns sign-in route SEO metadata", () => {
-    expect(signInMeta({} as never)).toEqual(
-      expect.arrayContaining([{ title: "Sign In | Marketplace" }]),
-    );
+    expect(signInMeta({} as never)).toEqual(expect.arrayContaining([{ title: "Sign In | Marketplace" }]));
   });
 });

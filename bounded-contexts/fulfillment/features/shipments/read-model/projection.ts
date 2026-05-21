@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildFulfillmentShipmentProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "fulfillment.shipment.created": async (event) => {
       const data = event.data as {
@@ -96,10 +94,7 @@ export function buildFulfillmentShipmentProjectionHandlers(
         ],
       );
 
-      await db.query(
-        `DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`,
-        [data.shipmentId],
-      );
+      await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);
 
       for (const [index, line] of data.lines.entries()) {
         await db.query(
@@ -305,13 +300,7 @@ export function buildFulfillmentShipmentProjectionHandlers(
              label_voided_at = $5,
              updated_at = $5
          WHERE shipment_id = $1`,
-        [
-          data.shipmentId,
-          labelStatus,
-          data.refundStatus,
-          data.refundReference,
-          data.voidedAt,
-        ],
+        [data.shipmentId, labelStatus, data.refundStatus, data.refundReference, data.voidedAt],
       );
     },
     "fulfillment.shipment.cancelled": async (event) => {

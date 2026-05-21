@@ -53,9 +53,11 @@ describe("platform feedback prompt", () => {
     await user.click(await screen.findByRole("button", { name: "Leave feedback" }));
     await user.selectOptions(screen.getByRole("combobox", { name: /Topic/ }), "pricing-fees");
     await user.type(screen.getByRole("textbox", { name: "Comment" }), "Fee preview was clear.");
-    await user.click(screen.getByRole("checkbox", {
-      name: /I am open to follow-up using my existing account contact methods/,
-    }));
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /I am open to follow-up using my existing account contact methods/,
+      }),
+    );
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
     expect(apiMocks.submitPlatformFeedback).toHaveBeenCalledWith({

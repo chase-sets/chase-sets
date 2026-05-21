@@ -26,9 +26,7 @@ const acceptedOffer: SubmittedOfferDetail = {
 
 describe("submitted offer reputation", () => {
   it("shows accepted seller reputation on submitted offer details", () => {
-    const markup = renderToString(
-      <MarketplaceSubmittedOfferDetailPage offer={acceptedOffer} />,
-    );
+    const markup = renderToString(<MarketplaceSubmittedOfferDetailPage offer={acceptedOffer} />);
 
     expect(markup).toContain("Seller reputation");
     expect(markup).toContain("4.8");
@@ -36,9 +34,7 @@ describe("submitted offer reputation", () => {
   });
 
   it("shows accepted seller reputation on submitted offer rows", () => {
-    const markup = renderToString(
-      <MarketplaceSubmittedOfferListPage data={{ items: [acceptedOffer] }} />,
-    );
+    const markup = renderToString(<MarketplaceSubmittedOfferListPage data={{ items: [acceptedOffer] }} />);
 
     expect(markup).toContain("Seller reputation");
     expect(markup).toContain("4.8");

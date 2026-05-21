@@ -30,10 +30,7 @@ export function normalizeAddressSnapshot(
   address: AddressSnapshot | null | undefined,
   fieldPrefix = "Address",
 ): AddressSnapshot {
-  const fields =
-    typeof address === "object" && address !== null
-      ? address
-      : ({} as Partial<AddressSnapshot>);
+  const fields = typeof address === "object" && address !== null ? address : ({} as Partial<AddressSnapshot>);
 
   return {
     name: normalizeRequiredText(fields.name, `${fieldPrefix} name`),
@@ -49,10 +46,7 @@ export function normalizeAddressSnapshot(
   };
 }
 
-export function addressSnapshotsEqual(
-  left: AddressSnapshot,
-  right: AddressSnapshot,
-) {
+export function addressSnapshotsEqual(left: AddressSnapshot, right: AddressSnapshot) {
   const normalizedLeft = normalizeAddressSnapshot(left);
   const normalizedRight = normalizeAddressSnapshot(right);
 
@@ -70,10 +64,7 @@ export function addressSnapshotsEqual(
   );
 }
 
-export function changedAddressSnapshotSide(
-  senderChanged: boolean,
-  recipientChanged: boolean,
-) {
+export function changedAddressSnapshotSide(senderChanged: boolean, recipientChanged: boolean) {
   if (senderChanged && recipientChanged) {
     return "both" as const;
   }

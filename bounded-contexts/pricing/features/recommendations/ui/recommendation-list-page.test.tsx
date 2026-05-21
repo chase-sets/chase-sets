@@ -40,9 +40,7 @@ const recommendation = {
 
 describe("PricingRecommendationListPage", () => {
   it("renders batch recommendation controls and feed signals", () => {
-    const html = renderToString(
-      <PricingRecommendationListPage recommendations={[recommendation]} />,
-    );
+    const html = renderToString(<PricingRecommendationListPage recommendations={[recommendation]} />);
 
     expect(html).toContain("Refresh");
     expect(html).toContain("Apply selected");

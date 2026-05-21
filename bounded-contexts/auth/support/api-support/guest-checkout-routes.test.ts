@@ -4,29 +4,22 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerGuestCheckoutRoutes } from "./guest-checkout-routes";
 import type { AuthApiEnv } from "./support";
 
-const { mockCreateIdentityAuthRequestClient, mockCreateGuestAccount } = vi.hoisted(
-  () => ({
-    mockCreateIdentityAuthRequestClient: vi.fn(),
-    mockCreateGuestAccount: vi.fn(),
-  }),
-);
+const { mockCreateIdentityAuthRequestClient, mockCreateGuestAccount } = vi.hoisted(() => ({
+  mockCreateIdentityAuthRequestClient: vi.fn(),
+  mockCreateGuestAccount: vi.fn(),
+}));
 
 vi.mock("@chase-sets/identity/server", () => ({
   createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
 }));
 
-function buildApp(
-  services: Partial<AuthServices> &
-    Pick<AuthServices, "auth" | "db" | "identity">,
-) {
+function buildApp(services: Partial<AuthServices> & Pick<AuthServices, "auth" | "db" | "identity">) {
   const app = new Hono<AuthApiEnv>();
   registerGuestCheckoutRoutes(app, services as AuthServices);
   return app;
 }
 
-function createServices(options: {
-  existingUser?: { user_id: string } | null;
-}) {
+function createServices(options: { existingUser?: { user_id: string } | null }) {
   return {
     db: {
       query: vi.fn(async () => ({ rows: [] })),
@@ -70,12 +63,8 @@ describe("guest checkout auth routes", () => {
         message: "Sign in to continue checkout with this email.",
       },
     });
-    expect(services.identity.normalizeEmail).toHaveBeenCalledWith(
-      " Jane@Example.com ",
-    );
-    expect(services.identity.getUserByEmail).toHaveBeenCalledWith(
-      "jane@example.com",
-    );
+    expect(services.identity.normalizeEmail).toHaveBeenCalledWith(" Jane@Example.com ");
+    expect(services.identity.getUserByEmail).toHaveBeenCalledWith("jane@example.com");
     expect(mockCreateIdentityAuthRequestClient).not.toHaveBeenCalled();
     expect(mockCreateGuestAccount).not.toHaveBeenCalled();
   });

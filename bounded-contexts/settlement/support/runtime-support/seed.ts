@@ -39,9 +39,7 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
   const services = createSettlementServices(pool);
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM settlement_payout_pages",
-    );
+    const existing = await services.db.query("SELECT COUNT(*) AS count FROM settlement_payout_pages");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Settlement already contains data. Skipping seed.");
       return;

@@ -5,15 +5,11 @@ import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
-import {
-  MarketplaceApiError,
-  type SubmittedOfferDetail,
-} from "../support/request-support/api-client";
+import { MarketplaceApiError, type SubmittedOfferDetail } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
 
-const MARKETPLACE_DESCRIPTION =
-  t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
+const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "offers.view" });
@@ -22,8 +18,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     return await loadFreshlyWrittenResource({
       request,
-      isNotFound: (error) =>
-        error instanceof MarketplaceApiError && error.status === 404,
+      isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
       load: async () => ({
         submittedOffer: await api.getSubmittedOffer(params.offerId!),
       }),

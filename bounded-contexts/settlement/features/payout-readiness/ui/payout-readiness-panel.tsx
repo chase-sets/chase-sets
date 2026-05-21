@@ -39,10 +39,7 @@ function readinessTitle(status: SettlementPayoutReadinessRow["status"]) {
   }
 }
 
-function readinessDescription(
-  status: SettlementPayoutReadinessRow["status"],
-  readyDescription: string,
-) {
+function readinessDescription(status: SettlementPayoutReadinessRow["status"], readyDescription: string) {
   switch (status) {
     case "ready":
       return readyDescription;
@@ -103,11 +100,7 @@ function requirementLabel(value: string) {
 
 function requirementGroup(value: string) {
   const normalized = value.toLowerCase();
-  if (
-    normalized.includes("external_account") ||
-    normalized.includes("bank") ||
-    normalized.includes("payout")
-  ) {
+  if (normalized.includes("external_account") || normalized.includes("bank") || normalized.includes("payout")) {
     return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.account");
   }
   if (
@@ -144,7 +137,9 @@ function groupedRequirements(requirements: readonly string[]) {
 }
 
 function checkedAtLabel(value: string | null) {
-  return value ? new Date(value).toLocaleString() : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.checked.yet");
+  return value
+    ? new Date(value).toLocaleString()
+    : t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.not.checked.yet");
 }
 
 function progressTone(status: string): Tone {
@@ -183,26 +178,23 @@ export function PayoutReadinessPanel({
   showActions?: boolean;
 }) {
   const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
-  const missingRequirementGroups = groupedRequirements(
-    payoutReadiness.missing_requirements,
-  );
+  const missingRequirementGroups = groupedRequirements(payoutReadiness.missing_requirements);
   const progress = buildPayoutSetupProgress(payoutReadiness);
   const canReceivePayouts = payoutReadiness.status === "ready";
-  const setupDetailSummary = missingRequirementGroups.length > 0
-    ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.needs.attention", {
-        group: missingRequirementGroups[0]?.[0],
-      })
-    : canReceivePayouts
-      ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready")
-      : setupStatusLabel(payoutReadiness.onboarding_status);
+  const setupDetailSummary =
+    missingRequirementGroups.length > 0
+      ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.needs.attention", {
+          group: missingRequirementGroups[0]?.[0],
+        })
+      : canReceivePayouts
+        ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready")
+        : setupStatusLabel(payoutReadiness.onboarding_status);
 
   return (
     <Stack gap={4}>
       <Stack gap={3}>
         <Stack gap={2}>
-          <Badge tone={readinessTone(payoutReadiness.status)}>
-            {readinessLabel(payoutReadiness.status)}
-          </Badge>
+          <Badge tone={readinessTone(payoutReadiness.status)}>{readinessLabel(payoutReadiness.status)}</Badge>
           <Stack gap={1}>
             <Text weight="semibold">{readinessTitle(payoutReadiness.status)}</Text>
             <Text size="sm" tone="secondary">
@@ -211,7 +203,8 @@ export function PayoutReadinessPanel({
           </Stack>
         </Stack>
         <Text size="sm" tone="secondary">
-          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.last.checked")}{checkedAtLabel(payoutReadiness.updated_at)}
+          {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.last.checked")}
+          {checkedAtLabel(payoutReadiness.updated_at)}
         </Text>
       </Stack>
 
@@ -219,11 +212,13 @@ export function PayoutReadinessPanel({
         {progress.steps.map((step) => (
           <UiSurface key={step.id}>
             <Stack gap={1}>
-              <Badge tone={progressTone(step.status)}>
-                {progressLabel(step.status)}
-              </Badge>
-              <Text size="sm" weight="semibold">{step.label}</Text>
-              <Text size="sm" tone="secondary">{step.detail}</Text>
+              <Badge tone={progressTone(step.status)}>{progressLabel(step.status)}</Badge>
+              <Text size="sm" weight="semibold">
+                {step.label}
+              </Text>
+              <Text size="sm" tone="secondary">
+                {step.detail}
+              </Text>
             </Stack>
           </UiSurface>
         ))}
@@ -259,7 +254,9 @@ export function PayoutReadinessPanel({
 
           {missingRequirementGroups.length > 0 ? (
             <Stack gap={1}>
-              <Text size="sm" weight="semibold">{t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}</Text>
+              <Text size="sm" weight="semibold">
+                {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}
+              </Text>
               {missingRequirementGroups.map(([group, requirements]) => (
                 <Text key={group} size="sm" tone="secondary">
                   {group}: {requirements.join(", ")}
@@ -286,13 +283,15 @@ export function PayoutReadinessPanel({
             <form method="post">
               <input type="hidden" name="intent" value="manage-payout-account" />
               <Button type="submit" tone="secondary">
-                {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.manage.payout.account")}</Button>
+                {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.manage.payout.account")}
+              </Button>
             </form>
           ) : null}
           <form method="post">
             <input type="hidden" name="intent" value="refresh-payout-setup" />
             <Button type="submit" tone="secondary">
-              {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status")}</Button>
+              {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status")}
+            </Button>
           </form>
         </UiInline>
       ) : null}

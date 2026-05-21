@@ -15,9 +15,18 @@ export default function RefundsAndReturnsRoute() {
         title: t("publicPresence.info.refunds.title"),
         description: t("publicPresence.info.refunds.description"),
         sections: [
-          { title: t("publicPresence.info.refunds.prelaunch.title"), body: [t("publicPresence.info.refunds.prelaunch.body")] },
-          { title: t("publicPresence.info.refunds.future.title"), body: [t("publicPresence.info.refunds.future.body")] },
-          { title: t("publicPresence.info.refunds.support.title"), body: [t("publicPresence.info.refunds.support.body")] },
+          {
+            title: t("publicPresence.info.refunds.prelaunch.title"),
+            body: [t("publicPresence.info.refunds.prelaunch.body")],
+          },
+          {
+            title: t("publicPresence.info.refunds.future.title"),
+            body: [t("publicPresence.info.refunds.future.body")],
+          },
+          {
+            title: t("publicPresence.info.refunds.support.title"),
+            body: [t("publicPresence.info.refunds.support.body")],
+          },
         ],
       }}
     />

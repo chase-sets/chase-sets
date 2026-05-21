@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -32,10 +29,8 @@ import { listCartLines } from "../read-model/queries";
 function isIdempotentMergeReplay(error: unknown) {
   return (
     error instanceof Error &&
-    (
-      error.message.includes("Cart line has already been added.") ||
-      error.message.includes("Cart must contain at least one line.")
-    )
+    (error.message.includes("Cart line has already been added.") ||
+      error.message.includes("Cart must contain at least one line."))
   );
 }
 
@@ -46,11 +41,7 @@ export type CheckoutCartRuntimeDeps = Readonly<{
 }>;
 
 export type CheckoutCartServices = Readonly<{
-  commandHandler: CommandHandler<
-    CheckoutCartCommand,
-    CheckoutCartState,
-    CheckoutCartEvent
-  >;
+  commandHandler: CommandHandler<CheckoutCartCommand, CheckoutCartState, CheckoutCartEvent>;
   addLine: (
     params: Readonly<{
       accountId: AccountId;
@@ -130,10 +121,7 @@ export type CheckoutCartServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ lineId: CartLineId; version: number }>;
-  checkout: (
-    accountId: AccountId,
-    context: EventStoreContext,
-  ) => Promise<{ version: number }>;
+  checkout: (accountId: AccountId, context: EventStoreContext) => Promise<{ version: number }>;
   mergeCartIntoAccount: (
     params: Readonly<{
       sourceOwnerId: string;
@@ -145,9 +133,7 @@ export type CheckoutCartServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createCheckoutCartRuntime(
-  deps: CheckoutCartRuntimeDeps,
-): CheckoutCartServices {
+export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): CheckoutCartServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -188,42 +174,35 @@ export function createCheckoutCartRuntime(
     }
 
     if (catalogItem.status !== "active") {
-      throw new CheckoutDomainError(
-        "Cart lines may only reference active catalog items.",
-      );
+      throw new CheckoutDomainError("Cart lines may only reference active catalog items.");
     }
 
     const catalogVersion = createCheckoutProductDescriptor({
       catalogItemId: params.catalogItemId,
       productSchema:
-        typeof catalogItem.product_schema === "object" &&
-        catalogItem.product_schema !== null
+        typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
           ? (catalogItem.product_schema as CheckoutVersionSchema)
           : null,
       selection: params.selectedOptions,
     });
 
     if (params.productId.trim() !== catalogVersion.productId) {
-      throw new CheckoutDomainError(
-        "Cart line product id does not match the selected options.",
-      );
+      throw new CheckoutDomainError("Cart line product id does not match the selected options.");
     }
 
     const fulfillmentMode =
-      params.fulfillmentMode === "locked-listing" || params.lockedListingId?.trim()
-        ? "locked-listing"
-        : "optimize";
+      params.fulfillmentMode === "locked-listing" || params.lockedListingId?.trim() ? "locked-listing" : "optimize";
     const lockedListingId = params.lockedListingId?.trim() || null;
     const sellerPreferenceId = params.sellerPreferenceId?.trim() || null;
 
-    const existingLine = (await listCartLines(deps.db, params.accountId))
-      .find((line) =>
+    const existingLine = (await listCartLines(deps.db, params.accountId)).find(
+      (line) =>
         line.catalog_catalog_item_id === params.catalogItemId &&
         line.product_id === catalogVersion.productId &&
         line.fulfillment_mode === fulfillmentMode &&
         (line.locked_listing_id ?? null) === lockedListingId &&
         (line.seller_preference_id ?? null) === sellerPreferenceId,
-      );
+    );
 
     if (existingLine) {
       const result = await commandHandler({
@@ -386,9 +365,7 @@ export function createCheckoutCartRuntime(
     mergeCartIntoAccount: async (params, context) => {
       const sourceLines = await listCartLines(deps.db, params.sourceOwnerId);
       const existingTargetLineIds = new Set(
-        (await listCartLines(deps.db, params.targetAccountId)).map(
-          (line) => line.line_id,
-        ),
+        (await listCartLines(deps.db, params.targetAccountId)).map((line) => line.line_id),
       );
       for (const line of sourceLines) {
         if (existingTargetLineIds.has(line.line_id)) {

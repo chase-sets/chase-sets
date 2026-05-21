@@ -1,8 +1,4 @@
-import type {
-  PgPoolClient,
-  PgQueryable,
-  PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import type { PgPoolClient, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import {
   isRealtimeProjectionPatch,
@@ -162,14 +158,16 @@ export type RealtimeOutboxPartitionMaintainer = Readonly<{
   stop: () => void;
 }>;
 
-export function createRealtimeOutboxPartitionMaintainer(options: Readonly<{
-  db: PgQueryable;
-  aheadDays?: number;
-  retentionDays?: number;
-  intervalMs?: number;
-  now?: () => Date;
-  onError?: (error: unknown) => void;
-}>): RealtimeOutboxPartitionMaintainer {
+export function createRealtimeOutboxPartitionMaintainer(
+  options: Readonly<{
+    db: PgQueryable;
+    aheadDays?: number;
+    retentionDays?: number;
+    intervalMs?: number;
+    now?: () => Date;
+    onError?: (error: unknown) => void;
+  }>,
+): RealtimeOutboxPartitionMaintainer {
   const aheadDays = options.aheadDays ?? 2;
   const retentionDays = options.retentionDays ?? 2;
   const now = options.now ?? (() => new Date());
@@ -207,10 +205,7 @@ export function createRealtimeOutboxPartitionMaintainer(options: Readonly<{
          SET dropped_at = $1
          WHERE ends_at < $2
            AND dropped_at IS NULL`,
-        [
-          now().toISOString(),
-          addUtcDays(start, -retentionDays).toISOString(),
-        ],
+        [now().toISOString(), addUtcDays(start, -retentionDays).toISOString()],
       );
     } catch (error) {
       options.onError?.(error);
@@ -219,9 +214,12 @@ export function createRealtimeOutboxPartitionMaintainer(options: Readonly<{
     }
   };
 
-  const timer = setInterval(() => {
-    void maintain();
-  }, options.intervalMs ?? 60 * 60 * 1_000);
+  const timer = setInterval(
+    () => {
+      void maintain();
+    },
+    options.intervalMs ?? 60 * 60 * 1_000,
+  );
   timer.unref?.();
 
   return {
@@ -237,13 +235,15 @@ export type RealtimeContextRegistration = Readonly<{
 }>;
 
 export type RealtimeTopicManifest<TTopics extends Record<string, (...args: never[]) => string>> =
-  RealtimeContextRegistration & Readonly<{
-    topics: TTopics;
-  }>;
+  RealtimeContextRegistration &
+    Readonly<{
+      topics: TTopics;
+    }>;
 
-export type RealtimeContextStore = RealtimeContextRegistration & Readonly<{
-  db: PgQueryable;
-}>;
+export type RealtimeContextStore = RealtimeContextRegistration &
+  Readonly<{
+    db: PgQueryable;
+  }>;
 
 export type RealtimeTopicLag = Readonly<{
   contextName: string;
@@ -316,11 +316,9 @@ export async function recordRealtimeProjectionPatch(
   const payloadJson = JSON.stringify(patch);
   assertRealtimePatchSizeLimits(input, payloadJson);
 
-  await runRealtimeProjectionTransaction(
-    db as PgQueryable | PgTransactionalPool,
-    async (tx) => {
-      const upserted = await tx.query<{ outbox_id: string | number | bigint }>(
-        `INSERT INTO ${REALTIME_OUTBOX_TABLE} (
+  await runRealtimeProjectionTransaction(db as PgQueryable | PgTransactionalPool, async (tx) => {
+    const upserted = await tx.query<{ outbox_id: string | number | bigint }>(
+      `INSERT INTO ${REALTIME_OUTBOX_TABLE} (
            source_global_position,
            projection_name,
            patch_key,
@@ -344,52 +342,52 @@ export async function recordRealtimeProjectionPatch(
            recorded_at = EXCLUDED.recorded_at,
            expires_at = EXCLUDED.expires_at
          RETURNING outbox_id`,
-        [
-          input.sourceGlobalPosition,
-          input.projectionName,
-          input.patchKey,
-          JSON.stringify(topics),
-          payloadJson,
-          recordedAt,
-          expiresAt,
-          patch.kind,
-          patch.context,
-          byteLengthUtf8(payloadJson),
-        ],
-      );
-      const outboxId = upserted.rows[0]?.outbox_id;
-      if (outboxId === undefined) {
-        throw new Error("Realtime projection outbox upsert did not return an outbox id.");
-      }
+      [
+        input.sourceGlobalPosition,
+        input.projectionName,
+        input.patchKey,
+        JSON.stringify(topics),
+        payloadJson,
+        recordedAt,
+        expiresAt,
+        patch.kind,
+        patch.context,
+        byteLengthUtf8(payloadJson),
+      ],
+    );
+    const outboxId = upserted.rows[0]?.outbox_id;
+    if (outboxId === undefined) {
+      throw new Error("Realtime projection outbox upsert did not return an outbox id.");
+    }
 
-      await tx.query(
-        `DELETE FROM ${REALTIME_OUTBOX_TOPIC_TABLE}
+    await tx.query(
+      `DELETE FROM ${REALTIME_OUTBOX_TOPIC_TABLE}
          WHERE outbox_id = $1::bigint`,
-        [outboxId],
-      );
-      await tx.query(
-        `DELETE FROM ${REALTIME_TOPIC_HEAD_TABLE}
+      [outboxId],
+    );
+    await tx.query(
+      `DELETE FROM ${REALTIME_TOPIC_HEAD_TABLE}
          WHERE outbox_id = $1::bigint
            AND NOT (topic = ANY($2::text[]))`,
-        [outboxId, topics],
-      );
-      await tx.query(
-        `INSERT INTO ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id, topic)
+      [outboxId, topics],
+    );
+    await tx.query(
+      `INSERT INTO ${REALTIME_OUTBOX_TOPIC_TABLE} (outbox_id, topic)
          SELECT $1::bigint, unnest($2::text[])
          ON CONFLICT DO NOTHING`,
-        [outboxId, topics],
-      );
-      await tx.query(
-        `INSERT INTO ${REALTIME_TOPIC_HEAD_TABLE} (topic, outbox_id, updated_at)
+      [outboxId, topics],
+    );
+    await tx.query(
+      `INSERT INTO ${REALTIME_TOPIC_HEAD_TABLE} (topic, outbox_id, updated_at)
          SELECT requested.topic, $1::bigint, $3
          FROM unnest($2::text[]) AS requested(topic)
          ON CONFLICT (topic) DO UPDATE SET
            outbox_id = GREATEST(${REALTIME_TOPIC_HEAD_TABLE}.outbox_id, EXCLUDED.outbox_id),
            updated_at = EXCLUDED.updated_at`,
-        [outboxId, topics, recordedAt],
-      );
-      await tx.query(
-        `SELECT pg_notify(
+      [outboxId, topics, recordedAt],
+    );
+    await tx.query(
+      `SELECT pg_notify(
            $1,
            json_build_object(
              'context', $2::text,
@@ -397,15 +395,9 @@ export async function recordRealtimeProjectionPatch(
              'topics', $4::text[]
            )::text
          )`,
-        [
-          REALTIME_NOTIFY_CHANNEL,
-          patch.context,
-          input.projectionName,
-          topics,
-        ],
-      );
-    },
-  );
+      [REALTIME_NOTIFY_CHANNEL, patch.context, input.projectionName, topics],
+    );
+  });
 }
 
 export async function recordRealtimeProjectionPatches(
@@ -431,12 +423,9 @@ export function coalesceRealtimeProjectionPatchInputs(
 
   for (const input of inputs) {
     const topics = normalizeRealtimeTopics(input.topics);
-    const key = [
-      input.projectionName,
-      String(input.sourceGlobalPosition),
-      input.patchKey,
-      topics.join("\u001f"),
-    ].join("\u001e");
+    const key = [input.projectionName, String(input.sourceGlobalPosition), input.patchKey, topics.join("\u001f")].join(
+      "\u001e",
+    );
     const previous = coalescedByKey.get(key);
     if (!previous) {
       coalescedByKey.set(key, {
@@ -457,16 +446,12 @@ export function coalesceRealtimeProjectionPatchInputs(
       retentionMs: input.retentionMs ?? previous.retentionMs,
       patch: {
         ...previous.patch,
-        changes: compactRealtimePatchChanges([
-          ...previous.patch.changes,
-          ...input.patch.changes,
-        ]),
+        changes: compactRealtimePatchChanges([...previous.patch.changes, ...input.patch.changes]),
       },
     });
   }
 
-  return [...coalescedByKey.values()]
-    .filter((input) => input.patch.changes.length > 0);
+  return [...coalescedByKey.values()].filter((input) => input.patch.changes.length > 0);
 }
 
 export async function readRealtimePatches(
@@ -475,18 +460,20 @@ export async function readRealtimePatches(
   cursor: RealtimeCursor,
   batchSize = DEFAULT_BATCH_SIZE,
   options: ReadRealtimePatchesOptions = {},
-): Promise<Readonly<{
-  cursor: RealtimeCursor;
-  expiredContexts: readonly string[];
-  topicLags: readonly RealtimeTopicLag[];
-  messages: readonly Readonly<{
-    contextName: string;
-    outboxId: string;
-    payload: RealtimeProjectionPatch;
-    payloadJson: string;
-    payloadBytes: number;
-  }>[];
-}>> {
+): Promise<
+  Readonly<{
+    cursor: RealtimeCursor;
+    expiredContexts: readonly string[];
+    topicLags: readonly RealtimeTopicLag[];
+    messages: readonly Readonly<{
+      contextName: string;
+      outboxId: string;
+      payload: RealtimeProjectionPatch;
+      payloadJson: string;
+      payloadBytes: number;
+    }>[];
+  }>
+> {
   const normalizedTopics = normalizeRealtimeTopics(topics);
   const matchingStores = selectRealtimeStoresForTopics(stores, normalizedTopics);
   const storeNames = new Set(matchingStores.map((store) => store.contextName));
@@ -511,9 +498,7 @@ export async function readRealtimePatches(
 
     const afterOutboxId = cursor[store.contextName] ?? "0";
     const topicHeads = await readTopicHeads(store, normalizedTopics);
-    const maxTopicHead = maxRealtimeOutboxId(
-      (topicHeads ?? []).map((head) => String(head.outbox_id)),
-    );
+    const maxTopicHead = maxRealtimeOutboxId((topicHeads ?? []).map((head) => String(head.outbox_id)));
     if (topicHeads && topicHeads.length > 0 && BigInt(maxTopicHead) <= BigInt(afterOutboxId)) {
       if (options.includeTopicLag) {
         topicLags.push(
@@ -566,16 +551,11 @@ export async function readRealtimePatches(
     }
 
     if (options.includeTopicLag) {
-      topicLags.push(
-        ...(await readTopicLags(store, normalizedTopics, nextCursor[store.contextName] ?? afterOutboxId)),
-      );
+      topicLags.push(...(await readTopicLags(store, normalizedTopics, nextCursor[store.contextName] ?? afterOutboxId)));
     }
   }
 
-  const replayMessages =
-    options.compactSummaries === false
-      ? messages
-      : compactRealtimeReplayMessages(messages);
+  const replayMessages = options.compactSummaries === false ? messages : compactRealtimeReplayMessages(messages);
 
   return {
     cursor: nextCursor,
@@ -621,22 +601,22 @@ export function compactRealtimeReplayMessages<
       changes,
     };
     const payloadJson = JSON.stringify(payload);
-    return [{
-      ...message,
-      payload,
-      ...("payloadJson" in message
-        ? {
-            payloadJson,
-            payloadBytes: byteLengthUtf8(payloadJson),
-          }
-        : {}),
-    } as TMessage];
+    return [
+      {
+        ...message,
+        payload,
+        ...("payloadJson" in message
+          ? {
+              payloadJson,
+              payloadBytes: byteLengthUtf8(payloadJson),
+            }
+          : {}),
+      } as TMessage,
+    ];
   });
 }
 
-export async function readRealtimeContextHeads(
-  stores: readonly RealtimeContextStore[],
-): Promise<RealtimeCursor> {
+export async function readRealtimeContextHeads(stores: readonly RealtimeContextStore[]): Promise<RealtimeCursor> {
   const entries = await Promise.all(
     stores.map(async (store) => [store.contextName, await readContextHead(store.db)] as const),
   );
@@ -653,9 +633,8 @@ export function selectRealtimeStoresForTopics(
       return true;
     }
 
-    return topics.some((topic) =>
-      store.exactTopics?.includes(topic) ||
-      store.topicPrefixes?.some((prefix) => topic.startsWith(prefix)),
+    return topics.some(
+      (topic) => store.exactTopics?.includes(topic) || store.topicPrefixes?.some((prefix) => topic.startsWith(prefix)),
     );
   });
 }
@@ -736,10 +715,7 @@ function assertValidRealtimeProjectionPatch(
   }
 }
 
-function assertRealtimePatchSizeLimits(
-  input: RecordRealtimeProjectionPatchInput,
-  payloadJson: string,
-): void {
+function assertRealtimePatchSizeLimits(input: RecordRealtimeProjectionPatchInput, payloadJson: string): void {
   const maxChangeCount = input.maxChangeCount ?? DEFAULT_MAX_PATCH_CHANGE_COUNT;
   const maxPayloadBytes = input.maxPayloadBytes ?? DEFAULT_MAX_PATCH_PAYLOAD_BYTES;
   if (input.patch.changes.length > maxChangeCount) {
@@ -760,9 +736,7 @@ function compactRealtimePatchChanges(
     latestIndexByEntity.set(`${change.entity}\u001f${change.id}`, index);
   });
 
-  return changes.filter((change, index) =>
-    latestIndexByEntity.get(`${change.entity}\u001f${change.id}`) === index,
-  );
+  return changes.filter((change, index) => latestIndexByEntity.get(`${change.entity}\u001f${change.id}`) === index);
 }
 
 async function isCursorExpired(db: PgQueryable, afterOutboxId: string): Promise<boolean> {
@@ -837,8 +811,7 @@ async function readTopicHeads(
 }
 
 function maxRealtimeOutboxId(outboxIds: readonly string[]): string {
-  return outboxIds.reduce((max, outboxId) =>
-    BigInt(outboxId) > BigInt(max) ? outboxId : max, "0");
+  return outboxIds.reduce((max, outboxId) => (BigInt(outboxId) > BigInt(max) ? outboxId : max), "0");
 }
 
 function parseRealtimeProjectionPatchJson(payloadJson: string): RealtimeProjectionPatch | null {
@@ -856,10 +829,7 @@ function throwIfRealtimeReadAborted(signal: AbortSignal | undefined): void {
   }
 }
 
-async function withPgTransaction<T>(
-  client: PgPoolClient,
-  work: (client: PgPoolClient) => Promise<T>,
-): Promise<T> {
+async function withPgTransaction<T>(client: PgPoolClient, work: (client: PgPoolClient) => Promise<T>): Promise<T> {
   try {
     await client.query("BEGIN");
     const result = await work(client);
@@ -881,10 +851,12 @@ function isPgTransactionalPool(db: PgQueryable | PgTransactionalPool): db is PgT
     waitingCount?: unknown;
   };
 
-  return typeof candidate.connect === "function"
-    && typeof candidate.idleCount === "number"
-    && typeof candidate.totalCount === "number"
-    && typeof candidate.waitingCount === "number";
+  return (
+    typeof candidate.connect === "function" &&
+    typeof candidate.idleCount === "number" &&
+    typeof candidate.totalCount === "number" &&
+    typeof candidate.waitingCount === "number"
+  );
 }
 
 function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
@@ -896,11 +868,7 @@ function byteLengthUtf8(value: string): number {
 }
 
 function startOfUtcDay(value: Date): Date {
-  return new Date(Date.UTC(
-    value.getUTCFullYear(),
-    value.getUTCMonth(),
-    value.getUTCDate(),
-  ));
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 }
 
 function addUtcDays(value: Date, days: number): Date {

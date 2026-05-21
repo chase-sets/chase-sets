@@ -47,10 +47,7 @@ async function drainProjectors(projectors: readonly Projector[]) {
   } while (processed > 0);
 }
 
-async function getShipmentStatus(
-  pool: PgTransactionalPool,
-  shipmentId: string,
-): Promise<ShipmentStatus | null> {
+async function getShipmentStatus(pool: PgTransactionalPool, shipmentId: string): Promise<ShipmentStatus | null> {
   const result = await pool.query<{ status: ShipmentStatus }>(
     `SELECT status
      FROM fulfillment_shipment_pages
@@ -218,12 +215,7 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     labelReference: string,
     trackingIdentifier: string,
   ) => {
-    let status = await ensureShipmentLabeled(
-      shipmentId,
-      createdAt,
-      labelReference,
-      trackingIdentifier,
-    );
+    let status = await ensureShipmentLabeled(shipmentId, createdAt, labelReference, trackingIdentifier);
 
     if (status === "label-attached") {
       await services.shipments.dispatchShipment(
@@ -240,10 +232,7 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     return status;
   };
 
-  await ensureShipmentPacked(
-    fulfillmentReservedSeedIds.shipments.awaitingLabel,
-    "2026-03-22T10:00:00.000Z",
-  );
+  await ensureShipmentPacked(fulfillmentReservedSeedIds.shipments.awaitingLabel, "2026-03-22T10:00:00.000Z");
 
   await ensureShipmentLabeled(
     fulfillmentReservedSeedIds.shipments.labelAttached,
@@ -274,10 +263,7 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
       context,
     );
     await drainProjectors(services.projectors);
-    deliveredStatus = await getShipmentStatus(
-      pool,
-      fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
-    );
+    deliveredStatus = await getShipmentStatus(pool, fulfillmentReservedSeedIds.shipments.demoCharizardShipment);
   }
 
   let returnedStatus = await ensureShipmentDispatched(
@@ -296,10 +282,7 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
       context,
     );
     await drainProjectors(services.projectors);
-    returnedStatus = await getShipmentStatus(
-      pool,
-      fulfillmentReservedSeedIds.shipments.returnedShipment,
-    );
+    returnedStatus = await getShipmentStatus(pool, fulfillmentReservedSeedIds.shipments.returnedShipment);
   }
 
   let exceptionStatus = await ensureShipmentDispatched(
@@ -308,11 +291,7 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     "lbl_seed_exception",
     "1ZSEEDEXCEPTION",
   );
-  if (
-    exceptionStatus !== "exception" &&
-    exceptionStatus !== "delivered" &&
-    exceptionStatus !== "returned"
-  ) {
+  if (exceptionStatus !== "exception" && exceptionStatus !== "delivered" && exceptionStatus !== "returned") {
     await services.shipments.raiseShipmentException(
       {
         shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,

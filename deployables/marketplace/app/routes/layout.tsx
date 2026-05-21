@@ -136,10 +136,7 @@ export default function MarketplaceLayoutRoute() {
   const notificationView = notificationState === "settings" ? "settings" : "feed";
   const notificationSheetOpen = notificationState === "feed" || notificationState === "settings";
   const showAddPasskeyPrompt = Boolean(actor && prompt === "add-passkey");
-  const setNotificationRouteState = (
-    nextOpen: boolean,
-    nextView: "feed" | "settings" = notificationView,
-  ) => {
+  const setNotificationRouteState = (nextOpen: boolean, nextView: "feed" | "settings" = notificationView) => {
     const params = new URLSearchParams(location.search);
 
     if (nextOpen) {
@@ -189,7 +186,8 @@ export default function MarketplaceLayoutRoute() {
             ) : (
               <form action="/sign-out" method="post">
                 <Button type="submit" tone="secondary">
-                  {t("marketplace.app.routes.layout.sign.out")}</Button>
+                  {t("marketplace.app.routes.layout.sign.out")}
+                </Button>
               </form>
             )}
           </>
@@ -204,7 +202,8 @@ export default function MarketplaceLayoutRoute() {
             tone="accent"
             actions={
               <LinkButton href="/register" tone="secondary" size="sm" leadingIcon="shield">
-                {t("marketplace.app.routes.layout.add.passkey.action")}</LinkButton>
+                {t("marketplace.app.routes.layout.add.passkey.action")}
+              </LinkButton>
             }
           />
         ) : null}

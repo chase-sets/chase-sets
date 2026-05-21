@@ -1,17 +1,10 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import {
-  appendFreshWriteToken,
-  type ListResponse,
-} from "@chase-sets/http/responses";
+import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -21,25 +14,17 @@ import {
   type MarketplaceSellerListingAvailability,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
-import {
-  createInventoryRequestApiClient,
-  type InventoryItemListItem,
-} from "@chase-sets/inventory/server";
-import {
-  MarketplaceListingListPage,
-} from "../features/listings/ui/listing-list-page";
+import { createInventoryRequestApiClient, type InventoryItemListItem } from "@chase-sets/inventory/server";
+import { MarketplaceListingListPage } from "../features/listings/ui/listing-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 
 const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
-const MARKETPLACE_DESCRIPTION =
-  t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
+const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
 
-function toInventoryOption(
-  inventoryItem: InventoryItemListItem,
-): MarketplaceListingInventoryItemOption {
+function toInventoryOption(inventoryItem: InventoryItemListItem): MarketplaceListingInventoryItemOption {
   return {
     item_id: inventoryItem.item_id,
     catalog_catalog_item_id: inventoryItem.catalog_catalog_item_id,
@@ -107,13 +92,7 @@ function shipFromAddressFromForm(formData: FormData) {
     country: String(formData.get("shipFromCountry") ?? "US").trim() || "US",
   };
 
-  if (
-    !address.name &&
-    !address.line1 &&
-    !address.city &&
-    !address.state &&
-    !address.postalCode
-  ) {
+  if (!address.name && !address.line1 && !address.city && !address.state && !address.postalCode) {
     return null;
   }
 
@@ -121,23 +100,13 @@ function shipFromAddressFromForm(formData: FormData) {
 }
 
 function listingPhotoFilesFromForm(formData: FormData) {
-  return formData.getAll("listingPhotos").filter(
-    (entry): entry is File => entry instanceof File && entry.size > 0,
-  );
+  return formData.getAll("listingPhotos").filter((entry): entry is File => entry instanceof File && entry.size > 0);
 }
 
-function createListingApiForm(
-  listingBody: Record<string, unknown>,
-  listingPhotoFiles: readonly File[],
-) {
+function createListingApiForm(listingBody: Record<string, unknown>, listingPhotoFiles: readonly File[]) {
   const apiForm = new FormData();
   for (const [key, value] of Object.entries(listingBody)) {
-    apiForm.set(
-      key,
-      typeof value === "object" && value !== null
-        ? JSON.stringify(value)
-        : String(value ?? ""),
-    );
+    apiForm.set(key, typeof value === "object" && value !== null ? JSON.stringify(value) : String(value ?? ""));
   }
   for (const file of listingPhotoFiles) {
     apiForm.append("listingPhotos", file);
@@ -176,9 +145,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     feeLockReport,
     listingAvailability,
     inventoryItems,
-    hasListingStockLocation: storageLocations.items.some(
-      (location) => location.name === LISTING_STOCK_LOCATION_NAME,
-    ),
+    hasListingStockLocation: storageLocations.items.some((location) => location.name === LISTING_STOCK_LOCATION_NAME),
     createForm: selectedInventoryItem
       ? {
           inventoryItemId: selectedInventoryItem.item_id,
@@ -276,11 +243,11 @@ export async function action({ request }: ActionFunctionArgs) {
               })
             ).snapshot,
           };
-      const result = (listingPhotoFiles.length > 0
-        ? await api.createListingWithPhotos(
-            createListingApiForm(listingBody, listingPhotoFiles),
-          )
-        : await api.createListing(listingBody)) as { id: string; feeQuoteFingerprint?: string };
+      const result = (
+        listingPhotoFiles.length > 0
+          ? await api.createListingWithPhotos(createListingApiForm(listingBody, listingPhotoFiles))
+          : await api.createListing(listingBody)
+      ) as { id: string; feeQuoteFingerprint?: string };
 
       if (intent === "create-and-publish-listing") {
         await api.publishListing(result.id, {
@@ -320,9 +287,7 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountListingsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const rootData = useRouteLoaderData("root") as
-    | { actor?: { accountId?: string } | null }
-    | undefined;
+  const rootData = useRouteLoaderData("root") as { actor?: { accountId?: string } | null } | undefined;
   const accountId = rootData?.actor?.accountId ?? null;
 
   return (
@@ -352,9 +317,7 @@ function MarketplaceAccountListingsRealtimeView({
   actionData: Exclude<Awaited<ReturnType<typeof action>>, Response> | undefined;
   accountId: string | null;
 }) {
-  const topics = accountId
-    ? marketplaceRealtimeRouteTopics.accountListings(accountId).topics
-    : [];
+  const topics = accountId ? marketplaceRealtimeRouteTopics.accountListings(accountId).topics : [];
   const listings = useRealtimePatchedSnapshot<ListResponse<MarketplaceListingListItem>>({
     initialSnapshot: data.listings as ListResponse<MarketplaceListingListItem>,
     snapshotKey: JSON.stringify(data.listings),

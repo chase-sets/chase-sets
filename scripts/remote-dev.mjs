@@ -33,10 +33,7 @@ const serviceHosts = {
   api: 6182,
 };
 
-const webhookPathPrefixes = [
-  "/api/payments/provider/webhooks",
-  "/api/settlement/provider/money-movement/webhooks",
-];
+const webhookPathPrefixes = ["/api/payments/provider/webhooks", "/api/settlement/provider/money-movement/webhooks"];
 
 const persistedEnvKeys = [
   "DIGITALOCEAN_ACCESS_TOKEN",
@@ -118,12 +115,14 @@ export function parseArgs(argv) {
 }
 
 export function sanitizeSlugPart(value) {
-  return String(value ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 42) || "session";
+  return (
+    String(value ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 42) || "session"
+  );
 }
 
 export function createSessionSlug({ branch, sha, random = randomSuffix() }) {
@@ -163,10 +162,7 @@ export function normalizeDomain(value) {
 export function resolveSessionUrls(slug, domain) {
   const normalizedDomain = normalizeDomain(domain);
   return Object.fromEntries(
-    Object.keys(serviceHosts).map((service) => [
-      service,
-      `https://${service}.${slug}.${normalizedDomain}`,
-    ]),
+    Object.keys(serviceHosts).map((service) => [service, `https://${service}.${slug}.${normalizedDomain}`]),
   );
 }
 
@@ -192,14 +188,7 @@ function relativeDnsRecordName(fqdn, dnsZone) {
   throw new Error(`${normalizedFqdn} is not inside DNS zone ${normalizedZone}.`);
 }
 
-export function buildCaddyfile({
-  slug,
-  domain,
-  basicAuthUser,
-  basicAuthHash,
-  email,
-  apiPort = serviceHosts.api,
-}) {
+export function buildCaddyfile({ slug, domain, basicAuthUser, basicAuthHash, email, apiPort = serviceHosts.api }) {
   const normalizedDomain = normalizeDomain(domain);
   const authUser = assertNonBlank(basicAuthUser, "REMOTE_DEV_BASIC_AUTH_USER");
   const authHash = assertNonBlank(basicAuthHash, "REMOTE_DEV_BASIC_AUTH_HASH");
@@ -256,12 +245,7 @@ api.${slug}.${normalizedDomain} {
 `;
 }
 
-export function buildCloudInit({
-  sshPublicKey,
-  helperScript,
-  sessionSlug,
-  expiresAt,
-}) {
+export function buildCloudInit({ sshPublicKey, helperScript, sessionSlug, expiresAt }) {
   return readTemplate(cloudInitTemplatePath)
     .replaceAll("{{SSH_PUBLIC_KEY}}", indentYamlScalar(assertNonBlank(sshPublicKey, "SSH public key"), 6))
     .replaceAll("{{REMOTE_HELPER_B64}}", Buffer.from(helperScript, "utf8").toString("base64"))
@@ -269,12 +253,7 @@ export function buildCloudInit({
     .replaceAll("{{EXPIRES_AT}}", expiresAt.toISOString());
 }
 
-export function buildSessionEnv({
-  domain,
-  slug,
-  providerMode = remoteDevDefaults.providerMode,
-  extraEnv = {},
-}) {
+export function buildSessionEnv({ domain, slug, providerMode = remoteDevDefaults.providerMode, extraEnv = {} }) {
   const urls = resolveSessionUrls(slug, domain);
   const base = {
     DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/chase_sets",
@@ -460,9 +439,7 @@ export function buildDestroyPlan({ slug, domain, dnsZone = domain, dropletId, dn
 export function selectExpiredSessions(sessions, now = new Date()) {
   const nowSeconds = Math.floor(now.getTime() / 1000);
   return sessions.filter((session) => {
-    const expiresAt = session.tags
-      ?.find((tag) => String(tag).startsWith("rd-exp:"))
-      ?.split(":")[1];
+    const expiresAt = session.tags?.find((tag) => String(tag).startsWith("rd-exp:"))?.split(":")[1];
     const expiresAtSeconds = Number(expiresAt);
     return Number.isFinite(expiresAtSeconds) && expiresAtSeconds <= nowSeconds;
   });
@@ -521,14 +498,15 @@ function readWindowsUserEnvironmentValue(key) {
     return "";
   }
 
-  const line = result.stdout
-    .split(/\r?\n/)
-    .find((entry) => entry.trim().startsWith(key));
+  const line = result.stdout.split(/\r?\n/).find((entry) => entry.trim().startsWith(key));
   if (!line) {
     return "";
   }
 
-  return line.trim().replace(new RegExp(`^${escapeRegExp(key)}\\s+REG_\\w+\\s+`), "").trim();
+  return line
+    .trim()
+    .replace(new RegExp(`^${escapeRegExp(key)}\\s+REG_\\w+\\s+`), "")
+    .trim();
 }
 
 async function runCli(command, positionals, flags) {
@@ -558,7 +536,11 @@ async function runCli(command, positionals, flags) {
       await remoteHelperCommand(requiredSlug(positionals), ["up", "dev", flags.observability ? "--observability" : ""]);
       break;
     case "preview":
-      await remoteHelperCommand(requiredSlug(positionals), ["up", "preview", flags.observability ? "--observability" : ""]);
+      await remoteHelperCommand(requiredSlug(positionals), [
+        "up",
+        "preview",
+        flags.observability ? "--observability" : "",
+      ]);
       break;
     case "logs":
       await remoteHelperCommand(requiredSlug(positionals), ["logs", positionals[1] ?? "all"]);
@@ -657,9 +639,7 @@ async function createSession(flags) {
     throw new Error(`Droplet ${dropletName(slug)} was created, but no public IPv4 address was found.`);
   }
 
-  await runPlan(
-    buildCreatePlan({ ...planConfig, publicIpPlaceholder: publicIp }).slice(-2),
-  );
+  await runPlan(buildCreatePlan({ ...planConfig, publicIpPlaceholder: publicIp }).slice(-2));
   await waitForSsh(publicIp, env.sshUser);
   await installRemoteSession({ slug, env, publicIp, caddyFilePath, remoteEnvPath, branch });
   writeSessionCache(slug, {
@@ -685,7 +665,9 @@ async function listSessions() {
   for (const session of sessions) {
     const expiresAt = session.tags.find((tag) => tag.startsWith("rd-exp:"))?.split(":")[1];
     const expiresText = expiresAt ? new Date(Number(expiresAt) * 1000).toISOString() : "unknown";
-    console.log(`${session.slug.padEnd(44)} ${String(session.status).padEnd(10)} ${session.publicIp ?? "-"} expires ${expiresText}`);
+    console.log(
+      `${session.slug.padEnd(44)} ${String(session.status).padEnd(10)} ${session.publicIp ?? "-"} expires ${expiresText}`,
+    );
   }
 }
 
@@ -709,24 +691,19 @@ async function openSession(slug, service) {
   const env = loadEnvConfig({});
   const urls = resolveSessionUrls(slug, env.domain);
   const url = urls[service] ?? urls.portal;
-  const opener = process.platform === "win32" ? ["cmd", ["/d", "/s", "/c", "start", "", url]]
-    : process.platform === "darwin" ? ["open", [url]]
-      : ["xdg-open", [url]];
+  const opener =
+    process.platform === "win32"
+      ? ["cmd", ["/d", "/s", "/c", "start", "", url]]
+      : process.platform === "darwin"
+        ? ["open", [url]]
+        : ["xdg-open", [url]];
   await runInteractive(opener[0], opener[1]);
 }
 
 async function syncToSession(slug, flags) {
   const session = await requireSession(slug);
   const env = loadEnvConfig(flags);
-  const excludes = [
-    ".git",
-    "node_modules",
-    "artifacts",
-    "coverage",
-    ".react-router",
-    "build",
-    "dist",
-  ];
+  const excludes = [".git", "node_modules", "artifacts", "coverage", ".react-router", "build", "dist"];
   const excludeArgs = excludes.flatMap((entry) => ["--exclude", entry]);
   await runInteractive("rsync", [
     "-az",
@@ -753,37 +730,45 @@ async function syncFromSession(slug, flags) {
 async function remoteHelperCommand(slug, helperArgs) {
   const session = await requireSession(slug);
   const env = loadEnvConfig({});
-  await runInteractive("ssh", sshArgs(env.sshUser, session.publicIp, [
-    "sudo",
-    "/usr/local/bin/chase-sets-remote-dev",
-    ...helperArgs.filter(Boolean),
-  ]));
+  await runInteractive(
+    "ssh",
+    sshArgs(env.sshUser, session.publicIp, [
+      "sudo",
+      "/usr/local/bin/chase-sets-remote-dev",
+      ...helperArgs.filter(Boolean),
+    ]),
+  );
 }
 
 async function renewSession(slug, flags) {
   const session = await requireSession(slug);
   const expiresAt = resolveExpiresAt(new Date(), flags["ttl-hours"] ?? remoteDevDefaults.ttlHours);
   const tag = `rd-exp:${Math.floor(expiresAt.getTime() / 1000)}`;
-  await runPlan([
-    {
-      label: `Create renewed expiration tag ${tag}`,
-      command: "doctl",
-      args: ["compute", "tag", "create", tag],
-      allowFailure: true,
-    },
-    {
-      label: "Attach renewed expiration tag",
-      command: "doctl",
-      args: ["compute", "droplet", "tag", String(session.id), "--tag-name", tag],
-    },
-  ], Boolean(flags["dry-run"]));
+  await runPlan(
+    [
+      {
+        label: `Create renewed expiration tag ${tag}`,
+        command: "doctl",
+        args: ["compute", "tag", "create", tag],
+        allowFailure: true,
+      },
+      {
+        label: "Attach renewed expiration tag",
+        command: "doctl",
+        args: ["compute", "droplet", "tag", String(session.id), "--tag-name", tag],
+      },
+    ],
+    Boolean(flags["dry-run"]),
+  );
 }
 
 async function destroySession(slug, flags) {
   const dryRun = Boolean(flags["dry-run"]);
   const env = loadEnvConfig(flags);
   const session = dryRun ? { id: "<droplet-id>", slug } : await requireSession(slug);
-  const dnsRecordIds = dryRun ? ["<root-record-id>", "<wildcard-record-id>"] : await findDnsRecordIds(slug, env.domain, env.dnsZone);
+  const dnsRecordIds = dryRun
+    ? ["<root-record-id>", "<wildcard-record-id>"]
+    : await findDnsRecordIds(slug, env.domain, env.dnsZone);
   const firewallId = dryRun ? "<firewall-id>" : await findFirewallId(slug);
   const plan = buildDestroyPlan({
     slug,
@@ -880,9 +865,7 @@ async function findDnsRecordIds(slug, domain, dnsZone = domain) {
     "json",
   ]);
   return records
-    .filter((record) =>
-      record.type === "A" && (record.name === dnsRecords.root || record.name === dnsRecords.wildcard),
-    )
+    .filter((record) => record.type === "A" && (record.name === dnsRecords.root || record.name === dnsRecords.wildcard))
     .map((record) => record.id);
 }
 
@@ -894,15 +877,19 @@ async function findFirewallId(slug) {
 function mapDroplet(droplet) {
   const tags = droplet.tags ?? [];
   const slug =
-    tags.find((tag) => String(tag).startsWith("rd-slug:"))?.split(":").slice(1).join(":")
-    ?? String(droplet.name ?? "").replace(`${remoteDevDefaults.namePrefix}-`, "");
+    tags
+      .find((tag) => String(tag).startsWith("rd-slug:"))
+      ?.split(":")
+      .slice(1)
+      .join(":") ?? String(droplet.name ?? "").replace(`${remoteDevDefaults.namePrefix}-`, "");
   return {
     id: droplet.id,
     name: droplet.name,
     slug,
-    publicIp: droplet.networks?.v4?.find((network) => network.type === "public")?.ip_address
-      ?? droplet.public_ipv4
-      ?? droplet.PublicIPv4,
+    publicIp:
+      droplet.networks?.v4?.find((network) => network.type === "public")?.ip_address ??
+      droplet.public_ipv4 ??
+      droplet.PublicIPv4,
     status: droplet.status,
     tags,
   };
@@ -911,12 +898,14 @@ function mapDroplet(droplet) {
 function loadEnvConfig(flags) {
   return {
     domain: normalizeDomain(flags.domain ?? process.env.REMOTE_DEV_DOMAIN),
-    dnsZone: normalizeDomain(flags["dns-zone"] ?? process.env.REMOTE_DEV_DNS_ZONE ?? flags.domain ?? process.env.REMOTE_DEV_DOMAIN),
+    dnsZone: normalizeDomain(
+      flags["dns-zone"] ?? process.env.REMOTE_DEV_DNS_ZONE ?? flags.domain ?? process.env.REMOTE_DEV_DOMAIN,
+    ),
     sshKeyId: flags["ssh-key-id"] ?? process.env.REMOTE_DEV_SSH_KEY_ID,
     sshPublicKeyPath:
-      flags["ssh-public-key-path"]
-      ?? process.env.REMOTE_DEV_SSH_PUBLIC_KEY_PATH
-      ?? path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
+      flags["ssh-public-key-path"] ??
+      process.env.REMOTE_DEV_SSH_PUBLIC_KEY_PATH ??
+      path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
     sshUser: flags["ssh-user"] ?? process.env.REMOTE_DEV_SSH_USER ?? remoteDevDefaults.sshUser,
     sshCidr: flags["ssh-cidr"] ?? process.env.REMOTE_DEV_SSH_CIDR,
     region: flags.region ?? process.env.REMOTE_DEV_REGION ?? remoteDevDefaults.region,
@@ -1098,18 +1087,15 @@ async function assertPrerequisites(commands) {
 async function waitForSsh(publicIp, sshUser) {
   const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
-    const result = spawnSync("ssh", [
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "StrictHostKeyChecking=accept-new",
-      `${sshUser}@${publicIp}`,
-      "true",
-    ], {
-      cwd: rootDir,
-      encoding: "utf8",
-      windowsHide: true,
-    });
+    const result = spawnSync(
+      "ssh",
+      ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", `${sshUser}@${publicIp}`, "true"],
+      {
+        cwd: rootDir,
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
     if (result.status === 0) {
       return;
     }
@@ -1119,12 +1105,7 @@ async function waitForSsh(publicIp, sshUser) {
 }
 
 function sshArgs(user, host, extraArgs = []) {
-  return [
-    "-o",
-    "StrictHostKeyChecking=accept-new",
-    `${user}@${host}`,
-    ...extraArgs,
-  ];
+  return ["-o", "StrictHostKeyChecking=accept-new", `${user}@${host}`, ...extraArgs];
 }
 
 function readSshPublicKey(filePath, { dryRun = false } = {}) {

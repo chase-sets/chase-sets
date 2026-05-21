@@ -3,8 +3,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapPayoutCompletedToTransactionalEmail } from "./transactional-email-intents";
 
-export const SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION =
-  "settlement-payout-transactional-email-projection";
+export const SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION = "settlement-payout-transactional-email-projection";
 
 export type SettlementPayoutCompletedEmailEvent = Readonly<
   TransportEvent & {

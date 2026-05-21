@@ -1,26 +1,12 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import {
-  AUTH_MAGIC_LINK_TTL_MS,
-  createExpiryTimestamp,
-} from "../../features/sessions/domain/auth-flow";
-import {
-  consumeMagicLinkToken,
-  insertMagicLinkToken,
-} from "../auth-support/store";
+import { AUTH_MAGIC_LINK_TTL_MS, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
+import { consumeMagicLinkToken, insertMagicLinkToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import {
-  createIdentityMutations,
-  createOwnedUserDisplayName,
-  getBootstrapContext,
-  type AuthApiApp,
-} from "./support";
+import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
-export function registerMagicLinkRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerMagicLinkRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/magic-link/request", async (c) => {
     const body = await c.req.json();
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
@@ -61,10 +47,7 @@ export function registerMagicLinkRoutes(
   app.post("/magic-link/consume", async (c) => {
     const body = await c.req.json();
     const identityMutations = createIdentityMutations(c);
-    const record = await consumeMagicLinkToken(
-      services.db,
-      services.auth.hashSecret(String(body.token ?? "")),
-    );
+    const record = await consumeMagicLinkToken(services.db, services.auth.hashSecret(String(body.token ?? "")));
     if (!record) {
       return c.json({ error: t("auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has") }, 401);
     }
@@ -99,8 +82,7 @@ export function registerMagicLinkRoutes(
 
     const authResult = await startInteractiveAuth(services, {
       userId: user!.user_id,
-      accountId:
-        typeof body.accountId === "string" ? body.accountId : undefined,
+      accountId: typeof body.accountId === "string" ? body.accountId : undefined,
       authenticationMethod: "magic-link",
       context: getBootstrapContext(c),
     });

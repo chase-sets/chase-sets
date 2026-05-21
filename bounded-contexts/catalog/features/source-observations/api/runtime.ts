@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
@@ -11,14 +8,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
-import type {
-  CatalogItemId,
-  BlueprintId,
-  CategoryId,
-  FieldId,
-  ReferenceRecordId,
-  ReferenceTypeId,
-} from "../../../ids";
+import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import { productAssetSetCompatibilityImageUrls } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
@@ -86,11 +76,7 @@ export type BulkSourceObservationProgress = Readonly<{
 
 export type SourceObservationBulkJobAction = "promote" | "reject";
 
-export type SourceObservationBulkJobStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed";
+export type SourceObservationBulkJobStatus = "queued" | "running" | "completed" | "failed";
 
 export type SourceObservationBulkJob = Readonly<{
   jobId: string;
@@ -121,11 +107,7 @@ export type SourceObservationIntegrationOption = Readonly<{
 }>;
 
 export type SourceObservationServices = Readonly<{
-  commandHandler: CommandHandler<
-    SourceObservationCommand,
-    SourceObservationState,
-    SourceObservationEvent
-  >;
+  commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
   importTcgdexSet: (input: {
     languageCode: string;
     setId: string;
@@ -133,9 +115,7 @@ export type SourceObservationServices = Readonly<{
     onProgress?: (progress: TcgdexSetImportProgress) => void;
   }) => Promise<TcgdexSetImportResult>;
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
-  listTcgdexSeries: (input: {
-    languageCode: string;
-  }) => Promise<readonly TcgdexSeriesOption[]>;
+  listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
   listTcgdexExpansions: (input: {
     languageCode: string;
     seriesId?: string | null;
@@ -187,16 +167,9 @@ export type SourceObservationServices = Readonly<{
     reason?: string | null;
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
-  getBulkReviewJob: (
-    jobId: string,
-  ) => Promise<SourceObservationBulkJob | null>;
-  listActiveBulkReviewJobs: (input: {
-    context: EventStoreContext;
-  }) => Promise<readonly SourceObservationBulkJob[]>;
-  processNextBulkReviewJob: (input: {
-    claimOwnerId: string;
-    claimTtlMs: number;
-  }) => Promise<number>;
+  getBulkReviewJob: (jobId: string) => Promise<SourceObservationBulkJob | null>;
+  listActiveBulkReviewJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationBulkJob[]>;
+  processNextBulkReviewJob: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
@@ -205,9 +178,7 @@ export type SourceObservationServices = Readonly<{
     language?: string;
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
-  getSourceObservationDetail: (
-    observationId: string,
-  ) => ReturnType<typeof getSourceObservationDetail>;
+  getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
   projectors: readonly Projector[];
 }>;
 
@@ -231,11 +202,10 @@ export function createSourceObservationRuntime(
       projectorName: "catalog-source-observation-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: withCatalogAdminRealtimeInvalidation(
-        buildSourceObservationProjectionHandlers(deps.db),
-        deps.db,
-        { projectionName: "catalog-source-observation-projection", surface: "source-observations" },
-      ),
+      handlers: withCatalogAdminRealtimeInvalidation(buildSourceObservationProjectionHandlers(deps.db), deps.db, {
+        projectionName: "catalog-source-observation-projection",
+        surface: "source-observations",
+      }),
     }),
   ];
 
@@ -259,7 +229,7 @@ export function createSourceObservationRuntime(
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
     const existingCatalogItemId =
       input.observation.status === "changed"
-        ? input.observation.promoted_catalog_item_id as CatalogItemId | null
+        ? (input.observation.promoted_catalog_item_id as CatalogItemId | null)
         : null;
     if (input.observation.status === "changed" && !existingCatalogItemId) {
       throw new Error("Changed source observation is missing its promoted Catalog Item.");
@@ -362,9 +332,7 @@ export function createSourceObservationRuntime(
         });
       } finally {
         const outcome = outcomes[outcomes.length - 1];
-        input.onProgress?.(
-          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
-        );
+        input.onProgress?.(bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null));
       }
     }
 
@@ -433,9 +401,7 @@ export function createSourceObservationRuntime(
         });
       } finally {
         const outcome = outcomes[outcomes.length - 1];
-        input.onProgress?.(
-          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
-        );
+        input.onProgress?.(bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null));
       }
     }
 
@@ -492,10 +458,7 @@ export function createSourceObservationRuntime(
     return job;
   }
 
-  async function processNextBulkReviewJob(input: {
-    claimOwnerId: string;
-    claimTtlMs: number;
-  }): Promise<number> {
+  async function processNextBulkReviewJob(input: { claimOwnerId: string; claimTtlMs: number }): Promise<number> {
     const claimed = await claimNextBulkReviewJob(deps.db, input);
     if (!claimed) {
       return 0;
@@ -593,10 +556,8 @@ export function createSourceObservationRuntime(
       };
     },
     listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
-    listTcgdexSeries: async ({ languageCode }) =>
-      fetchTcgdexSeriesOptions({ languageCode }),
-    listTcgdexExpansions: async ({ languageCode, seriesId }) =>
-      fetchTcgdexExpansionOptions({ languageCode, seriesId }),
+    listTcgdexSeries: async ({ languageCode }) => fetchTcgdexSeriesOptions({ languageCode }),
+    listTcgdexExpansions: async ({ languageCode, seriesId }) => fetchTcgdexExpansionOptions({ languageCode, seriesId }),
     listIntegrationOptions: listProviderIntegrationOptions,
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
@@ -614,8 +575,7 @@ export function createSourceObservationRuntime(
       return result;
     },
     promoteObservations: promoteObservationIds,
-    previewPromoteObservationScope: async ({ scope }) =>
-      previewSourceObservationPromotionScope(deps.db, scope),
+    previewPromoteObservationScope: async ({ scope }) => previewSourceObservationPromotionScope(deps.db, scope),
     promoteObservationScope: async ({ scope, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
       return promoteObservationIds({
@@ -649,14 +609,11 @@ export function createSourceObservationRuntime(
     },
     enqueueBulkReviewJob,
     getBulkReviewJob: (jobId) => getBulkReviewJob(deps.db, jobId),
-    listActiveBulkReviewJobs: ({ context }) =>
-      listActiveBulkReviewJobs(deps.db, context),
+    listActiveBulkReviewJobs: ({ context }) => listActiveBulkReviewJobs(deps.db, context),
     processNextBulkReviewJob,
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
-    listIntegrationScopes: (params) =>
-      listSourceObservationIntegrationScopes(deps.db, params),
-    getSourceObservationDetail: (observationId) =>
-      getSourceObservationDetail(deps.db, observationId),
+    listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
+    getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
     projectors,
   };
 }
@@ -742,9 +699,7 @@ function formatExpansionOptionDescription(item: TcgdexExpansionOption): string |
   }
 
   const count =
-    item.officialCardCount !== null
-      ? `${item.officialCardCount} official cards`
-      : `${item.cardCount} cards`;
+    item.officialCardCount !== null ? `${item.officialCardCount} official cards` : `${item.cardCount} cards`;
 
   return item.seriesName ? `${item.seriesName} - ${count}` : count;
 }
@@ -986,14 +941,9 @@ async function formatPokemonCardPromotionMetadata(input: {
   normalized: SourceObservationNormalized;
   expansionReferenceId: ReferenceRecordId;
 }): Promise<{ title: string; subtitle: string }> {
-  const printedCardCount = await loadExpansionPrintedCardCountOverride(
-    input.deps,
-    input.expansionReferenceId,
-  );
+  const printedCardCount = await loadExpansionPrintedCardCountOverride(input.deps, input.expansionReferenceId);
   const cardNumber = formatPokemonCardNumber(input.normalized, printedCardCount);
-  const title = [input.normalized.name, cardNumber]
-    .filter((part) => part.trim().length > 0)
-    .join(" ");
+  const title = [input.normalized.name, cardNumber].filter((part) => part.trim().length > 0).join(" ");
 
   return {
     title,
@@ -1038,9 +988,10 @@ function formatPokemonCardNumber(
   normalized: SourceObservationNormalized,
   printedCardCountOverride: string | null | undefined,
 ): string {
-  const denominator = printedCardCountOverride === undefined
-    ? countToDisplayValue(normalized.expansionCardCount)
-    : printedCardCountOverride;
+  const denominator =
+    printedCardCountOverride === undefined
+      ? countToDisplayValue(normalized.expansionCardCount)
+      : printedCardCountOverride;
 
   return denominator ? `${normalized.cardNumber}/${denominator}` : normalized.cardNumber;
 }
@@ -1052,9 +1003,7 @@ function countToDisplayValue(value: number | null): string | null {
 function formatPokemonCardSubtitle(normalized: SourceObservationNormalized): string {
   return [
     normalized.expansionName,
-    shouldIncludeCardVariantInSubtitle(normalized.cardVariantLabel)
-      ? normalized.cardVariantLabel
-      : null,
+    shouldIncludeCardVariantInSubtitle(normalized.cardVariantLabel) ? normalized.cardVariantLabel : null,
     normalized.rarity,
   ]
     .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
@@ -1155,8 +1104,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
   });
 
   const manufacturerId = await ensureReferenceRecord(input, {
-    referenceRecordId:
-      catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational,
+    referenceRecordId: catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational,
     typeKey: "manufacturer",
     key: "the-pokemon-company-international",
     name: "The Pokemon Company International",
@@ -1164,8 +1112,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
     attributes: { "homepage-url": "https://www.pokemon.com/us" },
   });
   const productLineId = await ensureReferenceRecord(input, {
-    referenceRecordId:
-      catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame,
+    referenceRecordId: catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame,
     typeKey: "product-line",
     key: "pokemon-trading-card-game",
     name: "Pokemon Trading Card Game",
@@ -1183,9 +1130,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
         key: normalizeReferenceKey(input.normalized.seriesName),
         name: input.normalized.seriesName,
         description: `${input.normalized.seriesName} Pokemon TCG series.`,
-        attributes: input.normalized.seriesId
-          ? { "tcgdex-series-id": input.normalized.seriesId }
-          : {},
+        attributes: input.normalized.seriesId ? { "tcgdex-series-id": input.normalized.seriesId } : {},
         relationships: [{ relationshipType: "part-of", referenceId: productLineId }],
       })
     : productLineId;
@@ -1207,8 +1152,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
   }
 
   if (input.normalized.expansionParallelSetCardCount !== null) {
-    expansionAttributes["parallel-set-card-count"] =
-      input.normalized.expansionParallelSetCardCount;
+    expansionAttributes["parallel-set-card-count"] = input.normalized.expansionParallelSetCardCount;
   }
 
   return ensureReferenceRecord(input, {
@@ -1294,10 +1238,7 @@ async function ensureReferenceRecord(
     return existing.rows[0].reference_record_id as ReferenceRecordId;
   }
 
-  const existingByProviderAttribute = await findReferenceRecordByProviderAttribute(
-    input.deps,
-    def,
-  );
+  const existingByProviderAttribute = await findReferenceRecordByProviderAttribute(input.deps, def);
   if (existingByProviderAttribute) {
     return existingByProviderAttribute;
   }
@@ -1335,14 +1276,8 @@ async function findReferenceRecordByProviderAttribute(
   },
 ): Promise<ReferenceRecordId | null> {
   const providerAttributeKey =
-    def.typeKey === "series"
-      ? "tcgdex-series-id"
-      : def.typeKey === "expansion"
-        ? "tcgdex-set-id"
-        : null;
-  const providerAttributeValue = providerAttributeKey
-    ? def.attributes?.[providerAttributeKey]
-    : null;
+    def.typeKey === "series" ? "tcgdex-series-id" : def.typeKey === "expansion" ? "tcgdex-set-id" : null;
+  const providerAttributeValue = providerAttributeKey ? def.attributes?.[providerAttributeKey] : null;
 
   if (typeof providerAttributeValue !== "string" || providerAttributeValue.trim().length === 0) {
     return null;
@@ -1360,9 +1295,7 @@ async function findReferenceRecordByProviderAttribute(
   return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
 }
 
-async function loadPokemonTcgPromotionProfile(
-  deps: CatalogRuntimeDeps,
-): Promise<{
+async function loadPokemonTcgPromotionProfile(deps: CatalogRuntimeDeps): Promise<{
   blueprintId: BlueprintId;
   singlesCategoryId: CategoryId;
   fieldIds: {
@@ -1386,60 +1319,15 @@ async function loadPokemonTcgPromotionProfile(
     cardIllustrator,
     releaseYear,
   ] = await Promise.all([
-    requireCatalogIdByKey<BlueprintId>(
-      deps,
-      "catalog_blueprints",
-      "blueprint_id",
-      "pokemon-card-single",
-    ),
-    requireCatalogIdByKey<CategoryId>(
-      deps,
-      "catalog_categories",
-      "category_id",
-      "singles",
-    ),
-    requireCatalogIdByKey<FieldId>(
-      deps,
-      "catalog_fields",
-      "field_id",
-      "card-number",
-    ),
-    requireCatalogIdByKey<FieldId>(
-      deps,
-      "catalog_fields",
-      "field_id",
-      "card-name",
-    ),
-    requireCatalogIdByKey<FieldId>(
-      deps,
-      "catalog_fields",
-      "field_id",
-      "expansion",
-    ),
-    requireCatalogIdByKey<FieldId>(
-      deps,
-      "catalog_fields",
-      "field_id",
-      "rarity",
-    ),
-    requireCatalogIdByKey<FieldId>(
-      deps,
-      "catalog_fields",
-      "field_id",
-      "card-variant",
-    ),
-    requireCatalogIdByKey<FieldId>(
-      deps,
-      "catalog_fields",
-      "field_id",
-      "card-illustrator",
-    ),
-    requireCatalogIdByKey<FieldId>(
-      deps,
-      "catalog_fields",
-      "field_id",
-      "release-year",
-    ),
+    requireCatalogIdByKey<BlueprintId>(deps, "catalog_blueprints", "blueprint_id", "pokemon-card-single"),
+    requireCatalogIdByKey<CategoryId>(deps, "catalog_categories", "category_id", "singles"),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-number"),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-name"),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "expansion"),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "rarity"),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-variant"),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-illustrator"),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "release-year"),
   ]);
 
   return {
@@ -1487,7 +1375,11 @@ function localizedText(value: string): LocalizedTextMap {
 }
 
 function normalizeReferenceKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
 function localizedJsonText(value: string): JsonObject {
@@ -1525,14 +1417,12 @@ type SourceObservationBulkJobRow = Readonly<{
   updated_at: string;
 }>;
 
-type ClaimedSourceObservationBulkJob = SourceObservationBulkJob & Readonly<{
-  eventContext: EventStoreContext;
-}>;
+type ClaimedSourceObservationBulkJob = SourceObservationBulkJob &
+  Readonly<{
+    eventContext: EventStoreContext;
+  }>;
 
-async function getBulkReviewJob(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-): Promise<SourceObservationBulkJob | null> {
+async function getBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string): Promise<SourceObservationBulkJob | null> {
   const result = await db.query<SourceObservationBulkJobRow>(
     `SELECT
        job_id,
@@ -1685,11 +1575,7 @@ async function completeBulkReviewJob(
   );
 }
 
-async function failBulkReviewJob(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  message: string,
-): Promise<void> {
+async function failBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string, message: string): Promise<void> {
   const current = await getBulkReviewJob(db, jobId);
   const progress = {
     ...(current?.progress ?? bulkProgress(0, 0)),
@@ -1720,9 +1606,7 @@ function mapBulkReviewJobRow(row: SourceObservationBulkJobRow): SourceObservatio
     reason: row.reason,
     status: row.status,
     progress: parseJsonField<BulkSourceObservationProgress>(row.progress, "progress"),
-    result: row.result
-      ? parseJsonField<BulkSourceObservationPromotionResult>(row.result, "result")
-      : null,
+    result: row.result ? parseJsonField<BulkSourceObservationPromotionResult>(row.result, "result") : null,
     errorMessage: row.error_message,
     createdAt: row.created_at,
     startedAt: row.started_at,
@@ -1743,9 +1627,7 @@ function parseJsonField<T>(value: unknown, fieldName: string): T {
   throw new Error(`Bulk review job ${fieldName} is not valid JSON.`);
 }
 
-function normalizeBulkJobScope(
-  scope: SourceObservationFilterScope,
-): SourceObservationFilterScope {
+function normalizeBulkJobScope(scope: SourceObservationFilterScope): SourceObservationFilterScope {
   return {
     search: scope.search?.trim() || undefined,
     status: scope.status?.trim() || undefined,
@@ -1758,9 +1640,7 @@ function normalizeBulkJobScope(
 function uniqueObservationIds(observationIds: readonly string[]): string[] {
   return Array.from(
     new Set(
-      observationIds
-        .map((observationId) => observationId.trim())
-        .filter((observationId) => observationId.length > 0),
+      observationIds.map((observationId) => observationId.trim()).filter((observationId) => observationId.length > 0),
     ),
   );
 }

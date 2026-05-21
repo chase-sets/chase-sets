@@ -61,49 +61,33 @@ function ceilMoney(value: number) {
 }
 
 function normalizeJurisdiction(value: string | null | undefined) {
-  return String(value ?? "").trim().toUpperCase();
+  return String(value ?? "")
+    .trim()
+    .toUpperCase();
 }
 
-function chooseRule(
-  rules: readonly LocalTaxRule[],
-  address: TaxDestinationAddress,
-) {
+function chooseRule(rules: readonly LocalTaxRule[], address: TaxDestinationAddress) {
   const country = normalizeJurisdiction(address.country);
   const state = normalizeJurisdiction(address.state);
   return (
     rules.find(
-      (rule) =>
-        normalizeJurisdiction(rule.country) === country &&
-        normalizeJurisdiction(rule.state) === state,
+      (rule) => normalizeJurisdiction(rule.country) === country && normalizeJurisdiction(rule.state) === state,
     ) ??
-    rules.find(
-      (rule) =>
-        normalizeJurisdiction(rule.country) === country &&
-        !normalizeJurisdiction(rule.state),
-    ) ??
+    rules.find((rule) => normalizeJurisdiction(rule.country) === country && !normalizeJurisdiction(rule.state)) ??
     null
   );
 }
 
-export function createLocalTaxQuoteResolver(
-  rules: readonly LocalTaxRule[] = [],
-): TaxQuoteResolver {
+export function createLocalTaxQuoteResolver(rules: readonly LocalTaxRule[] = []): TaxQuoteResolver {
   return {
     async quoteTax(input) {
       const rule = chooseRule(rules, input.destinationAddress);
-      const itemSubtotalAmount = Number.parseFloat(
-        normalizeMoneyAmount(input.itemSubtotalAmount),
-      );
-      const shippingAmount = Number.parseFloat(
-        normalizeMoneyAmount(input.shippingAmount),
-      );
-      const marketplaceCheckoutFeeAmount = Number.parseFloat(
-        normalizeMoneyAmount(input.marketplaceCheckoutFeeAmount),
-      );
+      const itemSubtotalAmount = Number.parseFloat(normalizeMoneyAmount(input.itemSubtotalAmount));
+      const shippingAmount = Number.parseFloat(normalizeMoneyAmount(input.shippingAmount));
+      const marketplaceCheckoutFeeAmount = Number.parseFloat(normalizeMoneyAmount(input.marketplaceCheckoutFeeAmount));
       const itemTaxable = rule?.itemTaxable ?? Boolean(rule);
       const shippingTaxable = rule?.shippingTaxable ?? false;
-      const marketplaceCheckoutFeeTaxable =
-        rule?.marketplaceCheckoutFeeTaxable ?? false;
+      const marketplaceCheckoutFeeTaxable = rule?.marketplaceCheckoutFeeTaxable ?? false;
       const taxableAmount =
         (itemTaxable ? itemSubtotalAmount : 0) +
         (shippingTaxable ? shippingAmount : 0) +
@@ -114,8 +98,7 @@ export function createLocalTaxQuoteResolver(
         taxableAmount: taxableAmount.toFixed(2),
         taxAmount: ceilMoney((taxableAmount * rateBps) / 10_000),
         jurisdictionCountry: normalizeJurisdiction(input.destinationAddress.country),
-        jurisdictionState:
-          normalizeJurisdiction(input.destinationAddress.state) || null,
+        jurisdictionState: normalizeJurisdiction(input.destinationAddress.state) || null,
         rateBps,
         itemTaxable,
         shippingTaxable,

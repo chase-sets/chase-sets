@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildWalletProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "settlement.wallet.opened": async (event) => {
       const data = event.data as {
@@ -47,13 +45,9 @@ export function buildWalletProjectionHandlers(
         description: string | null;
         postedAt: string;
       };
-      const signedAmount =
-        data.direction === "credit"
-          ? data.amount
-          : `-${data.amount}`;
+      const signedAmount = data.direction === "credit" ? data.amount : `-${data.amount}`;
       const pendingDelta = data.fundsStatus === "pending" ? signedAmount : "0.00";
-      const availableDelta =
-        data.fundsStatus === "available" ? signedAmount : "0.00";
+      const availableDelta = data.fundsStatus === "available" ? signedAmount : "0.00";
       const creditedDelta = data.direction === "credit" ? data.amount : "0.00";
       const debitedDelta = data.direction === "debit" ? data.amount : "0.00";
 
@@ -106,14 +100,7 @@ export function buildWalletProjectionHandlers(
              total_debited_amount = total_debited_amount + $5::numeric,
              updated_at = $6
          WHERE account_id = $1`,
-        [
-          data.accountId,
-          pendingDelta,
-          availableDelta,
-          creditedDelta,
-          debitedDelta,
-          data.postedAt,
-        ],
+        [data.accountId, pendingDelta, availableDelta, creditedDelta, debitedDelta, data.postedAt],
       );
     },
     "settlement.wallet.ledger-entry-available-recorded": async (event) => {

@@ -10,12 +10,7 @@ export interface RevealProps {
   children: ReactNode;
 }
 
-export function Reveal({
-  preset = "fade",
-  delayMs = 0,
-  layout = false,
-  children
-}: RevealProps) {
+export function Reveal({ preset = "fade", delayMs = 0, layout = false, children }: RevealProps) {
   const motionSettings = useChaseMotion();
   const definition = motionSettings.presets[preset];
 
@@ -27,7 +22,7 @@ export function Reveal({
       exit={definition.exit}
       transition={{
         ...definition.transition,
-        delay: motionSettings.reducedMotion ? 0 : delayMs / 1000
+        delay: motionSettings.reducedMotion ? 0 : delayMs / 1000,
       }}
     >
       {children}
@@ -41,11 +36,7 @@ export interface StaggerProps {
   children: ReactNode;
 }
 
-export function Stagger({
-  preset = "lift",
-  staggerMs = 70,
-  children
-}: StaggerProps) {
+export function Stagger({ preset = "lift", staggerMs = 70, children }: StaggerProps) {
   const motionSettings = useChaseMotion();
   const nodes = Children.toArray(children);
   const staggerDelay = motionSettings.reducedMotion ? 0 : staggerMs / 1000;
@@ -59,9 +50,9 @@ export function Stagger({
         visible: {
           transition: {
             staggerChildren: staggerDelay,
-            delayChildren: 0
-          }
-        }
+            delayChildren: 0,
+          },
+        },
       }}
     >
       {nodes.map((child, index) => {
@@ -74,8 +65,8 @@ export function Stagger({
               hidden: definition.initial,
               visible: {
                 ...definition.animate,
-                transition: definition.transition
-              }
+                transition: definition.transition,
+              },
             }}
           >
             {child}
@@ -93,12 +84,7 @@ export interface ViewTransitionProps {
   children: ReactNode;
 }
 
-export function ViewTransition({
-  transitionKey,
-  preset = "page",
-  mode = "wait",
-  children
-}: ViewTransitionProps) {
+export function ViewTransition({ transitionKey, preset = "page", mode = "wait", children }: ViewTransitionProps) {
   const motionSettings = useChaseMotion();
   const definition = motionSettings.viewPresets[preset];
 

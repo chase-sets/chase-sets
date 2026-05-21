@@ -40,10 +40,7 @@ describe("support request domain", () => {
       sellerResponseDueAt: "2026-05-11T12:00:00.000Z",
       supportReviewDueAt: "2026-05-10T12:00:00.000Z",
     });
-    expect(events[0]?.data.checklist.map((item) => item.key)).toEqual([
-      "buyer-attestation",
-      "delivery-evidence",
-    ]);
+    expect(events[0]?.data.checklist.map((item) => item.key)).toEqual(["buyer-attestation", "delivery-evidence"]);
   });
 
   it("accepts tracking evidence and moves toward support-ready seller response", () => {
@@ -70,8 +67,9 @@ describe("support request domain", () => {
     });
 
     expect(afterEvidence.evidence).toHaveLength(1);
-    expect(afterEvidence.checklist.find((item) => item.key === "delivery-evidence")?.satisfiedAt)
-      .toBe("2026-05-09T13:00:00.000Z");
+    expect(afterEvidence.checklist.find((item) => item.key === "delivery-evidence")?.satisfiedAt).toBe(
+      "2026-05-09T13:00:00.000Z",
+    );
     expect(responseEvents[0]?.data.status).toBe("ready-for-support");
   });
 

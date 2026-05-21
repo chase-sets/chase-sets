@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -12,15 +8,11 @@ import {
   OrderingApiError,
   type PurchaseDetail,
 } from "../support/request-support/api-client";
-import {
-  createReputationRequestApiClient,
-  type ReviewOpportunity,
-} from "@chase-sets/reputation/server";
+import { createReputationRequestApiClient, type ReviewOpportunity } from "@chase-sets/reputation/server";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
 import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
 
-const MARKETPLACE_DESCRIPTION =
-  t("ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while");
+const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchase.inspect.a.purchase.cancel.it.while");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -34,10 +26,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const purchase = await orderingApi.getPurchase(params.purchaseId!);
     let reviewOpportunity: ReviewOpportunity | null = null;
 
-    if (
-      actor.permissions.includes("reputation.view") &&
-      actor.permissions.includes("reputation.manage")
-    ) {
+    if (actor.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage")) {
       try {
         reviewOpportunity = await reputationApi.getOrderReviewOpportunity(params.purchaseId!);
       } catch (error) {

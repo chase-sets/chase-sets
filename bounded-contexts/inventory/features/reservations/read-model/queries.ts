@@ -13,10 +13,7 @@ export type InventoryReservationRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function getInventoryReservation(
-  db: PgQueryable,
-  reservationRequestId: string,
-) {
+export async function getInventoryReservation(db: PgQueryable, reservationRequestId: string) {
   const result = await db.query<InventoryReservationRow>(
     `SELECT
        reservation_request_id,

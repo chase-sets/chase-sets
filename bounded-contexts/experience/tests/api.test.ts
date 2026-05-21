@@ -138,9 +138,7 @@ describe("experience platform feedback API", () => {
     expect(forbidden.status).toBe(403);
 
     const app = appFor(services, actorWithPermissions(["platform-feedback.view"]));
-    const list = await app.request(
-      "/?status=new&topic=ease-of-use&workflow=listing-publish&limit=25&offset=50",
-    );
+    const list = await app.request("/?status=new&topic=ease-of-use&workflow=listing-publish&limit=25&offset=50");
     const metrics = await app.request("/metrics");
     const detail = await app.request("/pfb_test");
 

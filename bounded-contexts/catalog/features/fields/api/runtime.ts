@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -20,20 +17,12 @@ import {
   decideField,
   evolveField,
 } from "../domain/domain";
-import {
-  getField,
-  listFieldBulkRows,
-  listFieldIds,
-  listFields,
-  type FieldListParams,
-} from "../read-model/queries";
+import { getField, listFieldBulkRows, listFieldIds, listFields, type FieldListParams } from "../read-model/queries";
 import { buildFieldProjectionHandlers } from "../read-model/projection";
 
 export type FieldServices = Readonly<{
   commandHandler: CommandHandler<FieldCommand, FieldState, FieldEvent>;
-  listFields: (
-    params?: Parameters<typeof listFields>[1],
-  ) => ReturnType<typeof listFields>;
+  listFields: (params?: Parameters<typeof listFields>[1]) => ReturnType<typeof listFields>;
   getField: (fieldId: string) => ReturnType<typeof getField>;
   bulkLifecycle: BulkLifecycleOperations<FieldListParams, FieldCommand, FieldState, FieldEvent>;
   projectors: readonly Projector[];
@@ -56,11 +45,10 @@ export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldServices {
       projectorName: "catalog-field-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: withCatalogAdminRealtimeInvalidation(
-        buildFieldProjectionHandlers(deps.db),
-        deps.db,
-        { projectionName: "catalog-field-projection", surface: "fields" },
-      ),
+      handlers: withCatalogAdminRealtimeInvalidation(buildFieldProjectionHandlers(deps.db), deps.db, {
+        projectionName: "catalog-field-projection",
+        surface: "fields",
+      }),
     }),
   ];
   const bulkLifecycle = createBulkLifecycleOperations<FieldListParams, FieldCommand, FieldState, FieldEvent>({

@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  getRealtimeSubscriptionDiagnostics,
-  subscribeRealtimePatches,
-} from "./realtime-web";
+import { getRealtimeSubscriptionDiagnostics, subscribeRealtimePatches } from "./realtime-web";
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -88,13 +85,17 @@ describe("realtime web subscriptions", () => {
       ],
     });
 
-    FakeEventSource.instances[0].emit("projection.patch", {
-      kind: "projection.patch",
-      context: "discovery",
-      projection: "discovery-market-projection",
-      topics: ["listing:list_1", "public:market"],
-      changes: [{ op: "remove", entity: "discovery.marketListing", id: "list_1" }],
-    }, "cursor_1");
+    FakeEventSource.instances[0].emit(
+      "projection.patch",
+      {
+        kind: "projection.patch",
+        context: "discovery",
+        projection: "discovery-market-projection",
+        topics: ["listing:list_1", "public:market"],
+        changes: [{ op: "remove", entity: "discovery.marketListing", id: "list_1" }],
+      },
+      "cursor_1",
+    );
 
     expect(patches.map((entry) => (entry as unknown[])[0])).toEqual(["first", "second"]);
     expect(getRealtimeSubscriptionDiagnostics().sources[0]).toMatchObject({
@@ -118,9 +119,7 @@ describe("realtime web subscriptions", () => {
     });
 
     expect(FakeEventSource.instances).toHaveLength(1);
-    expect(FakeEventSource.instances[0].url).toBe(
-      "/api/realtime/account/events?topic=account%3Aaccount_1%3Alistings",
-    );
+    expect(FakeEventSource.instances[0].url).toBe("/api/realtime/account/events?topic=account%3Aaccount_1%3Alistings");
 
     subscription.close();
   });
@@ -190,20 +189,22 @@ describe("realtime web subscriptions", () => {
       },
     });
 
-    FakeEventSource.instances[0].emit("projection.patch", {
-      kind: "projection.patch",
-      context: "discovery",
-      projection: "discovery-market-projection",
-      topics: ["public:market"],
-      changes: [{ op: "remove", entity: "discovery.marketListing", id: "list_1" }],
-    }, "cursor_1");
+    FakeEventSource.instances[0].emit(
+      "projection.patch",
+      {
+        kind: "projection.patch",
+        context: "discovery",
+        projection: "discovery-market-projection",
+        topics: ["public:market"],
+        changes: [{ op: "remove", entity: "discovery.marketListing", id: "list_1" }],
+      },
+      "cursor_1",
+    );
     FakeEventSource.instances[0].emit("error", {});
 
     vi.advanceTimersByTime(25);
 
-    expect(FakeEventSource.instances[1].url).toBe(
-      "/api/realtime/public/events?topic=public%3Amarket&cursor=cursor_1",
-    );
+    expect(FakeEventSource.instances[1].url).toBe("/api/realtime/public/events?topic=public%3Amarket&cursor=cursor_1");
 
     subscription.close();
   });

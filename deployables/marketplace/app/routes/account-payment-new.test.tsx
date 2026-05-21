@@ -34,19 +34,14 @@ type PurchaseDetail = Readonly<{
   inventory_holds: readonly unknown[];
 }>;
 
-const {
-  mockUseActionData,
-  mockUseLoaderData,
-  mockUseNavigation,
-  mockUseSubmit,
-  mockRequireActorFromAuthApi,
-} = vi.hoisted(() => ({
-  mockUseActionData: vi.fn(),
-  mockUseLoaderData: vi.fn(),
-  mockUseNavigation: vi.fn(),
-  mockUseSubmit: vi.fn(),
-  mockRequireActorFromAuthApi: vi.fn(),
-}));
+const { mockUseActionData, mockUseLoaderData, mockUseNavigation, mockUseSubmit, mockRequireActorFromAuthApi } =
+  vi.hoisted(() => ({
+    mockUseActionData: vi.fn(),
+    mockUseLoaderData: vi.fn(),
+    mockUseNavigation: vi.fn(),
+    mockUseSubmit: vi.fn(),
+    mockRequireActorFromAuthApi: vi.fn(),
+  }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -89,10 +84,10 @@ function buildPurchase(purchaseId: string): PurchaseDetail {
     shipping_option: "standard",
     item_subtotal_amount: "10.00",
     shipping_base_amount: "1.00",
-  shipping_discount_amount: "0.00",
-  shipping_charge_amount: "1.00",
-  sales_tax_amount: "0.00",
-  total_amount: "11.00",
+    shipping_discount_amount: "0.00",
+    shipping_charge_amount: "1.00",
+    sales_tax_amount: "0.00",
+    total_amount: "11.00",
     marketplace_sales_fee_amount: "1.00",
     marketplace_checkout_fee_amount: "0.50",
     seller_net_amount: "9.50",
@@ -217,10 +212,12 @@ describe("marketplace account payment start route", () => {
         }
 
         if (url.includes("/api/settlement/wallet")) {
-          return Promise.resolve(jsonResponse({
-            available_balance_amount: "12.50",
-            currency_code: "usd",
-          }));
+          return Promise.resolve(
+            jsonResponse({
+              available_balance_amount: "12.50",
+              currency_code: "usd",
+            }),
+          );
         }
 
         if (url.includes("/api/marketplace/account/checkout/status")) {
@@ -232,19 +229,14 @@ describe("marketplace account payment start route", () => {
     );
 
     const result = await loader({
-      request: new Request(
-        "http://localhost/account/payments/new?orderIds=ord_1,ord_2&autostart=1",
-      ),
+      request: new Request("http://localhost/account/payments/new?orderIds=ord_1,ord_2&autostart=1"),
       params: {},
       context: undefined,
     } as never);
 
     expect(result.orderIds).toEqual(["ord_1", "ord_2"]);
     expect(result.autostart).toBe(true);
-    expect(result.orders.map((purchase) => purchase.order_id)).toEqual([
-      "ord_1",
-      "ord_2",
-    ]);
+    expect(result.orders.map((purchase) => purchase.order_id)).toEqual(["ord_1", "ord_2"]);
     expect(result.wallet?.available_balance_amount).toBe("12.50");
   });
 
@@ -258,10 +250,7 @@ describe("marketplace account payment start route", () => {
           return Promise.resolve(jsonResponse(checkoutStatus));
         }
 
-        if (
-          url.includes("/api/marketplace/account/payments") &&
-          (init?.method ?? "GET").toUpperCase() === "POST"
-        ) {
+        if (url.includes("/api/marketplace/account/payments") && (init?.method ?? "GET").toUpperCase() === "POST") {
           return Promise.resolve(jsonResponse({ payment_id: "pay_1" }, 201));
         }
 

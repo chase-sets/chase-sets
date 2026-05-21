@@ -4,10 +4,7 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
-import type {
-  ReferenceRecordCommand,
-  ReferenceTypeCommand,
-} from "../../reference-data/domain/domain";
+import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
 import type { SourceObservationNormalized } from "../domain/domain";
 import { createSourceObservationRuntime, ensurePokemonReferenceHierarchy } from "./runtime";
 
@@ -55,12 +52,8 @@ describe("source observation runtime", () => {
     });
 
     expect(translatedExpansionReferenceId).toBe(firstExpansionReferenceId);
-    expect(
-      harness.referenceRecordsByProviderAttribute("series", "tcgdex-series-id", "me"),
-    ).toHaveLength(1);
-    expect(
-      harness.referenceRecordsByProviderAttribute("expansion", "tcgdex-set-id", "me02.5"),
-    ).toHaveLength(1);
+    expect(harness.referenceRecordsByProviderAttribute("series", "tcgdex-series-id", "me")).toHaveLength(1);
+    expect(harness.referenceRecordsByProviderAttribute("expansion", "tcgdex-set-id", "me02.5")).toHaveLength(1);
     expect(
       harness.referenceRecordCreateCommands.filter(
         (command) => command.typeKey === "series" && command.attributes?.["tcgdex-series-id"] === "me",
@@ -75,11 +68,7 @@ describe("source observation runtime", () => {
 
   it("promotes changed observations by refreshing the linked Catalog Item", async () => {
     const harness = createChangedObservationRefreshHarness();
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      harness.items,
-      harness.referenceData,
-    );
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
 
     const result = await services.promoteObservation({
       observationId: "obs_changed",
@@ -155,11 +144,7 @@ describe("source observation runtime", () => {
         seriesName: "Base",
       }),
     });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      harness.items,
-      harness.referenceData,
-    );
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
 
     await services.promoteObservation({
       observationId: "obs_changed",
@@ -199,11 +184,7 @@ describe("source observation runtime", () => {
         parallelSet: false,
       }),
     });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      harness.items,
-      harness.referenceData,
-    );
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
 
     await services.promoteObservation({
       observationId: "obs_changed",
@@ -240,11 +221,7 @@ describe("source observation runtime", () => {
         parallelSet: false,
       }),
     });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      harness.items,
-      harness.referenceData,
-    );
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
 
     await services.promoteObservation({
       observationId: "obs_changed",
@@ -316,10 +293,7 @@ function pokemonObservation(input: {
 function createReferencePreloadHarness() {
   const referenceTypes = new Map<string, ReferenceTypeRow>();
   const referenceRecords = new Map<string, ReferenceRecordRow>();
-  const referenceRecordCreateCommands: Extract<
-    ReferenceRecordCommand,
-    { type: "CreateReferenceRecord" }
-  >[] = [];
+  const referenceRecordCreateCommands: Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>[] = [];
 
   const deps = {
     db: {
@@ -350,9 +324,7 @@ function createReferencePreloadHarness() {
           const attributeKey = String(values[1]);
           const attributeValue = String(values[2]);
           const row = Array.from(referenceRecords.values()).find(
-            (record) =>
-              record.type_key === typeKey &&
-              record.attributes[attributeKey] === attributeValue,
+            (record) => record.type_key === typeKey && record.attributes[attributeKey] === attributeValue,
           );
           return {
             rowCount: row ? 1 : 0,
@@ -366,9 +338,7 @@ function createReferencePreloadHarness() {
   } as unknown as CatalogRuntimeDeps;
 
   const referenceData = {
-    referenceTypeCommandHandler: async (input: {
-      command: ReferenceTypeCommand;
-    }) => {
+    referenceTypeCommandHandler: async (input: { command: ReferenceTypeCommand }) => {
       if (input.command.type === "CreateReferenceType") {
         referenceTypes.set(input.command.referenceTypeId, {
           reference_type_id: input.command.referenceTypeId,
@@ -376,9 +346,7 @@ function createReferencePreloadHarness() {
         });
       }
     },
-    referenceRecordCommandHandler: async (input: {
-      command: ReferenceRecordCommand;
-    }) => {
+    referenceRecordCommandHandler: async (input: { command: ReferenceRecordCommand }) => {
       if (input.command.type === "CreateReferenceRecord") {
         referenceRecordCreateCommands.push(input.command);
         referenceRecords.set(input.command.referenceRecordId, {
@@ -396,30 +364,28 @@ function createReferencePreloadHarness() {
     deps,
     referenceData,
     referenceRecordCreateCommands,
-    referenceRecordsByProviderAttribute(
-      typeKey: string,
-      attributeKey: string,
-      attributeValue: string,
-    ) {
+    referenceRecordsByProviderAttribute(typeKey: string, attributeKey: string, attributeValue: string) {
       return Array.from(referenceRecords.values()).filter(
-        (record) =>
-          record.type_key === typeKey &&
-          record.attributes[attributeKey] === attributeValue,
+        (record) => record.type_key === typeKey && record.attributes[attributeKey] === attributeValue,
       );
     },
   };
 }
 
-function createChangedObservationRefreshHarness(input: {
-  normalized?: SourceObservationNormalized;
-  expansionAttributes?: Readonly<Record<string, JsonValue>>;
-} = {}) {
+function createChangedObservationRefreshHarness(
+  input: {
+    normalized?: SourceObservationNormalized;
+    expansionAttributes?: Readonly<Record<string, JsonValue>>;
+  } = {},
+) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
-  const normalized = input.normalized ?? pokemonObservation({
-    expansionName: "Ascended Heroes Updated",
-    seriesName: "Mega Evolution",
-  });
+  const normalized =
+    input.normalized ??
+    pokemonObservation({
+      expansionName: "Ascended Heroes Updated",
+      seriesName: "Mega Evolution",
+    });
   const observationRow = {
     observation_id: "obs_changed",
     provider_key: "tcgdex",
@@ -521,9 +487,7 @@ function createChangedObservationRefreshHarness(input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {
         appendedSourceEvents.push(...input.events);
-        return input.events.map((event, index) =>
-          storedEvent(4 + index, streamId, event.eventType, event.payload),
-        );
+        return input.events.map((event, index) => storedEvent(4 + index, streamId, event.eventType, event.payload));
       },
       readAll: async () => [],
     },
@@ -556,12 +520,7 @@ function createChangedObservationRefreshHarness(input: {
   };
 }
 
-function storedEvent(
-  streamVersion: number,
-  streamId: string,
-  eventType: string,
-  payload: Record<string, unknown>,
-) {
+function storedEvent(streamVersion: number, streamId: string, eventType: string, payload: Record<string, unknown>) {
   return {
     eventId: `evt_${streamVersion}`,
     streamId,

@@ -8,15 +8,9 @@ const dashboardPath = process.env.STRUCTURE_METRICS_DASHBOARD_PATH ?? "artifacts
 const budgetMode = process.env.STRUCTURE_BUDGET_MODE === "error" ? "error" : "warn";
 
 const budget = {
-  maxSingleSliceSupportFiles: Number.parseInt(
-    process.env.STRUCTURE_BUDGET_MAX_SINGLE_SLICE_SUPPORT_FILES ?? "20",
-    10,
-  ),
+  maxSingleSliceSupportFiles: Number.parseInt(process.env.STRUCTURE_BUDGET_MAX_SINGLE_SLICE_SUPPORT_FILES ?? "20", 10),
   maxDriftCount: Number.parseInt(process.env.STRUCTURE_BUDGET_MAX_DRIFT_COUNT ?? "8", 10),
-  maxSupportDirectoryCount: Number.parseInt(
-    process.env.STRUCTURE_BUDGET_MAX_SUPPORT_DIRECTORY_COUNT ?? "80",
-    10,
-  ),
+  maxSupportDirectoryCount: Number.parseInt(process.env.STRUCTURE_BUDGET_MAX_SUPPORT_DIRECTORY_COUNT ?? "80", 10),
 };
 
 process.env.STRUCTURE_METRICS_WRITE = "1";

@@ -14,10 +14,7 @@ export type CommercialTermsScheduleRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listSchedules(
-  db: PgQueryable,
-  params: Readonly<{ limit?: number; offset?: number }> = {},
-) {
+export async function listSchedules(db: PgQueryable, params: Readonly<{ limit?: number; offset?: number }> = {}) {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
   const [countResult, itemsResult] = await Promise.all([

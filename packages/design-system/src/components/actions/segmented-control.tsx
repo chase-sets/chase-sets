@@ -12,21 +12,17 @@ export interface SegmentedControlItem {
   icon?: IconName;
 }
 
-export interface SegmentedControlProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "onChange"> {
+export interface SegmentedControlProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "className" | "style" | "onChange"
+> {
   items: SegmentedControlItem[];
   value: string;
   fullWidth?: boolean;
   onValueChange?: (value: string) => void;
 }
 
-export function SegmentedControl({
-  items,
-  value,
-  fullWidth = false,
-  onValueChange,
-  ...rest
-}: SegmentedControlProps) {
+export function SegmentedControl({ items, value, fullWidth = false, onValueChange, ...rest }: SegmentedControlProps) {
   const groupId = useId();
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -56,9 +52,7 @@ export function SegmentedControl({
         role="tablist"
         className={cx(
           "rounded-tokenLg border border-muted bg-background p-1",
-          fullWidth
-            ? "grid w-full grid-cols-2 sm:grid-flow-col sm:auto-cols-fr"
-            : "inline-flex flex-wrap"
+          fullWidth ? "grid w-full grid-cols-2 sm:grid-flow-col sm:auto-cols-fr" : "inline-flex flex-wrap",
         )}
       >
         {items.map((item, index) => {
@@ -74,9 +68,7 @@ export function SegmentedControl({
               className={cx(
                 "focus-ring relative inline-flex min-h-10 min-w-0 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
                 fullWidth && "justify-center",
-                active
-                  ? "text-accent"
-                  : "text-secondary hover:text-foreground"
+                active ? "text-accent" : "text-secondary hover:text-foreground",
               )}
               onClick={() => onValueChange?.(item.value)}
               onKeyDown={(event) => handleKeyDown(event, index)}

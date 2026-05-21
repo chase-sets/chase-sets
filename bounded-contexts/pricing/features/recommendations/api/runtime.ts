@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -33,9 +30,7 @@ type PricingRecommendationRuntimeDeps = Readonly<{
 }>;
 
 export type PricingMarketplaceListingGateway = Readonly<{
-  previewListingTerms: (
-    body: Readonly<{ priceAmount: string }>,
-  ) => Promise<{ fee_quote_fingerprint: string }>;
+  previewListingTerms: (body: Readonly<{ priceAmount: string }>) => Promise<{ fee_quote_fingerprint: string }>;
   updateListingPrice: (
     listingId: string,
     body: Readonly<{ priceAmount: string; feeQuoteFingerprint?: string | null }>,
@@ -51,10 +46,7 @@ export type PricingMarketplaceListingGateway = Readonly<{
 }>;
 
 type RefreshCandidate = Readonly<{
-  actionType:
-    | "active-listing-price-update"
-    | "draft-listing-price-update"
-    | "draft-listing-create";
+  actionType: "active-listing-price-update" | "draft-listing-price-update" | "draft-listing-create";
   sellerAccountId: string;
   catalogItemId: string;
   productId: string;
@@ -79,14 +71,14 @@ function moneyString(value: number) {
 }
 
 function safeIdPart(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function recommendationIdFor(candidate: RefreshCandidate) {
-  const targetId =
-    candidate.actionType === "draft-listing-create"
-      ? candidate.inventoryItemId
-      : candidate.listingId;
+  const targetId = candidate.actionType === "draft-listing-create" ? candidate.inventoryItemId : candidate.listingId;
   return [
     "rec",
     safeIdPart(candidate.sellerAccountId),
@@ -117,10 +109,7 @@ function recommendedAmount(candidate: RefreshCandidate) {
   return null;
 }
 
-async function listRefreshCandidates(
-  db: PgQueryable,
-  accountId: string,
-): Promise<RefreshCandidate[]> {
+async function listRefreshCandidates(db: PgQueryable, accountId: string): Promise<RefreshCandidate[]> {
   const listingResult = await db.query<{
     action_type: RefreshCandidate["actionType"];
     seller_account_id: string;
@@ -254,11 +243,7 @@ function isSelectedProposedRecommendation(row: AccountRecommendationListItem) {
 }
 
 export type PricingRecommendationServices = Readonly<{
-  commandHandler: CommandHandler<
-    PricingRecommendationCommand,
-    PricingRecommendationState,
-    PricingRecommendationEvent
-  >;
+  commandHandler: CommandHandler<PricingRecommendationCommand, PricingRecommendationState, PricingRecommendationEvent>;
   captureMarketSnapshot: (
     params: Readonly<{
       recommendationId: string;
@@ -340,11 +325,7 @@ export function createPricingRecommendationRuntime(
       return { recommendationId: params.recommendationId, version: result.version };
     },
     publishRecommendation: async (params, context) => {
-      const current = await getAccountRecommendation(
-        deps.db,
-        params.recommendationId,
-        params.accountId,
-      );
+      const current = await getAccountRecommendation(deps.db, params.recommendationId, params.accountId);
       if (!current) {
         throw new Error("Recommendation not found.");
       }
@@ -373,10 +354,7 @@ export function createPricingRecommendationRuntime(
         if (!recommendation) {
           continue;
         }
-        if (
-          currentPriceAmount !== null &&
-          currentPriceAmount === recommendation.recommendedListAmount
-        ) {
+        if (currentPriceAmount !== null && currentPriceAmount === recommendation.recommendedListAmount) {
           continue;
         }
 
@@ -424,10 +402,7 @@ export function createPricingRecommendationRuntime(
           const price = moneyString(Number(priceAmount));
           let appliedListingId = row.listing_id;
 
-          if (
-            row.action_type === "active-listing-price-update" ||
-            row.action_type === "draft-listing-price-update"
-          ) {
+          if (row.action_type === "active-listing-price-update" || row.action_type === "draft-listing-price-update") {
             if (!row.listing_id) {
               throw new Error("Recommendation is missing a listing target.");
             }
@@ -440,8 +415,7 @@ export function createPricingRecommendationRuntime(
                 feeQuoteFingerprint: quote.fee_quote_fingerprint,
               });
             } catch (error) {
-              const retryFingerprint =
-                params.marketplaceListings.staleFeeQuoteFingerprint?.(error);
+              const retryFingerprint = params.marketplaceListings.staleFeeQuoteFingerprint?.(error);
               if (!retryFingerprint) {
                 throw error;
               }
@@ -480,8 +454,7 @@ export function createPricingRecommendationRuntime(
             streamId: `pricing.recommendation-${row.recommendation_id}`,
             command: {
               type: "MarkRecommendationFailed",
-              errorMessage:
-                error instanceof Error ? error.message : "Recommendation apply failed.",
+              errorMessage: error instanceof Error ? error.message : "Recommendation apply failed.",
               failedAt: new Date().toISOString(),
             },
             context,

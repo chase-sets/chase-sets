@@ -4,11 +4,7 @@ import {
   resolveRequestApiBaseUrl,
   resolvePlatformInternalAuthSecret,
 } from "@chase-sets/platform-runtime/http";
-export {
-  authApi,
-  AuthApiError,
-  createAuthApiClient,
-} from "../../client";
+export { authApi, AuthApiError, createAuthApiClient } from "../../client";
 export type { AuthApiClientOptions } from "../../client";
 import { createAuthApiClient } from "../../client";
 

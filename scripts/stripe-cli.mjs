@@ -4,27 +4,13 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnvFile } from "./lib/env.mjs";
-import {
-  applySandboxEnv,
-  ensureWorktreeSandboxEnvironment,
-  mergeSandboxEnvFile,
-} from "./lib/sandbox.mjs";
+import { applySandboxEnv, ensureWorktreeSandboxEnvironment, mergeSandboxEnvFile } from "./lib/sandbox.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment({ rootDir });
 applySandboxEnv(sandboxEnv);
-const platformApiEnvExamplePath = path.join(
-  rootDir,
-  "deployables",
-  "platform-api",
-  ".env.example",
-);
-const platformApiEnvLocalPath = path.join(
-  rootDir,
-  "deployables",
-  "platform-api",
-  ".env.local",
-);
+const platformApiEnvExamplePath = path.join(rootDir, "deployables", "platform-api", ".env.example");
+const platformApiEnvLocalPath = path.join(rootDir, "deployables", "platform-api", ".env.local");
 const dockerImage = process.env.STRIPE_CLI_DOCKER_IMAGE ?? "stripe/stripe-cli";
 const defaultForwardUrl = sandboxEnv.STRIPE_WEBHOOK_FORWARD_URL;
 const readyFilePath = process.env.STRIPE_READY_FILE ?? null;
@@ -40,34 +26,21 @@ function printUsage() {
   console.log("  node ./scripts/stripe-cli.mjs listen");
   console.log("");
   console.log("Environment:");
-  console.log(
-    "  STRIPE_API_KEY                Overrides STRIPE_SECRET_KEY from deployables/platform-api/.env.local.",
-  );
-  console.log(
-    "  STRIPE_WEBHOOK_FORWARD_URL    Overrides the sandbox webhook endpoint.",
-  );
-  console.log(
-    "  STRIPE_CLI_DOCKER_IMAGE       Overrides the Stripe CLI Docker image name.",
-  );
+  console.log("  STRIPE_API_KEY                Overrides STRIPE_SECRET_KEY from deployables/platform-api/.env.local.");
+  console.log("  STRIPE_WEBHOOK_FORWARD_URL    Overrides the sandbox webhook endpoint.");
+  console.log("  STRIPE_CLI_DOCKER_IMAGE       Overrides the Stripe CLI Docker image name.");
 }
 
 function resolveStripeApiKey() {
   const envLocal = readEnvFile(platformApiEnvLocalPath);
   const envExample = readEnvFile(platformApiEnvExamplePath);
 
-  return (
-    process.env.STRIPE_API_KEY ??
-    envLocal.STRIPE_SECRET_KEY ??
-    envExample.STRIPE_SECRET_KEY ??
-    null
-  );
+  return process.env.STRIPE_API_KEY ?? envLocal.STRIPE_SECRET_KEY ?? envExample.STRIPE_SECRET_KEY ?? null;
 }
 
 function persistWebhookSecret(webhookSecret) {
   const { sandbox } = mergeSandboxEnvFile({ STRIPE_WEBHOOK_SECRET: webhookSecret }, { rootDir });
-  console.log(
-    `[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, sandbox.envFilePath)}`,
-  );
+  console.log(`[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, sandbox.envFilePath)}`);
   console.log("[stripe] Restart platform-api if it was already running.");
 }
 
@@ -161,11 +134,7 @@ async function runListen() {
         return;
       }
 
-      reject(
-        new Error(
-          `Stripe CLI Docker listener exited with code ${code ?? "unknown"}.`,
-        ),
-      );
+      reject(new Error(`Stripe CLI Docker listener exited with code ${code ?? "unknown"}.`));
     });
   });
 }

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideCheckoutSession,
-  evolveCheckoutSession,
-  initialCheckoutSessionState,
-} from "./domain";
+import { decideCheckoutSession, evolveCheckoutSession, initialCheckoutSessionState } from "./domain";
 
 const line = {
   listingId: null,

@@ -17,19 +17,12 @@ import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaSql } from "./support/runtime-support/schema";
 import { seedPaymentsDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -46,23 +39,18 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
   routePrefix: "/api/marketplace",
   streamPrefix: "payments.",
   schemaSql: paymentsSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<
+    PaymentsServices,
+    PgTransactionalPool,
+    PaymentsServiceOptions
+  >["apiMounts"],
   projectionGroups,
   createServices: (pool, options) => createPaymentsServices(pool, options),
-  buildApis: (services) => [
-    buildPaymentsApi(services),
-    createPaymentProcessorWebhookRoutes(services.payments),
-  ],
+  buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const orderingSubscription = getEventSubscription(
-      "ordering",
-      "payments-order-input-projection",
-    );
-    const supportSubscription = getEventSubscription(
-      "support",
-      "payments-support-refund-effect",
-    );
+    const orderingSubscription = getEventSubscription("ordering", "payments-order-input-projection");
+    const supportSubscription = getEventSubscription("support", "payments-support-refund-effect");
     const orderingCancellationSubscription = getEventSubscription(
       "ordering",
       "payments-order-cancellation-refund-effect",
@@ -84,10 +72,7 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
         sourceContextName: "support",
         projectionName: supportSubscription.projectionName,
         subscriptionVersion: supportSubscription.subscriptionVersion,
-        handlers: buildPaymentsSupportRefundEffectHandlers(
-          services.db,
-          services.refunds,
-        ),
+        handlers: buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
         eventTypes: supportSubscription.eventTypes,
         streamPrefixes: supportSubscription.streamPrefixes,
         order: supportSubscription.order,
@@ -97,10 +82,7 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
         sourceContextName: "ordering",
         projectionName: orderingCancellationSubscription.projectionName,
         subscriptionVersion: orderingCancellationSubscription.subscriptionVersion,
-        handlers: buildPaymentsOrderCancellationRefundEffectHandlers(
-          services.db,
-          services.refunds,
-        ),
+        handlers: buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
         eventTypes: orderingCancellationSubscription.eventTypes,
         streamPrefixes: orderingCancellationSubscription.streamPrefixes,
         order: orderingCancellationSubscription.order,

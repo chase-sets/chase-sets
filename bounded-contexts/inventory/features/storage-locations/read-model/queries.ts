@@ -37,11 +37,7 @@ export async function listStorageLocations(
   return result.rows;
 }
 
-export async function getStorageLocation(
-  db: PgQueryable,
-  storageLocationId: string,
-  accountId?: string,
-) {
+export async function getStorageLocation(db: PgQueryable, storageLocationId: string, accountId?: string) {
   const values: unknown[] = [storageLocationId];
   const filters = ["storage_location_id = $1"];
 

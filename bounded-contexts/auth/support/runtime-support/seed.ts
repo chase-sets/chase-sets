@@ -23,9 +23,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
   const db = pool;
 
   try {
-    const existing = await db.query(
-      "SELECT COUNT(*) AS count FROM identity_sessions",
-    );
+    const existing = await db.query("SELECT COUNT(*) AS count FROM identity_sessions");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Auth already contains data. Skipping seed.");
       return;

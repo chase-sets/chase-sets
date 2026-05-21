@@ -60,15 +60,17 @@ export type RealtimeSubscriptionDiagnostics = Readonly<{
   sources: readonly Readonly<RealtimeSubscriptionDiagnosticEntry>[];
 }>;
 
-export function subscribeRealtimePatches(options: Readonly<{
-  topics?: readonly string[];
-  preset?: RealtimeRouteSubscriptionPreset;
-  onPatch: (patch: RealtimeProjectionPatch) => void;
-  onSyncRequired: (message: RealtimeSyncRequired) => void;
-  onError?: (error: Event) => void;
-  debounceMs?: number;
-  reconnectPolicy?: RealtimeReconnectPolicy;
-}>): RealtimeSubscription {
+export function subscribeRealtimePatches(
+  options: Readonly<{
+    topics?: readonly string[];
+    preset?: RealtimeRouteSubscriptionPreset;
+    onPatch: (patch: RealtimeProjectionPatch) => void;
+    onSyncRequired: (message: RealtimeSyncRequired) => void;
+    onError?: (error: Event) => void;
+    debounceMs?: number;
+    reconnectPolicy?: RealtimeReconnectPolicy;
+  }>,
+): RealtimeSubscription {
   const requestedTopics = options.preset?.topics ?? options.topics ?? [];
   if (typeof window === "undefined" || requestedTopics.length === 0) {
     return { close: () => undefined };
@@ -249,11 +251,9 @@ function resolveRealtimeReconnectPolicy(
   return {
     backoffMs: policy?.backoffMs ?? DEFAULT_RECONNECT_POLICY.backoffMs,
     maxErrorCountBeforeBackoff:
-      policy?.maxErrorCountBeforeBackoff ??
-      DEFAULT_RECONNECT_POLICY.maxErrorCountBeforeBackoff,
+      policy?.maxErrorCountBeforeBackoff ?? DEFAULT_RECONNECT_POLICY.maxErrorCountBeforeBackoff,
     maxSyncRequiredBeforeBackoff:
-      policy?.maxSyncRequiredBeforeBackoff ??
-      DEFAULT_RECONNECT_POLICY.maxSyncRequiredBeforeBackoff,
+      policy?.maxSyncRequiredBeforeBackoff ?? DEFAULT_RECONNECT_POLICY.maxSyncRequiredBeforeBackoff,
   };
 }
 
@@ -280,7 +280,5 @@ function parseRealtimeMessage(event: Event): unknown {
 }
 
 function readLastEventId(event: Event): string | null {
-  return "lastEventId" in event && typeof event.lastEventId === "string"
-    ? event.lastEventId
-    : null;
+  return "lastEventId" in event && typeof event.lastEventId === "string" ? event.lastEventId : null;
 }

@@ -73,9 +73,7 @@ export function createFulfillmentApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
-    async listBuyerShipments(
-      query = "",
-    ): Promise<ListResponse<FulfillmentShipmentListItem>> {
+    async listBuyerShipments(query = ""): Promise<ListResponse<FulfillmentShipmentListItem>> {
       return parseJsonResponse(
         await client.account.shipments.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -91,9 +89,7 @@ export function createFulfillmentApiClient({
         }),
       );
     },
-    async listSellerShipments(
-      query = "",
-    ): Promise<ListResponse<FulfillmentShipmentListItem>> {
+    async listSellerShipments(query = ""): Promise<ListResponse<FulfillmentShipmentListItem>> {
       return parseJsonResponse(
         await client.account.sales.shipments.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -109,9 +105,7 @@ export function createFulfillmentApiClient({
         }),
       );
     },
-    async listSellerPackingSlips(
-      shipmentIds: readonly string[],
-    ): Promise<FulfillmentPackingSlipBatch> {
+    async listSellerPackingSlips(shipmentIds: readonly string[]): Promise<FulfillmentPackingSlipBatch> {
       return parseJsonResponse(
         await client.account.sales.shipments["packing-slips"].$get({
           query: { shipmentIds: shipmentIds.join(",") },

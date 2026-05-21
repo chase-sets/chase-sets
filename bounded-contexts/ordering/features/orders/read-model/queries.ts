@@ -72,11 +72,7 @@ export type OrderingOrderListRow = Readonly<{
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   self_service_cancellation_available: boolean;
-  cancellation_unavailable_reason:
-    | "payment-pending"
-    | "fulfillment-started"
-    | "already-cancelled"
-    | null;
+  cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
   line_count: number;
   total_quantity: number;
 }>;
@@ -128,11 +124,7 @@ type BaseOrderPageRow = Readonly<{
   cancellation_reason: string | null;
   ready_for_fulfillment_at: string | null;
   self_service_cancellation_available: boolean;
-  cancellation_unavailable_reason:
-    | "payment-pending"
-    | "fulfillment-started"
-    | "already-cancelled"
-    | null;
+  cancellation_unavailable_reason: "payment-pending" | "fulfillment-started" | "already-cancelled" | null;
   line_count: number;
   total_quantity: number;
 }>;
@@ -242,9 +234,7 @@ const baseOrderSelect = `
 function mapOrderLine(row: OrderLinePageRow): OrderingOrderLineRow {
   return {
     ...row,
-    selected_options: Array.isArray(row.selected_options)
-      ? (row.selected_options as VersionSelectedOptionEntry[])
-      : [],
+    selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
   };
 }
 

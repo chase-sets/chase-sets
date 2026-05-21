@@ -4,8 +4,16 @@ import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { User } from "./contracts";
 
 const columns: DataColumn<User>[] = [
-  { key: "display_name", header: t("identity.features.users.ui.userListPage.display.name"), cell: (row) => row.display_name },
-  { key: "primary_email", header: t("identity.features.users.ui.userListPage.email"), cell: (row) => row.primary_email },
+  {
+    key: "display_name",
+    header: t("identity.features.users.ui.userListPage.display.name"),
+    cell: (row) => row.display_name,
+  },
+  {
+    key: "primary_email",
+    header: t("identity.features.users.ui.userListPage.email"),
+    cell: (row) => row.primary_email,
+  },
   {
     key: "auth_methods",
     header: t("identity.features.users.ui.userListPage.auth.methods"),

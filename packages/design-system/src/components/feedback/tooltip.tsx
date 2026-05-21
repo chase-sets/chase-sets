@@ -9,19 +9,11 @@ export interface TooltipProps {
   children: ReactNode;
 }
 
-export function Tooltip({
-  content,
-  children
-}: TooltipProps) {
+export function Tooltip({ content, children }: TooltipProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
   const [open, setOpen] = useState(false);
-  const motionProps = resolveOverlayMotion(
-    motionSettings,
-    open,
-    { opacity: 1, y: 0 },
-    { opacity: 0, y: 6 }
-  );
+  const motionProps = resolveOverlayMotion(motionSettings, open, { opacity: 1, y: 0 }, { opacity: 0, y: 6 });
 
   return (
     <TooltipPrimitive.Provider delay={150}>
@@ -34,11 +26,11 @@ export function Tooltip({
                 initial: motionProps.initial,
                 animate: motionProps.animate,
                 transition: motionProps.transition,
-                className: "rounded-tokenMd bg-foreground px-3 py-2 text-xs font-medium text-inverse shadow-overlay"
+                className: "rounded-tokenMd bg-foreground px-3 py-2 text-xs font-medium text-inverse shadow-overlay",
               })}
             >
-                {content}
-                <TooltipPrimitive.Arrow className="fill-foreground" />
+              {content}
+              <TooltipPrimitive.Arrow className="fill-foreground" />
             </TooltipPrimitive.Popup>
           </TooltipPrimitive.Positioner>
         </TooltipPrimitive.Portal>

@@ -23,10 +23,7 @@ export class PublicPresenceDomainError extends Error {
   }
 }
 
-export function assert(
-  condition: boolean,
-  message: string,
-): asserts condition {
+export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new PublicPresenceDomainError(message);
   }
@@ -58,9 +55,7 @@ const allowedInterests = new Set<WaitlistInterest>([
   "efficient-shipping",
 ]);
 
-export function normalizeWaitlistInterests(
-  values: readonly string[],
-): WaitlistInterest[] {
+export function normalizeWaitlistInterests(values: readonly string[]): WaitlistInterest[] {
   const interests = values.filter((value): value is WaitlistInterest =>
     allowedInterests.has(value as WaitlistInterest),
   );

@@ -1,6 +1,5 @@
 import { t } from "@chase-sets/localization";
-const DEFAULT_MARKETPLACE_DESCRIPTION =
-  t("marketplace.app.seo.browse.the.chase.sets.marketplace.with");
+const DEFAULT_MARKETPLACE_DESCRIPTION = t("marketplace.app.seo.browse.the.chase.sets.marketplace.with");
 
 export function shouldIndexMarketplace() {
   const value = process.env.CHASE_SETS_MARKETPLACE_INDEXING?.trim().toLowerCase();

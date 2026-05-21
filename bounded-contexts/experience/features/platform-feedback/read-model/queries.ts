@@ -44,11 +44,13 @@ function normalizePageParams(params: Readonly<{ limit?: number; offset?: number 
   };
 }
 
-function feedbackFilters(params: Readonly<{
-  status?: string | null;
-  topic?: string | null;
-  workflow?: string | null;
-}>) {
+function feedbackFilters(
+  params: Readonly<{
+    status?: string | null;
+    topic?: string | null;
+    workflow?: string | null;
+  }>,
+) {
   const clauses: string[] = [];
   const values: unknown[] = [];
 
@@ -120,10 +122,7 @@ export async function listPlatformFeedback(
   };
 }
 
-export async function getPlatformFeedback(
-  db: PgQueryable,
-  feedbackId: string,
-): Promise<PlatformFeedbackRow | null> {
+export async function getPlatformFeedback(db: PgQueryable, feedbackId: string): Promise<PlatformFeedbackRow | null> {
   const result = await db.query<PlatformFeedbackRow>(
     `SELECT
        feedback_id,
@@ -219,14 +218,8 @@ export async function hasActivePromptSnooze(
   return Boolean(result.rows[0]);
 }
 
-async function groupedMetric(
-  db: PgQueryable,
-  column: "topic",
-): Promise<PlatformFeedbackMetricsRow["by_topic"]>;
-async function groupedMetric(
-  db: PgQueryable,
-  column: "workflow",
-): Promise<PlatformFeedbackMetricsRow["by_workflow"]>;
+async function groupedMetric(db: PgQueryable, column: "topic"): Promise<PlatformFeedbackMetricsRow["by_topic"]>;
+async function groupedMetric(db: PgQueryable, column: "workflow"): Promise<PlatformFeedbackMetricsRow["by_workflow"]>;
 async function groupedMetric(
   db: PgQueryable,
   column: "topic" | "workflow",
@@ -260,9 +253,7 @@ async function groupedMetric(
   }));
 }
 
-export async function getPlatformFeedbackMetrics(
-  db: PgQueryable,
-): Promise<PlatformFeedbackMetricsRow> {
+export async function getPlatformFeedbackMetrics(db: PgQueryable): Promise<PlatformFeedbackMetricsRow> {
   const [summaryResult, byTopic, byWorkflow] = await Promise.all([
     db.query<{
       total_count: string;

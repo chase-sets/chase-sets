@@ -30,13 +30,7 @@ describe("pricing marketplace source projection", () => {
     } as never);
 
     expect(calls[0]?.sql).toContain("pricing_catalog_item_inputs");
-    expect(calls[0]?.params).toEqual([
-      "cat_1",
-      "ja",
-      "Charizard",
-      "Japanese Base Set",
-      "2026-05-09T00:00:00.000Z",
-    ]);
+    expect(calls[0]?.params).toEqual(["cat_1", "ja", "Charizard", "Japanese Base Set", "2026-05-09T00:00:00.000Z"]);
   });
 
   it("projects listing targets needed for repricing recommendations", async () => {

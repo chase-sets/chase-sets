@@ -1,7 +1,4 @@
-export function createForwardedAuthHeaders(
-  request: Request,
-  initHeaders?: HeadersInit,
-): Headers {
+export function createForwardedAuthHeaders(request: Request, initHeaders?: HeadersInit): Headers {
   const headers = new Headers(initHeaders);
   const cookie = request.headers.get("cookie");
   const authorization = request.headers.get("authorization");

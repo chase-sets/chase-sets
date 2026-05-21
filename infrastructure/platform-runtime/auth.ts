@@ -1,9 +1,6 @@
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import {
-  createForwardedAuthHeaders,
-  resolveRequestApiBaseUrl,
-} from "./http";
+import { createForwardedAuthHeaders, resolveRequestApiBaseUrl } from "./http";
 
 export type { ResolvedActor } from "@chase-sets/auth-context";
 
@@ -14,9 +11,7 @@ export class AuthResolutionError extends Error {
   readonly status: number;
 
   constructor(authApiBaseUrl: string, status: number) {
-    super(
-      `Unable to resolve current actor from '${authApiBaseUrl}'. Status ${status}.`,
-    );
+    super(`Unable to resolve current actor from '${authApiBaseUrl}'. Status ${status}.`);
     this.name = "AuthResolutionError";
     this.authApiBaseUrl = authApiBaseUrl;
     this.status = status;
@@ -24,22 +19,14 @@ export class AuthResolutionError extends Error {
 }
 
 export function isTransientAuthResolutionError(error: unknown) {
-  return (
-    error instanceof AuthResolutionError &&
-    TRANSIENT_AUTH_RESOLUTION_STATUSES.has(error.status)
-  );
+  return error instanceof AuthResolutionError && TRANSIENT_AUTH_RESOLUTION_STATUSES.has(error.status);
 }
 
-export function hasPermission(
-  actor: ResolvedActor | null | undefined,
-  permission: string,
-) {
+export function hasPermission(actor: ResolvedActor | null | undefined, permission: string) {
   return actor?.permissions.includes(permission) ?? false;
 }
 
-export function createActorEventStoreContext(
-  actor: ResolvedActor,
-): EventStoreContext {
+export function createActorEventStoreContext(actor: ResolvedActor): EventStoreContext {
   return {
     tenantId: actor.tenantId as never,
     audit: {
@@ -82,21 +69,18 @@ function buildCurrentPath(request: Request) {
   return `${url.pathname}${url.search}`;
 }
 
-export async function resolveActorFromAuthApi(options: Readonly<{
-  request: Request;
-  authApiBaseUrl?: string;
-  authApiBasePath?: string;
-  sessionPath?: string;
-  fetch?: typeof globalThis.fetch;
-}>): Promise<ResolvedActor | null> {
-  const authApiBaseUrl =
-    options.authApiBaseUrl
-      ? normalizeAuthApiBaseUrl(options.authApiBaseUrl)
-      :
-      resolveRequestApiBaseUrl(
-        options.request,
-        options.authApiBasePath ?? "/api/auth",
-      );
+export async function resolveActorFromAuthApi(
+  options: Readonly<{
+    request: Request;
+    authApiBaseUrl?: string;
+    authApiBasePath?: string;
+    sessionPath?: string;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): Promise<ResolvedActor | null> {
+  const authApiBaseUrl = options.authApiBaseUrl
+    ? normalizeAuthApiBaseUrl(options.authApiBaseUrl)
+    : resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth");
   const response = await (options.fetch ?? globalThis.fetch)(
     resolveAuthSessionUrl(authApiBaseUrl, options.sessionPath ?? "session"),
     {
@@ -117,22 +101,22 @@ export async function resolveActorFromAuthApi(options: Readonly<{
   return body.actor;
 }
 
-export async function requireActorFromAuthApi(options: Readonly<{
-  request: Request;
-  permission?: string;
-  signInPath?: string;
-  authApiBaseUrl?: string;
-  authApiBasePath?: string;
-  sessionPath?: string;
-  fetch?: typeof globalThis.fetch;
-}>): Promise<ResolvedActor> {
+export async function requireActorFromAuthApi(
+  options: Readonly<{
+    request: Request;
+    permission?: string;
+    signInPath?: string;
+    authApiBaseUrl?: string;
+    authApiBasePath?: string;
+    sessionPath?: string;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): Promise<ResolvedActor> {
   const actor = await resolveActorFromAuthApi(options);
 
   if (!actor) {
     throw createRedirectResponse(
-      `${options.signInPath ?? "/sign-in"}?returnTo=${encodeURIComponent(
-        buildCurrentPath(options.request),
-      )}`,
+      `${options.signInPath ?? "/sign-in"}?returnTo=${encodeURIComponent(buildCurrentPath(options.request))}`,
     );
   }
 

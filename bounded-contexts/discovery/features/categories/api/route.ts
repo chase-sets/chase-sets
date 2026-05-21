@@ -9,10 +9,12 @@ export function discoveryCategoryRoutes(services: DiscoveryCategoryServices) {
     const parentCategoryId = c.req.query("parentCategoryId");
     const status = c.req.query("status");
 
-    const categories = (await services.listCategories({
-      parentCategoryId: parentCategoryId || undefined,
-      status: status || undefined,
-    })).filter((category) => category.item_count > 0);
+    const categories = (
+      await services.listCategories({
+        parentCategoryId: parentCategoryId || undefined,
+        status: status || undefined,
+      })
+    ).filter((category) => category.item_count > 0);
 
     return c.json({ items: categories, total: categories.length, count: categories.length });
   });
@@ -21,7 +23,10 @@ export function discoveryCategoryRoutes(services: DiscoveryCategoryServices) {
     const category = await services.getCategoryBySlug(c.req.param("slug"));
 
     if (!category || category.item_count <= 0) {
-      return c.json({ error: { code: "not_found", message: t("discovery.features.categories.api.route.category.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("discovery.features.categories.api.route.category.not.found") } },
+        404,
+      );
     }
 
     return c.json(category);

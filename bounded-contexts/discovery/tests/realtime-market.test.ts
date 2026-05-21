@@ -1,14 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
-import {
-  applyDiscoveryItemPatch,
-  applyDiscoverySearchPatch,
-} from "../support/client-support/realtime-market";
+import { applyDiscoveryItemPatch, applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { createDiscoveryOfferPatch } from "../support/realtime-support/patches";
-import type {
-  DiscoveryItemDetail,
-  DiscoverySearchResponse,
-} from "../support/client-support/contracts";
+import type { DiscoveryItemDetail, DiscoverySearchResponse } from "../support/client-support/contracts";
 
 describe("discovery realtime market patches", () => {
   it("patches item detail listings and market summaries", () => {
@@ -121,11 +115,10 @@ describe("discovery realtime market patches", () => {
       ],
     } satisfies RealtimeProjectionPatch;
 
-    expect(applyDiscoverySearchPatch(search, patch)?.items[0].market_summary)
-      .toEqual({
-        lowest_price_amount: "9.00",
-        active_listing_count: 1,
-        total_visible_quantity: 1,
-      });
+    expect(applyDiscoverySearchPatch(search, patch)?.items[0].market_summary).toEqual({
+      lowest_price_amount: "9.00",
+      active_listing_count: 1,
+      total_visible_quantity: 1,
+    });
   });
 });

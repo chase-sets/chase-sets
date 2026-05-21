@@ -1,12 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useState, type ReactNode } from "react";
-import {
-  BrandLink,
-  ChaseRoot,
-  MarketplaceShell,
-  type NavigationItem,
-  type ColorMode,
-} from "@chase-sets/design-system";
+import { BrandLink, ChaseRoot, MarketplaceShell, type NavigationItem, type ColorMode } from "@chase-sets/design-system";
 
 export function DiscoveryShellLayout({
   activeKey = "search",

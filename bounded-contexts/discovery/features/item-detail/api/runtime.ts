@@ -8,9 +8,7 @@ export type DiscoveryItemDetailServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createDiscoveryItemDetailRuntime(
-  deps: DiscoveryRuntimeDeps,
-): DiscoveryItemDetailServices {
+export function createDiscoveryItemDetailRuntime(deps: DiscoveryRuntimeDeps): DiscoveryItemDetailServices {
   return {
     getItemDetail: (itemId) => getDiscoveryItemDetail(deps.db, itemId),
     projectors: [

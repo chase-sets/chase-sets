@@ -1,10 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import {
-  redirect,
-  useActionData,
-  useLoaderData,
-  useNavigation,
-} from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -49,11 +44,7 @@ function getOrderId(params: LoaderFunctionArgs["params"], config: ReviewSubmissi
   return orderId;
 }
 
-async function loadOpportunity(
-  request: Request,
-  orderId: string,
-  notFoundMessage: string,
-) {
+async function loadOpportunity(request: Request, orderId: string, notFoundMessage: string) {
   const api = createReputationRequestApiClient(request);
 
   try {
@@ -83,20 +74,13 @@ export function createReviewSubmissionLoader(config: ReviewSubmissionRouteConfig
     });
 
     return {
-      opportunity: await loadOpportunity(
-        request,
-        getOrderId(params, config),
-        config.notFoundMessage,
-      ),
+      opportunity: await loadOpportunity(request, getOrderId(params, config), config.notFoundMessage),
     };
   };
 }
 
 export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig) {
-  return async function reviewSubmissionAction({
-    request,
-    params,
-  }: ActionFunctionArgs) {
+  return async function reviewSubmissionAction({ request, params }: ActionFunctionArgs) {
     await requireActorFromAuthApi({
       request,
       permission: "reputation.manage",
@@ -120,9 +104,7 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
         feedback,
       })) as Readonly<{ id: string }>;
 
-      return redirect(
-        appendFreshWriteToken(`/account/reviews/${review.id}`, review),
-      );
+      return redirect(appendFreshWriteToken(`/account/reviews/${review.id}`, review));
     } catch (error) {
       if (error instanceof ReputationApiError && error.status === 404) {
         throw new Response(config.notFoundMessage, { status: 404 });
@@ -139,11 +121,7 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
   };
 }
 
-export function ReviewSubmissionRoute({
-  config,
-}: {
-  config: ReviewSubmissionRouteConfig;
-}) {
+export function ReviewSubmissionRoute({ config }: { config: ReviewSubmissionRouteConfig }) {
   const data = useLoaderData() as ReviewSubmissionLoaderData;
   const actionData = useActionData() as ReviewSubmissionActionData | undefined;
   const navigation = useNavigation();

@@ -1,10 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
-import {
-  loadTestEnvironment,
-  parseRunWorkspacesArgs,
-  runWorkspaceScripts,
-} from "./run-workspaces.mjs";
+import { loadTestEnvironment, parseRunWorkspacesArgs, runWorkspaceScripts } from "./run-workspaces.mjs";
 
 function workspace(name, scripts, testProfile) {
   return {
@@ -31,10 +27,7 @@ describe("run-workspaces", () => {
     await runWorkspaceScripts({
       argv: ["build"],
       buildInvocation,
-      listWorkspaces: () => [
-        workspace("@test/a", { build: "build" }),
-        workspace("@test/b", { build: "build" }),
-      ],
+      listWorkspaces: () => [workspace("@test/a", { build: "build" }), workspace("@test/b", { build: "build" })],
       run: async () => {
         active += 1;
         maxActive = Math.max(maxActive, active);
@@ -114,10 +107,7 @@ describe("run-workspaces", () => {
         runWorkspaceScripts({
           argv: ["build", "--concurrency=2"],
           buildInvocation,
-          listWorkspaces: () => [
-            workspace("@test/a", { build: "build" }),
-            workspace("@test/b", { build: "build" }),
-          ],
+          listWorkspaces: () => [workspace("@test/a", { build: "build" }), workspace("@test/b", { build: "build" })],
           run: async (_command, args) => {
             if (args[1] === "@test/b") {
               throw new Error("boom");

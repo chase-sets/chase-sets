@@ -97,11 +97,10 @@ describe("transactional email outbox", () => {
   });
 });
 
-function createMemoryOutbox(
-  claimed: readonly ClaimedTransactionalEmail[],
-): TransactionalEmailOutboxStore & Readonly<{
-  sent: readonly string[];
-}> {
+function createMemoryOutbox(claimed: readonly ClaimedTransactionalEmail[]): TransactionalEmailOutboxStore &
+  Readonly<{
+    sent: readonly string[];
+  }> {
   const sent: string[] = [];
 
   return {

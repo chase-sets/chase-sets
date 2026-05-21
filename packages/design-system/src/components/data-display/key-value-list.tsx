@@ -5,19 +5,13 @@ export interface KeyValueItem {
   value: ReactNode;
 }
 
-export interface KeyValueListProps
-  extends Omit<HTMLAttributes<HTMLDListElement>, "className" | "style"> {
+export interface KeyValueListProps extends Omit<HTMLAttributes<HTMLDListElement>, "className" | "style"> {
   items: KeyValueItem[];
   density?: "default" | "compact";
   variant?: "surface" | "plain";
 }
 
-export function KeyValueList({
-  items,
-  density = "default",
-  variant = "surface",
-  ...rest
-}: KeyValueListProps) {
+export function KeyValueList({ items, density = "default", variant = "surface", ...rest }: KeyValueListProps) {
   return (
     <dl
       {...rest}
@@ -36,9 +30,7 @@ export function KeyValueList({
               : "flex items-start justify-between gap-4 border-b border-muted pb-3 last:border-b-0 last:pb-0"
           }
         >
-          <dt className="text-xs font-semibold uppercase text-secondary">
-            {item.key}
-          </dt>
+          <dt className="text-xs font-semibold uppercase text-secondary">{item.key}</dt>
           <dd className="min-w-0 text-right text-sm text-foreground">{item.value}</dd>
         </div>
       ))}

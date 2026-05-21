@@ -8,7 +8,7 @@ import type { AccountServices } from "./runtime";
 
 function readAccountBadgeKey(value: unknown): AccountBadgeKey | null {
   return typeof value === "string" && accountBadgeKeys.includes(value as AccountBadgeKey)
-    ? value as AccountBadgeKey
+    ? (value as AccountBadgeKey)
     : null;
 }
 
@@ -84,12 +84,15 @@ export function accountRoutes(services: AccountServices) {
     const body = await c.req.json();
     const badgeKey = readAccountBadgeKey(body.badgeKey);
     if (!badgeKey) {
-      return c.json({
-        error: {
-          code: "validation_failed",
-          message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
     const result = await services.commandHandler({
@@ -112,12 +115,15 @@ export function accountRoutes(services: AccountServices) {
     const accountId = c.req.param("id");
     const badgeKey = readAccountBadgeKey(c.req.param("badgeKey"));
     if (!badgeKey) {
-      return c.json({
-        error: {
-          code: "validation_failed",
-          message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
     const result = await services.commandHandler({
@@ -158,12 +164,18 @@ export function accountRoutes(services: AccountServices) {
     const actor = c.var.actor;
     const accountId = c.req.param("id");
     if (actor && !hasPermission(actor, "accounts.manage") && actor.accountId !== accountId) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("identity.features.accounts.api.route.forbidden") } }, 403);
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("identity.features.accounts.api.route.forbidden") } },
+        403,
+      );
     }
 
     const account = await services.getAccount(accountId);
     if (!account) {
-      return c.json({ error: { code: "not_found", message: t("identity.features.accounts.api.route.account.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.accounts.api.route.account.not.found") } },
+        404,
+      );
     }
     return c.json(account);
   });

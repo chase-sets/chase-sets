@@ -1,12 +1,5 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import {
-  normalizeAddressSnapshot,
-  type AddressSnapshot,
-} from "@chase-sets/primitives/address-snapshot";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
@@ -33,9 +26,7 @@ function normalizeMoneyAmount(
   const fieldName = options.fieldName ?? "Price amount";
   assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
   assert(
-    options.allowZero
-      ? Number.parseFloat(normalized) >= 0
-      : Number.parseFloat(normalized) > 0,
+    options.allowZero ? Number.parseFloat(normalized) >= 0 : Number.parseFloat(normalized) > 0,
     `${fieldName} must be ${options.allowZero ? "zero or greater" : "greater than zero"}.`,
   );
   return normalized;
@@ -55,11 +46,7 @@ export type MarketplaceListingPurchaseLimits = Readonly<{
   maxUnitsPerCustomerAccount: number | null;
 }>;
 
-export type MarketplaceListingPhotoAssetRole =
-  | "source"
-  | "thumbnail"
-  | "search-card"
-  | "catalog-detail";
+export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
 export type MarketplaceListingPhotoAssetVariant = Readonly<{
   role: MarketplaceListingPhotoAssetRole;
@@ -336,14 +323,8 @@ export type ListingPublishedEvent = DomainEvent<
     feeQuoteFingerprint: string;
   }>
 >;
-export type ListingPausedEvent = DomainEvent<
-  "marketplace.listing.paused",
-  Readonly<Record<string, never>>
->;
-export type ListingWithdrawnEvent = DomainEvent<
-  "marketplace.listing.withdrawn",
-  Readonly<Record<string, never>>
->;
+export type ListingPausedEvent = DomainEvent<"marketplace.listing.paused", Readonly<Record<string, never>>>;
+export type ListingWithdrawnEvent = DomainEvent<"marketplace.listing.withdrawn", Readonly<Record<string, never>>>;
 
 export type MarketplaceListingEvent =
   | ListingCreatedEvent
@@ -384,10 +365,7 @@ export const decideMarketplaceListing: AggregateDecider<
             gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
             storageLocationName: command.storageLocationName?.trim() ?? null,
             shipFromCode: command.shipFromCode?.trim() ?? null,
-            shipFromAddress: normalizeAddressSnapshot(
-              command.shipFromAddress,
-              "Ship-from address",
-            ),
+            shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
             marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(command.marketplaceSalesFeeUnitAmount, {
               fieldName: "Marketplace sales fee unit amount",
@@ -412,10 +390,7 @@ export const decideMarketplaceListing: AggregateDecider<
               command.quantityCap,
               "Listing quantity cap must be a positive whole number.",
             ),
-            purchaseLimits: normalizePurchaseLimits(
-              command.purchaseLimits,
-              command.quantityCap,
-            ),
+            purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, command.quantityCap),
             listingPhotos: normalizeListingPhotos(command.listingPhotos ?? []),
           },
         },
@@ -494,10 +469,7 @@ export const decideMarketplaceListing: AggregateDecider<
         {
           type: "marketplace.listing.purchase-limits-updated",
           data: {
-            purchaseLimits: normalizePurchaseLimits(
-              command.purchaseLimits,
-              state.quantityCap,
-            ),
+            purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, state.quantityCap),
           },
         },
       ];
@@ -508,10 +480,7 @@ export const decideMarketplaceListing: AggregateDecider<
         {
           type: "marketplace.listing.photos-added",
           data: {
-            listingPhotos: mergeListingPhotos(
-              state.listingPhotos,
-              normalizeListingPhotos(command.photos),
-            ),
+            listingPhotos: mergeListingPhotos(state.listingPhotos, normalizeListingPhotos(command.photos)),
           },
         },
       ];
@@ -565,10 +534,10 @@ export const decideMarketplaceListing: AggregateDecider<
   }
 };
 
-export const evolveMarketplaceListing: AggregateEvolver<
-  MarketplaceListingState,
-  MarketplaceListingEvent
-> = (state, event) => {
+export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState, MarketplaceListingEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "marketplace.listing.created":
       return {
@@ -665,10 +634,7 @@ export function requiresListingPhotoEvidence(
 ): boolean {
   const values = [
     listing.productSummary ?? "",
-    ...listing.selectedOptions.flatMap((selection) => [
-      selection.dimensionId,
-      selection.optionId,
-    ]),
+    ...listing.selectedOptions.flatMap((selection) => [selection.dimensionId, selection.optionId]),
   ];
 
   return values.some((value) => highConditionTokenRequiresPhoto(value));
@@ -698,21 +664,10 @@ function normalizePurchaseLimits(
   limits: Partial<MarketplaceListingPurchaseLimits> | null | undefined,
   quantityCapInput: number,
 ): MarketplaceListingPurchaseLimits {
-  const quantityCap = ensurePositiveInteger(
-    quantityCapInput,
-    "Listing quantity cap must be a positive whole number.",
-  );
+  const quantityCap = ensurePositiveInteger(quantityCapInput, "Listing quantity cap must be a positive whole number.");
   const normalized = {
-    maxUnitsPerOrder: normalizePurchaseLimitValue(
-      limits?.maxUnitsPerOrder,
-      "Maximum units per order",
-      quantityCap,
-    ),
-    maxUnitsPerDay: normalizePurchaseLimitValue(
-      limits?.maxUnitsPerDay,
-      "Maximum units per day",
-      quantityCap,
-    ),
+    maxUnitsPerOrder: normalizePurchaseLimitValue(limits?.maxUnitsPerOrder, "Maximum units per order", quantityCap),
+    maxUnitsPerDay: normalizePurchaseLimitValue(limits?.maxUnitsPerDay, "Maximum units per day", quantityCap),
     maxUnitsPerCustomerAccount: normalizePurchaseLimitValue(
       limits?.maxUnitsPerCustomerAccount,
       "Maximum units per customer account",
@@ -720,30 +675,21 @@ function normalizePurchaseLimits(
     ),
   };
 
-  if (
-    normalized.maxUnitsPerOrder !== null &&
-    normalized.maxUnitsPerDay !== null
-  ) {
+  if (normalized.maxUnitsPerOrder !== null && normalized.maxUnitsPerDay !== null) {
     assert(
       normalized.maxUnitsPerOrder <= normalized.maxUnitsPerDay,
       "Maximum units per order cannot exceed maximum units per day.",
     );
   }
 
-  if (
-    normalized.maxUnitsPerDay !== null &&
-    normalized.maxUnitsPerCustomerAccount !== null
-  ) {
+  if (normalized.maxUnitsPerDay !== null && normalized.maxUnitsPerCustomerAccount !== null) {
     assert(
       normalized.maxUnitsPerDay <= normalized.maxUnitsPerCustomerAccount,
       "Maximum units per day cannot exceed maximum units per customer account.",
     );
   }
 
-  if (
-    normalized.maxUnitsPerOrder !== null &&
-    normalized.maxUnitsPerCustomerAccount !== null
-  ) {
+  if (normalized.maxUnitsPerOrder !== null && normalized.maxUnitsPerCustomerAccount !== null) {
     assert(
       normalized.maxUnitsPerOrder <= normalized.maxUnitsPerCustomerAccount,
       "Maximum units per order cannot exceed maximum units per customer account.",
@@ -753,15 +699,10 @@ function normalizePurchaseLimits(
   return normalized;
 }
 
-function normalizeListingPhotos(
-  photos: readonly MarketplaceListingPhoto[],
-): MarketplaceListingPhoto[] {
+function normalizeListingPhotos(photos: readonly MarketplaceListingPhoto[]): MarketplaceListingPhoto[] {
   return photos.map((photo, index) => {
     const photoId = normalizeRequiredText(photo.photoId, "Listing photo id is required.");
-    const uploadedAt = normalizeRequiredText(
-      photo.uploadedAt,
-      "Listing photo upload timestamp is required.",
-    );
+    const uploadedAt = normalizeRequiredText(photo.uploadedAt, "Listing photo upload timestamp is required.");
     assert(
       Number.isInteger(photo.sortOrder) && photo.sortOrder >= 0,
       "Listing photo sort order must be zero or greater.",
@@ -788,20 +729,13 @@ function mergeListingPhotos(
   }
 
   return [...byKey.values()].sort((left, right) =>
-    left.sortOrder === right.sortOrder
-      ? left.photoId.localeCompare(right.photoId)
-      : left.sortOrder - right.sortOrder,
+    left.sortOrder === right.sortOrder ? left.photoId.localeCompare(right.photoId) : left.sortOrder - right.sortOrder,
   );
 }
 
-function normalizeListingPhotoAssetSet(
-  assetSet: MarketplaceListingPhoto["assetSet"],
-): MarketplaceListingPhotoAssetSet {
+function normalizeListingPhotoAssetSet(assetSet: MarketplaceListingPhoto["assetSet"]): MarketplaceListingPhotoAssetSet {
   assert(assetSet.kind === "listing-photo", "Listing photo asset set kind is invalid.");
-  const sourceHash = normalizeRequiredText(
-    assetSet.sourceHash,
-    "Listing photo source hash is required.",
-  );
+  const sourceHash = normalizeRequiredText(assetSet.sourceHash, "Listing photo source hash is required.");
 
   return {
     kind: "listing-photo",
@@ -833,19 +767,10 @@ function normalizeListingPhotoAssetVariant(
     height: variant.height,
     density: variant.density,
     mediaType: "image/webp",
-    storageKey: normalizeRequiredText(
-      variant.storageKey,
-      "Listing photo storage key is required.",
-    ),
-    publicUrl: normalizeRequiredText(
-      variant.publicUrl,
-      "Listing photo public URL is required.",
-    ),
+    storageKey: normalizeRequiredText(variant.storageKey, "Listing photo storage key is required."),
+    publicUrl: normalizeRequiredText(variant.publicUrl, "Listing photo public URL is required."),
     byteSize: variant.byteSize,
-    generatedAt: normalizeRequiredText(
-      variant.generatedAt,
-      "Listing photo generation timestamp is required.",
-    ),
+    generatedAt: normalizeRequiredText(variant.generatedAt, "Listing photo generation timestamp is required."),
   };
 }
 
@@ -869,9 +794,7 @@ function highConditionTokenRequiresPhoto(value: string): boolean {
   });
 }
 
-function normalizeGradedCardDetails(
-  details: MarketplaceGradedCardDetails | null,
-): MarketplaceGradedCardDetails | null {
+function normalizeGradedCardDetails(details: MarketplaceGradedCardDetails | null): MarketplaceGradedCardDetails | null {
   if (!details) {
     return null;
   }

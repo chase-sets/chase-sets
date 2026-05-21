@@ -1,9 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  recordRealtimeProjectionPatch,
-  recordRealtimeProjectionPatches,
-} from "@chase-sets/platform-runtime/realtime";
+import { recordRealtimeProjectionPatch, recordRealtimeProjectionPatches } from "@chase-sets/platform-runtime/realtime";
 import {
   createMarketplaceOfferMatchPatch,
   createMarketplaceOfferPatch,
@@ -52,11 +49,7 @@ async function loadInterestedSellerAccountIds(db: PgQueryable, productId: string
   return result.rows.map((row) => row.account_id);
 }
 
-async function emitOfferPatch(
-  db: PgQueryable,
-  event: Parameters<ProjectorHandlerMap[string]>[0],
-  offerId: string,
-) {
+async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
   const offer = await loadRealtimeOffer(db, offerId);
   if (!offer) {
     return;
@@ -77,11 +70,7 @@ async function emitOfferPatch(
   if (offer.accepted_seller_account_id) {
     sellerAccountIds.add(offer.accepted_seller_account_id);
   }
-  const offerMatchesBySellerAccountId = await listOfferMatchesForSellers(
-    db,
-    offerId,
-    [...sellerAccountIds],
-  );
+  const offerMatchesBySellerAccountId = await listOfferMatchesForSellers(db, offerId, [...sellerAccountIds]);
 
   await recordRealtimeProjectionPatches(
     db,
@@ -100,9 +89,7 @@ async function emitOfferPatch(
   );
 }
 
-export function buildMarketplaceOfferProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "marketplace.offer.submitted": async (event) => {
       const data = event.data as {

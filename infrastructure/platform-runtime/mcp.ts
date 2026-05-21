@@ -32,13 +32,9 @@ export type McpResourceHandlerInput = Readonly<{
   request: Request;
 }>;
 
-export type McpToolHandler = (
-  input: McpToolHandlerInput,
-) => Promise<unknown> | unknown;
+export type McpToolHandler = (input: McpToolHandlerInput) => Promise<unknown> | unknown;
 
-export type McpResourceHandler = (
-  input: McpResourceHandlerInput,
-) => Promise<unknown> | unknown;
+export type McpResourceHandler = (input: McpResourceHandlerInput) => Promise<unknown> | unknown;
 
 export type McpAuditRecord = Readonly<{
   outcome: "allowed" | "denied" | "failed";
@@ -53,9 +49,7 @@ export type McpAuditRecord = Readonly<{
   sensitiveInputFields?: readonly string[];
 }>;
 
-export type McpAuditSink = (
-  record: McpAuditRecord,
-) => Promise<void> | void;
+export type McpAuditSink = (record: McpAuditRecord) => Promise<void> | void;
 
 export type CreateMcpRoutesOptions = Readonly<{
   services?: readonly McpServiceDescriptor[];
@@ -103,12 +97,7 @@ function jsonRpcResult(id: JsonRpcRequest["id"], result: unknown) {
   };
 }
 
-function jsonRpcError(
-  id: JsonRpcRequest["id"],
-  code: number,
-  message: string,
-  data?: unknown,
-) {
+function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, data?: unknown) {
   return {
     jsonrpc: JSON_RPC_VERSION,
     id: id ?? null,
@@ -148,25 +137,16 @@ function normalizeConfirmation(value: unknown) {
   };
 }
 
-function hasRequiredIdempotencyKey(
-  tool: McpToolDescriptor,
-  args: Readonly<Record<string, unknown>>,
-) {
+function hasRequiredIdempotencyKey(tool: McpToolDescriptor, args: Readonly<Record<string, unknown>>) {
   return (
     tool.guardrails.idempotencyKey !== "required" ||
     (typeof args.idempotencyKey === "string" && args.idempotencyKey.trim().length > 0)
   );
 }
 
-function redactArguments(
-  args: Readonly<Record<string, unknown>>,
-  sensitiveInputFields: readonly string[],
-) {
+function redactArguments(args: Readonly<Record<string, unknown>>, sensitiveInputFields: readonly string[]) {
   return Object.fromEntries(
-    Object.entries(args).map(([key, value]) => [
-      key,
-      sensitiveInputFields.includes(key) ? "[redacted]" : value,
-    ]),
+    Object.entries(args).map(([key, value]) => [key, sensitiveInputFields.includes(key) ? "[redacted]" : value]),
   );
 }
 
@@ -206,17 +186,12 @@ function toResourceListItem(resource: McpResourceDescriptor) {
 }
 
 function isResourceMatch(resource: McpResourceDescriptor, uri: string) {
-  const expression = resource.uriTemplate
-    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/\\\{[^}]+\\\}/g, "[^/]+");
+  const expression = resource.uriTemplate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\{[^}]+\\\}/g, "[^/]+");
 
   return new RegExp(`^${expression}$`).test(uri);
 }
 
-async function audit(
-  sink: McpAuditSink | undefined,
-  record: McpAuditRecord,
-) {
+async function audit(sink: McpAuditSink | undefined, record: McpAuditRecord) {
   await sink?.(record);
 }
 
@@ -224,10 +199,7 @@ async function callTool(
   request: Request,
   actor: ResolvedActor | null,
   params: McpToolCallParams,
-  options: Required<
-    Pick<CreateMcpRoutesOptions, "services" | "toolHandlers">
-  > &
-    Pick<CreateMcpRoutesOptions, "audit">,
+  options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers">> & Pick<CreateMcpRoutesOptions, "audit">,
 ) {
   if (typeof params.name !== "string") {
     return jsonRpcError(null, -32602, "Tool name is required.");
@@ -239,15 +211,13 @@ async function callTool(
   }
 
   const args = normalizeArguments(params.arguments);
-  const confirmation = normalizeConfirmation(params.confirmation ?? {
-    confirmed: args.confirmed,
-    text: args.confirmationText,
-  });
-  const authorization = authorizeMcpToolInvocation(
-    tool,
-    toMcpActor(actor),
-    confirmation,
+  const confirmation = normalizeConfirmation(
+    params.confirmation ?? {
+      confirmed: args.confirmed,
+      text: args.confirmationText,
+    },
   );
+  const authorization = authorizeMcpToolInvocation(tool, toMcpActor(actor), confirmation);
 
   if (!authorization.allowed) {
     await audit(options.audit, {
@@ -351,9 +321,7 @@ async function readResource(
   request: Request,
   actor: ResolvedActor | null,
   params: McpResourceReadParams,
-  options: Required<
-    Pick<CreateMcpRoutesOptions, "services" | "resourceHandlers">
-  > &
+  options: Required<Pick<CreateMcpRoutesOptions, "services" | "resourceHandlers">> &
     Pick<CreateMcpRoutesOptions, "audit">,
 ) {
   if (typeof params.uri !== "string") {
@@ -401,10 +369,7 @@ async function readResource(
     },
     expectedUsage: resource.expectedUsage,
   };
-  const authorization = authorizeMcpToolInvocation(
-    pseudoTool,
-    toMcpActor(actor),
-  );
+  const authorization = authorizeMcpToolInvocation(pseudoTool, toMcpActor(actor));
 
   if (!authorization.allowed) {
     await audit(options.audit, {
@@ -527,36 +492,23 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           }),
         );
       case "tools/call": {
-        const result = await callTool(
-          c.req.raw,
-          actor,
-          (body.params ?? {}) as McpToolCallParams,
-          {
-            services,
-            toolHandlers,
-            audit: options.audit,
-          },
-        );
+        const result = await callTool(c.req.raw, actor, (body.params ?? {}) as McpToolCallParams, {
+          services,
+          toolHandlers,
+          audit: options.audit,
+        });
         return c.json({ ...result, id: body.id ?? null });
       }
       case "resources/read": {
-        const result = await readResource(
-          c.req.raw,
-          actor,
-          (body.params ?? {}) as McpResourceReadParams,
-          {
-            services,
-            resourceHandlers,
-            audit: options.audit,
-          },
-        );
+        const result = await readResource(c.req.raw, actor, (body.params ?? {}) as McpResourceReadParams, {
+          services,
+          resourceHandlers,
+          audit: options.audit,
+        });
         return c.json({ ...result, id: body.id ?? null });
       }
       default:
-        return c.json(
-          jsonRpcError(body.id, -32601, `Unsupported MCP method '${body.method}'.`),
-          404,
-        );
+        return c.json(jsonRpcError(body.id, -32601, `Unsupported MCP method '${body.method}'.`), 404);
     }
   });
 

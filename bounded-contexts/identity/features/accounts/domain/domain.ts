@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   EMPTY_EVENT_DATA,
@@ -33,7 +29,7 @@ export const initialAccountState: AccountState = {
 };
 
 export const accountBadgeKeys = ["founding-account"] as const;
-export type AccountBadgeKey = typeof accountBadgeKeys[number];
+export type AccountBadgeKey = (typeof accountBadgeKeys)[number];
 
 export type CreateAccountCommand = Readonly<{
   type: "CreateAccount";
@@ -89,18 +85,9 @@ export type AccountProfileUpdatedEvent = DomainEvent<
   }>
 >;
 
-export type AccountSuspendedEvent = DomainEvent<
-  "identity.account.suspended",
-  EmptyEventData
->;
-export type AccountReactivatedEvent = DomainEvent<
-  "identity.account.reactivated",
-  EmptyEventData
->;
-export type AccountClosedEvent = DomainEvent<
-  "identity.account.closed",
-  EmptyEventData
->;
+export type AccountSuspendedEvent = DomainEvent<"identity.account.suspended", EmptyEventData>;
+export type AccountReactivatedEvent = DomainEvent<"identity.account.reactivated", EmptyEventData>;
+export type AccountClosedEvent = DomainEvent<"identity.account.closed", EmptyEventData>;
 export type AccountBadgeAssignedEvent = DomainEvent<
   "identity.account.badge-assigned",
   Readonly<{ badgeKey: AccountBadgeKey }>
@@ -119,11 +106,7 @@ export type AccountEvent =
   | AccountBadgeAssignedEvent
   | AccountBadgeRemovedEvent;
 
-export const decideAccount: AggregateDecider<
-  AccountState,
-  AccountCommand,
-  AccountEvent
-> = (state, command) => {
+export const decideAccount: AggregateDecider<AccountState, AccountCommand, AccountEvent> = (state, command) => {
   switch (command.type) {
     case "CreateAccount":
       assert(state.id === null, "Account has already been created.");
@@ -156,10 +139,7 @@ export const decideAccount: AggregateDecider<
       return [{ type: "identity.account.suspended", data: EMPTY_EVENT_DATA }];
     case "ReactivateAccount":
       requireCreatedAccount(state);
-      assert(
-        state.status === "suspended",
-        "Only suspended accounts can be reactivated.",
-      );
+      assert(state.status === "suspended", "Only suspended accounts can be reactivated.");
       return [{ type: "identity.account.reactivated", data: EMPTY_EVENT_DATA }];
     case "CloseAccount":
       requireCreatedAccount(state);
@@ -172,29 +152,30 @@ export const decideAccount: AggregateDecider<
       if (state.badges.includes(command.badgeKey)) {
         return [];
       }
-      return [{
-        type: "identity.account.badge-assigned",
-        data: { badgeKey: command.badgeKey },
-      }];
+      return [
+        {
+          type: "identity.account.badge-assigned",
+          data: { badgeKey: command.badgeKey },
+        },
+      ];
     case "RemoveAccountBadge":
       requireCreatedAccount(state);
       assertValidAccountBadge(command.badgeKey);
       if (!state.badges.includes(command.badgeKey)) {
         return [];
       }
-      return [{
-        type: "identity.account.badge-removed",
-        data: { badgeKey: command.badgeKey },
-      }];
+      return [
+        {
+          type: "identity.account.badge-removed",
+          data: { badgeKey: command.badgeKey },
+        },
+      ];
     default:
       return assertNever(command);
   }
 };
 
-export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (
-  state,
-  event,
-) => {
+export const evolveAccount: AggregateEvolver<AccountState, AccountEvent> = (state, event) => {
   switch (event.type) {
     case "identity.account.created":
       return {
@@ -237,10 +218,7 @@ function requireCreatedAccount(state: AccountState) {
 }
 
 function assertValidAccountBadge(badgeKey: string): asserts badgeKey is AccountBadgeKey {
-  assert(
-    accountBadgeKeys.includes(badgeKey as AccountBadgeKey),
-    "Account badge is not supported.",
-  );
+  assert(accountBadgeKeys.includes(badgeKey as AccountBadgeKey), "Account badge is not supported.");
 }
 
 function sortAccountBadges(badgeKeys: readonly AccountBadgeKey[]) {

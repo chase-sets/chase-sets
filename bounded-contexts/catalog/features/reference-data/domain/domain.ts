@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -110,25 +106,13 @@ export type ReferenceTypeCreatedEvent = DomainEvent<
   Readonly<{ referenceTypeId: ReferenceTypeId }> & ReferenceTypeSnapshot
 >;
 
-export type ReferenceTypeRevisedEvent = DomainEvent<
-  "catalog.reference-type.revised",
-  ReferenceTypeSnapshot
->;
+export type ReferenceTypeRevisedEvent = DomainEvent<"catalog.reference-type.revised", ReferenceTypeSnapshot>;
 
-export type ReferenceTypePublishedEvent = DomainEvent<
-  "catalog.reference-type.published",
-  EmptyEventData
->;
+export type ReferenceTypePublishedEvent = DomainEvent<"catalog.reference-type.published", EmptyEventData>;
 
-export type ReferenceTypeDeprecatedEvent = DomainEvent<
-  "catalog.reference-type.deprecated",
-  EmptyEventData
->;
+export type ReferenceTypeDeprecatedEvent = DomainEvent<"catalog.reference-type.deprecated", EmptyEventData>;
 
-export type ReferenceTypeArchivedEvent = DomainEvent<
-  "catalog.reference-type.archived",
-  EmptyEventData
->;
+export type ReferenceTypeArchivedEvent = DomainEvent<"catalog.reference-type.archived", EmptyEventData>;
 
 export type ReferenceTypeEvent =
   | ReferenceTypeCreatedEvent
@@ -191,25 +175,13 @@ export type ReferenceRecordCreatedEvent = DomainEvent<
   Readonly<{ referenceRecordId: ReferenceRecordId }> & ReferenceRecordSnapshot
 >;
 
-export type ReferenceRecordRevisedEvent = DomainEvent<
-  "catalog.reference-record.revised",
-  ReferenceRecordSnapshot
->;
+export type ReferenceRecordRevisedEvent = DomainEvent<"catalog.reference-record.revised", ReferenceRecordSnapshot>;
 
-export type ReferenceRecordPublishedEvent = DomainEvent<
-  "catalog.reference-record.published",
-  EmptyEventData
->;
+export type ReferenceRecordPublishedEvent = DomainEvent<"catalog.reference-record.published", EmptyEventData>;
 
-export type ReferenceRecordDeprecatedEvent = DomainEvent<
-  "catalog.reference-record.deprecated",
-  EmptyEventData
->;
+export type ReferenceRecordDeprecatedEvent = DomainEvent<"catalog.reference-record.deprecated", EmptyEventData>;
 
-export type ReferenceRecordArchivedEvent = DomainEvent<
-  "catalog.reference-record.archived",
-  EmptyEventData
->;
+export type ReferenceRecordArchivedEvent = DomainEvent<"catalog.reference-record.archived", EmptyEventData>;
 
 export type ReferenceRecordEvent =
   | ReferenceRecordCreatedEvent
@@ -218,11 +190,10 @@ export type ReferenceRecordEvent =
   | ReferenceRecordDeprecatedEvent
   | ReferenceRecordArchivedEvent;
 
-export const decideReferenceType: AggregateDecider<
-  ReferenceTypeState,
-  ReferenceTypeCommand,
-  ReferenceTypeEvent
-> = (state, command) => {
+export const decideReferenceType: AggregateDecider<ReferenceTypeState, ReferenceTypeCommand, ReferenceTypeEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "CreateReferenceType":
       assert(state.id === null, "Reference type has already been created.");
@@ -251,9 +222,7 @@ export const decideReferenceType: AggregateDecider<
           data: {
             key: normalizeKey(command.key),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
             attributeKeys: normalizeAttributeKeys(command.attributeKeys ?? state.attributeKeys),
           },
         },
@@ -278,10 +247,7 @@ export const decideReferenceType: AggregateDecider<
   }
 };
 
-export const evolveReferenceType: AggregateEvolver<ReferenceTypeState, ReferenceTypeEvent> = (
-  state,
-  event,
-) => {
+export const evolveReferenceType: AggregateEvolver<ReferenceTypeState, ReferenceTypeEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.reference-type.created":
       return {
@@ -348,9 +314,7 @@ export const decideReferenceRecord: AggregateDecider<
             typeKey: normalizeKey(command.typeKey),
             key: normalizeKey(command.key),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
             attributes: normalizeAttributes(command.attributes ?? state.attributes),
             relationships: normalizeRelationships(command.relationships ?? state.relationships),
           },
@@ -376,10 +340,7 @@ export const decideReferenceRecord: AggregateDecider<
   }
 };
 
-export const evolveReferenceRecord: AggregateEvolver<
-  ReferenceRecordState,
-  ReferenceRecordEvent
-> = (state, event) => {
+export const evolveReferenceRecord: AggregateEvolver<ReferenceRecordState, ReferenceRecordEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.reference-record.created":
       return {
@@ -442,9 +403,7 @@ function normalizeAttributes(
   );
 }
 
-function normalizeRelationships(
-  relationships: readonly ReferenceRelationship[],
-): readonly ReferenceRelationship[] {
+function normalizeRelationships(relationships: readonly ReferenceRelationship[]): readonly ReferenceRelationship[] {
   const normalized = relationships
     .map((relationship) => ({
       relationshipType: normalizeKey(relationship.relationshipType),

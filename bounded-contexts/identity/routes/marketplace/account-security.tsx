@@ -18,9 +18,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const [user, apiKeys] = await Promise.all([
     api.getUser<User>(actor.userId),
-    api.listApiKeys<ListResponse<ApiKey>>(
-      `search=${encodeURIComponent(actor.userId)}`,
-    ),
+    api.listApiKeys<ListResponse<ApiKey>>(`search=${encodeURIComponent(actor.userId)}`),
   ]);
 
   return {

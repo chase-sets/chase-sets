@@ -42,9 +42,7 @@ const referenceRecord: ReferenceRecord = {
 
 describe("reference data admin pages", () => {
   it("renders reference type attributes", () => {
-    const html = renderToString(
-      <ReferenceTypeDetailPage id="rft_set" initialData={referenceType} />,
-    );
+    const html = renderToString(<ReferenceTypeDetailPage id="rft_set" initialData={referenceType} />);
 
     expect(html).toContain("Set");
     expect(html).toContain("card-count, release-date, abbreviation, source-id");

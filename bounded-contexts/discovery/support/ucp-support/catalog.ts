@@ -23,9 +23,7 @@ type UcpCatalogLookupBody = Readonly<{
   id?: unknown;
 }>;
 
-export function createDiscoveryUcpHandlers(
-  items: DiscoveryItemsServices,
-): DiscoveryUcpHandlers {
+export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): DiscoveryUcpHandlers {
   const handlers = {
     search_catalog: async (input: UcpOperationHandlerInput) => {
       const body = await readInputObject<UcpCatalogSearchBody>(input);
@@ -120,13 +118,16 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
 
 function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
   return {
-    ...searchRowToProduct({
-      ...row,
-      category_names: categoryNames(row.categories),
-      category_slugs: categorySlugs(row.categories),
-      blueprint_name: null,
-      search_rank: null,
-    }, request),
+    ...searchRowToProduct(
+      {
+        ...row,
+        category_names: categoryNames(row.categories),
+        category_slugs: categorySlugs(row.categories),
+        blueprint_name: null,
+        search_rank: null,
+      },
+      request,
+    ),
     product_schema: row.product_schema,
     variants: row.market_listings.map((listing) => ({
       id: listing.product_id,
@@ -162,21 +163,18 @@ function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
   };
 }
 
-async function resolveProductIds(
-  items: DiscoveryItemsServices,
-  ids: readonly string[],
-  request: Request,
-) {
+async function resolveProductIds(items: DiscoveryItemsServices, ids: readonly string[], request: Request) {
   const rows = await Promise.all(ids.slice(0, 20).map((id) => items.detail.getItemDetail(id)));
   return rows
     .filter((row): row is DiscoveryItemDetailRow => row !== null)
     .map((row) => detailRowToProduct(row, request));
 }
 
-async function readJsonObject<T extends Readonly<Record<string, unknown>>>(
-  request: Request,
-): Promise<T> {
-  const value = await request.clone().json().catch(() => ({}));
+async function readJsonObject<T extends Readonly<Record<string, unknown>>>(request: Request): Promise<T> {
+  const value = await request
+    .clone()
+    .json()
+    .catch(() => ({}));
   return readObject(value) as T;
 }
 
@@ -184,14 +182,12 @@ async function readInputObject<T extends Readonly<Record<string, unknown>>>(
   input: UcpOperationHandlerInput,
 ): Promise<T> {
   const args = input.arguments ?? {};
-  return Object.keys(args).length > 0
-    ? args as T
-    : readJsonObject<T>(input.request);
+  return Object.keys(args).length > 0 ? (args as T) : readJsonObject<T>(input.request);
 }
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Readonly<Record<string, unknown>>
+    ? (value as Readonly<Record<string, unknown>>)
     : {};
 }
 
@@ -212,9 +208,7 @@ function readNumber(value: unknown) {
 }
 
 function readStringArray(value: unknown) {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : [];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 function readRecordString(value: unknown, key: string) {
@@ -240,9 +234,7 @@ function categorySlugs(value: unknown) {
     .filter((entry): entry is string => entry !== null);
 }
 
-function productImageUrls(
-  row: Pick<DiscoverySearchItemRow, "image_urls" | "product_asset_sets" | "image_fallback">,
-) {
+function productImageUrls(row: Pick<DiscoverySearchItemRow, "image_urls" | "product_asset_sets" | "image_fallback">) {
   const directUrls = readStringArray(row.image_urls);
   if (directUrls.length > 0) {
     return directUrls;
@@ -256,9 +248,10 @@ function productImageUrls(
   const urls: string[] = [];
   for (const assetSet of readArray(row.product_asset_sets)) {
     const variants = readArray(readObject(assetSet).variants);
-    const preferred = variants.find((variant) =>
-      ["search-card", "thumbnail", "catalog-detail"].includes(readRecordString(variant, "role") ?? ""),
-    ) ?? readObject(assetSet).source;
+    const preferred =
+      variants.find((variant) =>
+        ["search-card", "thumbnail", "catalog-detail"].includes(readRecordString(variant, "role") ?? ""),
+      ) ?? readObject(assetSet).source;
     const publicUrl = readRecordString(preferred, "publicUrl");
     if (publicUrl) {
       urls.push(publicUrl);
@@ -323,12 +316,13 @@ function marketplaceActions(url: string, availableQuantity: number) {
       label: "View product",
       url,
     },
-    create_checkout: availableQuantity > 0
-      ? {
-          label: "Create checkout",
-          tool: "create_checkout",
-        }
-      : null,
+    create_checkout:
+      availableQuantity > 0
+        ? {
+            label: "Create checkout",
+            tool: "create_checkout",
+          }
+        : null,
   };
 }
 

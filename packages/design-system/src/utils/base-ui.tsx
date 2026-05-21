@@ -17,16 +17,11 @@ export function renderMotionDiv<State = unknown>({
   initial,
   animate,
   exit,
-  transition
+  transition,
 }: MotionDivRenderOptions<State>) {
-  return function MotionDivRenderer(
-    props: ComponentProps<"div"> & { ref?: MotionDivProps["ref"] },
-    state: State
-  ) {
+  return function MotionDivRenderer(props: ComponentProps<"div"> & { ref?: MotionDivProps["ref"] }, state: State) {
     const resolvedClassName =
-      typeof className === "function"
-        ? className(props.className, state)
-        : cx(className, props.className);
+      typeof className === "function" ? className(props.className, state) : cx(className, props.className);
 
     return (
       <motion.div

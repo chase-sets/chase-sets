@@ -28,10 +28,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
   return app;
 }
 
-function searchParamsFromRequest(
-  requestUrl: string,
-  query: (name: string) => string | undefined,
-) {
+function searchParamsFromRequest(requestUrl: string, query: (name: string) => string | undefined) {
   const url = new URL(requestUrl);
   const search = query("search");
   const category = query("category");

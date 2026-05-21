@@ -1,19 +1,12 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  PostageAddress,
-  PostageLabelProvider,
-  PostagePackage,
-} from "@chase-sets/postage-labels";
+import type { PostageAddress, PostageLabelProvider, PostagePackage } from "@chase-sets/postage-labels";
 import {
   addressSnapshotsEqual,
   changedAddressSnapshotSide,
@@ -21,11 +14,7 @@ import {
   type AddressSnapshot,
 } from "@chase-sets/primitives/address-snapshot";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type {
-  AccountId,
-  OrderId,
-  ShipmentId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { FulfillmentDomainError } from "../domain/common";
 import {
@@ -74,11 +63,7 @@ type ReadyOrderSnapshot = Readonly<{
 }>;
 
 export type FulfillmentShipmentServices = Readonly<{
-  commandHandler: CommandHandler<
-    FulfillmentShipmentCommand,
-    FulfillmentShipmentState,
-    FulfillmentShipmentEvent
-  >;
+  commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>;
   packShipment: (
     params: Readonly<{
       shipmentId: string;
@@ -144,20 +129,10 @@ export type FulfillmentShipmentServices = Readonly<{
     cancelledAt: string;
     context: EventStoreContext;
   }) => Promise<{ shipmentId: ShipmentId | null }>;
-  listBuyerShipments: (
-    params: Parameters<typeof listBuyerShipments>[1],
-  ) => ReturnType<typeof listBuyerShipments>;
-  getBuyerShipment: (
-    shipmentId: string,
-    buyerAccountId: string,
-  ) => ReturnType<typeof getBuyerShipment>;
-  listSellerShipments: (
-    params: Parameters<typeof listSellerShipments>[1],
-  ) => ReturnType<typeof listSellerShipments>;
-  getSellerShipment: (
-    shipmentId: string,
-    sellerAccountId: string,
-  ) => ReturnType<typeof getSellerShipment>;
+  listBuyerShipments: (params: Parameters<typeof listBuyerShipments>[1]) => ReturnType<typeof listBuyerShipments>;
+  getBuyerShipment: (shipmentId: string, buyerAccountId: string) => ReturnType<typeof getBuyerShipment>;
+  listSellerShipments: (params: Parameters<typeof listSellerShipments>[1]) => ReturnType<typeof listSellerShipments>;
+  getSellerShipment: (shipmentId: string, sellerAccountId: string) => ReturnType<typeof getSellerShipment>;
   listSellerPackingSlips: (
     params: Parameters<typeof listSellerPackingSlips>[1],
   ) => ReturnType<typeof listSellerPackingSlips>;
@@ -169,10 +144,7 @@ export type FulfillmentShipmentServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-async function findExistingShipmentIdForOrder(
-  db: PgQueryable,
-  orderId: string,
-): Promise<string | null> {
+async function findExistingShipmentIdForOrder(db: PgQueryable, orderId: string): Promise<string | null> {
   const result = await db.query<{ shipment_id: string }>(
     `SELECT shipment_id
      FROM fulfillment_shipment_pages
@@ -185,10 +157,7 @@ async function findExistingShipmentIdForOrder(
   return result.rows[0]?.shipment_id ?? null;
 }
 
-async function loadReadyOrderSnapshot(
-  db: PgQueryable,
-  orderId: string,
-): Promise<ReadyOrderSnapshot | null> {
+async function loadReadyOrderSnapshot(db: PgQueryable, orderId: string): Promise<ReadyOrderSnapshot | null> {
   const orderResult = await db.query<{
     order_id: string;
     buyer_account_id: string;
@@ -298,12 +267,7 @@ function addressSnapshotFromPostage(address: PostageAddress): AddressSnapshot {
 }
 
 function normalizePackagePlanSnapshot(value: PackagePlan | null | undefined) {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    !Array.isArray(value.packages) ||
-    value.packages.length === 0
-  ) {
+  if (!value || typeof value !== "object" || !Array.isArray(value.packages) || value.packages.length === 0) {
     return null;
   }
   return value;
@@ -311,18 +275,12 @@ function normalizePackagePlanSnapshot(value: PackagePlan | null | undefined) {
 
 function postagePackageFromShippingPlan(plan: PackagePlan | null): PostagePackage {
   const selectedPackage =
-    plan?.packages.find((candidate) => candidate.mailpieceClass === "parcel") ??
-    plan?.packages[0] ??
-    null;
+    plan?.packages.find((candidate) => candidate.mailpieceClass === "parcel") ?? plan?.packages[0] ?? null;
   if (!selectedPackage) {
-    throw new FulfillmentDomainError(
-      "Shipment does not have a package plan for label purchase.",
-    );
+    throw new FulfillmentDomainError("Shipment does not have a package plan for label purchase.");
   }
   if (selectedPackage.mailpieceClass === "letter") {
-    throw new FulfillmentDomainError(
-      "Letter mailpieces do not use USPS parcel label purchase.",
-    );
+    throw new FulfillmentDomainError("Letter mailpieces do not use USPS parcel label purchase.");
   }
   return {
     lengthInches: selectedPackage.lengthInches,
@@ -332,11 +290,8 @@ function postagePackageFromShippingPlan(plan: PackagePlan | null): PostagePackag
   };
 }
 
-export function createFulfillmentShipmentRuntime(
-  deps: ShipmentRuntimeDeps,
-): FulfillmentShipmentServices {
-  const postageLabelProvider =
-    deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
+export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
+  const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -348,10 +303,7 @@ export function createFulfillmentShipmentRuntime(
     decide: decideFulfillmentShipment,
   });
 
-  async function requireSellerShipment(
-    shipmentId: string,
-    sellerAccountId: string,
-  ) {
+  async function requireSellerShipment(shipmentId: string, sellerAccountId: string) {
     const shipment = await getSellerShipment(deps.db, shipmentId, sellerAccountId);
     if (!shipment) {
       throw new FulfillmentDomainError("Shipment not found.");
@@ -362,10 +314,7 @@ export function createFulfillmentShipmentRuntime(
   return {
     commandHandler,
     createShipmentForReadyOrder: async (params) => {
-      const existingShipmentId = await findExistingShipmentIdForOrder(
-        deps.db,
-        params.orderId,
-      );
+      const existingShipmentId = await findExistingShipmentIdForOrder(deps.db, params.orderId);
       if (existingShipmentId) {
         return { shipmentId: null };
       }
@@ -459,10 +408,7 @@ export function createFulfillmentShipmentRuntime(
       return { shipmentId: params.shipmentId, version: result.version };
     },
     purchaseUspsLabel: async (params, context) => {
-      const shipment = await requireSellerShipment(
-        params.shipmentId,
-        params.sellerAccountId,
-      );
+      const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);
       if (shipment.status !== "awaiting-label" || shipment.package_status !== "packed") {
         throw new FulfillmentDomainError(
           "Shipment must be packed and awaiting a label before postage can be purchased.",
@@ -483,21 +429,11 @@ export function createFulfillmentShipmentRuntime(
         shipment.shipping_destination_snapshot,
         "Shipping destination",
       );
-      const submittedSender = params.sender
-        ? addressSnapshotFromPostage(params.sender)
-        : senderSnapshot;
-      const submittedRecipient = params.recipient
-        ? addressSnapshotFromPostage(params.recipient)
-        : recipientSnapshot;
+      const submittedSender = params.sender ? addressSnapshotFromPostage(params.sender) : senderSnapshot;
+      const submittedRecipient = params.recipient ? addressSnapshotFromPostage(params.recipient) : recipientSnapshot;
       const senderChanged = !addressSnapshotsEqual(senderSnapshot, submittedSender);
-      const recipientChanged = !addressSnapshotsEqual(
-        recipientSnapshot,
-        submittedRecipient,
-      );
-      const changedSide = changedAddressSnapshotSide(
-        senderChanged,
-        recipientChanged,
-      );
+      const recipientChanged = !addressSnapshotsEqual(recipientSnapshot, submittedRecipient);
+      const changedSide = changedAddressSnapshotSide(senderChanged, recipientChanged);
       const overrideReason = params.overrideReason?.trim() ?? "";
       if (changedSide && overrideReason.length === 0) {
         throw new FulfillmentDomainError(
@@ -519,8 +455,7 @@ export function createFulfillmentShipmentRuntime(
         : null;
       const sender = postageAddressFromSnapshot(submittedSender);
       const recipient = postageAddressFromSnapshot(submittedRecipient);
-      const labelPackage =
-        params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
+      const labelPackage = params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
 
       let purchasedLabel;
       try {
@@ -545,9 +480,7 @@ export function createFulfillmentShipmentRuntime(
           },
           context,
         });
-        throw new FulfillmentDomainError(
-          error instanceof Error ? error.message : "Label purchase failed.",
-        );
+        throw new FulfillmentDomainError(error instanceof Error ? error.message : "Label purchase failed.");
       }
 
       const result = await commandHandler({
@@ -580,10 +513,7 @@ export function createFulfillmentShipmentRuntime(
       };
     },
     voidLabel: async (params, context) => {
-      const shipment = await requireSellerShipment(
-        params.shipmentId,
-        params.sellerAccountId,
-      );
+      const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);
       if (
         !shipment.postage_provider_shipment_id ||
         !shipment.postage_provider_label_id ||
@@ -671,13 +601,10 @@ export function createFulfillmentShipmentRuntime(
       return { shipmentId: params.shipmentId, version: result.version };
     },
     listBuyerShipments: (params) => listBuyerShipments(deps.db, params),
-    getBuyerShipment: (shipmentId, buyerAccountId) =>
-      getBuyerShipment(deps.db, shipmentId, buyerAccountId),
+    getBuyerShipment: (shipmentId, buyerAccountId) => getBuyerShipment(deps.db, shipmentId, buyerAccountId),
     listSellerShipments: (params) => listSellerShipments(deps.db, params),
-    getSellerShipment: (shipmentId, sellerAccountId) =>
-      getSellerShipment(deps.db, shipmentId, sellerAccountId),
-    listSellerPackingSlips: (params) =>
-      listSellerPackingSlips(deps.db, params),
+    getSellerShipment: (shipmentId, sellerAccountId) => getSellerShipment(deps.db, shipmentId, sellerAccountId),
+    listSellerPackingSlips: (params) => listSellerPackingSlips(deps.db, params),
     projectors: [
       createProjector({
         projectorName: "fulfillment-shipment-projection",

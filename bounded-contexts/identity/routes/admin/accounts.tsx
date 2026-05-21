@@ -17,4 +17,3 @@ export default function AccountsRoute() {
   const data = useLoaderData<typeof loader>();
   return <AccountListPage initialData={data} />;
 }
-

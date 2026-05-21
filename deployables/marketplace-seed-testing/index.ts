@@ -66,15 +66,11 @@ export type MarketplaceSeedRuntimePools = Readonly<
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 
-export const describeWithMarketplaceSeedDatabase = databaseBaseUrl
-  ? describe
-  : describe.skip;
+export const describeWithMarketplaceSeedDatabase = databaseBaseUrl ? describe : describe.skip;
 
 function requireMarketplaceSeedDatabaseBaseUrl(testName: string): string {
   if (!databaseBaseUrl) {
-    throw new Error(
-      `TEST_DATABASE_URL is required for database-backed ${testName} seed tests.`,
-    );
+    throw new Error(`TEST_DATABASE_URL is required for database-backed ${testName} seed tests.`);
   }
 
   return databaseBaseUrl;
@@ -93,11 +89,7 @@ export function useMarketplaceSeedRuntime(testName: string) {
 
   beforeAll(async () => {
     const baseUrl = requireMarketplaceSeedDatabaseBaseUrl(testName);
-    const databaseUrls = createMultiContextTestDatabaseUrls(
-      baseUrl,
-      marketplaceSeedContextNames,
-      `${testName}_seed`,
-    );
+    const databaseUrls = createMultiContextTestDatabaseUrls(baseUrl, marketplaceSeedContextNames, `${testName}_seed`);
 
     await ensureMultiContextTestDatabases(baseUrl, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls) as MarketplaceSeedRuntimePools;
@@ -119,10 +111,7 @@ export function useMarketplaceSeedRuntime(testName: string) {
     },
     seed: async () => {
       const runtime = createMarketplaceSeedRuntime(requirePools());
-      await seedMountedContextTestRuntimeIfEmpty(
-        runtime,
-        marketplaceSeedLifecycleContextOrder,
-      );
+      await seedMountedContextTestRuntimeIfEmpty(runtime, marketplaceSeedLifecycleContextOrder);
 
       return runtime;
     },

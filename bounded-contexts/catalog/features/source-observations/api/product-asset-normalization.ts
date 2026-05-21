@@ -29,9 +29,7 @@ export type NormalizeProductAssetInput = Readonly<{
   imageProcessor?: CatalogImageProcessor;
 }>;
 
-export async function normalizeProductAssetSet(
-  input: NormalizeProductAssetInput,
-): Promise<ProductAssetSet> {
+export async function normalizeProductAssetSet(input: NormalizeProductAssetInput): Promise<ProductAssetSet> {
   const imageProcessor = input.imageProcessor ?? sharpImageProcessor;
   const sourceHash = hashBytes(input.sourceBody);
   const displayBody = await imageProcessor.normalizeDisplaySource(input.sourceBody);

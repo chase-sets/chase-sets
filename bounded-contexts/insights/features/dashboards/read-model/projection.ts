@@ -95,11 +95,9 @@ export function projectDashboardKpis(
     }
   }
 
-  const averageLatencyHours =
-    deliveredShipmentCount === 0 ? 0 : totalLatencyHours / deliveredShipmentCount;
+  const averageLatencyHours = deliveredShipmentCount === 0 ? 0 : totalLatencyHours / deliveredShipmentCount;
 
-  const conversionRate =
-    listingViewCount === 0 ? 0 : Number((orderPlacedCount / listingViewCount).toFixed(4));
+  const conversionRate = listingViewCount === 0 ? 0 : Number((orderPlacedCount / listingViewCount).toFixed(4));
 
   return {
     salesPerformanceKpi: {

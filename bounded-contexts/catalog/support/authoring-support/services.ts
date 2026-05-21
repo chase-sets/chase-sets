@@ -1,9 +1,6 @@
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
-import type {
-  PgTransactionalPool,
-  PgQueryable,
-} from "@chase-sets/event-core-postgres";
+import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createBlueprintRuntime } from "../../features/blueprints/api/runtime";
 import { createCatalogItemRuntime } from "../../features/catalog-items/api/runtime";
@@ -35,10 +32,7 @@ export type CatalogServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createCatalogServices(
-  pool: PgTransactionalPool,
-  ports: CatalogHostPorts = {},
-): CatalogServices {
+export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogHostPorts = {}): CatalogServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;

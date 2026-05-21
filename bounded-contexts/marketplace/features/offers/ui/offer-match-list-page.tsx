@@ -82,17 +82,11 @@ export function MarketplaceOfferMatchListPage({
   errorMessage?: string | null;
 }) {
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
-  const atOrAboveAskCount = data.items.filter(
-    (item) => item.offer_to_listing_price_bps >= 10000,
-  ).length;
+  const atOrAboveAskCount = data.items.filter((item) => item.offer_to_listing_price_bps >= 10000).length;
   const bestMatchPercentage = data.items.length
-    ? formatAllowancePercentage(
-        Math.max(...data.items.map((item) => item.offer_to_listing_price_bps)),
-      )
+    ? formatAllowancePercentage(Math.max(...data.items.map((item) => item.offer_to_listing_price_bps)))
     : "0%";
-  const listingsUnavailable = data.items.some(
-    (item) => item.seller_listing_availability_status === "unavailable",
-  );
+  const listingsUnavailable = data.items.some((item) => item.seller_listing_availability_status === "unavailable");
   return (
     <Page>
       <PageHeader
@@ -101,7 +95,8 @@ export function MarketplaceOfferMatchListPage({
         description={t("marketplace.features.offers.ui.offerMatchListPage.compare.best.offers.to.your.listing")}
         actions={
           <LinkButton href="/account/listings" tone="secondary">
-            {t("marketplace.features.offers.ui.offerMatchListPage.view.listings")}</LinkButton>
+            {t("marketplace.features.offers.ui.offerMatchListPage.view.listings")}
+          </LinkButton>
         }
       />
 
@@ -113,7 +108,10 @@ export function MarketplaceOfferMatchListPage({
           { label: t("marketplace.features.offers.ui.offerMatchListPage.ready.to.accept"), value: fulfillableCount },
           { label: t("marketplace.features.offers.ui.offerMatchListPage.at.or.above.ask"), value: atOrAboveAskCount },
           { label: t("marketplace.features.offers.ui.offerMatchListPage.best.match"), value: bestMatchPercentage },
-          { label: t("marketplace.features.offers.ui.offerMatchListPage.source.list"), value: t("marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list") },
+          {
+            label: t("marketplace.features.offers.ui.offerMatchListPage.source.list"),
+            value: t("marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list"),
+          },
         ]}
       />
 
@@ -138,7 +136,9 @@ export function MarketplaceOfferMatchListPage({
           <Stack gap={3}>
             <Banner
               title={t("marketplace.features.offers.ui.offerMatchListPage.checkout.sell.list")}
-              description={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches.source.checkout.sell.list")}
+              description={t(
+                "marketplace.features.offers.ui.offerMatchListPage.offer.matches.source.checkout.sell.list",
+              )}
             />
             <Text tone="secondary" size="sm">
               {t("marketplace.features.offers.ui.offerMatchListPage.add.selected.offers.then.review")}
@@ -227,9 +227,11 @@ export function MarketplaceOfferMatchListPage({
               align: "right",
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text>{t("marketplace.features.offers.ui.offerMatchListPage.requested.quantity", {
-                    quantity: row.quantity_requested,
-                  })}</Text>
+                  <Text>
+                    {t("marketplace.features.offers.ui.offerMatchListPage.requested.quantity", {
+                      quantity: row.quantity_requested,
+                    })}
+                  </Text>
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.offers.ui.offerMatchListPage.available.quantity", {
                       quantity: row.seller_available_quantity,
@@ -247,9 +249,13 @@ export function MarketplaceOfferMatchListPage({
                   <Badge tone={row.can_fulfill ? "success" : "warning"}>
                     {row.seller_listing_availability_status === "unavailable"
                       ? t("marketplace.features.offers.ui.offerMatchListPage.listings.unavailable")
-                      : row.can_fulfill ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill") : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
+                      : row.can_fulfill
+                        ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
+                        : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
                   </Badge>
-                  {row.in_sell_list ? <Badge tone="accent">{t("marketplace.features.offers.ui.offerMatchListPage.in.sell.list")}</Badge> : null}
+                  {row.in_sell_list ? (
+                    <Badge tone="accent">{t("marketplace.features.offers.ui.offerMatchListPage.in.sell.list")}</Badge>
+                  ) : null}
                 </Stack>
               ),
             },
@@ -276,13 +282,16 @@ export function MarketplaceOfferMatchListPage({
                     </Button>
                   </form>
                   <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
-                    {t("marketplace.features.offers.ui.offerMatchListPage.open")}</LinkButton>
+                    {t("marketplace.features.offers.ui.offerMatchListPage.open")}
+                  </LinkButton>
                 </Stack>
               ),
             },
           ]}
           emptyTitle={t("marketplace.features.offers.ui.offerMatchListPage.no.offer.matches")}
-          emptyDescription={t("marketplace.features.offers.ui.offerMatchListPage.offer.matches.appear.here.when.submitted")}
+          emptyDescription={t(
+            "marketplace.features.offers.ui.offerMatchListPage.offer.matches.appear.here.when.submitted",
+          )}
         />
       </PageSection>
     </Page>

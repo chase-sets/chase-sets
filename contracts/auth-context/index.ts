@@ -10,15 +10,11 @@ export type ResolvedActor = Readonly<{
   permissions: readonly string[];
 }>;
 
-export type AuthenticatedRequestVariables<
-  TActor extends ResolvedActor = ResolvedActor,
-> = {
+export type AuthenticatedRequestVariables<TActor extends ResolvedActor = ResolvedActor> = {
   actor: TActor | null;
   context: EventStoreContext | null;
 };
 
-export type AuthenticatedApiEnv<
-  TActor extends ResolvedActor = ResolvedActor,
-> = {
+export type AuthenticatedApiEnv<TActor extends ResolvedActor = ResolvedActor> = {
   Variables: AuthenticatedRequestVariables<TActor>;
 };

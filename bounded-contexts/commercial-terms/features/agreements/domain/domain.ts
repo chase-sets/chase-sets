@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   assert,
   assertNever,
@@ -90,16 +86,12 @@ export const decideCommercialAgreement: AggregateDecider<
               command.marketplaceSalesFeePercentageBps,
               "Marketplace sales fee percentage",
             ),
-            marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(
-              command.marketplaceSalesFeeFixedAmount,
-              {
-                fieldName: "Marketplace sales fee fixed amount",
-                allowZero: true,
-              },
-            ),
+            marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(command.marketplaceSalesFeeFixedAmount, {
+              fieldName: "Marketplace sales fee fixed amount",
+              allowZero: true,
+            }),
             shippingAllowancePercentageBps: normalizePercentageBps(
-              command.shippingAllowancePercentageBps ??
-                DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
+              command.shippingAllowancePercentageBps ?? DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
               "Shipping allowance percentage",
             ),
             status: normalizeCommercialTermsStatus(command.status),
@@ -110,10 +102,7 @@ export const decideCommercialAgreement: AggregateDecider<
             effectiveUntil:
               command.effectiveUntil === null
                 ? null
-                : ensureIsoTimestamp(
-                    command.effectiveUntil,
-                    "Agreement effective until must be an ISO timestamp.",
-                  ),
+                : ensureIsoTimestamp(command.effectiveUntil, "Agreement effective until must be an ISO timestamp."),
           },
         },
       ];
@@ -122,10 +111,10 @@ export const decideCommercialAgreement: AggregateDecider<
   }
 };
 
-export const evolveCommercialAgreement: AggregateEvolver<
-  CommercialAgreementState,
-  CommercialAgreementEvent
-> = (state, event) => {
+export const evolveCommercialAgreement: AggregateEvolver<CommercialAgreementState, CommercialAgreementEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "commercial-terms.agreement.created":
       return {

@@ -6,9 +6,7 @@ export type DomainEventCodec<Event extends DomainEvent = DomainEvent> = Readonly
   decode: (storedEvent: Pick<StoredEvent, "eventType" | "payload">) => Event;
 }>;
 
-export function createPassthroughDomainEventCodec<
-  Event extends DomainEvent,
->(): DomainEventCodec<Event> {
+export function createPassthroughDomainEventCodec<Event extends DomainEvent>(): DomainEventCodec<Event> {
   return {
     encode: (event) => ({
       eventType: event.type,

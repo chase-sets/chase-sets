@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -11,12 +7,9 @@ import { createCheckoutRequestApiClient } from "../support/request-support/api-c
 import { readAnonymousCartId } from "../support/request-support/guest-checkout";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
 
-const MARKETPLACE_DESCRIPTION =
-  t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
+const MARKETPLACE_DESCRIPTION = t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
 
-function canUseAccountCart(
-  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
-) {
+function canUseAccountCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
 }
 
@@ -46,22 +39,17 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "update-cart-line") {
-      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+      const lineIds = formData
+        .getAll("lineId")
+        .map((lineId) => String(lineId ?? "").trim())
+        .filter(Boolean);
       const [primaryLineId, ...duplicateLineIds] = lineIds;
 
       if (!useAccountCart && anonymousCartId) {
-        await api.updateGuestCartLineQuantity(
-          anonymousCartId,
-          primaryLineId ?? "",
-          {
-            quantity: Number(formData.get("quantity") ?? 0),
-          },
-        );
-        await Promise.all(
-          duplicateLineIds.map((lineId) =>
-            api.removeGuestCartLine(anonymousCartId, lineId),
-          ),
-        );
+        await api.updateGuestCartLineQuantity(anonymousCartId, primaryLineId ?? "", {
+          quantity: Number(formData.get("quantity") ?? 0),
+        });
+        await Promise.all(duplicateLineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)));
         return redirect("/account/cart");
       }
 
@@ -72,19 +60,18 @@ export async function action({ request }: ActionFunctionArgs) {
       await api.updateCartLineQuantity(primaryLineId ?? "", {
         quantity: Number(formData.get("quantity") ?? 0),
       });
-      await Promise.all(
-        duplicateLineIds.map((lineId) => api.removeCartLine(lineId)),
-      );
+      await Promise.all(duplicateLineIds.map((lineId) => api.removeCartLine(lineId)));
       return redirect("/account/cart");
     }
 
     if (intent === "remove-cart-line") {
-      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+      const lineIds = formData
+        .getAll("lineId")
+        .map((lineId) => String(lineId ?? "").trim())
+        .filter(Boolean);
 
       if (!useAccountCart && anonymousCartId) {
-        await Promise.all(
-          lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)),
-        );
+        await Promise.all(lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)));
         return redirect("/account/cart");
       }
 
@@ -97,7 +84,10 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "unlock-cart-line") {
-      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+      const lineIds = formData
+        .getAll("lineId")
+        .map((lineId) => String(lineId ?? "").trim())
+        .filter(Boolean);
 
       if (!useAccountCart && anonymousCartId) {
         await Promise.all(
@@ -131,7 +121,10 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "lock-cart-line") {
-      const lineIds = formData.getAll("lineId").map((lineId) => String(lineId ?? "").trim()).filter(Boolean);
+      const lineIds = formData
+        .getAll("lineId")
+        .map((lineId) => String(lineId ?? "").trim())
+        .filter(Boolean);
       const lockedListingId = String(formData.get("lockedListingId") ?? "").trim();
       if (!lockedListingId) {
         throw new Error("Choose a seller option before locking fulfillment.");
@@ -186,10 +179,5 @@ export default function CheckoutAccountCartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return (
-    <CheckoutCartPage
-      cartLines={data.cart.items}
-      errorMessage={actionData?.error ?? null}
-    />
-  );
+  return <CheckoutCartPage cartLines={data.cart.items} errorMessage={actionData?.error ?? null} />;
 }

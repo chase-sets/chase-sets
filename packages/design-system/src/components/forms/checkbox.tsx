@@ -22,7 +22,7 @@ export function Checkbox({
   checked,
   defaultChecked,
   onCheckedChange,
-  disabled = false
+  disabled = false,
 }: CheckboxProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,9 +62,7 @@ export function Checkbox({
           disabled={disabled}
           required={required}
           aria-describedby={descriptionId}
-          {...(controlled
-            ? { checked: checked === true }
-            : { defaultChecked: defaultChecked === true })}
+          {...(controlled ? { checked: checked === true } : { defaultChecked: defaultChecked === true })}
           onChange={(event) => {
             const nextChecked = event.currentTarget.checked;
             if (!controlled) {
@@ -79,7 +77,7 @@ export function Checkbox({
           className={cx(
             "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-elevated peer-focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)]",
             (visualChecked || indeterminate) && "border-accent bg-accent",
-            disabled && "opacity-60"
+            disabled && "opacity-60",
           )}
         >
           {visualChecked || indeterminate ? (
@@ -94,7 +92,11 @@ export function Checkbox({
           {label ? (
             <div className="text-sm font-medium text-foreground">
               {label}
-              {required ? <span aria-hidden="true" className="ml-1 text-accent">*</span> : null}
+              {required ? (
+                <span aria-hidden="true" className="ml-1 text-accent">
+                  *
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -117,16 +119,10 @@ export function CheckboxGroup({
   hideLabel,
   items,
   values,
-  onValuesChange
+  onValuesChange,
 }: CheckboxGroupProps) {
   return (
-    <FieldChrome
-      label={label}
-      description={description}
-      error={error}
-      required={required}
-      hideLabel={hideLabel}
-    >
+    <FieldChrome label={label} description={description} error={error} required={required} hideLabel={hideLabel}>
       <div className="space-y-2">
         {items.map((item) => {
           const checked = values.includes(item.value);
@@ -138,9 +134,7 @@ export function CheckboxGroup({
               description={item.description}
               checked={checked}
               onCheckedChange={(state) => {
-                const next = state
-                  ? [...values, item.value]
-                  : values.filter((entry) => entry !== item.value);
+                const next = state ? [...values, item.value] : values.filter((entry) => entry !== item.value);
                 onValuesChange?.(Array.from(new Set(next)));
               }}
             />

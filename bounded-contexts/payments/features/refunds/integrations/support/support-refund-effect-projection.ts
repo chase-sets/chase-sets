@@ -2,17 +2,9 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { RefundServices } from "../../api/runtime";
-import {
-  getCapturedPaymentByOrderId,
-  getOrderPaymentInput,
-} from "../../../payments/read-model/queries";
+import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
 
-const refundResolutionTypes = new Set([
-  "full-refund",
-  "partial-refund",
-  "return-for-refund",
-  "cancel-order",
-]);
+const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund", "cancel-order"]);
 
 function compareMoney(left: string, right: string) {
   return Number.parseFloat(left) - Number.parseFloat(right);
@@ -45,13 +37,7 @@ async function claimSupportRefundEffect(
      ) VALUES ($1, $2, $3, $4, 'processing', NULL, $5, $5)
      ON CONFLICT (support_request_id) DO NOTHING
      RETURNING support_request_id`,
-    [
-      params.supportRequestId,
-      params.orderId,
-      params.resolutionType,
-      params.amount,
-      params.now,
-    ],
+    [params.supportRequestId, params.orderId, params.resolutionType, params.amount, params.now],
   );
 
   return (result.rowCount ?? 0) > 0;
@@ -105,9 +91,10 @@ export function buildPaymentsSupportRefundEffectHandlers(
         return;
       }
 
-      const requestedAmount = data.resolution.resolutionType === "partial-refund"
-        ? data.resolution.refundAmount
-        : data.resolution.refundAmount ?? orderInput.total_amount;
+      const requestedAmount =
+        data.resolution.resolutionType === "partial-refund"
+          ? data.resolution.refundAmount
+          : (data.resolution.refundAmount ?? orderInput.total_amount);
       if (!requestedAmount || compareMoney(requestedAmount, "0.00") <= 0) {
         await db.query(
           `INSERT INTO payments_support_refund_effects (
@@ -168,12 +155,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
                failure_message = NULL,
                updated_at = $4
            WHERE support_request_id = $1`,
-          [
-            data.supportRequestId,
-            payment.payment_id,
-            result.refundId,
-            new Date().toISOString(),
-          ],
+          [data.supportRequestId, payment.payment_id, result.refundId, new Date().toISOString()],
         );
       } catch (error) {
         await db.query(

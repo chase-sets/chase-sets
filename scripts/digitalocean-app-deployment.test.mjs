@@ -63,7 +63,7 @@ describe("digitalocean-app-deployment", () => {
         planFor([
           resourceChange("digitalocean_app.platform", ["update"]),
           resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
-          resourceChange("digitalocean_database_db.contexts[\"auth\"]", ["delete"]),
+          resourceChange('digitalocean_database_db.contexts["auth"]', ["delete"]),
         ]),
       ),
     ).toEqual([
@@ -74,9 +74,9 @@ describe("digitalocean-app-deployment", () => {
         actions: ["delete", "create"],
       },
       {
-        address: "digitalocean_database_db.contexts[\"auth\"]",
+        address: 'digitalocean_database_db.contexts["auth"]',
         type: "digitalocean_database_db",
-        name: "contexts[\"auth\"]",
+        name: 'contexts["auth"]',
         actions: ["delete"],
       },
     ]);
@@ -85,9 +85,7 @@ describe("digitalocean-app-deployment", () => {
   it("blocks destructive Terraform changes unless an override marker is present", () => {
     const plan = planFor([resourceChange("digitalocean_app.platform", ["delete", "create"])]);
 
-    expect(() => assertNoDestructiveChanges(plan)).toThrow(
-      "Production Terraform plan contains destructive changes",
-    );
+    expect(() => assertNoDestructiveChanges(plan)).toThrow("Production Terraform plan contains destructive changes");
     expect(assertNoDestructiveChanges(plan, { allowDestructiveChanges: true })).toEqual([
       {
         address: "digitalocean_app.platform",
@@ -145,10 +143,7 @@ describe("digitalocean-app-deployment", () => {
   });
 
   it("waits until active DigitalOcean deployments finish", async () => {
-    const responses = [
-      [{ id: "first", phase: "BUILDING" }],
-      [{ id: "first", phase: "ACTIVE" }],
-    ];
+    const responses = [[{ id: "first", phase: "BUILDING" }], [{ id: "first", phase: "ACTIVE" }]];
     let sleeps = 0;
 
     await waitForDeployments("app-id", {
@@ -267,31 +262,8 @@ describe("digitalocean-app-deployment", () => {
 
     expect(deploymentId).toBe("deployment-id");
     expect(calls).toEqual([
-      [
-        "doctl",
-        [
-          "apps",
-          "create-deployment",
-          "app-id",
-          "--wait",
-          "--format",
-          "ID",
-          "--no-header",
-          "--force-rebuild",
-        ],
-      ],
-      [
-        "doctl",
-        [
-          "apps",
-          "get-deployment",
-          "app-id",
-          "deployment-id",
-          "--format",
-          "Phase",
-          "--no-header",
-        ],
-      ],
+      ["doctl", ["apps", "create-deployment", "app-id", "--wait", "--format", "ID", "--no-header", "--force-rebuild"]],
+      ["doctl", ["apps", "get-deployment", "app-id", "deployment-id", "--format", "Phase", "--no-header"]],
     ]);
   });
 

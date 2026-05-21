@@ -8,19 +8,13 @@ import {
 } from "./queries";
 
 export type DiscoveryMarketServices = Readonly<{
-  getPublicListingBySlug: (
-    slug: string,
-  ) => ReturnType<typeof getDiscoveryPublicListingBySlug>;
-  getPublicAccountBySlug: (
-    slug: string,
-  ) => ReturnType<typeof getDiscoveryPublicAccountBySlug>;
+  getPublicListingBySlug: (slug: string) => ReturnType<typeof getDiscoveryPublicListingBySlug>;
+  getPublicAccountBySlug: (slug: string) => ReturnType<typeof getDiscoveryPublicAccountBySlug>;
   listPublicSitemapUrls: () => ReturnType<typeof listDiscoveryPublicSitemapUrls>;
   projectors: readonly Projector[];
 }>;
 
-export function createDiscoveryMarketRuntime(
-  deps: DiscoveryRuntimeDeps,
-): DiscoveryMarketServices {
+export function createDiscoveryMarketRuntime(deps: DiscoveryRuntimeDeps): DiscoveryMarketServices {
   return {
     getPublicListingBySlug: (slug) => getDiscoveryPublicListingBySlug(deps.db, slug),
     getPublicAccountBySlug: (slug) => getDiscoveryPublicAccountBySlug(deps.db, slug),

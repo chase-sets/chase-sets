@@ -40,14 +40,15 @@ function clean(value: string | undefined | null) {
 }
 
 function normalizeHeader(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function valueByHeader(row: ImportCsvRow, candidates: readonly string[]) {
   const normalizedCandidates = new Set(candidates.map(normalizeHeader));
-  const entry = Object.entries(row.values).find(([header]) =>
-    normalizedCandidates.has(normalizeHeader(header)),
-  );
+  const entry = Object.entries(row.values).find(([header]) => normalizedCandidates.has(normalizeHeader(header)));
 
   return clean(entry?.[1]);
 }
@@ -86,8 +87,7 @@ export const nativeCsvImportAdapter: InventoryImportSourceAdapter = {
     nativeRows(input).map((row) => {
       const values = {
         ...row.values,
-        storageLocationId:
-          clean(row.values.storageLocationId) || clean(input.defaultStorageLocationId),
+        storageLocationId: clean(row.values.storageLocationId) || clean(input.defaultStorageLocationId),
       };
 
       return {
@@ -105,30 +105,13 @@ export const tcgplayerCsvImportAdapter: InventoryImportSourceAdapter = {
   adapterVersion: 1,
   normalize: (input) =>
     parseImportCsv(input.csvText ?? "").map((row) => {
-      const sku =
-        valueByHeader(row, [
-          "SKU",
-          "TCGplayer SKU",
-          "TCGplayerSku",
-          "Product SKU",
-        ]) || "";
+      const sku = valueByHeader(row, ["SKU", "TCGplayer SKU", "TCGplayerSku", "Product SKU"]) || "";
       const productId =
-        valueByHeader(row, [
-          "Product ID",
-          "ProductId",
-          "TCGplayer Product ID",
-          "TCGplayerProductId",
-          "TCGplayer ID",
-        ]) || "";
+        valueByHeader(row, ["Product ID", "ProductId", "TCGplayer Product ID", "TCGplayerProductId", "TCGplayer ID"]) ||
+        "";
       const externalKey = (sku || productId).toLowerCase();
       const quantity =
-        valueByHeader(row, [
-          "Quantity",
-          "Qty",
-          "Add to Quantity",
-          "Total Quantity",
-          "Inventory Quantity",
-        ]) || "";
+        valueByHeader(row, ["Quantity", "Qty", "Add to Quantity", "Total Quantity", "Inventory Quantity"]) || "";
       const price = decimalText(
         valueByHeader(row, [
           "TCG Marketplace Price",
@@ -179,9 +162,7 @@ const adapters = {
   "tcgplayer-csv": tcgplayerCsvImportAdapter,
 } satisfies Record<InventoryImportSourceKey, InventoryImportSourceAdapter>;
 
-export function getInventoryImportSourceAdapter(
-  sourceKey: string | null | undefined,
-): InventoryImportSourceAdapter {
+export function getInventoryImportSourceAdapter(sourceKey: string | null | undefined): InventoryImportSourceAdapter {
   const normalized = clean(sourceKey) || "native-csv";
   const adapter = adapters[normalized as InventoryImportSourceKey];
   if (!adapter) {

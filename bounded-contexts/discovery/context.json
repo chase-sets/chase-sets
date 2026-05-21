@@ -1,20 +1,10 @@
 {
   "contextName": "discovery",
   "packageName": "@chase-sets/discovery",
-  "ownedNouns": [
-    "search",
-    "browse",
-    "item-detail",
-    "product-alert"
-  ],
+  "ownedNouns": ["search", "browse", "item-detail", "product-alert"],
   "streamPrefix": "discovery.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "categories",
-    "item-detail",
-    "product-alerts",
-    "search"
-  ],
+  "slices": ["categories", "item-detail", "product-alerts", "search"],
   "allowedSupportDirectories": [
     "client-support",
     "item-support",
@@ -25,13 +15,7 @@
     "shell-support",
     "ucp-support"
   ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./server",
-    "./web"
-  ],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [
     "@chase-sets/catalog",
     "@chase-sets/checkout",
@@ -45,9 +29,7 @@
       "sourceContextName": "discovery",
       "projectionName": "discovery-product-alert-page-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "discovery-product-alert-page-projection"
-      ],
+      "projectorNames": ["discovery-product-alert-page-projection"],
       "eventTypes": [
         "discovery.product-alert.created",
         "discovery.product-alert.paused",
@@ -60,9 +42,7 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-category-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "discovery-category-projection"
-      ],
+      "projectorNames": ["discovery-category-projection"],
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -103,9 +83,7 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
       "subscriptionVersion": 2,
-      "projectorNames": [
-        "discovery-search-item-projection"
-      ],
+      "projectorNames": ["discovery-search-item-projection"],
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -151,9 +129,7 @@
       "sourceContextName": "catalog",
       "projectionName": "discovery-item-detail-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "discovery-item-detail-projection"
-      ],
+      "projectorNames": ["discovery-item-detail-projection"],
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -199,9 +175,7 @@
       "sourceContextName": "identity",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "discovery-market-projection"
-      ],
+      "projectorNames": ["discovery-market-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -215,9 +189,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "discovery-market-projection"
-      ],
+      "projectorNames": ["discovery-market-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -237,9 +209,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "discovery-product-alert-notification-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "discovery-product-alert-notification-projection"
-      ],
+      "projectorNames": ["discovery-product-alert-notification-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -256,23 +226,15 @@
       "sourceContextName": "reputation",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "discovery-market-projection"
-      ],
-      "eventTypes": [
-        "reputation.review.submitted",
-        "reputation.review.updated",
-        "reputation.review.withdrawn"
-      ],
+      "projectorNames": ["discovery-market-projection"],
+      "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
       "order": 40
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "discovery-category-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
+      "sourceContextNames": ["catalog"],
       "ownedTables": [
         "discovery_category_catalog_categories",
         "discovery_category_catalog_items",
@@ -282,9 +244,7 @@
     },
     {
       "projectionName": "discovery-search-item-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
+      "sourceContextNames": ["catalog"],
       "ownedTables": [
         "discovery_search_catalog_items",
         "discovery_search_catalog_blueprints",
@@ -296,9 +256,7 @@
     },
     {
       "projectionName": "discovery-item-detail-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
+      "sourceContextNames": ["catalog"],
       "ownedTables": [
         "discovery_item_detail_catalog_items",
         "discovery_item_detail_catalog_blueprints",
@@ -313,11 +271,7 @@
     },
     {
       "projectionName": "discovery-market-projection",
-      "sourceContextNames": [
-        "identity",
-        "marketplace",
-        "reputation"
-      ],
+      "sourceContextNames": ["identity", "marketplace", "reputation"],
       "ownedTables": [
         "discovery_market_accounts",
         "discovery_market_account_reviews",
@@ -328,23 +282,14 @@
     },
     {
       "projectionName": "discovery-product-alert-page-projection",
-      "sourceContextNames": [
-        "discovery"
-      ],
-      "ownedTables": [
-        "discovery_product_alert_pages"
-      ],
+      "sourceContextNames": ["discovery"],
+      "ownedTables": ["discovery_product_alert_pages"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "discovery-product-alert-notification-projection",
-      "sourceContextNames": [
-        "marketplace"
-      ],
-      "ownedTables": [
-        "discovery_product_alert_market_activity",
-        "discovery_product_alert_match_notifications"
-      ],
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["discovery_product_alert_market_activity", "discovery_product_alert_match_notifications"],
       "requiredDuringBootstrap": true
     }
   ],
@@ -355,9 +300,7 @@
       "purpose": "Durable notification outbox consumed by Product Alert match projectors and dispatched through channel adapters."
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -444,42 +387,31 @@
       "classification": "slice",
       "purpose": "Own categories feature behavior, read models, and UI contracts for the discovery context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal discovery module composition"
-      ]
+      "expectedConsumers": ["Internal discovery module composition"]
     },
     "item-detail": {
       "classification": "slice",
       "purpose": "Own item-detail feature behavior, read models, and UI contracts for the discovery context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal discovery module composition"
-      ]
+      "expectedConsumers": ["Internal discovery module composition"]
     },
     "search": {
       "classification": "slice",
       "purpose": "Own search feature behavior, read models, and UI contracts for the discovery context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal discovery module composition"
-      ]
+      "expectedConsumers": ["Internal discovery module composition"]
     },
     "product-alerts": {
       "classification": "slice",
       "purpose": "Own product-alerts behavior, read models, notification matching, APIs, and account UI for selected marketplace Products.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal discovery module composition"
-      ]
+      "expectedConsumers": ["Internal discovery module composition"]
     },
     "client-support": {
       "classification": "support",
       "purpose": "Provide reusable client-support assets shared by discovery-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "item-detail",
-        "search"
-      ],
+      "expectedConsumers": ["item-detail", "search"],
       "justification": "client-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -488,10 +420,7 @@
       "classification": "support",
       "purpose": "Provide reusable item-support assets shared by discovery-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "item-detail",
-        "search"
-      ],
+      "expectedConsumers": ["item-detail", "search"],
       "justification": "item-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -500,10 +429,7 @@
       "classification": "support",
       "purpose": "Provide reusable market-support assets shared by discovery-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "item-detail",
-        "search"
-      ],
+      "expectedConsumers": ["item-detail", "search"],
       "justification": "market-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -512,10 +438,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by discovery-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple discovery slices",
-        "Deployable composition for discovery"
-      ],
+      "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -525,10 +448,7 @@
       "classification": "support",
       "purpose": "Provide discovery-owned realtime topic contracts and registration metadata.",
       "allowedWhen": "Allowed for SSE topic contracts shared by discovery projectors, routes, and platform composition.",
-      "expectedConsumers": [
-        "Multiple discovery slices",
-        "Deployable composition for discovery"
-      ],
+      "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"],
       "justification": "realtime-support keeps discovery topic ownership in the discovery bounded context instead of deployables.",
       "createdFor": "SSE projection patch routing and topic construction for discovery marketplace surfaces.",
       "sunsetWhen": "Remove when discovery no longer publishes or consumes realtime projection patches."
@@ -537,12 +457,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by discovery-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "categories",
-        "item-detail",
-        "product-alerts",
-        "search"
-      ],
+      "expectedConsumers": ["categories", "item-detail", "product-alerts", "search"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -551,9 +466,7 @@
       "classification": "support",
       "purpose": "Provide reusable shell-support assets shared by discovery-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Deployable composition for discovery"
-      ],
+      "expectedConsumers": ["Deployable composition for discovery"],
       "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -562,9 +475,7 @@
       "classification": "support",
       "purpose": "Provide Discovery-owned Universal Commerce Protocol catalog adapters for public marketplace search and lookup.",
       "allowedWhen": "Allowed for standards-facing protocol adapters that map UCP catalog operations to Discovery-owned read models.",
-      "expectedConsumers": [
-        "platform-api UCP route composition"
-      ],
+      "expectedConsumers": ["platform-api UCP route composition"],
       "justification": "ucp-support keeps catalog/search protocol mapping inside Discovery instead of deployables or a generic UCP bounded context.",
       "createdFor": "UCP catalog search and lookup over Discovery read models.",
       "sunsetWhen": "Remove when UCP catalog adapters move into generated context-owned transport composition."
@@ -573,12 +484,8 @@
       "classification": "routes",
       "purpose": "Expose discovery-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

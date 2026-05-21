@@ -28,7 +28,8 @@ describe("auth transactional email projector", () => {
 
     expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
     expect(deliveryTokens.clearMagicLinkDeliveryToken).toHaveBeenCalledWith("cmd_1");
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0].message.templateData)
-      .toEqual({ magicLink: "https://chasesets.com/magic" });
+    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0].message.templateData).toEqual({
+      magicLink: "https://chasesets.com/magic",
+    });
   });
 });

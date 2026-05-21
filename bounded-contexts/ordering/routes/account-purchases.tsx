@@ -4,15 +4,12 @@ import { useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  type PurchaseListItem,
-} from "../support/request-support/api-client";
+import { type PurchaseListItem } from "../support/request-support/api-client";
 import { createOrderingRequestApiClient } from "../support/request-support/api-client";
 import { OrderingOrderListPage } from "../features/orders/ui/order-list-page";
 
 const DEFAULT_ORDER_QUERY = "limit=100&offset=0";
-const MARKETPLACE_DESCRIPTION =
-  t("ordering.routes.accountPurchases.track.purchases.and.drill.into.each");
+const MARKETPLACE_DESCRIPTION = t("ordering.routes.accountPurchases.track.purchases.and.drill.into.each");
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "orders.view" });

@@ -1,13 +1,15 @@
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import type { CatalogAdminRealtimeSurface } from "./topics";
 
-export function createCatalogAdminInvalidationPatch(input: Readonly<{
-  projectionName: string;
-  surface: CatalogAdminRealtimeSurface;
-  id: string;
-  eventType: string;
-  topics: readonly string[];
-}>): RealtimeProjectionPatch {
+export function createCatalogAdminInvalidationPatch(
+  input: Readonly<{
+    projectionName: string;
+    surface: CatalogAdminRealtimeSurface;
+    id: string;
+    eventType: string;
+    topics: readonly string[];
+  }>,
+): RealtimeProjectionPatch {
   return {
     kind: "projection.patch",
     context: "catalog",

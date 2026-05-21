@@ -1,20 +1,11 @@
 import type { Projector } from "@chase-sets/event-core/projector";
-import type {
-  PgQueryable,
-  PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import {
-  createCheckoutProductDescriptor,
-  type CheckoutVersionSchema,
-} from "./common";
-import {
-  createCheckoutServices,
-  type CheckoutServices,
-} from "./services";
+import { createCheckoutProductDescriptor, type CheckoutVersionSchema } from "./common";
+import { createCheckoutServices, type CheckoutServices } from "./services";
 import { checkoutSeedIds } from "../seed-support/ids";
 
 const rawNearMintVersionSelection = [
@@ -101,10 +92,7 @@ async function hasStartedSession(db: PgQueryable) {
   return result.rows[0]?.exists ?? false;
 }
 
-async function buildProductId(
-  db: PgQueryable,
-  line: (typeof demoCartLines)[number],
-) {
+async function buildProductId(db: PgQueryable, line: (typeof demoCartLines)[number]) {
   const result = await db.query<{
     product_schema: unknown;
   }>(
@@ -122,8 +110,7 @@ async function buildProductId(
   return createCheckoutProductDescriptor({
     catalogItemId: line.catalogItemId,
     productSchema:
-      typeof catalogItem.product_schema === "object" &&
-      catalogItem.product_schema !== null
+      typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
         ? (catalogItem.product_schema as CheckoutVersionSchema)
         : null,
     selection: line.selectedOptions,
@@ -135,10 +122,7 @@ export async function seedCheckoutDatabase(
   checkout: CheckoutServices = createCheckoutServices(pool),
 ) {
   const buyerAccountId = identitySeedIds.collector.accountId;
-  const buyerContext = createSeedContextFor(
-    buyerAccountId,
-    identitySeedIds.collector.userId,
-  );
+  const buyerContext = createSeedContextFor(buyerAccountId, identitySeedIds.collector.userId);
 
   await drainProjectors(checkout.projectors);
 

@@ -1,9 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  buildFilteredQuery,
-  executeListQuery,
-  type ListParams,
-} from "../../../support/read-model-support/list-query";
+import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type MembershipRow = Readonly<{
   membership_id: string;
@@ -15,10 +11,7 @@ export type MembershipRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listMemberships(
-  db: PgQueryable,
-  params: ListParams = {},
-) {
+export async function listMemberships(db: PgQueryable, params: ListParams = {}) {
   const query = buildFilteredQuery(
     "identity_memberships",
     params,
@@ -29,10 +22,9 @@ export async function listMemberships(
 }
 
 export async function getMembership(db: PgQueryable, membershipId: string) {
-  const result = await db.query<MembershipRow>(
-    `SELECT * FROM identity_memberships WHERE membership_id = $1`,
-    [membershipId],
-  );
+  const result = await db.query<MembershipRow>(`SELECT * FROM identity_memberships WHERE membership_id = $1`, [
+    membershipId,
+  ]);
   return result.rows[0] ?? null;
 }
 
@@ -47,11 +39,7 @@ export async function listMembershipsForUser(db: PgQueryable, userId: string) {
   return result.rows;
 }
 
-export async function getActiveMembershipForUserAccount(
-  db: PgQueryable,
-  userId: string,
-  accountId: string,
-) {
+export async function getActiveMembershipForUserAccount(db: PgQueryable, userId: string, accountId: string) {
   const result = await db.query<MembershipRow>(
     `SELECT * FROM identity_memberships
      WHERE user_id = $1

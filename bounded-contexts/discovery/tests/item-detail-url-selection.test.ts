@@ -7,9 +7,7 @@ describe("item detail URL selection", () => {
     params.append("dimension.dim_condition", "opt_near_mint");
     params.append("field.fld_seed_card_number", "44/102");
 
-    expect(readInitialSelectedOptions(params)).toEqual([
-      { dimensionId: "dim_condition", optionId: "opt_near_mint" },
-    ]);
+    expect(readInitialSelectedOptions(params)).toEqual([{ dimensionId: "dim_condition", optionId: "opt_near_mint" }]);
   });
 
   it("leaves repeated Dimension selections unset instead of guessing", () => {
@@ -18,8 +16,6 @@ describe("item detail URL selection", () => {
     params.append("dimension.dim_condition", "opt_excellent");
     params.append("dimension.dim_finish", "opt_holo");
 
-    expect(readInitialSelectedOptions(params)).toEqual([
-      { dimensionId: "dim_finish", optionId: "opt_holo" },
-    ]);
+    expect(readInitialSelectedOptions(params)).toEqual([{ dimensionId: "dim_finish", optionId: "opt_holo" }]);
   });
 });

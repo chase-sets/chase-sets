@@ -23,10 +23,11 @@ export type CategoryListRow = Readonly<{
 
 export type CategoryDetailRow = CategoryListRow;
 
-export type CategoryListParams = ListParams & Readonly<{
-  parentCategoryId?: string;
-  hierarchy?: string;
-}>;
+export type CategoryListParams = ListParams &
+  Readonly<{
+    parentCategoryId?: string;
+    hierarchy?: string;
+  }>;
 
 export async function listCategories(
   db: PgQueryable,
@@ -58,10 +59,7 @@ export async function listCategories(
   return executeListQuery<CategoryListRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function listCategoryIds(
-  db: PgQueryable,
-  params: CategoryListParams = {},
-): Promise<string[]> {
+export async function listCategoryIds(db: PgQueryable, params: CategoryListParams = {}): Promise<string[]> {
   const result = await listCategories(db, { ...params, limit: undefined, offset: undefined });
   return result.items.map((row) => row.category_id);
 }

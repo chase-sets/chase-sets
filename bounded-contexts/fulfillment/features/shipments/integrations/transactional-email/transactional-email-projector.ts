@@ -3,8 +3,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapShipmentDeliveredToTransactionalEmail } from "./transactional-email-intents";
 
-export const FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION =
-  "fulfillment-shipment-transactional-email-projection";
+export const FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION = "fulfillment-shipment-transactional-email-projection";
 
 export type FulfillmentShipmentDeliveredEmailEvent = Readonly<
   TransportEvent & {

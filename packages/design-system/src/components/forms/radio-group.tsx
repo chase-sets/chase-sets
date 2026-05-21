@@ -19,16 +19,10 @@ export function RadioGroup({
   items,
   value,
   defaultValue,
-  onValueChange
+  onValueChange,
 }: RadioGroupProps) {
   return (
-    <FieldChrome
-      label={label}
-      description={description}
-      error={error}
-      required={required}
-      hideLabel={hideLabel}
-    >
+    <FieldChrome label={label} description={description} error={error} required={required} hideLabel={hideLabel}>
       <RadioGroupPrimitive
         value={value}
         defaultValue={defaultValue}
@@ -48,9 +42,7 @@ export function RadioGroup({
             </Radio.Root>
             <div className="space-y-1">
               <div className="text-sm font-medium text-foreground">{item.label}</div>
-              {item.description ? (
-                <div className="text-xs text-secondary">{item.description}</div>
-              ) : null}
+              {item.description ? <div className="text-xs text-secondary">{item.description}</div> : null}
             </div>
           </label>
         ))}

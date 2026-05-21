@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -19,9 +16,7 @@ import { buildApiKeyProjectionHandlers } from "../read-model/projection";
 
 export type ApiKeyServices = Readonly<{
   commandHandler: CommandHandler<ApiKeyCommand, ApiKeyState, ApiKeyEvent>;
-  listApiKeys: (
-    params?: Parameters<typeof listApiKeys>[1],
-  ) => ReturnType<typeof listApiKeys>;
+  listApiKeys: (params?: Parameters<typeof listApiKeys>[1]) => ReturnType<typeof listApiKeys>;
   getApiKey: (apiKeyId: string) => ReturnType<typeof getApiKey>;
   projectors: readonly Projector[];
 }>;

@@ -2,15 +2,7 @@ import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
-import {
-  Button,
-  Dialog,
-  Select,
-  Stack,
-  StatusPill,
-  TextInput,
-  type DataColumn,
-} from "@chase-sets/design-system";
+import { Button, Dialog, Select, Stack, StatusPill, TextInput, type DataColumn } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -24,8 +16,16 @@ import type { Dimension } from "./contracts";
 const columns: DataColumn<Dimension>[] = [
   { key: "key", header: t("catalog.features.dimensions.ui.dimensionListPage.key"), cell: (row) => row.key },
   { key: "name", header: t("catalog.features.dimensions.ui.dimensionListPage.name"), cell: (row) => row.name },
-  { key: "value_kind", header: t("catalog.features.dimensions.ui.dimensionListPage.value.kind"), cell: (row) => row.value_kind },
-  { key: "status", header: t("catalog.features.dimensions.ui.dimensionListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  {
+    key: "value_kind",
+    header: t("catalog.features.dimensions.ui.dimensionListPage.value.kind"),
+    cell: (row) => row.value_kind,
+  },
+  {
+    key: "status",
+    header: t("catalog.features.dimensions.ui.dimensionListPage.status"),
+    cell: (row) => <StatusPill>{row.status}</StatusPill>,
+  },
 ];
 
 const statusOptions = [
@@ -123,7 +123,9 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
         createButton={
-          <Button onClick={() => setShowCreate(true)}>{t("catalog.features.dimensions.ui.dimensionListPage.new.dimension")}</Button>
+          <Button onClick={() => setShowCreate(true)}>
+            {t("catalog.features.dimensions.ui.dimensionListPage.new.dimension")}
+          </Button>
         }
       />
       <Dialog
@@ -133,9 +135,21 @@ export function DimensionListPage({ data, query }: CatalogListRouteData<Dimensio
         footer={<Button onClick={handleCreate}>{t("catalog.features.dimensions.ui.dimensionListPage.create")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.dimensions.ui.dimensionListPage.key.2")} value={key} onChange={(e) => setKey(e.target.value)} />
-          <TextInput label={t("catalog.features.dimensions.ui.dimensionListPage.name.2")} value={name} onChange={(e) => setName(e.target.value)} />
-          <TextInput label={t("catalog.features.dimensions.ui.dimensionListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput
+            label={t("catalog.features.dimensions.ui.dimensionListPage.key.2")}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.dimensions.ui.dimensionListPage.name.2")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.dimensions.ui.dimensionListPage.description")}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
           <Select
             label={t("catalog.features.dimensions.ui.dimensionListPage.value.kind.2")}
             items={valueKindOptions}

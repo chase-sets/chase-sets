@@ -24,22 +24,26 @@ export const LISTING_PHOTO_VARIANT_SPECS: readonly Readonly<{
 ];
 
 export type ListingPhotoStorage = Readonly<{
-  putObject(input: Readonly<{
-    key: string;
-    body: Uint8Array;
-    contentType: string;
-    cacheControl?: string;
-  }>): Promise<Readonly<{ key: string; publicUrl: string }>>;
+  putObject(
+    input: Readonly<{
+      key: string;
+      body: Uint8Array;
+      contentType: string;
+      cacheControl?: string;
+    }>,
+  ): Promise<Readonly<{ key: string; publicUrl: string }>>;
 }>;
 
 export type ListingPhotoImageProcessor = Readonly<{
   metadata(body: Uint8Array): Promise<{ width: number; height: number }>;
   normalizeDisplaySource(body: Uint8Array): Promise<Uint8Array>;
-  resizeToWebp(input: Readonly<{
-    body: Uint8Array;
-    width: number;
-    quality: number;
-  }>): Promise<{ body: Uint8Array; width: number; height: number }>;
+  resizeToWebp(
+    input: Readonly<{
+      body: Uint8Array;
+      width: number;
+      quality: number;
+    }>,
+  ): Promise<{ body: Uint8Array; width: number; height: number }>;
 }>;
 
 export type NormalizeListingPhotoInput = Readonly<{
@@ -54,9 +58,7 @@ export type NormalizeListingPhotoInput = Readonly<{
   imageProcessor?: ListingPhotoImageProcessor;
 }>;
 
-export async function normalizeListingPhoto(
-  input: NormalizeListingPhotoInput,
-): Promise<MarketplaceListingPhoto> {
+export async function normalizeListingPhoto(input: NormalizeListingPhotoInput): Promise<MarketplaceListingPhoto> {
   const imageProcessor = input.imageProcessor ?? sharpListingPhotoImageProcessor;
   const sourceHash = hashBytes(input.sourceBody);
   const displayBody = await imageProcessor.normalizeDisplaySource(input.sourceBody);

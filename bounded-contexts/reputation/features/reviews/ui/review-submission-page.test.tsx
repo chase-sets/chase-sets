@@ -13,20 +13,13 @@ const opportunity = {
 
 describe("review submission page", () => {
   it("renders account-to-account review language for the counterparty", () => {
-    const markup = renderToString(
-      <ReviewSubmissionPage
-        backHref="/account/sales/ord_1"
-        opportunity={opportunity}
-      />,
-    );
+    const markup = renderToString(<ReviewSubmissionPage backHref="/account/sales/ord_1" opportunity={opportunity} />);
 
     expect(markup).toContain("Review Buyer Account");
     expect(markup).toContain("Counterparty:");
     expect(markup).toContain("Buyer Account");
     expect(markup).toContain("Submit account review");
-    expect(markup).toContain(
-      "Tell the account what went well or what needs improvement.",
-    );
+    expect(markup).toContain("Tell the account what went well or what needs improvement.");
   });
 
   it("preserves submitted values when the route returns an error", () => {

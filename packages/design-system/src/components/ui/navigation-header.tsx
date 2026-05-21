@@ -29,14 +29,14 @@ export function NavigationHeader({
   actions,
   ariaLabel = "Primary navigation",
   sticky = true,
-  className
+  className,
 }: NavigationHeaderProps) {
   return (
     <header
       className={cn(
         "z-40 border-b border-[var(--muted)] bg-[color-mix(in_srgb,var(--background)_88%,transparent)] backdrop-blur",
         sticky && "sticky top-0",
-        className
+        className,
       )}
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between">
@@ -51,9 +51,7 @@ export function NavigationHeader({
               <strong className="ds-display truncate text-2xl">{brand}</strong>
               {badge ? <Badge variant="secondary">{badge}</Badge> : null}
             </div>
-            {description ? (
-              <p className="m-0 text-sm text-[var(--muted-foreground)]">{description}</p>
-            ) : null}
+            {description ? <p className="m-0 text-sm text-[var(--muted-foreground)]">{description}</p> : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -67,7 +65,7 @@ export function NavigationHeader({
                   "rounded-[var(--radius)] px-3 py-2 text-sm font-semibold transition-colors",
                   item.active
                     ? "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-[var(--shadow-sm)]"
-                    : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                    : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]",
                 )}
               >
                 {item.label}

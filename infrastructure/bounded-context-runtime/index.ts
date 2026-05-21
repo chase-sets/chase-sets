@@ -7,19 +7,14 @@ import type {
   BcProjectionGroup,
   BcProjector,
 } from "@chase-sets/bounded-context-module";
-import type {
-  ProjectorRunResult,
-} from "@chase-sets/event-core/projector";
+import type { ProjectorRunResult } from "@chase-sets/event-core/projector";
 import {
   getEventCommitMetadata,
   runWithEventCommitMetadata,
   ZERO_GLOBAL_POSITION,
   toTransportEvent,
 } from "@chase-sets/event-core";
-import {
-  parseGlobalPosition,
-  type GlobalPosition,
-} from "@chase-sets/event-core/storage";
+import { parseGlobalPosition, type GlobalPosition } from "@chase-sets/event-core/storage";
 import {
   createPostgresEventStore,
   eventCorePostgresSchemaSql,
@@ -43,10 +38,7 @@ export const defaultSeedOptions: BcSeedOptions = {
   environmentName: null,
 };
 
-export function seedProfileEnabled(
-  options: BcSeedOptions | undefined,
-  profile: EnvironmentDataProfile,
-): boolean {
+export function seedProfileEnabled(options: BcSeedOptions | undefined, profile: EnvironmentDataProfile): boolean {
   return (options ?? defaultSeedOptions).enabledDataProfiles.includes(profile);
 }
 
@@ -150,9 +142,7 @@ type ProjectionGroupRevisionRow = Readonly<{
 
 function assertSqlIdentifier(identifier: string): string {
   if (!SQL_IDENTIFIER_RE.test(identifier)) {
-    throw new Error(
-      `Invalid SQL identifier "${identifier}". Use letters, numbers, and underscores only.`,
-    );
+    throw new Error(`Invalid SQL identifier "${identifier}". Use letters, numbers, and underscores only.`);
   }
 
   return identifier;
@@ -169,16 +159,11 @@ function assertProjectionRevision(value: number | undefined): number {
 }
 
 function createCheckpointKey(
-  subscription: Pick<
-    BcEventSubscription,
-    "projectionName" | "sourceContextName" | "subscriptionVersion"
-  >,
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
 ): string {
-  return [
-    subscription.projectionName,
-    subscription.sourceContextName,
-    `v${subscription.subscriptionVersion}`,
-  ].join(":");
+  return [subscription.projectionName, subscription.sourceContextName, `v${subscription.subscriptionVersion}`].join(
+    ":",
+  );
 }
 
 async function loadSubscriptionCheckpoint(
@@ -198,10 +183,7 @@ async function loadSubscriptionCheckpoint(
 
 async function saveSubscriptionCheckpoint(
   db: PgTransactionalPool,
-  subscription: Pick<
-    BcEventSubscription,
-    "projectionName" | "sourceContextName" | "subscriptionVersion"
-  >,
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
   lastGlobalPosition: GlobalPosition,
 ): Promise<void> {
   await db.query(
@@ -269,18 +251,11 @@ async function saveProjectionGroupRevision(
      DO UPDATE SET
        projection_revision = EXCLUDED.projection_revision,
        updated_at = EXCLUDED.updated_at`,
-    [
-      targetContextName,
-      projectionName,
-      assertProjectionRevision(projectionRevision),
-    ],
+    [targetContextName, projectionName, assertProjectionRevision(projectionRevision)],
   );
 }
 
-async function deleteSubscriptionCheckpoint(
-  db: PgTransactionalPool,
-  checkpointKey: string,
-): Promise<void> {
+async function deleteSubscriptionCheckpoint(db: PgTransactionalPool, checkpointKey: string): Promise<void> {
   await db.query(
     `DELETE FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
      WHERE checkpoint_key = $1`,
@@ -288,9 +263,7 @@ async function deleteSubscriptionCheckpoint(
   );
 }
 
-async function readSourceHeadGlobalPosition(
-  pool: PgTransactionalPool,
-): Promise<GlobalPosition> {
+async function readSourceHeadGlobalPosition(pool: PgTransactionalPool): Promise<GlobalPosition> {
   const result = await pool.query<Readonly<{ head: string | number | bigint | null }>>(
     "SELECT COALESCE(MAX(global_position), 0) AS head FROM event_store_events",
   );
@@ -327,10 +300,7 @@ export async function waitForDatabase(
       return;
     } catch (error) {
       if (attempt === MAX_RETRIES) {
-        throw new Error(
-          `${label} did not become ready after ${MAX_RETRIES} attempts.`,
-          { cause: error },
-        );
+        throw new Error(`${label} did not become ready after ${MAX_RETRIES} attempts.`, { cause: error });
       }
 
       await sleep(RETRY_DELAY_MS);
@@ -338,9 +308,7 @@ export async function waitForDatabase(
   }
 }
 
-export async function drainProjectors(
-  projectors: readonly BcProjector[],
-): Promise<void> {
+export async function drainProjectors(projectors: readonly BcProjector[]): Promise<void> {
   let processed = 0;
 
   do {
@@ -396,9 +364,7 @@ export type ContextProcessSet = Readonly<{
   subscriptionRunners?: readonly ContextSubscriptionRunner[];
 }>;
 
-function sortSubscriptionRunners(
-  runners: readonly ContextSubscriptionRunner[],
-): readonly ContextSubscriptionRunner[] {
+function sortSubscriptionRunners(runners: readonly ContextSubscriptionRunner[]): readonly ContextSubscriptionRunner[] {
   return [...runners].sort((left, right) => {
     if (left.order !== right.order) {
       return left.order - right.order;
@@ -424,18 +390,10 @@ function sortSubscriptionRunners(
   });
 }
 
-function sortProjectionGroups(
-  groups: readonly ContextProjectionGroup[],
-): readonly ContextProjectionGroup[] {
+function sortProjectionGroups(groups: readonly ContextProjectionGroup[]): readonly ContextProjectionGroup[] {
   return [...groups].sort((left, right) => {
-    const leftOrder = Math.min(
-      ...left.subscriptionRunners.map((runner) => runner.order),
-      Number.MAX_SAFE_INTEGER,
-    );
-    const rightOrder = Math.min(
-      ...right.subscriptionRunners.map((runner) => runner.order),
-      Number.MAX_SAFE_INTEGER,
-    );
+    const leftOrder = Math.min(...left.subscriptionRunners.map((runner) => runner.order), Number.MAX_SAFE_INTEGER);
+    const rightOrder = Math.min(...right.subscriptionRunners.map((runner) => runner.order), Number.MAX_SAFE_INTEGER);
 
     if (leftOrder !== rightOrder) {
       return leftOrder - rightOrder;
@@ -453,11 +411,9 @@ function matchesSubscriptionEvent(
   event: Readonly<ReturnType<typeof toTransportEvent>>,
   subscription: Pick<BcEventSubscription, "eventTypes" | "streamPrefixes">,
 ): boolean {
-  const matchesType =
-    !subscription.eventTypes || subscription.eventTypes.includes(event.type);
+  const matchesType = !subscription.eventTypes || subscription.eventTypes.includes(event.type);
   const matchesStreamPrefix =
-    !subscription.streamPrefixes ||
-    subscription.streamPrefixes.some((prefix) => event.streamId.startsWith(prefix));
+    !subscription.streamPrefixes || subscription.streamPrefixes.some((prefix) => event.streamId.startsWith(prefix));
 
   return matchesType && matchesStreamPrefix;
 }
@@ -511,18 +467,13 @@ export function createSubscriptionRunner(
     order: subscription.order ?? 0,
     getStatus: () => ({ ...status }),
     refreshStatus: async () => {
-      const storedCheckpoint = await loadSubscriptionCheckpoint(
-        targetPool,
-        checkpointKey,
-      );
+      const storedCheckpoint = await loadSubscriptionCheckpoint(targetPool, checkpointKey);
       const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
       status.initialized = storedCheckpoint !== null;
       status.lastGlobalPosition = checkpoint;
-      status.sourceHeadGlobalPosition =
-        await readSourceHeadGlobalPosition(sourcePool);
+      status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
       if (status.state !== "running" && status.state !== "error") {
-        status.state =
-          checkpoint === status.sourceHeadGlobalPosition ? "caught-up" : "idle";
+        status.state = checkpoint === status.sourceHeadGlobalPosition ? "caught-up" : "idle";
       }
       status.updatedAt = new Date().toISOString();
       return { ...status };
@@ -543,15 +494,11 @@ export function createSubscriptionRunner(
       status.updatedAt = new Date().toISOString();
 
       try {
-        const storedCheckpoint = await loadSubscriptionCheckpoint(
-          targetPool,
-          checkpointKey,
-        );
+        const storedCheckpoint = await loadSubscriptionCheckpoint(targetPool, checkpointKey);
         const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
         status.initialized = storedCheckpoint !== null;
         status.lastGlobalPosition = checkpoint;
-        status.sourceHeadGlobalPosition =
-          await readSourceHeadGlobalPosition(sourcePool);
+        status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
 
         const storedEvents = await sourceEventStore.readAll({
           afterGlobalPosition: checkpoint,
@@ -559,8 +506,7 @@ export function createSubscriptionRunner(
         });
 
         if (storedEvents.length === 0) {
-          status.state =
-            checkpoint === status.sourceHeadGlobalPosition ? "caught-up" : "idle";
+          status.state = checkpoint === status.sourceHeadGlobalPosition ? "caught-up" : "idle";
           status.updatedAt = new Date().toISOString();
 
           return {
@@ -575,10 +521,7 @@ export function createSubscriptionRunner(
         for (const storedEvent of storedEvents) {
           const event = toTransportEvent(storedEvent);
 
-          if (
-            matchesSubscriptionEvent(event, subscription) &&
-            subscription.handlers[event.type]
-          ) {
+          if (matchesSubscriptionEvent(event, subscription) && subscription.handlers[event.type]) {
             await subscription.handlers[event.type](event);
           }
 
@@ -590,10 +533,7 @@ export function createSubscriptionRunner(
         status.initialized = true;
         status.lastGlobalPosition = lastGlobalPosition;
         status.processedEvents += processed;
-        status.state =
-          lastGlobalPosition === status.sourceHeadGlobalPosition
-            ? "caught-up"
-            : "idle";
+        status.state = lastGlobalPosition === status.sourceHeadGlobalPosition ? "caught-up" : "idle";
         status.updatedAt = new Date().toISOString();
 
         return {
@@ -602,8 +542,7 @@ export function createSubscriptionRunner(
         };
       } catch (error) {
         status.state = "error";
-        status.lastError =
-          error instanceof Error ? error.message : "Unknown subscription replay failure.";
+        status.lastError = error instanceof Error ? error.message : "Unknown subscription replay failure.";
         status.updatedAt = new Date().toISOString();
         throw error;
       }
@@ -614,9 +553,7 @@ export function createSubscriptionRunner(
 export function resolveModuleSubscriptions(
   mountedContexts: readonly MountedContextRuntimeEntry[],
 ): readonly ContextSubscriptionRunner[] {
-  const contextsByName = new Map(
-    mountedContexts.map((entry) => [entry.contextName, entry]),
-  );
+  const contextsByName = new Map(mountedContexts.map((entry) => [entry.contextName, entry]));
   const runners: ContextSubscriptionRunner[] = [];
 
   for (const entry of mountedContexts) {
@@ -634,23 +571,14 @@ export function resolveModuleSubscriptions(
         );
       }
 
-      runners.push(
-        createSubscriptionRunner(
-          entry.contextName,
-          entry.pool,
-          sourceEntry.pool,
-          subscription,
-        ),
-      );
+      runners.push(createSubscriptionRunner(entry.contextName, entry.pool, sourceEntry.pool, subscription));
     }
   }
 
   return sortSubscriptionRunners(runners);
 }
 
-function resolveContextProjectionGroups(
-  entry: MountedContextRuntimeEntry,
-): readonly ContextProjectionGroup[] {
+function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): readonly ContextProjectionGroup[] {
   const runtimeGroups: readonly BcProjectionGroup[] =
     entry.module.buildProjectionGroups?.(entry.services) ??
     (entry.module.projectionGroups ?? []).map((group) => ({ ...group }));
@@ -659,9 +587,7 @@ function resolveContextProjectionGroups(
 
   return runtimeGroups.map((group) => {
     if (seenProjectionNames.has(group.projectionName)) {
-      throw new Error(
-        `Context '${entry.contextName}' declared duplicate projection group '${group.projectionName}'.`,
-      );
+      throw new Error(`Context '${entry.contextName}' declared duplicate projection group '${group.projectionName}'.`);
     }
     seenProjectionNames.add(group.projectionName);
 
@@ -676,8 +602,7 @@ function resolveContextProjectionGroups(
       updatedAt: new Date(0).toISOString(),
     };
     const revisionStale = () =>
-      revisionState.storedProjectionRevision !== null &&
-      revisionState.storedProjectionRevision !== projectionRevision;
+      revisionState.storedProjectionRevision !== null && revisionState.storedProjectionRevision !== projectionRevision;
 
     return {
       projectionName: group.projectionName,
@@ -730,12 +655,7 @@ function resolveContextProjectionGroups(
         };
       },
       markRevisionSynced: async () => {
-        await saveProjectionGroupRevision(
-          entry.pool,
-          entry.contextName,
-          group.projectionName,
-          projectionRevision,
-        );
+        await saveProjectionGroupRevision(entry.pool, entry.contextName, group.projectionName, projectionRevision);
         revisionState.storedProjectionRevision = projectionRevision;
         revisionState.updatedAt = new Date().toISOString();
       },
@@ -760,9 +680,7 @@ export function resolveModuleProjectionGroups(
     for (const group of contextGroups) {
       const groupRunners = sortSubscriptionRunners(
         subscriptionRunners.filter(
-          (runner) =>
-            runner.targetContextName === entry.contextName &&
-            runner.projectionName === group.projectionName,
+          (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
         ),
       );
       const actualSources = [...new Set(groupRunners.map((runner) => runner.sourceContextName))];
@@ -803,18 +721,13 @@ export function resolveModuleProjectionGroups(
           const baseStatus = group.getStatus();
           const subscriptions = groupRunners.map((runner) => runner.getStatus());
           const initialized =
-            subscriptions.length > 0 &&
-            subscriptions.every((subscription) => subscription.initialized);
+            subscriptions.length > 0 && subscriptions.every((subscription) => subscription.initialized);
           const caughtUp =
             subscriptions.length > 0 &&
             subscriptions.every(
-              (subscription) =>
-                subscription.lastGlobalPosition ===
-                subscription.sourceHeadGlobalPosition,
+              (subscription) => subscription.lastGlobalPosition === subscription.sourceHeadGlobalPosition,
             );
-          const state: SubscriptionReplayState = subscriptions.some(
-            (subscription) => subscription.state === "error",
-          )
+          const state: SubscriptionReplayState = subscriptions.some((subscription) => subscription.state === "error")
             ? "error"
             : subscriptions.some((subscription) => subscription.state === "running")
               ? "running"
@@ -822,13 +735,10 @@ export function resolveModuleProjectionGroups(
                 ? "caught-up"
                 : "idle";
           const updatedAt = subscriptions.reduce(
-            (latest, subscription) =>
-              latest > subscription.updatedAt ? latest : subscription.updatedAt,
+            (latest, subscription) => (latest > subscription.updatedAt ? latest : subscription.updatedAt),
             new Date(0).toISOString(),
           );
-          const lastError =
-            subscriptions.find((subscription) => subscription.lastError)?.lastError ??
-            null;
+          const lastError = subscriptions.find((subscription) => subscription.lastError)?.lastError ?? null;
 
           return {
             projectionName: group.projectionName,
@@ -843,8 +753,7 @@ export function resolveModuleProjectionGroups(
             caughtUp,
             state,
             lastError,
-            updatedAt:
-              updatedAt > baseStatus.updatedAt ? updatedAt : baseStatus.updatedAt,
+            updatedAt: updatedAt > baseStatus.updatedAt ? updatedAt : baseStatus.updatedAt,
             subscriptions,
           };
         },
@@ -865,9 +774,7 @@ export function resolveModuleProjectionGroups(
   return sortProjectionGroups(groups);
 }
 
-export async function drainSubscriptionRunners(
-  runners: readonly ContextSubscriptionRunner[],
-): Promise<void> {
+export async function drainSubscriptionRunners(runners: readonly ContextSubscriptionRunner[]): Promise<void> {
   let processed = 0;
 
   do {
@@ -880,17 +787,13 @@ export async function drainSubscriptionRunners(
   } while (processed > 0);
 }
 
-export async function drainContextProcesses(
-  processSet: ContextProcessSet,
-): Promise<void> {
+export async function drainContextProcesses(processSet: ContextProcessSet): Promise<void> {
   let processed = 0;
 
   do {
     processed = 0;
 
-    for (const runner of sortSubscriptionRunners(
-      processSet.subscriptionRunners ?? [],
-    )) {
+    for (const runner of sortSubscriptionRunners(processSet.subscriptionRunners ?? [])) {
       const result = await runner.runOnce();
       processed += result.processed;
     }
@@ -902,9 +805,7 @@ export async function drainContextProcesses(
   } while (processed > 0);
 }
 
-export async function syncProjectionGroup(
-  group: ContextProjectionGroup,
-): Promise<void> {
+export async function syncProjectionGroup(group: ContextProjectionGroup): Promise<void> {
   const status = await group.refreshStatus();
 
   if (status.revisionStale) {
@@ -919,9 +820,7 @@ export async function syncProjectionGroup(
   await group.markRevisionSynced();
 }
 
-export async function resetProjectionGroup(
-  group: ContextProjectionGroup,
-): Promise<void> {
+export async function resetProjectionGroup(group: ContextProjectionGroup): Promise<void> {
   await group.reset();
 
   for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
@@ -929,9 +828,7 @@ export async function resetProjectionGroup(
   }
 }
 
-export async function rebuildProjectionGroup(
-  group: ContextProjectionGroup,
-): Promise<void> {
+export async function rebuildProjectionGroup(group: ContextProjectionGroup): Promise<void> {
   await resetProjectionGroup(group);
   await drainContextProcesses({
     projectors: group.projectors,
@@ -948,20 +845,14 @@ export async function bootstrapContextDatabase(
   await pool.query(composeModuleSchemaSql(module));
 }
 
-export function composeModuleSchemaSql(
-  module: Pick<BcApiModule, "schemaSql">,
-): string {
+export function composeModuleSchemaSql(module: Pick<BcApiModule, "schemaSql">): string {
   const eventCoreSchemaSql = eventCorePostgresSchemaSql.trim();
   const moduleSchemaSql = module.schemaSql.trim();
   const normalizedModuleSchemaSql = moduleSchemaSql.startsWith(eventCoreSchemaSql)
     ? moduleSchemaSql.slice(eventCoreSchemaSql.length).trim()
     : moduleSchemaSql;
 
-  return [
-    eventCoreSchemaSql,
-    eventSubscriptionSchemaSql.trim(),
-    normalizedModuleSchemaSql,
-  ]
+  return [eventCoreSchemaSql, eventSubscriptionSchemaSql.trim(), normalizedModuleSchemaSql]
     .filter((schemaSql) => schemaSql.length > 0)
     .join("\n\n");
 }
@@ -973,18 +864,14 @@ export async function syncContextSubscriptions(
   }>,
   contextName: string,
 ): Promise<void> {
-  const targetContext = runtime.mountedContexts.find(
-    (entry) => entry.contextName === contextName,
-  );
+  const targetContext = runtime.mountedContexts.find((entry) => entry.contextName === contextName);
   if (!targetContext) {
     throw new Error(`Runtime is missing mounted context '${contextName}'.`);
   }
 
   await drainContextProcesses({
     projectors: targetContext.projectors,
-    subscriptionRunners: runtime.subscriptionRunners.filter(
-      (runner) => runner.targetContextName === contextName,
-    ),
+    subscriptionRunners: runtime.subscriptionRunners.filter((runner) => runner.targetContextName === contextName),
   });
 }
 
@@ -998,18 +885,14 @@ export async function syncContextProjectionGroups(
     requiredOnly?: boolean;
   }> = {},
 ): Promise<void> {
-  const targetContext = runtime.mountedContexts.find(
-    (entry) => entry.contextName === contextName,
-  );
+  const targetContext = runtime.mountedContexts.find((entry) => entry.contextName === contextName);
   if (!targetContext) {
     throw new Error(`Runtime is missing mounted context '${contextName}'.`);
   }
 
   const groups = sortProjectionGroups(
     runtime.projectionGroups.filter(
-      (group) =>
-        group.targetContextName === contextName &&
-        (!options.requiredOnly || group.requiredDuringBootstrap),
+      (group) => group.targetContextName === contextName && (!options.requiredOnly || group.requiredDuringBootstrap),
     ),
   );
 
@@ -1033,15 +916,11 @@ export function getProjectionGroup(
   projectionName: string,
 ): ContextProjectionGroup {
   const group = runtime.projectionGroups.find(
-    (candidate) =>
-      candidate.targetContextName === contextName &&
-      candidate.projectionName === projectionName,
+    (candidate) => candidate.targetContextName === contextName && candidate.projectionName === projectionName,
   );
 
   if (!group) {
-    throw new Error(
-      `Runtime is missing projection group '${projectionName}' for context '${contextName}'.`,
-    );
+    throw new Error(`Runtime is missing projection group '${projectionName}' for context '${contextName}'.`);
   }
 
   return group;
@@ -1109,9 +988,7 @@ export function summarizeProjectionReplayStatuses(
   const contexts = [...new Set(statuses.map((status) => status.targetContextName))]
     .sort((left, right) => left.localeCompare(right))
     .map((contextName) => {
-      const contextStatuses = statuses.filter(
-        (status) => status.targetContextName === contextName,
-      );
+      const contextStatuses = statuses.filter((status) => status.targetContextName === contextName);
 
       return {
         contextName,
@@ -1135,12 +1012,9 @@ export function summarizeProjectionReplayStatuses(
   const runningGroups = statuses.filter((status) => status.state === "running").length;
   const errorGroups = statuses.filter((status) => status.state === "error").length;
   const requiredStatuses = statuses.filter((status) => status.requiredDuringBootstrap);
-  const status =
-    requiredStatuses.some(
-      (entry) => !entry.caughtUp || entry.revisionStale || entry.state === "error",
-    )
-      ? "degraded"
-      : "ok";
+  const status = requiredStatuses.some((entry) => !entry.caughtUp || entry.revisionStale || entry.state === "error")
+    ? "degraded"
+    : "ok";
 
   return {
     status,
@@ -1165,9 +1039,7 @@ export function getProjectionReplaySummary(
     requiredOnly?: boolean;
   }> = {},
 ): ProjectionReplaySummary {
-  return summarizeProjectionReplayStatuses(
-    listProjectionGroupStatuses(runtime, options),
-  );
+  return summarizeProjectionReplayStatuses(listProjectionGroupStatuses(runtime, options));
 }
 
 export async function refreshProjectionReplaySummary(
@@ -1179,9 +1051,7 @@ export async function refreshProjectionReplaySummary(
     requiredOnly?: boolean;
   }> = {},
 ): Promise<ProjectionReplaySummary> {
-  return summarizeProjectionReplayStatuses(
-    await refreshProjectionGroupStatuses(runtime, options),
-  );
+  return summarizeProjectionReplayStatuses(await refreshProjectionGroupStatuses(runtime, options));
 }
 
 export async function rebuildAllContextProjectionGroups(
@@ -1195,9 +1065,7 @@ export async function rebuildAllContextProjectionGroups(
 ): Promise<void> {
   const groups = sortProjectionGroups(
     runtime.projectionGroups.filter(
-      (group) =>
-        group.targetContextName === contextName &&
-        (!options.requiredOnly || group.requiredDuringBootstrap),
+      (group) => group.targetContextName === contextName && (!options.requiredOnly || group.requiredDuringBootstrap),
     ),
   );
 
@@ -1222,23 +1090,23 @@ export async function drainContextRuntime(
   });
 }
 
-export function collectProjectors<TServices extends {
-  projectors: readonly BcProjector[];
-}>(servicesList: readonly TServices[]): readonly BcProjector[] {
+export function collectProjectors<
+  TServices extends {
+    projectors: readonly BcProjector[];
+  },
+>(servicesList: readonly TServices[]): readonly BcProjector[] {
   return servicesList.flatMap((services) => services.projectors);
 }
 
-export function createContextServices<
-  TServices,
-  TPool,
-  TPorts,
->(module: BcApiModule<TServices, TPool, TPorts>, pool: TPool, ports: TPorts): TServices {
+export function createContextServices<TServices, TPool, TPorts>(
+  module: BcApiModule<TServices, TPool, TPorts>,
+  pool: TPool,
+  ports: TPorts,
+): TServices {
   return module.createServices(pool, ports);
 }
 
-export function composeSchemaSql(
-  modules: readonly Pick<BcApiModule, "schemaSql">[],
-): string {
+export function composeSchemaSql(modules: readonly Pick<BcApiModule, "schemaSql">[]): string {
   const eventCoreSchemaSql = eventCorePostgresSchemaSql.trim();
   let eventCoreIncluded = false;
 
@@ -1297,10 +1165,11 @@ export function composeApiModules<
   };
 }
 
-export type ResolvedApiMount<TRouter = unknown> = BcApiMount & Readonly<{
-  contextName: string;
-  router: TRouter;
-}>;
+export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
+  Readonly<{
+    contextName: string;
+    router: TRouter;
+  }>;
 
 export function createResolvedApiMount<TRouter>(
   contextName: string,
@@ -1313,9 +1182,7 @@ export function createResolvedApiMount<TRouter>(
   router: TRouter,
 ): ResolvedApiMount<TRouter> {
   if (mount.kind !== "primary" && mount.kind !== "additional") {
-    throw new Error(
-      `Invalid API mount kind '${mount.kind}' for context '${contextName}'.`,
-    );
+    throw new Error(`Invalid API mount kind '${mount.kind}' for context '${contextName}'.`);
   }
 
   return {
@@ -1344,23 +1211,14 @@ export function resolveContextApiMounts<TRouter>(
     );
   }
 
-  return mounts.map((mount, index) =>
-    createResolvedApiMount(contextName, mount, routers[index]),
-  );
+  return mounts.map((mount, index) => createResolvedApiMount(contextName, mount, routers[index]));
 }
 
 export function resolveModuleApiMounts<TServices, TPool, TPorts, TRouter>(
-  module: Pick<
-    BcApiModule<TServices, TPool, TPorts, TRouter>,
-    "contextName" | "apiMounts" | "buildApis"
-  >,
+  module: Pick<BcApiModule<TServices, TPool, TPorts, TRouter>, "contextName" | "apiMounts" | "buildApis">,
   services: TServices,
 ): readonly ResolvedApiMount<TRouter>[] {
-  return resolveContextApiMounts(
-    module.contextName,
-    module.apiMounts,
-    module.buildApis(services),
-  );
+  return resolveContextApiMounts(module.contextName, module.apiMounts, module.buildApis(services));
 }
 
 function normalizeMountWildcard(mountPath: string) {
@@ -1390,9 +1248,7 @@ export function attachWriteDrainMiddleware(
   mounts: readonly Pick<ResolvedApiMount, "mountPath" | "drainProjectorsOnWrite">[],
   drain: () => Promise<void>,
 ): void {
-  const writeDrainPaths = mounts
-    .filter((mount) => mount.drainProjectorsOnWrite)
-    .map((mount) => mount.mountPath);
+  const writeDrainPaths = mounts.filter((mount) => mount.drainProjectorsOnWrite).map((mount) => mount.mountPath);
 
   for (const mountPath of uniqueMountPaths(writeDrainPaths)) {
     app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
@@ -1458,10 +1314,7 @@ export function mountApiRouters(
   }
 }
 
-export function createForwardedAuthHeaders(
-  request: Request,
-  initHeaders?: HeadersInit,
-): Headers {
+export function createForwardedAuthHeaders(request: Request, initHeaders?: HeadersInit): Headers {
   const headers = new Headers(initHeaders);
   const cookie = request.headers.get("cookie");
   const authorization = request.headers.get("authorization");
@@ -1503,19 +1356,15 @@ export async function countEventsWithPrefix(
   },
   prefix: string,
 ): Promise<number> {
-  const result = await pool.query(
-    "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
-    [`${prefix}%`],
-  );
+  const result = await pool.query("SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1", [
+    `${prefix}%`,
+  ]);
 
   return Number(result.rows?.[0]?.count ?? 0);
 }
 
 export async function seedApiModuleIfEmpty<TPool>(
-  module: Pick<
-    BcApiModule<unknown, TPool, unknown>,
-    "contextName" | "streamPrefix" | "seed" | "seedProfiles"
-  >,
+  module: Pick<BcApiModule<unknown, TPool, unknown>, "contextName" | "streamPrefix" | "seed" | "seedProfiles">,
   pool: TPool & {
     query: (
       sql: string,
@@ -1529,9 +1378,7 @@ export async function seedApiModuleIfEmpty<TPool>(
     return;
   }
   if (!seedProfilesOverlap(module.seedProfiles, options)) {
-    console.log(
-      `${module.contextName} seed skipped for data profiles: ${options.enabledDataProfiles.join(", ")}.`,
-    );
+    console.log(`${module.contextName} seed skipped for data profiles: ${options.enabledDataProfiles.join(", ")}.`);
     return;
   }
 
@@ -1540,9 +1387,7 @@ export async function seedApiModuleIfEmpty<TPool>(
   if (eventCount === 0) {
     console.log(`Seeding ${module.contextName} data...`);
   } else {
-    console.log(
-      `${module.contextName} events already exist. Running seed reconciliation.`,
-    );
+    console.log(`${module.contextName} events already exist. Running seed reconciliation.`);
   }
 
   await module.seed(pool, services, options);

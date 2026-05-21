@@ -1,9 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  buildFilteredQuery,
-  executeListQuery,
-  type ListParams,
-} from "../../../support/read-model-support/list-query";
+import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type ConsentRow = Readonly<{
   consent_id: string;
@@ -22,10 +18,7 @@ export type ConsentListParams = ListParams &
     accountId?: string;
   }>;
 
-export async function listConsents(
-  db: PgQueryable,
-  params: ConsentListParams = {},
-) {
+export async function listConsents(db: PgQueryable, params: ConsentListParams = {}) {
   const extraConditions: string[] = [];
   const extraValues: unknown[] = [];
 

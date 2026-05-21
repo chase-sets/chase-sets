@@ -58,14 +58,16 @@ export type ShippingQuoteResult = Readonly<{
 }>;
 
 export interface ShippingQuotePolicy {
-  quote(params: Readonly<{
-    sellerAccountId: string;
-    shippingOption: ShippingOption;
-    itemSubtotalAmount: string;
-    quantity: number;
-    listingCount: number;
-    packagePlan?: PackagePlan;
-  }>): ShippingQuoteResult;
+  quote(
+    params: Readonly<{
+      sellerAccountId: string;
+      shippingOption: ShippingOption;
+      itemSubtotalAmount: string;
+      quantity: number;
+      listingCount: number;
+      packagePlan?: PackagePlan;
+    }>,
+  ): ShippingQuoteResult;
 }
 
 export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
@@ -81,12 +83,7 @@ export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
         if (pkg.mailpieceClass === "letter") {
           return sum + 1.49;
         }
-        const perPackageBase =
-          shippingOption === "priority"
-            ? 9.99
-            : shippingOption === "expedited"
-              ? 7.49
-              : 4.99;
+        const perPackageBase = shippingOption === "priority" ? 9.99 : shippingOption === "expedited" ? 7.49 : 4.99;
         return sum + perPackageBase + Math.max(0, pkg.billableWeightOunces - 4) * 0.32;
       }, 0);
 
@@ -99,12 +96,7 @@ export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
       };
     }
 
-    const perOrderBase =
-      shippingOption === "priority"
-        ? 19.99
-        : shippingOption === "expedited"
-          ? 9.99
-          : 4.99;
+    const perOrderBase = shippingOption === "priority" ? 19.99 : shippingOption === "expedited" ? 9.99 : 4.99;
     const volumeSurcharge = Math.max(0, quantity - 1) * 0.35;
     const consolidationSurcharge = Math.max(0, listingCount - 1) * 0.5;
     const baseAmount = perOrderBase + volumeSurcharge + consolidationSurcharge;
@@ -122,9 +114,7 @@ export function tieBreakPlanKey(orderIds: readonly string[]) {
   return [...orderIds].sort().join("|");
 }
 
-export function demandKeyForLine(
-  line: Pick<MarketplaceDemand, "productId">,
-) {
+export function demandKeyForLine(line: Pick<MarketplaceDemand, "productId">) {
   return buildDemandSignature(line.productId);
 }
 
@@ -133,9 +123,6 @@ export function assertSupplyAvailable(
   quantity: number,
   message: string,
 ) {
-  const totalAvailable = candidates.reduce(
-    (sum, candidate) => sum + candidate.availableQuantity,
-    0,
-  );
+  const totalAvailable = candidates.reduce((sum, candidate) => sum + candidate.availableQuantity, 0);
   assert(totalAvailable >= quantity, message);
 }

@@ -1,16 +1,15 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { ReputationApiEnv } from "../../../api";
-import {
-  createAccountReviewRoutes,
-  createPublicReputationRoutes,
-} from "./route";
+import { createAccountReviewRoutes, createPublicReputationRoutes } from "./route";
 import type { ReviewServices } from "./runtime";
 
-function buildApp(options: Readonly<{
-  actor: ReputationApiEnv["Variables"]["actor"];
-  services: ReviewServices;
-}>) {
+function buildApp(
+  options: Readonly<{
+    actor: ReputationApiEnv["Variables"]["actor"];
+    services: ReviewServices;
+  }>,
+) {
   const app = new Hono<ReputationApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -84,9 +83,7 @@ describe("reputation review routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://reputation.test/reviews/written"),
-    );
+    const response = await app.fetch(new Request("http://reputation.test/reviews/written"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -124,9 +121,7 @@ describe("reputation review routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://reputation.test/reviews/opportunities/orders/ord_1"),
-    );
+    const response = await app.fetch(new Request("http://reputation.test/reviews/opportunities/orders/ord_1"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -137,10 +132,7 @@ describe("reputation review routes", () => {
       eligible_at: "2026-04-02T00:00:00.000Z",
       active_review_id: null,
     });
-    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith(
-      "ord_1",
-      "acc_buyer",
-    );
+    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_buyer");
   });
 
   it("lets a seller submit an account review for the buyer on a verified order", async () => {
@@ -189,10 +181,7 @@ describe("reputation review routes", () => {
       version: 1,
       status: "submitted",
     });
-    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith(
-      "ord_1",
-      "acc_seller",
-    );
+    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_seller");
     expect(services.submitReview).toHaveBeenCalledWith(
       {
         orderId: "ord_1",
@@ -225,9 +214,7 @@ describe("reputation review routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://reputation.test/reviews/opportunities/orders/ord_2"),
-    );
+    const response = await app.fetch(new Request("http://reputation.test/reviews/opportunities/orders/ord_2"));
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({
@@ -245,9 +232,7 @@ describe("reputation review routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://reputation.test/accounts/acc_seller/review-summary"),
-    );
+    const response = await app.fetch(new Request("http://reputation.test/accounts/acc_seller/review-summary"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({

@@ -4,11 +4,7 @@ export type CartLineId = TypedUlid<"cli">;
 export type OrderLineId = TypedUlid<"oli">;
 
 export type ShippingOption = "standard" | "expedited" | "priority";
-export type OrderStatus =
-  | "pending-reservation"
-  | "pending-payment"
-  | "ready-for-fulfillment"
-  | "cancelled";
+export type OrderStatus = "pending-reservation" | "pending-payment" | "ready-for-fulfillment" | "cancelled";
 export type OrderSourceType = "cart-checkout" | "offer-acceptance" | "buy-now";
 
 export type VersionSelectedOptionEntry = Readonly<{
@@ -56,10 +52,7 @@ export function normalizeMoneyAmount(
   const normalized = value.trim();
   const fieldName = options.fieldName ?? "Amount";
 
-  assert(
-    /^\d+(\.\d{1,2})?$/.test(normalized),
-    `${fieldName} must be a valid decimal.`,
-  );
+  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
 
   const numeric = Number.parseFloat(normalized);
   assert(
@@ -84,31 +77,19 @@ export function numberToMoneyAmountRoundDown(value: number) {
   return (Math.floor(value * 100) / 100).toFixed(2);
 }
 
-export function normalizeVersionSelection(
-  value: readonly VersionSelectedOptionEntry[],
-): VersionSelectedOptionEntry[] {
+export function normalizeVersionSelection(value: readonly VersionSelectedOptionEntry[]): VersionSelectedOptionEntry[] {
   const normalized = value
     .map((entry) => ({
-      dimensionId: normalizeRequiredText(
-        entry.dimensionId,
-        "Selected options must include a dimension.",
-      ),
-      optionId: normalizeRequiredText(
-        entry.optionId,
-        "Selected options must include an option.",
-      ),
+      dimensionId: normalizeRequiredText(entry.dimensionId, "Selected options must include a dimension."),
+      optionId: normalizeRequiredText(entry.optionId, "Selected options must include an option."),
     }))
-    .sort((left, right) =>
-      left.dimensionId.localeCompare(right.dimensionId) ||
-      left.optionId.localeCompare(right.optionId),
+    .sort(
+      (left, right) => left.dimensionId.localeCompare(right.dimensionId) || left.optionId.localeCompare(right.optionId),
     );
 
   const seen = new Set<string>();
   for (const entry of normalized) {
-    assert(
-      !seen.has(entry.dimensionId),
-      "Selected options cannot include duplicate dimensions.",
-    );
+    assert(!seen.has(entry.dimensionId), "Selected options cannot include duplicate dimensions.");
     seen.add(entry.dimensionId);
   }
 
@@ -116,10 +97,7 @@ export function normalizeVersionSelection(
 }
 
 export function buildDemandSignature(productId: string) {
-  return normalizeRequiredText(
-    String(productId),
-    "Product id is required.",
-  );
+  return normalizeRequiredText(String(productId), "Product id is required.");
 }
 
 export function normalizeShippingOption(value: string): ShippingOption {

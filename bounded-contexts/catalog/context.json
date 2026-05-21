@@ -35,14 +35,7 @@
     "seed-support",
     "shell-support"
   ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./seed-support/*",
-    "./routes/*",
-    "./server",
-    "./web"
-  ],
+  "publicExports": [".", "./context", "./seed-support/*", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [
@@ -52,14 +45,8 @@
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
     }
   ],
-  "apiDeployables": [
-    "admin-support-api",
-    "platform-api"
-  ],
-  "runtimeDeployables": [
-    "admin-support-worker",
-    "platform-worker"
-  ],
+  "apiDeployables": ["admin-support-api", "platform-api"],
+  "runtimeDeployables": ["admin-support-worker", "platform-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/catalog",
@@ -314,49 +301,37 @@
       "classification": "slice",
       "purpose": "Own blueprints feature behavior, read models, and UI contracts for the catalog context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "catalog-items": {
       "classification": "slice",
       "purpose": "Own catalog-items feature behavior, read models, and UI contracts for the catalog context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "categories": {
       "classification": "slice",
       "purpose": "Own categories feature behavior, read models, and UI contracts for the catalog context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "components": {
       "classification": "slice",
       "purpose": "Own components feature behavior, read models, and UI contracts for the catalog context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "dimensions": {
       "classification": "slice",
       "purpose": "Own dimensions feature behavior, read models, and UI contracts for the catalog context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "fields": {
       "classification": "slice",
       "purpose": "Own fields feature behavior, read models, and UI contracts for the catalog context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "product-measures": {
       "classification": "slice",
@@ -372,17 +347,13 @@
       "classification": "slice",
       "purpose": "Own provider source observations, review workflow, and promotion into canonical Catalog Items.",
       "allowedWhen": "Required when external catalog providers can feed candidate Catalog facts.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "reference-data": {
       "classification": "slice",
       "purpose": "Own reference types and reference records that attach rich reusable facts to catalog item field values.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal catalog module composition"
-      ]
+      "expectedConsumers": ["Internal catalog module composition"]
     },
     "authoring-support": {
       "classification": "support",
@@ -444,11 +415,7 @@
       "classification": "support",
       "purpose": "Provide Catalog-owned realtime topic contracts and projection patch factories for admin projection refresh.",
       "allowedWhen": "Allowed only for Catalog-owned SSE projection patch routing and topic construction that spans multiple admin slices.",
-      "expectedConsumers": [
-        "projection-support",
-        "routes",
-        "Deployable realtime composition for Catalog"
-      ],
+      "expectedConsumers": ["projection-support", "routes", "Deployable realtime composition for Catalog"],
       "justification": "realtime-support keeps Catalog admin topic ownership in the Catalog bounded context instead of deployables.",
       "createdFor": "SSE projection refresh on Catalog admin list surfaces.",
       "sunsetWhen": "Remove when Catalog no longer publishes or consumes realtime projection patches."
@@ -457,10 +424,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by catalog-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple catalog slices",
-        "Deployable composition for catalog"
-      ],
+      "expectedConsumers": ["Multiple catalog slices", "Deployable composition for catalog"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "catalog workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -506,9 +470,7 @@
       "classification": "routes",
       "purpose": "Expose catalog-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     },
     "seed-support": {
       "classification": "support",

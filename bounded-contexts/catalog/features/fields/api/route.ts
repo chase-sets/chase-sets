@@ -5,7 +5,6 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { FieldId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
-
 export function fieldRoutes(services: FieldServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -114,7 +113,16 @@ export function fieldRoutes(services: FieldServices) {
 
   app.get("/", async (c) => {
     const { search, status, limit, offset, valueType, filterable, searchable, sortable } = c.req.query();
-    const result = await services.listFields({ search, status, valueType, filterable, searchable, sortable, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listFields({
+      search,
+      status,
+      valueType,
+      filterable,
+      searchable,
+      sortable,
+      limit: Number(limit) || undefined,
+      offset: Number(offset) || undefined,
+    });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -123,7 +131,10 @@ export function fieldRoutes(services: FieldServices) {
     const field = await services.getField(c.req.param("id"));
 
     if (!field) {
-      return c.json({ error: { code: "not_found", message: t("catalog.features.fields.api.route.field.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("catalog.features.fields.api.route.field.not.found") } },
+        404,
+      );
     }
 
     return c.json(field);
@@ -142,6 +153,3 @@ function fieldListQueryFromRecord(record: Record<string, unknown>) {
     sortable: toOptionalString(record.sortable),
   };
 }
-
-
-

@@ -3,11 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
-const {
-  mockUseLoaderData,
-  mockUseActionData,
-  mockRequireActorFromAuthApi,
-} = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
@@ -34,9 +30,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountSaleRoute, {
-  loader,
-} from "@chase-sets/ordering/routes/account-sale";
+import MarketplaceAccountSaleRoute, { loader } from "@chase-sets/ordering/routes/account-sale";
 
 const order = {
   order_id: "ord_1",
@@ -68,12 +62,7 @@ describe("marketplace account sale route", () => {
     mockUseActionData.mockReturnValue(null);
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
-      permissions: [
-        "orders.view",
-        "listings.view",
-        "reputation.view",
-        "reputation.manage",
-      ],
+      permissions: ["orders.view", "listings.view", "reputation.view", "reputation.manage"],
     });
   });
 

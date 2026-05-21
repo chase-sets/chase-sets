@@ -35,9 +35,7 @@ describe("command handler", () => {
   };
 
   it("loads state, appends decided events, and returns evolved state", async () => {
-    const append = vi.fn<AggregateRepository<number, CounterEvent>["append"]>(
-      async () => [storedEvent],
-    );
+    const append = vi.fn<AggregateRepository<number, CounterEvent>["append"]>(async () => [storedEvent]);
     const repository: AggregateRepository<number, CounterEvent> = {
       load: vi.fn(async () => ({ state: 1, version: 2, events: [], storedEvents: [] })),
       append,
@@ -45,9 +43,7 @@ describe("command handler", () => {
     const handler = createCommandHandler({
       repository,
       decide: (_state, command: CounterCommand) =>
-        command.by === 0
-          ? []
-          : [{ type: "counter.incremented" as const, data: { by: command.by } }],
+        command.by === 0 ? [] : [{ type: "counter.incremented" as const, data: { by: command.by } }],
       evolve: (state, event) => state + event.data.by,
     });
 

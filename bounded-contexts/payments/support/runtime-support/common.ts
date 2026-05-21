@@ -3,11 +3,7 @@ import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed
 
 export type RefundId = TypedUlid<"rfd">;
 
-export type PaymentStatus =
-  | "pending-confirmation"
-  | "captured"
-  | "failed"
-  | "cancelled";
+export type PaymentStatus = "pending-confirmation" | "captured" | "failed" | "cancelled";
 
 export type RefundStatus = "requested" | "issued" | "failed";
 
@@ -55,10 +51,7 @@ export function normalizeMoneyAmount(
   const normalized = value.trim();
   const fieldName = options.fieldName ?? "Amount";
 
-  assert(
-    /^\d+(\.\d{1,2})?$/.test(normalized),
-    `${fieldName} must be a valid decimal.`,
-  );
+  assert(/^\d+(\.\d{1,2})?$/.test(normalized), `${fieldName} must be a valid decimal.`);
 
   const numeric = Number.parseFloat(normalized);
   assert(
@@ -78,10 +71,7 @@ export function moneyToMinorUnits(value: string): number {
   return Math.round(Number.parseFloat(normalized) * 100);
 }
 
-function parseMoneyAmount(
-  value: string,
-  options: Readonly<{ allowZero?: boolean; fieldName?: string }> = {},
-) {
+function parseMoneyAmount(value: string, options: Readonly<{ allowZero?: boolean; fieldName?: string }> = {}) {
   return Number.parseFloat(normalizeMoneyAmount(value, options));
 }
 
@@ -147,9 +137,9 @@ export function normalizeProcessorName(value: string): PaymentProcessorName {
 export function normalizeOrderIds(orderIds: readonly string[]): OrderId[] {
   assert(orderIds.length > 0, "Payments must include at least one order.");
 
-  const normalized = [...new Set(orderIds.map((orderId) =>
-    normalizeRequiredText(orderId, "Payments must reference valid orders.")
-  ))];
+  const normalized = [
+    ...new Set(orderIds.map((orderId) => normalizeRequiredText(orderId, "Payments must reference valid orders."))),
+  ];
 
   assert(normalized.length > 0, "Payments must include at least one order.");
 

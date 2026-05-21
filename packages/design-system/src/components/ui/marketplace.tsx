@@ -30,7 +30,7 @@ import {
   Tag,
   Truck,
   UserCheck,
-  XCircle
+  XCircle,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { ProductMediaImage } from "../data-display/product-media";
@@ -49,15 +49,18 @@ export type AvailabilityTone = "available" | "limited" | "unavailable" | "pendin
 const densityClasses: Record<MarketplaceDensity, string> = {
   compact: "p-3",
   comfortable: "p-4",
-  focused: "p-5"
+  focused: "p-5",
 };
 
 const statusClasses: Record<StatusTone, string> = {
-  success: "border-[color-mix(in_srgb,var(--success)_26%,var(--border))] bg-[var(--success-soft)] text-[var(--success)]",
-  warning: "border-[color-mix(in_srgb,var(--warning)_32%,var(--border))] bg-[var(--warning-soft)] text-[var(--warning)]",
-  error: "border-[color-mix(in_srgb,var(--destructive)_26%,var(--border))] bg-[var(--error-soft)] text-[var(--destructive)]",
+  success:
+    "border-[color-mix(in_srgb,var(--success)_26%,var(--border))] bg-[var(--success-soft)] text-[var(--success)]",
+  warning:
+    "border-[color-mix(in_srgb,var(--warning)_32%,var(--border))] bg-[var(--warning-soft)] text-[var(--warning)]",
+  error:
+    "border-[color-mix(in_srgb,var(--destructive)_26%,var(--border))] bg-[var(--error-soft)] text-[var(--destructive)]",
   info: "border-[color-mix(in_srgb,var(--info)_26%,var(--border))] bg-[var(--info-soft)] text-[var(--info)]",
-  neutral: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]"
+  neutral: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]",
 };
 
 const modelLabels: Record<ListingModel, string> = {
@@ -67,13 +70,10 @@ const modelLabels: Record<ListingModel, string> = {
   booking: "Booking",
   digital: "Digital",
   quote: "Quote",
-  local: "Local"
+  local: "Local",
 };
 
-export function formatMarketplaceNumber(
-  value: unknown,
-  fallback: ReactNode = "Not listed",
-): ReactNode {
+export function formatMarketplaceNumber(value: unknown, fallback: ReactNode = "Not listed"): ReactNode {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value.toLocaleString() : fallback;
   }
@@ -106,9 +106,7 @@ function textFromNode(value: ReactNode): string {
   return "";
 }
 
-export function productOptionsFromSummary(
-  summary: string | null | undefined,
-): ProductOptionDisplayValue[] {
+export function productOptionsFromSummary(summary: string | null | undefined): ProductOptionDisplayValue[] {
   if (!summary) {
     return [];
   }
@@ -121,17 +119,12 @@ export function productOptionsFromSummary(
       const [label, ...valueParts] = segment.split(":");
       const value = valueParts.join(":").trim();
 
-      return value
-        ? { dimensionLabel: label.trim(), optionLabel: value }
-        : { optionLabel: segment };
+      return value ? { dimensionLabel: label.trim(), optionLabel: value } : { optionLabel: segment };
     })
     .filter((selection) => Boolean(textFromNode(selection.optionLabel)));
 }
 
-export function formatProductOptionsText(
-  options: readonly ProductOptionDisplayValue[],
-  separator = " • ",
-): string {
+export function formatProductOptionsText(options: readonly ProductOptionDisplayValue[], separator = " • "): string {
   return options
     .map((option) => textFromNode(option.optionLabel))
     .filter(Boolean)
@@ -302,13 +295,9 @@ export function MarketplaceCartLineItem({
         </div>
         <div className="min-w-0 space-y-3">
           <div className="min-w-0 space-y-1">
-            <div className="min-w-0 text-base font-semibold leading-snug text-[var(--foreground)]">
-              {title}
-            </div>
+            <div className="min-w-0 text-base font-semibold leading-snug text-[var(--foreground)]">{title}</div>
             {subtitle ? (
-              <div className="min-w-0 text-sm leading-5 text-[var(--muted-foreground)]">
-                {subtitle}
-              </div>
+              <div className="min-w-0 text-sm leading-5 text-[var(--muted-foreground)]">{subtitle}</div>
             ) : null}
           </div>
           <div className="min-w-0 space-y-1.5">
@@ -340,13 +329,7 @@ export interface TrustBadgeProps {
 
 export function TrustBadge({ children, tone = "verified", className }: TrustBadgeProps) {
   const Icon =
-    tone === "warning"
-      ? AlertTriangle
-      : tone === "secure"
-        ? Lock
-        : tone === "policy"
-          ? HelpCircle
-          : ShieldCheck;
+    tone === "warning" ? AlertTriangle : tone === "secure" ? Lock : tone === "policy" ? HelpCircle : ShieldCheck;
   const toneClass =
     tone === "warning"
       ? "border-[color-mix(in_srgb,var(--warning)_28%,var(--border))] bg-[var(--warning-soft)] text-[var(--warning)]"
@@ -357,7 +340,7 @@ export function TrustBadge({ children, tone = "verified", className }: TrustBadg
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold leading-4",
         toneClass,
-        className
+        className,
       )}
     >
       <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -376,11 +359,19 @@ export function VerifiedAccountBadge({ label, className }: NamedTrustBadgeProps)
 }
 
 export function OrderProtectionBadge({ label, className }: NamedTrustBadgeProps) {
-  return <TrustBadge tone="protection" className={className}>{label}</TrustBadge>;
+  return (
+    <TrustBadge tone="protection" className={className}>
+      {label}
+    </TrustBadge>
+  );
 }
 
 export function SecurePaymentCue({ label, className }: NamedTrustBadgeProps) {
-  return <TrustBadge tone="secure" className={className}>{label}</TrustBadge>;
+  return (
+    <TrustBadge tone="secure" className={className}>
+      {label}
+    </TrustBadge>
+  );
 }
 
 export interface ReturnPolicySnippetProps {
@@ -391,7 +382,12 @@ export interface ReturnPolicySnippetProps {
 
 export function ReturnPolicySnippet({ label, detail, className }: ReturnPolicySnippetProps) {
   return (
-    <div className={cn("flex gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm", className)}>
+    <div
+      className={cn(
+        "flex gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm",
+        className,
+      )}
+    >
       <RotateCcw className="mt-0.5 h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
       <div>
         <div className="font-semibold text-[var(--foreground)]">{label}</div>
@@ -408,14 +404,7 @@ export interface DisputeResolutionNoticeProps {
 }
 
 export function DisputeResolutionNotice({ title, description, action }: DisputeResolutionNoticeProps) {
-  return (
-    <MarketplaceNotice
-      tone="info"
-      title={title}
-      description={description}
-      action={action}
-    />
-  );
+  return <MarketplaceNotice tone="info" title={title} description={description} action={action} />;
 }
 
 export interface AccountQualityIndicatorProps {
@@ -536,12 +525,7 @@ export function AccountReputationSummary({
     <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
   );
   const reputationNode = hasReputation ? (
-    <RatingSummary
-      value={rating}
-      count={reviewCount}
-      label={ratingLabel}
-      compact
-    />
+    <RatingSummary value={rating} count={reviewCount} label={ratingLabel} compact />
   ) : (
     <span
       className="text-xs font-medium leading-4 text-[var(--muted-foreground)]"
@@ -667,17 +651,19 @@ export function ListingCard({
   saved = false,
   watching = false,
   density = "compact",
-  className
+  className,
 }: ListingCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const hasMediaFrame = Boolean(imageSrc || showMediaPlaceholder);
   const isLinked = Boolean(href);
-  const resolvedSellerTrust = sellerTrust ?? (
-    sellerVerified
-      ? <VerifiedAccountBadge label={sellerTrustLabel} />
-      : <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
-  );
+  const resolvedSellerTrust =
+    sellerTrust ??
+    (sellerVerified ? (
+      <VerifiedAccountBadge label={sellerTrustLabel} />
+    ) : (
+      <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
+    ));
   const sellerHasAccountReputation =
     Boolean(sellerHref) || normalizeRatingValue(rating) !== null || hasReviewCount(reviewCount);
   const sellerTrustSummary = (
@@ -706,20 +692,11 @@ export function ListingCard({
   );
   const resolvedProtection = protection ? <OrderProtectionBadge label={protection} /> : null;
   const canUseFallbackAsImage = Boolean(imageFallbackSrc) && imageFallbackMode === "permanent";
-  const resolvedImageSrc = imageSrc && !imageFailed
-    ? imageSrc
-    : canUseFallbackAsImage
-      ? imageFallbackSrc
-      : undefined;
-  const resolvedImageAlt = resolvedImageSrc === imageFallbackSrc
-    ? imageFallbackAlt ?? imageAlt ?? title
-    : imageAlt ?? title;
-  const resolvedImageSrcSet = resolvedImageSrc === imageFallbackSrc
-    ? imageFallbackSrcSet
-    : imageSrcSet;
-  const resolvedImageSizes = resolvedImageSrc === imageFallbackSrc
-    ? imageFallbackSizes
-    : imageSizes;
+  const resolvedImageSrc = imageSrc && !imageFailed ? imageSrc : canUseFallbackAsImage ? imageFallbackSrc : undefined;
+  const resolvedImageAlt =
+    resolvedImageSrc === imageFallbackSrc ? (imageFallbackAlt ?? imageAlt ?? title) : (imageAlt ?? title);
+  const resolvedImageSrcSet = resolvedImageSrc === imageFallbackSrc ? imageFallbackSrcSet : imageSrcSet;
+  const resolvedImageSizes = resolvedImageSrc === imageFallbackSrc ? imageFallbackSizes : imageSizes;
   const showLoadingFallback = Boolean(imageSrc && imageFallbackSrc && !imageLoaded && !imageFailed);
 
   return (
@@ -732,7 +709,7 @@ export function ListingCard({
             : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
           : "grid-cols-1",
         isLinked && "cursor-pointer",
-        className
+        className,
       )}
     >
       {href ? (
@@ -747,7 +724,7 @@ export function ListingCard({
           className={cn(
             "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center",
             resolvedImageSrc || showLoadingFallback ? "bg-transparent" : "bg-[var(--surface-2)]",
-            isLinked && "z-20 pointer-events-none"
+            isLinked && "z-20 pointer-events-none",
           )}
         >
           {showLoadingFallback ? (
@@ -799,16 +776,12 @@ export function ListingCard({
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
             {condition ? <Badge variant="outline">{condition}</Badge> : null}
-            {availability ? <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span> : null}
+            {availability ? (
+              <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span>
+            ) : null}
           </div>
-          <h3 className="m-0 line-clamp-2 text-base font-semibold leading-6 text-[var(--foreground)]">
-            {title}
-          </h3>
-          {subtitle ? (
-            <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">
-              {subtitle}
-            </p>
-          ) : null}
+          <h3 className="m-0 line-clamp-2 text-base font-semibold leading-6 text-[var(--foreground)]">{title}</h3>
+          {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">{subtitle}</p> : null}
           {valueCue ? (
             <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
               {valueCue}
@@ -820,7 +793,9 @@ export function ListingCard({
           <div className="grid gap-1">
             <div className="text-xl font-bold leading-7 tabular-nums text-[var(--foreground)]">{price}</div>
             {priceDetail ? <div className="text-xs leading-4 text-[var(--muted-foreground)]">{priceDetail}</div> : null}
-            {priceExplanation ? <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div> : null}
+            {priceExplanation ? (
+              <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div>
+            ) : null}
           </div>
         </div>
 
@@ -848,7 +823,12 @@ export function ListingCard({
         >
           {primaryAction}
           {secondaryAction ?? (
-            <Button variant="outline" size="icon" aria-label={`${saved ? savedLabel : saveLabel} ${title}`} aria-pressed={saved}>
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={`${saved ? savedLabel : saveLabel} ${title}`}
+              aria-pressed={saved}
+            >
               <Heart className="h-4 w-4" aria-hidden="true" />
             </Button>
           )}
@@ -893,7 +873,12 @@ export function AvailabilityState({ label, tone = "available", detail }: Availab
     tone === "available" ? "success" : tone === "limited" ? "warning" : tone === "unavailable" ? "error" : "info";
 
   return (
-    <div className={cn("inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses[noticeTone])}>
+    <div
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        statusClasses[noticeTone],
+      )}
+    >
       <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" />
       <span>{label}</span>
       {detail ? <span className="font-medium opacity-80">{detail}</span> : null}
@@ -919,7 +904,10 @@ export function WhyThisPrice({ title, reasons }: WhyThisPriceProps) {
       <CardContent>
         <div className="grid gap-2">
           {reasons.map((reason) => (
-            <div key={String(reason.label)} className="flex items-center justify-between gap-4 rounded-[var(--radius)] bg-[var(--surface-2)] px-3 py-2 text-sm">
+            <div
+              key={String(reason.label)}
+              className="flex items-center justify-between gap-4 rounded-[var(--radius)] bg-[var(--surface-2)] px-3 py-2 text-sm"
+            >
               <span className="text-[var(--text-secondary)]">{reason.label}</span>
               <span className="font-semibold tabular-nums text-[var(--foreground)]">{reason.value}</span>
             </div>
@@ -940,7 +928,7 @@ export function WatchlistButton({ label, active = false, watchingLabel }: Watchl
   return (
     <Button variant="outline" aria-pressed={active}>
       <Heart className="h-4 w-4" aria-hidden="true" />
-      {active ? watchingLabel ?? label : label}
+      {active ? (watchingLabel ?? label) : label}
     </Button>
   );
 }
@@ -962,7 +950,11 @@ export function SavedSearchCard({ title, description, action, filters = [] }: Sa
             <CardDescription>{description}</CardDescription>
             {filters.length ? (
               <div className="flex flex-wrap gap-2">
-                {filters.map((filter) => <Badge key={String(filter)} variant="secondary">{filter}</Badge>)}
+                {filters.map((filter) => (
+                  <Badge key={String(filter)} variant="secondary">
+                    {filter}
+                  </Badge>
+                ))}
               </div>
             ) : null}
           </div>
@@ -989,7 +981,10 @@ export function RecommendationModule({ title, description, items }: Recommendati
       <CardContent>
         <div className="grid gap-3">
           {items.map((item) => (
-            <div key={String(item.title)} className="flex items-start justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <div
+              key={String(item.title)}
+              className="flex items-start justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+            >
               <div>
                 <div className="font-semibold text-[var(--foreground)]">{item.title}</div>
                 <div className="text-sm leading-5 text-[var(--text-secondary)]">{item.reason}</div>
@@ -1013,7 +1008,12 @@ export interface ComparisonCardProps {
 
 export function ComparisonCard({ title, price, signals, action, selected = false }: ComparisonCardProps) {
   return (
-    <article className={cn("grid gap-3 rounded-[var(--radius)] border bg-[var(--card)] p-4 shadow-[var(--shadow-sm)]", selected ? "border-[var(--primary)]" : "border-[var(--border)]")}>
+    <article
+      className={cn(
+        "grid gap-3 rounded-[var(--radius)] border bg-[var(--card)] p-4 shadow-[var(--shadow-sm)]",
+        selected ? "border-[var(--primary)]" : "border-[var(--border)]",
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <h3 className="m-0 text-base font-semibold leading-6 text-[var(--foreground)]">{title}</h3>
         <div className="text-lg font-bold tabular-nums text-[var(--foreground)]">{price}</div>
@@ -1054,13 +1054,13 @@ export function AccountTrustCard({
   shipsFrom,
   joined,
   policies = [],
-  actions
+  actions,
 }: AccountTrustCardProps) {
   const facts = [
     completedSales ? { icon: PackageCheck, label: "Completed", value: completedSales } : null,
     responseTime ? { icon: Clock, label: "Response", value: responseTime } : null,
     shipsFrom ? { icon: MapPin, label: "Ships from", value: shipsFrom } : null,
-    joined ? { icon: BadgeCheck, label: "Account since", value: joined } : null
+    joined ? { icon: BadgeCheck, label: "Account since", value: joined } : null,
   ].filter(Boolean) as Array<{ icon: typeof PackageCheck; label: string; value: ReactNode }>;
   const reputationRating = normalizeRatingValue(rating);
   const hasReputation = reputationRating !== null && hasReviewCount(reviewCount);
@@ -1077,7 +1077,11 @@ export function AccountTrustCard({
             {hasReputation ? (
               <RatingSummary value={reputationRating} count={reviewCount} compact />
             ) : (
-              <span className="text-xs font-medium leading-4 text-[var(--muted-foreground)]" aria-label="No feedback yet" title="No feedback yet">
+              <span
+                className="text-xs font-medium leading-4 text-[var(--muted-foreground)]"
+                aria-label="No feedback yet"
+                title="No feedback yet"
+              >
                 New
               </span>
             )}
@@ -1088,7 +1092,10 @@ export function AccountTrustCard({
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-2">
           {facts.map((fact) => (
-            <div key={fact.label} className="flex gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <div
+              key={fact.label}
+              className="flex gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+            >
               <fact.icon className="mt-0.5 h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
               <div>
                 <div className="text-xs font-medium text-[var(--muted-foreground)]">{fact.label}</div>
@@ -1133,7 +1140,7 @@ export function SearchFilterPanel({
   resultCount,
   appliedFilters = [],
   popularSearches = [],
-  actions
+  actions,
 }: SearchFilterPanelProps) {
   return (
     <Card>
@@ -1141,7 +1148,10 @@ export function SearchFilterPanel({
         <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
           <label className="relative">
             <span className="sr-only">{searchLabel}</span>
-            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[var(--muted-foreground)]" aria-hidden="true" />
+            <Search
+              className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[var(--muted-foreground)]"
+              aria-hidden="true"
+            />
             <Input className="pl-9" placeholder={placeholder} />
           </label>
           <div className="flex flex-wrap gap-2">
@@ -1155,11 +1165,18 @@ export function SearchFilterPanel({
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {resultCount ? <span className="font-semibold text-[var(--foreground)]">{resultCount}</span> : null}
           {appliedFilters.map((filter) => (
-            <span key={filter} className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]">
+            <span
+              key={filter}
+              className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]"
+            >
               {filter}
             </span>
           ))}
-          {appliedFilters.length && clearLabel ? <button className="text-xs font-semibold text-[var(--text-secondary)] underline-offset-4 hover:underline">{clearLabel}</button> : null}
+          {appliedFilters.length && clearLabel ? (
+            <button className="text-xs font-semibold text-[var(--text-secondary)] underline-offset-4 hover:underline">
+              {clearLabel}
+            </button>
+          ) : null}
         </div>
         {popularSearches.length ? (
           <div className="flex flex-wrap gap-2 text-sm">
@@ -1190,7 +1207,10 @@ export function AppliedFilterChips({ filters, clearAction, removeLabel }: Applie
   return (
     <div className="flex flex-wrap items-center gap-2">
       {filters.map((filter) => (
-        <span key={filter.id} className="inline-flex min-h-8 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--foreground)]">
+        <span
+          key={filter.id}
+          className="inline-flex min-h-8 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--foreground)]"
+        >
           {filter.label}
           {filter.onRemove ? (
             <button
@@ -1249,11 +1269,10 @@ export function SearchControlBar({
   filterControlsVisibility = "always",
   appliedFilters,
   summary,
-  savedSearch
+  savedSearch,
 }: SearchControlBarProps) {
   const hasControls = Boolean(sort || filters || actions);
-  const filterControlsClass =
-    filterControlsVisibility === "desktop" ? "hidden lg:block" : "block";
+  const filterControlsClass = filterControlsVisibility === "desktop" ? "hidden lg:block" : "block";
 
   return (
     <section className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-3 shadow-[var(--shadow-sm)]">
@@ -1266,9 +1285,7 @@ export function SearchControlBar({
               <div className="flex min-w-0 flex-wrap items-end gap-3">
                 {filters ? <div className={cn(filterControlsClass, "min-w-44")}>{filters}</div> : null}
                 {actions ? (
-                  <div className="flex min-h-11 items-end [&>a]:min-h-11 [&>button]:min-h-11">
-                    {actions}
-                  </div>
+                  <div className="flex min-h-11 items-end [&>a]:min-h-11 [&>button]:min-h-11">{actions}</div>
                 ) : null}
               </div>
             ) : null}
@@ -1305,7 +1322,9 @@ export function SortSelector({ label, value, options, onChange }: SortSelectorPr
         onChange={(event) => onChange?.(event.currentTarget.value)}
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
         ))}
       </select>
     </label>
@@ -1327,7 +1346,7 @@ export function NoResultsRecovery({
   recommendations = [],
   savedSearchAction,
   resetAction,
-  trustCue
+  trustCue,
 }: NoResultsRecoveryProps) {
   return (
     <MarketplaceEmptyState
@@ -1367,14 +1386,18 @@ export function PriceBreakdown({ title, description, lines, total, totalLabel, r
         <div className="grid gap-2">
           {lines.map((line) => (
             <div key={line.label} className="flex items-center justify-between gap-4 text-sm">
-              <span className={cn(line.muted ? "text-[var(--muted-foreground)]" : "text-[var(--text-secondary)]")}>{line.label}</span>
+              <span className={cn(line.muted ? "text-[var(--muted-foreground)]" : "text-[var(--text-secondary)]")}>
+                {line.label}
+              </span>
               <span className="font-semibold tabular-nums text-[var(--foreground)]">{line.value}</span>
             </div>
           ))}
         </div>
         <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-t border-[var(--border)] pt-4">
           {totalLabel ? <span className="min-w-0 font-semibold text-[var(--foreground)]">{totalLabel}</span> : null}
-          <span className="min-w-0 max-w-full break-words text-right text-xl font-bold leading-tight tabular-nums text-[var(--foreground)] sm:text-2xl">{total}</span>
+          <span className="min-w-0 max-w-full break-words text-right text-xl font-bold leading-tight tabular-nums text-[var(--foreground)] sm:text-2xl">
+            {total}
+          </span>
         </div>
         {reassurance ? (
           <div className="mt-4 rounded-[var(--radius)] bg-[var(--trust-soft)] p-3 text-sm font-medium text-[var(--trust)]">
@@ -1413,7 +1436,7 @@ export function ListingPurchasePanel({
   protection,
   primaryAction,
   secondaryAction,
-  reassurance
+  reassurance,
 }: ListingPurchasePanelProps) {
   return (
     <Card className="border-[color-mix(in_srgb,var(--primary)_22%,var(--border))]">
@@ -1477,7 +1500,7 @@ export function OrderIntentSummary({
   availability,
   fulfillment,
   protection,
-  paymentStatus
+  paymentStatus,
 }: OrderIntentSummaryProps) {
   return (
     <Card className="border-[color-mix(in_srgb,var(--trust)_22%,var(--border))]">
@@ -1533,7 +1556,9 @@ export function OrderProtectionModule({ title, items }: OrderProtectionModulePro
         <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-5">
           {items.map((item) => (
             <div key={String(item.title)} className="flex min-w-0 gap-3">
-              <div className="mt-0.5 shrink-0 text-[var(--trust)]">{item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}</div>
+              <div className="mt-0.5 shrink-0 text-[var(--trust)]">
+                {item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
+              </div>
               <div className="min-w-0">
                 <div className="font-semibold text-[var(--foreground)]">{item.title}</div>
                 <div className="text-sm leading-5 text-[var(--text-secondary)]">{item.description}</div>
@@ -1592,7 +1617,10 @@ export function PolicySummary({ title, policies }: PolicySummaryProps) {
       <CardContent>
         <div className="grid gap-2">
           {policies.map((policy) => (
-            <div key={policy.label} className="flex items-start justify-between gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
+            <div
+              key={policy.label}
+              className="flex items-start justify-between gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm"
+            >
               <span className="text-[var(--text-secondary)]">{policy.label}</span>
               <span className="font-semibold text-[var(--foreground)]">{policy.value}</span>
             </div>
@@ -1611,7 +1639,8 @@ export interface MarketplaceNoticeProps {
 }
 
 export function MarketplaceNotice({ tone = "info", title, description, action }: MarketplaceNoticeProps) {
-  const Icon = tone === "error" ? XCircle : tone === "warning" ? AlertTriangle : tone === "success" ? CheckCircle2 : HelpCircle;
+  const Icon =
+    tone === "error" ? XCircle : tone === "warning" ? AlertTriangle : tone === "success" ? CheckCircle2 : HelpCircle;
 
   return (
     <div className={cn("flex gap-3 rounded-[var(--radius)] border p-4", statusClasses[tone])}>
@@ -1644,7 +1673,7 @@ export function PaymentRecoveryPanel({
   nextStep,
   supportPath,
   primaryAction,
-  secondaryAction
+  secondaryAction,
 }: PaymentRecoveryPanelProps) {
   return (
     <Card className="border-[color-mix(in_srgb,var(--warning)_32%,var(--border))]">
@@ -1682,7 +1711,9 @@ export function StickyCtaBar({ price, context, primaryAction, secondaryAction }:
       <div className="mx-auto grid max-w-7xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="min-w-0">
           {price ? <div className="text-lg font-bold tabular-nums text-[var(--foreground)]">{price}</div> : null}
-          {context ? <div className="text-xs leading-5 text-[var(--muted-foreground)] sm:truncate">{context}</div> : null}
+          {context ? (
+            <div className="text-xs leading-5 text-[var(--muted-foreground)] sm:truncate">{context}</div>
+          ) : null}
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:shrink-0" data-primary-action-count="1">
           {secondaryAction}
@@ -1712,7 +1743,9 @@ export function CheckoutConfidencePanel({ title, items, securePayment }: Checkou
         <div className="grid gap-3 md:grid-cols-3">
           {items.map((item) => (
             <div key={String(item.title)} className="flex gap-3">
-              <div className="mt-0.5 text-[var(--trust)]">{item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}</div>
+              <div className="mt-0.5 text-[var(--trust)]">
+                {item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
+              </div>
               <div>
                 <div className="font-semibold text-[var(--foreground)]">{item.title}</div>
                 <div className="text-sm leading-5 text-[var(--text-secondary)]">{item.description}</div>
@@ -1720,7 +1753,11 @@ export function CheckoutConfidencePanel({ title, items, securePayment }: Checkou
             </div>
           ))}
         </div>
-        {securePayment ? <div className="rounded-[var(--radius)] border border-[color-mix(in_srgb,var(--trust)_24%,var(--border))] bg-[var(--card)] p-3">{securePayment}</div> : null}
+        {securePayment ? (
+          <div className="rounded-[var(--radius)] border border-[color-mix(in_srgb,var(--trust)_24%,var(--border))] bg-[var(--card)] p-3">
+            {securePayment}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1755,14 +1792,7 @@ export interface GuestCheckoutCueProps {
 }
 
 export function GuestCheckoutCue({ title, description, action }: GuestCheckoutCueProps) {
-  return (
-    <MarketplaceNotice
-      tone="neutral"
-      title={title}
-      description={description}
-      action={action}
-    />
-  );
+  return <MarketplaceNotice tone="neutral" title={title} description={description} action={action} />;
 }
 
 export interface PostPurchaseSupportPanelProps {
@@ -1772,7 +1802,12 @@ export interface PostPurchaseSupportPanelProps {
   policies?: Array<{ label: ReactNode; value: ReactNode }>;
 }
 
-export function PostPurchaseSupportPanel({ title, description, actions, policies = [] }: PostPurchaseSupportPanelProps) {
+export function PostPurchaseSupportPanel({
+  title,
+  description,
+  actions,
+  policies = [],
+}: PostPurchaseSupportPanelProps) {
   return (
     <Card>
       <CardHeader>
@@ -1786,7 +1821,10 @@ export function PostPurchaseSupportPanel({ title, description, actions, policies
         {policies.length ? (
           <div className="grid gap-2">
             {policies.map((policy) => (
-              <div key={String(policy.label)} className="flex items-center justify-between gap-3 rounded-[var(--radius)] bg-[var(--surface-2)] px-3 py-2 text-sm">
+              <div
+                key={String(policy.label)}
+                className="flex items-center justify-between gap-3 rounded-[var(--radius)] bg-[var(--surface-2)] px-3 py-2 text-sm"
+              >
                 <span className="text-[var(--text-secondary)]">{policy.label}</span>
                 <span className="font-semibold text-[var(--foreground)]">{policy.value}</span>
               </div>
@@ -1808,7 +1846,13 @@ export interface MessageThreadPreviewProps {
   action?: ReactNode;
 }
 
-export function MessageThreadPreview({ title, responseTimeLabel, responseTime, messages, action }: MessageThreadPreviewProps) {
+export function MessageThreadPreview({
+  title,
+  responseTimeLabel,
+  responseTime,
+  messages,
+  action,
+}: MessageThreadPreviewProps) {
   return (
     <Card>
       <CardHeader>
@@ -1816,12 +1860,19 @@ export function MessageThreadPreview({ title, responseTimeLabel, responseTime, m
           <MessageSquare className="h-5 w-5 text-[var(--primary)]" aria-hidden="true" />
           {title}
         </CardTitle>
-        {responseTime ? <CardDescription>{responseTimeLabel} {responseTime}</CardDescription> : null}
+        {responseTime ? (
+          <CardDescription>
+            {responseTimeLabel} {responseTime}
+          </CardDescription>
+        ) : null}
       </CardHeader>
       <CardContent>
         <div className="grid gap-3">
           {messages.map((message) => (
-            <div key={`${message.author}-${String(message.body)}`} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <div
+              key={`${message.author}-${String(message.body)}`}
+              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+            >
               <div className="mb-1 flex items-center justify-between gap-2 text-xs font-semibold text-[var(--muted-foreground)]">
                 <span>{message.author}</span>
                 {message.meta ? <span>{message.meta}</span> : null}
@@ -1899,8 +1950,13 @@ export function DetailConfidenceModule({ title, description, items }: DetailConf
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-2">
           {items.map((item) => (
-            <div key={item.label} className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
-              <div className={cn("mt-0.5", item.tone ? statusClasses[item.tone].split(" ").at(-1) : "text-[var(--trust)]")}>
+            <div
+              key={item.label}
+              className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+            >
+              <div
+                className={cn("mt-0.5", item.tone ? statusClasses[item.tone].split(" ").at(-1) : "text-[var(--trust)]")}
+              >
                 {item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
               </div>
               <div>
@@ -1931,7 +1987,10 @@ export function SpecificationList({ title, specs }: SpecificationListProps) {
       <CardContent>
         <dl className="grid gap-0 overflow-hidden rounded-[var(--radius)] border border-[var(--border)]">
           {specs.map((spec) => (
-            <div key={spec.label} className="grid grid-cols-[minmax(8rem,0.8fr)_1fr] gap-3 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 last:border-b-0">
+            <div
+              key={spec.label}
+              className="grid grid-cols-[minmax(8rem,0.8fr)_1fr] gap-3 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 last:border-b-0"
+            >
               <dt className="text-sm text-[var(--muted-foreground)]">{spec.label}</dt>
               <dd className="m-0 text-sm font-semibold text-[var(--foreground)]">{spec.value}</dd>
             </div>
@@ -1964,9 +2023,14 @@ export function ComparisonModule({ title, description, signalLabel, columns, row
           <table className="min-w-[42rem] w-full border-collapse text-sm">
             <thead>
               <tr>
-                <th className="border-b border-[var(--border)] px-3 py-2 text-left text-[var(--muted-foreground)]">{signalLabel}</th>
+                <th className="border-b border-[var(--border)] px-3 py-2 text-left text-[var(--muted-foreground)]">
+                  {signalLabel}
+                </th>
                 {columns.map((column) => (
-                  <th key={column} className="border-b border-[var(--border)] px-3 py-2 text-left font-semibold text-[var(--foreground)]">
+                  <th
+                    key={column}
+                    className="border-b border-[var(--border)] px-3 py-2 text-left font-semibold text-[var(--foreground)]"
+                  >
                     {column}
                   </th>
                 ))}
@@ -1975,9 +2039,14 @@ export function ComparisonModule({ title, description, signalLabel, columns, row
             <tbody>
               {rows.map((row) => (
                 <tr key={row.label}>
-                  <th className="border-b border-[var(--border)] px-3 py-2 text-left font-medium text-[var(--text-secondary)]">{row.label}</th>
+                  <th className="border-b border-[var(--border)] px-3 py-2 text-left font-medium text-[var(--text-secondary)]">
+                    {row.label}
+                  </th>
                   {row.values.map((value, index) => (
-                    <td key={`${row.label}-${columns[index]}`} className="border-b border-[var(--border)] px-3 py-2 font-semibold text-[var(--foreground)]">
+                    <td
+                      key={`${row.label}-${columns[index]}`}
+                      className="border-b border-[var(--border)] px-3 py-2 font-semibold text-[var(--foreground)]"
+                    >
                       {value}
                     </td>
                   ))}
@@ -1999,7 +2068,13 @@ export interface AccountProfileHeaderProps {
   actions?: ReactNode;
 }
 
-export function AccountProfileHeader({ name, verified = false, tagline, stats = [], actions }: AccountProfileHeaderProps) {
+export function AccountProfileHeader({
+  name,
+  verified = false,
+  tagline,
+  stats = [],
+  actions,
+}: AccountProfileHeaderProps) {
   return (
     <section className="ds-panel grid gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] p-4 md:grid-cols-[1fr_auto] md:items-end">
       <div className="grid gap-3">
@@ -2011,7 +2086,10 @@ export function AccountProfileHeader({ name, verified = false, tagline, stats = 
         {stats.length ? (
           <div className="grid gap-2 sm:grid-cols-4">
             {stats.map((stat) => (
-              <div key={stat.label} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
+              <div
+                key={stat.label}
+                className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+              >
                 <div className="text-lg font-bold tabular-nums text-[var(--foreground)]">{stat.value}</div>
                 <div className="text-xs text-[var(--muted-foreground)]">{stat.label}</div>
               </div>
@@ -2041,7 +2119,7 @@ export function AccountCredibilityHeader({
   facts,
   policies = [],
   contactAction,
-  reportAction
+  reportAction,
 }: AccountCredibilityHeaderProps) {
   return (
     <section className="ds-panel grid gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] p-4">
@@ -2062,7 +2140,10 @@ export function AccountCredibilityHeader({
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {facts.map((fact) => (
-          <div key={String(fact.label)} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
+          <div
+            key={String(fact.label)}
+            className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+          >
             <div className="text-sm font-semibold text-[var(--foreground)]">{fact.value}</div>
             <div className="text-xs text-[var(--muted-foreground)]">{fact.label}</div>
           </div>
@@ -2162,7 +2243,7 @@ export function MarketplaceEmptyState({
   description,
   recoveryActions,
   recommendations = [],
-  trustCue
+  trustCue,
 }: MarketplaceEmptyStateProps) {
   return (
     <section className="grid gap-4 rounded-[var(--radius-lg)] border border-dashed border-[var(--border-strong)] bg-[var(--card)] p-6 text-center">
@@ -2175,7 +2256,9 @@ export function MarketplaceEmptyState({
       {recommendations.length ? (
         <div className="flex flex-wrap justify-center gap-2">
           {recommendations.map((recommendation) => (
-            <Badge key={recommendation} variant="secondary">{recommendation}</Badge>
+            <Badge key={recommendation} variant="secondary">
+              {recommendation}
+            </Badge>
           ))}
         </div>
       ) : null}
@@ -2188,7 +2271,10 @@ export function ListingGridSkeleton({ count = 6 }: { count?: number }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
       {Array.from({ length: count }).map((_, index) => (
-        <div key={index} className="grid grid-cols-[112px_1fr] overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)]">
+        <div
+          key={index}
+          className="grid grid-cols-[112px_1fr] overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)]"
+        >
           <Skeleton className="h-36 rounded-none" />
           <div className="grid gap-3 p-3">
             <Skeleton className="h-4 w-24" />
@@ -2219,7 +2305,10 @@ export function DetailModuleSkeleton() {
 
 export function CheckoutSummarySkeleton() {
   return (
-    <div className="grid gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4" aria-hidden="true">
+    <div
+      className="grid gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4"
+      aria-hidden="true"
+    >
       <Skeleton className="h-5 w-36" />
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-4 w-full" />
@@ -2230,7 +2319,10 @@ export function CheckoutSummarySkeleton() {
 
 export function AccountProfileSkeleton() {
   return (
-    <div className="grid gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-4" aria-hidden="true">
+    <div
+      className="grid gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-4"
+      aria-hidden="true"
+    >
       <Skeleton className="h-8 w-56" />
       <Skeleton className="h-4 w-full" />
       <div className="grid gap-2 sm:grid-cols-4">
@@ -2252,23 +2344,35 @@ export function MarketplaceStatusTimeline({ steps }: MarketplaceStatusTimelinePr
     complete: CheckCircle2,
     current: Clock,
     upcoming: Package,
-    issue: AlertTriangle
+    issue: AlertTriangle,
   };
 
   return (
     <ol className="grid gap-3">
       {steps.map((step) => {
         const Icon = iconByStatus[step.status];
-        const tone = step.status === "issue" ? "warning" : step.status === "complete" ? "success" : step.status === "current" ? "info" : "neutral";
+        const tone =
+          step.status === "issue"
+            ? "warning"
+            : step.status === "complete"
+              ? "success"
+              : step.status === "current"
+                ? "info"
+                : "neutral";
 
         return (
-          <li key={step.label} className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3">
+          <li
+            key={step.label}
+            className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3"
+          >
             <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full border", statusClasses[tone])}>
               <Icon className="h-4 w-4" aria-hidden="true" />
             </span>
             <div>
               <div className="font-semibold text-[var(--foreground)]">{step.label}</div>
-              {step.description ? <div className="text-sm leading-5 text-[var(--text-secondary)]">{step.description}</div> : null}
+              {step.description ? (
+                <div className="text-sm leading-5 text-[var(--text-secondary)]">{step.description}</div>
+              ) : null}
             </div>
           </li>
         );
@@ -2329,10 +2433,15 @@ export function MarketplaceDashboardPanel({ title, description, metrics, action 
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-3">
           {metrics.map((metric) => (
-            <div key={metric.label} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <div
+              key={metric.label}
+              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+            >
               <div className="text-2xl font-bold tabular-nums text-[var(--foreground)]">{metric.value}</div>
               <div className="text-sm font-medium text-[var(--text-secondary)]">{metric.label}</div>
-              {metric.detail ? <div className="mt-1 text-xs text-[var(--muted-foreground)]">{metric.detail}</div> : null}
+              {metric.detail ? (
+                <div className="mt-1 text-xs text-[var(--muted-foreground)]">{metric.detail}</div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -2358,7 +2467,7 @@ export function CategoryNavigation({ items }: CategoryNavigationProps) {
               "ds-focus inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold",
               item.active
                 ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]"
-                : "border-[var(--border)] bg-[var(--card)] text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--foreground)]"
+                : "border-[var(--border)] bg-[var(--card)] text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--foreground)]",
             )}
           >
             {item.label}
@@ -2378,7 +2487,10 @@ export function MarketplaceTemplateGallery({ templates }: MarketplaceTemplateGal
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {templates.map((template) => (
-        <article key={template.name} className="grid gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4">
+        <article
+          key={template.name}
+          className="grid gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4"
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="m-0 text-base font-semibold text-[var(--foreground)]">{template.name}</h3>
@@ -2388,10 +2500,14 @@ export function MarketplaceTemplateGallery({ templates }: MarketplaceTemplateGal
           </div>
           <div className="flex flex-wrap gap-2">
             {template.criticalSignals.map((signal) => (
-              <Badge key={signal} variant="secondary">{signal}</Badge>
+              <Badge key={signal} variant="secondary">
+                {signal}
+              </Badge>
             ))}
           </div>
-          <div className="text-xs font-semibold uppercase text-[var(--muted-foreground)]">Primary action: {template.primaryAction}</div>
+          <div className="text-xs font-semibold uppercase text-[var(--muted-foreground)]">
+            Primary action: {template.primaryAction}
+          </div>
         </article>
       ))}
     </div>
@@ -2405,7 +2521,7 @@ export const marketplaceDesignPrinciples = [
   "Comparison before exploration",
   "Consistency before novelty",
   "Accessibility before aesthetics",
-  "Conversion through confidence, not pressure"
+  "Conversion through confidence, not pressure",
 ] as const;
 
 export const marketplacePageTemplates = [
@@ -2420,7 +2536,7 @@ export const marketplacePageTemplates = [
   "Account dashboard",
   "Messages/negotiation page",
   "Empty search results page",
-  "Error state page"
+  "Error state page",
 ] as const;
 
 export const marketplaceIconGuidance = {
@@ -2435,7 +2551,7 @@ export const marketplaceIconGuidance = {
   booking: CalendarDays,
   return: RotateCcw,
   recovery: RefreshCcw,
-  cart: ShoppingCart
+  cart: ShoppingCart,
 } as const;
 
 export function SecurePaymentIndicator({ label }: { label?: ReactNode }) {

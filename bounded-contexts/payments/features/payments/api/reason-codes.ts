@@ -6,11 +6,8 @@ export const checkoutUnavailableReasonLabels = {
   "order-not-ready": moneyStatusLabel("order-not-ready"),
 } as const;
 
-export type CheckoutUnavailableReasonCode =
-  keyof typeof checkoutUnavailableReasonLabels;
+export type CheckoutUnavailableReasonCode = keyof typeof checkoutUnavailableReasonLabels;
 
-export function checkoutUnavailableReasonLabel(
-  code: CheckoutUnavailableReasonCode | string,
-) {
+export function checkoutUnavailableReasonLabel(code: CheckoutUnavailableReasonCode | string) {
   return moneyStatusLabel(code);
 }

@@ -36,7 +36,9 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-export const meta: MetaFunction = () => [{ title: t("commercialTerms.routes.admin.agreements.commercial.agreements.commercial.terms") }];
+export const meta: MetaFunction = () => [
+  { title: t("commercialTerms.routes.admin.agreements.commercial.agreements.commercial.terms") },
+];
 
 export default function CommercialTermsAgreementsRoute() {
   const data = useLoaderData<typeof loader>();

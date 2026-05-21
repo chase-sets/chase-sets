@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildPayoutReadinessProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPayoutReadinessProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "settlement.payout-readiness.recorded": async (event) => {
       const data = event.data as unknown as {

@@ -1,11 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export type DiscoverySlugEntityKind =
-  | "category"
-  | "item"
-  | "listing"
-  | "product"
-  | "account";
+export type DiscoverySlugEntityKind = "category" | "item" | "listing" | "product" | "account";
 
 const ID_SUFFIX_LABEL_LENGTH = 24;
 
@@ -32,17 +27,12 @@ function hashId(id: string): string {
 }
 
 function compactIdSuffix(id: string): string {
-  const suffix = createSlugBase(id)
-    .slice(-ID_SUFFIX_LABEL_LENGTH)
-    .replace(/^-+/, "");
+  const suffix = createSlugBase(id).slice(-ID_SUFFIX_LABEL_LENGTH).replace(/^-+/, "");
 
   return `${suffix || "item"}-${hashId(id)}`;
 }
 
-export function createMarketplaceSlug(
-  parts: readonly (string | null | undefined)[],
-  id: string,
-): string {
+export function createMarketplaceSlug(parts: readonly (string | null | undefined)[], id: string): string {
   const base = createSlugBase(parts.filter(Boolean).join(" ")) || "marketplace";
 
   return `${base}-${compactIdSuffix(id)}`;
@@ -74,12 +64,6 @@ export async function rememberSlugRedirect(
        entity_id = EXCLUDED.entity_id,
        target_slug = EXCLUDED.target_slug,
        updated_at = EXCLUDED.updated_at`,
-    [
-      params.entityKind,
-      params.previousSlug,
-      params.entityId,
-      params.nextSlug,
-      params.updatedAt,
-    ],
+    [params.entityKind, params.previousSlug, params.entityId, params.nextSlug, params.updatedAt],
   );
 }

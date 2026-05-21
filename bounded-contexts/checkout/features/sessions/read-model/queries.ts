@@ -35,26 +35,15 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
   return {
     ...row,
     source_type:
-      row.source_type === "buy-now"
-        ? "buy-now"
-        : row.source_type === "offer-intent"
-          ? "offer-intent"
-          : "cart",
-    optimization_goal:
-      row.optimization_goal === "fewest-shipments"
-        ? "fewest-shipments"
-        : "lowest-total",
+      row.source_type === "buy-now" ? "buy-now" : row.source_type === "offer-intent" ? "offer-intent" : "cart",
+    optimization_goal: row.optimization_goal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
     shipping_option:
-      row.shipping_option === "expedited" || row.shipping_option === "priority"
-        ? row.shipping_option
-        : "standard",
+      row.shipping_option === "expedited" || row.shipping_option === "priority" ? row.shipping_option : "standard",
     shipping_address:
       typeof row.shipping_address === "object" && row.shipping_address !== null
         ? (row.shipping_address as CheckoutShippingAddress)
         : null,
-    lines: Array.isArray(row.lines)
-      ? (row.lines as CheckoutSessionLine[])
-      : [],
+    lines: Array.isArray(row.lines) ? (row.lines as CheckoutSessionLine[]) : [],
     order_ids: Array.isArray(row.order_ids)
       ? row.order_ids.filter((value): value is string => typeof value === "string")
       : [],

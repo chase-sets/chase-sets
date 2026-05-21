@@ -6,10 +6,7 @@ import type { TransactionalEmailOutbox } from "@chase-sets/communications-email"
 import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
-import type {
-  PgQueryable,
-  PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -50,16 +47,12 @@ type AuthIdentityReadServices = Readonly<{
   getUserBySocialLogin: (
     params: Parameters<typeof getAuthIdentityUserBySocialLogin>[1],
   ) => ReturnType<typeof getAuthIdentityUserBySocialLogin>;
-  listActiveMembershipsForUser: (
-    userId: string,
-  ) => ReturnType<typeof listActiveAuthMembershipsForUser>;
+  listActiveMembershipsForUser: (userId: string) => ReturnType<typeof listActiveAuthMembershipsForUser>;
   getActiveMembershipForUserAccount: (
     userId: string,
     accountId: string,
   ) => ReturnType<typeof getActiveAuthMembershipForUserAccount>;
-  getInvitation: (
-    invitationId: string,
-  ) => ReturnType<typeof getAuthIdentityInvitation>;
+  getInvitation: (invitationId: string) => ReturnType<typeof getAuthIdentityInvitation>;
 }>;
 
 export type AuthServices = Readonly<{
@@ -80,29 +73,20 @@ export type AuthHostPorts = Readonly<{
   socialLoginProviders?: readonly SocialLoginProvider[];
 }>;
 
-export function createAuthServices(
-  pool: PgTransactionalPool,
-  ports: AuthHostPorts = {},
-): AuthServices {
+export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPorts = {}): AuthServices {
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const transactionalEmailOutbox =
-    ports.transactionalEmailOutbox ??
-    createPostgresTransactionalEmailOutbox({ db });
-  const notificationOutbox =
-    ports.notificationOutbox ??
-    createPostgresNotificationOutbox({ db });
+  const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
+  const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,
     db,
     transactionalEmailOutbox,
     magicLinkDeliveryTokens: {
-      getMagicLinkDeliveryToken: (tokenId) =>
-        getMagicLinkDeliveryToken(db, tokenId),
-      clearMagicLinkDeliveryToken: (tokenId) =>
-        clearMagicLinkDeliveryToken(db, tokenId),
+      getMagicLinkDeliveryToken: (tokenId) => getMagicLinkDeliveryToken(db, tokenId),
+      clearMagicLinkDeliveryToken: (tokenId) => clearMagicLinkDeliveryToken(db, tokenId),
     },
   });
 
@@ -117,10 +101,8 @@ export function createAuthServices(
       getUser: (userId) => getAuthIdentityUser(db, userId),
       getUserByEmail: (email) => getAuthIdentityUserByEmail(db, email),
       getUserByPhone: (phone) => getAuthIdentityUserByPhone(db, phone),
-      getUserBySocialLogin: (params) =>
-        getAuthIdentityUserBySocialLogin(db, params),
-      listActiveMembershipsForUser: (userId) =>
-        listActiveAuthMembershipsForUser(db, userId),
+      getUserBySocialLogin: (params) => getAuthIdentityUserBySocialLogin(db, params),
+      listActiveMembershipsForUser: (userId) => listActiveAuthMembershipsForUser(db, userId),
       getActiveMembershipForUserAccount: (userId, accountId) =>
         getActiveAuthMembershipForUserAccount(db, userId, accountId),
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
@@ -145,9 +127,7 @@ export async function drainAuthProjectors(services: AuthServices) {
   } while (processed > 0);
 }
 
-export type AuthSessionMembership = Awaited<
-  ReturnType<typeof listActiveAuthMembershipsForUser>
->[number];
+export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];
 
 export type AuthSessionStartResult =
   | Readonly<{
@@ -189,15 +169,12 @@ async function startSessionForUser(
   }>,
 ): Promise<AuthSessionStartResult> {
   const memberships =
-    params.membershipsOverride ??
-    (await services.identity.listActiveMembershipsForUser(params.userId));
+    params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
   if (memberships.length === 0) {
     throw new Error("User has no active memberships.");
   }
 
-  const selectedAccountId =
-    params.accountId ??
-    (memberships.length === 1 ? memberships[0].accountId : undefined);
+  const selectedAccountId = params.accountId ?? (memberships.length === 1 ? memberships[0].accountId : undefined);
 
   if (!selectedAccountId) {
     return {
@@ -353,18 +330,11 @@ export async function resolveActorFromSessionId(
   sessionId: string,
 ): Promise<ResolvedActor | null> {
   const session = await services.sessions.getSession(sessionId);
-  if (
-    !session ||
-    session.status !== "active" ||
-    new Date(session.expires_at).getTime() <= Date.now()
-  ) {
+  if (!session || session.status !== "active" || new Date(session.expires_at).getTime() <= Date.now()) {
     return null;
   }
 
-  const membership = await services.identity.getActiveMembershipForUserAccount(
-    session.user_id,
-    session.account_id,
-  );
+  const membership = await services.identity.getActiveMembershipForUserAccount(session.user_id, session.account_id);
 
   if (!membership) {
     return null;

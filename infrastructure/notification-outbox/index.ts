@@ -87,9 +87,7 @@ type NotificationOutboxRow = Readonly<{
   last_error: string | null;
 }>;
 
-export function createPostgresNotificationOutbox(
-  options: PostgresNotificationOutboxOptions,
-): NotificationOutboxStore {
+export function createPostgresNotificationOutbox(options: PostgresNotificationOutboxOptions): NotificationOutboxStore {
   const db = options.db;
   const tableName = assertSqlIdentifier(options.tableName ?? DEFAULT_TABLE_NAME);
   const now = options.now ?? (() => new Date());
@@ -102,11 +100,7 @@ export function createPostgresNotificationOutbox(
       const messageJson = JSON.stringify(input.message);
 
       for (const [index, channel] of input.message.channels.entries()) {
-        const deliveryId = createNotificationDeliveryId(
-          input.message,
-          channel,
-          index,
-        );
+        const deliveryId = createNotificationDeliveryId(input.message, channel, index);
 
         await db.query(
           `INSERT INTO ${tableName} (
@@ -174,9 +168,7 @@ export function createPostgresNotificationOutbox(
 
     async claimPendingNotificationDeliveries(input: ClaimNotificationDeliveriesInput) {
       const claimStartedAt = input.now ?? now().toISOString();
-      const claimedUntil = new Date(
-        new Date(claimStartedAt).getTime() + input.claimTtlMs,
-      ).toISOString();
+      const claimedUntil = new Date(new Date(claimStartedAt).getTime() + input.claimTtlMs).toISOString();
       const limit = Math.max(1, Math.floor(input.limit));
 
       const result = await db.query<NotificationOutboxRow>(
@@ -252,9 +244,7 @@ export function createPostgresNotificationOutbox(
       );
     },
 
-    async markNotificationDeliveryFailed(
-      input: MarkNotificationDeliveryFailedInput,
-    ) {
+    async markNotificationDeliveryFailed(input: MarkNotificationDeliveryFailedInput) {
       const updatedAt = input.now ?? now().toISOString();
       const retryAt = input.retryAt ?? null;
       const status = retryAt ? "pending" : "failed";
@@ -274,23 +264,22 @@ export function createPostgresNotificationOutbox(
   };
 }
 
-export function createNotificationOutboxDispatcher(options: Readonly<{
-  outbox: NotificationOutboxStore;
-  adapters: readonly NotificationChannelAdapter[];
-  claimOwnerId: string;
-  batchSize?: number;
-  claimTtlMs?: number;
-  retryDelayMs?: (attemptCount: number) => number;
-  now?: () => Date;
-}>): NotificationOutboxDispatcher {
+export function createNotificationOutboxDispatcher(
+  options: Readonly<{
+    outbox: NotificationOutboxStore;
+    adapters: readonly NotificationChannelAdapter[];
+    claimOwnerId: string;
+    batchSize?: number;
+    claimTtlMs?: number;
+    retryDelayMs?: (attemptCount: number) => number;
+    now?: () => Date;
+  }>,
+): NotificationOutboxDispatcher {
   const now = options.now ?? (() => new Date());
   const batchSize = Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE);
   const claimTtlMs = Math.max(1, options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS);
-  const retryDelayMs =
-    options.retryDelayMs ?? ((attemptCount) => Math.min(15 * 60_000, attemptCount * 30_000));
-  const adapterRegistry = createNotificationChannelAdapterRegistry(
-    options.adapters,
-  );
+  const retryDelayMs = options.retryDelayMs ?? ((attemptCount) => Math.min(15 * 60_000, attemptCount * 30_000));
+  const adapterRegistry = createNotificationChannelAdapterRegistry(options.adapters);
 
   return {
     async runOnce() {
@@ -303,13 +292,9 @@ export function createNotificationOutboxDispatcher(options: Readonly<{
 
       for (const delivery of deliveries) {
         try {
-          const adapter = adapterRegistry.adapterForChannel(
-            delivery.channel.channel,
-          );
+          const adapter = adapterRegistry.adapterForChannel(delivery.channel.channel);
           if (!adapter) {
-            throw new Error(
-              `No notification adapter configured for '${delivery.channel.channel}'.`,
-            );
+            throw new Error(`No notification adapter configured for '${delivery.channel.channel}'.`);
           }
 
           const receipt = await adapter.sendNotificationChannel(delivery);
@@ -323,9 +308,7 @@ export function createNotificationOutboxDispatcher(options: Readonly<{
           await options.outbox.markNotificationDeliveryFailed({
             deliveryId: delivery.deliveryId,
             error: error instanceof Error ? error.message : String(error),
-            retryAt: canRetry
-              ? new Date(now().getTime() + retryDelayMs(delivery.attemptCount)).toISOString()
-              : null,
+            retryAt: canRetry ? new Date(now().getTime() + retryDelayMs(delivery.attemptCount)).toISOString() : null,
             now: now().toISOString(),
           });
         }
@@ -339,9 +322,7 @@ export function createNotificationOutboxDispatcher(options: Readonly<{
   };
 }
 
-function rowToClaimedNotificationDelivery(
-  row: NotificationOutboxRow,
-): ClaimedNotificationDelivery {
+function rowToClaimedNotificationDelivery(row: NotificationOutboxRow): ClaimedNotificationDelivery {
   const message = JSON.parse(row.message_json) as NotificationMessage;
   const channel = JSON.parse(row.channel_json) as NotificationChannel;
 

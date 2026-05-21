@@ -53,11 +53,7 @@ describe("web notification adapter", () => {
     });
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("ON CONFLICT (delivery_id) DO NOTHING"),
-      expect.arrayContaining([
-        "fulfillment:shipment_delivered:ord_1:9400:web:1",
-        null,
-        "acc_buyer",
-      ]),
+      expect.arrayContaining(["fulfillment:shipment_delivered:ord_1:9400:web:1", null, "acc_buyer"]),
     );
     expect(webNotificationsSchemaSql).toContain("web_notifications");
   });
@@ -67,21 +63,23 @@ describe("web notification adapter", () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({
-          rows: [{
-            notification_id: "1",
-            delivery_id: "del_1",
-            user_id: null,
-            account_id: "acc_buyer",
-            message_type: "ordering.order.created",
-            criticality: "commerce",
-            title: "Order confirmed",
-            body: "Order ord_1 is confirmed.",
-            action_href: "/account/purchases/ord_1",
-            correlation_id: "req_1",
-            source_idempotency_key: "ordering:order_confirmed:ord_1",
-            read_at: null,
-            created_at: new Date("2026-05-09T00:00:00.000Z"),
-          }],
+          rows: [
+            {
+              notification_id: "1",
+              delivery_id: "del_1",
+              user_id: null,
+              account_id: "acc_buyer",
+              message_type: "ordering.order.created",
+              criticality: "commerce",
+              title: "Order confirmed",
+              body: "Order ord_1 is confirmed.",
+              action_href: "/account/purchases/ord_1",
+              correlation_id: "req_1",
+              source_idempotency_key: "ordering:order_confirmed:ord_1",
+              read_at: null,
+              created_at: new Date("2026-05-09T00:00:00.000Z"),
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [{ unread_count: "3" }] })
         .mockResolvedValueOnce({ rows: [], rowCount: 1 })
@@ -92,19 +90,25 @@ describe("web notification adapter", () => {
       now: () => new Date("2026-05-09T00:00:01.000Z"),
     });
 
-    await expect(feed.listWebNotifications({
-      accountId: "acc_buyer",
-      includeRead: false,
-    })).resolves.toEqual([expect.objectContaining({
-      notificationId: "1",
-      deliveryId: "del_1",
-      accountId: "acc_buyer",
-      readAt: null,
-      createdAt: "2026-05-09T00:00:00.000Z",
-    })]);
-    await expect(feed.countUnreadWebNotifications({
-      accountId: "acc_buyer",
-    })).resolves.toBe(3);
+    await expect(
+      feed.listWebNotifications({
+        accountId: "acc_buyer",
+        includeRead: false,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        notificationId: "1",
+        deliveryId: "del_1",
+        accountId: "acc_buyer",
+        readAt: null,
+        createdAt: "2026-05-09T00:00:00.000Z",
+      }),
+    ]);
+    await expect(
+      feed.countUnreadWebNotifications({
+        accountId: "acc_buyer",
+      }),
+    ).resolves.toBe(3);
 
     await feed.markWebNotificationRead({
       accountId: "acc_buyer",
@@ -114,10 +118,6 @@ describe("web notification adapter", () => {
 
     expect(db.query).toHaveBeenCalledTimes(4);
     expect(db.query.mock.calls[0]?.[0]).toContain("read_at IS NULL");
-    expect(db.query.mock.calls[2]?.[1]).toEqual([
-      "2026-05-09T00:00:01.000Z",
-      "acc_buyer",
-      "del_1",
-    ]);
+    expect(db.query.mock.calls[2]?.[1]).toEqual(["2026-05-09T00:00:01.000Z", "acc_buyer", "del_1"]);
   });
 });

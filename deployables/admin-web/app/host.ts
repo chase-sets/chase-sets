@@ -10,11 +10,5 @@ export function resolveAdminWebNavItems(
   actor: Readonly<{ permissions?: readonly string[] }> | null | undefined,
   options: Readonly<{ section: "catalog" | "identity" | "experience" }>,
 ) {
-  return resolveWebHostNavItems(
-    webContextRegistry,
-    "admin-web",
-    "primary-nav",
-    actor,
-    options,
-  );
+  return resolveWebHostNavItems(webContextRegistry, "admin-web", "primary-nav", actor, options);
 }

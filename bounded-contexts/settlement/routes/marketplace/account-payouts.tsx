@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -42,10 +38,7 @@ function normalizeQuickAmount(formData: FormData) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const requestUrl = new URL(request.url);
-  if (
-    requestUrl.searchParams.get("setup") === "returned" ||
-    requestUrl.searchParams.get("setup") === "refresh"
-  ) {
+  if (requestUrl.searchParams.get("setup") === "returned" || requestUrl.searchParams.get("setup") === "refresh") {
     await requireActorFromAuthApi({
       request,
       permission: "payouts.setup",
@@ -127,12 +120,7 @@ export async function action({ request }: ActionFunctionArgs) {
         note: formData.get("note") || null,
       })) as Readonly<{ id: string }>;
 
-      return redirect(
-        appendFreshWriteToken(
-          `/account/payouts/${result.id}?requested=1`,
-          result,
-        ),
-      );
+      return redirect(appendFreshWriteToken(`/account/payouts/${result.id}?requested=1`, result));
     }
 
     if (intent === "start-payout-setup") {

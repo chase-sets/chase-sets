@@ -9,14 +9,7 @@ export const marketplaceServiceWorkerPolicy = {
     "/icons/chase-sets-maskable-512.png",
   ],
   excludedExactPaths: ["/sign-in", "/sign-out", "/register"],
-  excludedPathPrefixes: [
-    "/api/",
-    "/account",
-    "/checkout",
-    "/payment",
-    "/payments",
-    "/orders",
-  ],
+  excludedPathPrefixes: ["/api/", "/account", "/checkout", "/payment", "/payments", "/orders"],
   staticAssetExactPaths: ["/favicon.svg", "/favicon.ico"],
   staticAssetPathPrefixes: ["/assets/", "/icons/"],
   staticAssetExtensions: [".woff", ".woff2"],
@@ -25,21 +18,15 @@ export const marketplaceServiceWorkerPolicy = {
 export function isMarketplaceServiceWorkerExcludedPath(pathname: string) {
   return (
     marketplaceServiceWorkerPolicy.excludedExactPaths.includes(pathname as never) ||
-    marketplaceServiceWorkerPolicy.excludedPathPrefixes.some((prefix) =>
-      pathname.startsWith(prefix),
-    )
+    marketplaceServiceWorkerPolicy.excludedPathPrefixes.some((prefix) => pathname.startsWith(prefix))
   );
 }
 
 export function isMarketplaceServiceWorkerStaticAssetPath(pathname: string) {
   return (
-    marketplaceServiceWorkerPolicy.staticAssetPathPrefixes.some((prefix) =>
-      pathname.startsWith(prefix),
-    ) ||
+    marketplaceServiceWorkerPolicy.staticAssetPathPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
     marketplaceServiceWorkerPolicy.staticAssetExactPaths.includes(pathname as never) ||
-    marketplaceServiceWorkerPolicy.staticAssetExtensions.some((extension) =>
-      pathname.endsWith(extension),
-    )
+    marketplaceServiceWorkerPolicy.staticAssetExtensions.some((extension) => pathname.endsWith(extension))
   );
 }
 

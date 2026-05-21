@@ -6,17 +6,12 @@ export interface BreadcrumbItem {
   href?: string;
 }
 
-export interface BreadcrumbsProps
-  extends Omit<HTMLAttributes<HTMLElement>, "className" | "style"> {
+export interface BreadcrumbsProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style"> {
   items: BreadcrumbItem[];
   ariaLabel?: string;
 }
 
-export function Breadcrumbs({
-  items,
-  ariaLabel = "Breadcrumb",
-  ...rest
-}: BreadcrumbsProps) {
+export function Breadcrumbs({ items, ariaLabel = "Breadcrumb", ...rest }: BreadcrumbsProps) {
   return (
     <nav {...rest} aria-label={ariaLabel}>
       <ol className="flex flex-wrap items-center gap-2 text-sm text-secondary">
@@ -30,13 +25,9 @@ export function Breadcrumbs({
                   {item.label}
                 </a>
               ) : (
-                <span className={isCurrent ? "font-semibold text-foreground" : undefined}>
-                  {item.label}
-                </span>
+                <span className={isCurrent ? "font-semibold text-foreground" : undefined}>{item.label}</span>
               )}
-              {!isCurrent ? (
-                <Icon name="chevronRight" size="sm" tone="secondary" />
-              ) : null}
+              {!isCurrent ? <Icon name="chevronRight" size="sm" tone="secondary" /> : null}
             </li>
           );
         })}

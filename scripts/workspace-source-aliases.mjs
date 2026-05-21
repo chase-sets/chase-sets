@@ -39,9 +39,7 @@ function createAliasEntry(packageName, exportKey, exportTarget, packageDir) {
 
   return [
     {
-      find: new RegExp(
-        `^${escapeRegExp(`${packageName}/${exportPrefix}`)}(.*)${escapeRegExp(exportPostfix)}$`,
-      ),
+      find: new RegExp(`^${escapeRegExp(`${packageName}/${exportPrefix}`)}(.*)${escapeRegExp(exportPostfix)}$`),
       replacement: `${targetPrefix}$1${targetPostfix}`,
     },
   ];
@@ -54,22 +52,16 @@ export function createWorkspaceSourceAliases() {
     const packageDir = workspace.dir;
     const packageJson = workspace.packageJson;
     const exportsField =
-      typeof packageJson.exports === "string"
-        ? { ".": packageJson.exports }
-        : packageJson.exports ?? {};
+      typeof packageJson.exports === "string" ? { ".": packageJson.exports } : (packageJson.exports ?? {});
 
     for (const [exportKey, exportTarget] of Object.entries(exportsField)) {
-      aliases.push(
-        ...createAliasEntry(packageJson.name, exportKey, exportTarget, packageDir),
-      );
+      aliases.push(...createAliasEntry(packageJson.name, exportKey, exportTarget, packageDir));
     }
   }
 
   return aliases.sort((left, right) => {
-    const leftPattern =
-      typeof left.find === "string" ? left.find : left.find.source;
-    const rightPattern =
-      typeof right.find === "string" ? right.find : right.find.source;
+    const leftPattern = typeof left.find === "string" ? left.find : left.find.source;
+    const rightPattern = typeof right.find === "string" ? right.find : right.find.source;
 
     return rightPattern.length - leftPattern.length;
   });

@@ -21,9 +21,7 @@ const review = {
 
 describe("review detail page", () => {
   it("renders account-to-account review labels", () => {
-    const markup = renderToString(
-      <ReviewDetailPage backHref="/account/reviews/received" review={review} />,
-    );
+    const markup = renderToString(<ReviewDetailPage backHref="/account/reviews/received" review={review} />);
 
     expect(markup).toContain("Review author:");
     expect(markup).toContain("Author Account");

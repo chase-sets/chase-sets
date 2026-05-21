@@ -64,9 +64,7 @@ export function createCheckoutUcpHandlers(
   checkout: Pick<CheckoutServices, "sessions">,
   options: Readonly<{
     paymentHandoff?: UcpPaymentHandlerHandoff;
-    signCheckout?: (
-      checkout: Readonly<Record<string, unknown>>,
-    ) => Readonly<Record<string, unknown>>;
+    signCheckout?: (checkout: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>;
   }> = {},
 ): CheckoutUcpHandlers {
   const handlers = {
@@ -81,29 +79,29 @@ export function createCheckoutUcpHandlers(
       const sourceType = readString(source.type) ?? readString(body.type);
 
       try {
-        const result = sourceType === "cart"
-          ? await checkout.sessions.createFromCart(
-              {
-                accountId: access.actor.accountId as AccountId,
-                shippingOption: readShippingOption(body),
-                optimizationGoal: readOptimizationGoal(body),
-              },
-              access.context,
-            )
-          : sourceType === "offer-intent" || sourceType === "offer"
-            ? await createOfferIntent(checkout, source, body, access)
-            : await createBuyNow(checkout, source, body, access);
+        const result =
+          sourceType === "cart"
+            ? await checkout.sessions.createFromCart(
+                {
+                  accountId: access.actor.accountId as AccountId,
+                  shippingOption: readShippingOption(body),
+                  optimizationGoal: readOptimizationGoal(body),
+                },
+                access.context,
+              )
+            : sourceType === "offer-intent" || sourceType === "offer"
+              ? await createOfferIntent(checkout, source, body, access)
+              : await createBuyNow(checkout, source, body, access);
 
-        const session = await checkout.sessions.getSession(
-          result.sessionId,
-          access.actor.accountId,
-        );
+        const session = await checkout.sessions.getSession(result.sessionId, access.actor.accountId);
 
         return createUcpEnvelope("ok", {
-            checkout: session ? sessionToUcpCheckout(session, options) : {
-              id: result.sessionId,
-              status: "started",
-            },
+          checkout: session
+            ? sessionToUcpCheckout(session, options)
+            : {
+                id: result.sessionId,
+                status: "started",
+              },
         });
       } catch (error) {
         return validationError(error);
@@ -116,9 +114,7 @@ export function createCheckoutUcpHandlers(
       }
 
       const sessionId = readCheckoutSessionId(input);
-      const session = sessionId
-        ? await checkout.sessions.getSession(sessionId, access.actor.accountId)
-        : null;
+      const session = sessionId ? await checkout.sessions.getSession(sessionId, access.actor.accountId) : null;
 
       return session
         ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) })
@@ -174,10 +170,7 @@ export function createCheckoutUcpHandlers(
           );
         }
 
-        const session = await checkout.sessions.getSession(
-          sessionId,
-          access.actor.accountId,
-        );
+        const session = await checkout.sessions.getSession(sessionId, access.actor.accountId);
         return session
           ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) })
           : checkoutNotFound();
@@ -192,9 +185,7 @@ export function createCheckoutUcpHandlers(
       }
 
       const sessionId = readCheckoutSessionId(input);
-      const session = sessionId
-        ? await checkout.sessions.getSession(sessionId, access.actor.accountId)
-        : null;
+      const session = sessionId ? await checkout.sessions.getSession(sessionId, access.actor.accountId) : null;
       if (!session) {
         return checkoutNotFound();
       }
@@ -203,10 +194,14 @@ export function createCheckoutUcpHandlers(
       const checkoutPayload = sessionToUcpCheckout(session, options);
       const guardedPaymentResponse = await options.paymentHandoff?.evaluateCompleteRequest(body, checkoutPayload);
       if (guardedPaymentResponse?.kind === "respond") {
-        return createUcpEnvelope(guardedPaymentResponse.response.ucp.status, {
-          checkout: checkoutPayload,
-          ...stripUcpEnvelope(guardedPaymentResponse.response),
-        }, guardedPaymentResponse.response.messages ?? []);
+        return createUcpEnvelope(
+          guardedPaymentResponse.response.ucp.status,
+          {
+            checkout: checkoutPayload,
+            ...stripUcpEnvelope(guardedPaymentResponse.response),
+          },
+          guardedPaymentResponse.response.messages ?? [],
+        );
       }
 
       if (guardedPaymentResponse?.kind === "headless-agentic-payment") {
@@ -223,39 +218,39 @@ export function createCheckoutUcpHandlers(
             );
           }
 
-          const refreshedSession = await checkout.sessions.getSession(
-            sessionId,
-            access.actor.accountId,
-          );
+          const refreshedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
           if (!refreshedSession) {
             return checkoutNotFound();
           }
           if (refreshedSession.source_type === "offer-intent") {
-            return createUcpEnvelope("requires_action", {
-              checkout: sessionToUcpCheckout(refreshedSession, options),
-              action: {
-                type: "trusted_checkout_handoff",
-                reason: "Purchase-intent offer submission still requires trusted UI review.",
-              },
-            }, [
+            return createUcpEnvelope(
+              "requires_action",
               {
-                severity: "warning",
-                code: "trusted_ui_required",
-                message: "UCP headless payment completion is only enabled for buy-now and cart checkout sessions.",
+                checkout: sessionToUcpCheckout(refreshedSession, options),
+                action: {
+                  type: "trusted_checkout_handoff",
+                  reason: "Purchase-intent offer submission still requires trusted UI review.",
+                },
               },
-            ]);
+              [
+                {
+                  severity: "warning",
+                  code: "trusted_ui_required",
+                  message: "UCP headless payment completion is only enabled for buy-now and cart checkout sessions.",
+                },
+              ],
+            );
           }
 
           let orderIds = [...refreshedSession.order_ids];
           if (orderIds.length === 0) {
-            const checkoutOrders = await createCheckoutOrdersThroughOrdering(
-              input.request,
-              refreshedSession,
-              {
-                fulfillmentPreviewRevision: readNullableString(body.fulfillmentPreviewRevision ?? body.fulfillment_preview_revision),
-                acknowledgedMaterialChanges: body.acknowledgedMaterialChanges === true || body.acknowledged_material_changes === true,
-              },
-            );
+            const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, refreshedSession, {
+              fulfillmentPreviewRevision: readNullableString(
+                body.fulfillmentPreviewRevision ?? body.fulfillment_preview_revision,
+              ),
+              acknowledgedMaterialChanges:
+                body.acknowledgedMaterialChanges === true || body.acknowledged_material_changes === true,
+            });
             orderIds = checkoutOrders.orderIds;
             await checkout.sessions.recordOrdersCreated(
               {
@@ -274,7 +269,9 @@ export function createCheckoutUcpHandlers(
             orderIds,
             readNullableString(body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount),
             readString(body.paymentMethodCategory ?? body.payment_method_category) ?? "card",
-            readNullableString(body.marketplaceCheckoutFeeQuoteFingerprint ?? body.marketplace_checkout_fee_quote_fingerprint),
+            readNullableString(
+              body.marketplaceCheckoutFeeQuoteFingerprint ?? body.marketplace_checkout_fee_quote_fingerprint,
+            ),
             "/account/payments/:paymentId",
             guardedPaymentResponse.agenticPayment,
           );
@@ -286,14 +283,9 @@ export function createCheckoutUcpHandlers(
             },
             access.context,
           );
-          const completedSession = await checkout.sessions.getSession(
-            sessionId,
-            access.actor.accountId,
-          );
+          const completedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
           return createUcpEnvelope("ok", {
-            checkout: completedSession
-              ? sessionToUcpCheckout(completedSession, options)
-              : checkoutPayload,
+            checkout: completedSession ? sessionToUcpCheckout(completedSession, options) : checkoutPayload,
             payment_id: paymentId,
             order_ids: orderIds,
             ap2: {
@@ -310,34 +302,45 @@ export function createCheckoutUcpHandlers(
         return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) });
       }
 
-      return createUcpEnvelope("requires_action", {
-        checkout: sessionToUcpCheckout(session, options),
-        action: {
-          type: "trusted_checkout_handoff",
-          url: `/checkout/${session.session_id}`,
-          reason: "Checkout completion requires buyer review in trusted UI until Payments enables production AP2 mandate verification and payment-handler handoff.",
-        },
-      }, [
+      return createUcpEnvelope(
+        "requires_action",
         {
-          severity: "warning",
-          code: "trusted_ui_required",
-          message: "Use trusted checkout handoff before creating orders or payment through an AI agent.",
+          checkout: sessionToUcpCheckout(session, options),
+          action: {
+            type: "trusted_checkout_handoff",
+            url: `/checkout/${session.session_id}`,
+            reason:
+              "Checkout completion requires buyer review in trusted UI until Payments enables production AP2 mandate verification and payment-handler handoff.",
+          },
         },
-      ]);
+        [
+          {
+            severity: "warning",
+            code: "trusted_ui_required",
+            message: "Use trusted checkout handoff before creating orders or payment through an AI agent.",
+          },
+        ],
+      );
     },
     cancel_checkout: async () =>
-      createUcpEnvelope("requires_action", {
-        action: {
-          type: "trusted_checkout_handoff",
-          reason: "Checkout does not own a cancel command yet; buyers can abandon or revise the session in trusted UI.",
-        },
-      }, [
+      createUcpEnvelope(
+        "requires_action",
         {
-          severity: "warning",
-          code: "cancel_not_owned",
-          message: "Cancel checkout is not wired because the Checkout Session aggregate does not model cancellation yet.",
+          action: {
+            type: "trusted_checkout_handoff",
+            reason:
+              "Checkout does not own a cancel command yet; buyers can abandon or revise the session in trusted UI.",
+          },
         },
-      ]),
+        [
+          {
+            severity: "warning",
+            code: "cancel_not_owned",
+            message:
+              "Cancel checkout is not wired because the Checkout Session aggregate does not model cancellation yet.",
+          },
+        ],
+      ),
   } satisfies Readonly<Record<string, UcpHandler>>;
 
   return {
@@ -365,10 +368,10 @@ async function createBuyNow(
       productSummary: readNullableString(item.productSummary ?? item.product_summary),
       quantity: readQuantity(item.quantity),
       fulfillmentMode:
-        readString(item.fulfillmentMode ?? item.fulfillment_mode) === "locked-listing"
-          ? "locked-listing"
-          : "optimize",
-      lockedListingId: readNullableString(item.lockedListingId ?? item.locked_listing_id ?? item.listingId ?? item.listing_id),
+        readString(item.fulfillmentMode ?? item.fulfillment_mode) === "locked-listing" ? "locked-listing" : "optimize",
+      lockedListingId: readNullableString(
+        item.lockedListingId ?? item.locked_listing_id ?? item.listingId ?? item.listing_id,
+      ),
       sellerPreferenceId: readNullableString(item.sellerPreferenceId ?? item.seller_preference_id),
       shippingOption: readShippingOption(body),
       optimizationGoal: readOptimizationGoal(body),
@@ -411,10 +414,7 @@ async function createOfferIntent(
 
 type CheckoutAccess = Exclude<ReturnType<typeof requireCheckoutAccess>, { error: UcpEnvelope }>;
 
-function requireCheckoutAccess(
-  input: UcpOperationHandlerInput,
-  permission: "orders.view" | "orders.manage",
-) {
+function requireCheckoutAccess(input: UcpOperationHandlerInput, permission: "orders.view" | "orders.manage") {
   if (!input.actor) {
     return {
       error: createUcpEnvelope("error", {}, [
@@ -461,9 +461,7 @@ function sessionToUcpCheckout(
   session: CheckoutSessionRow,
   options: Readonly<{
     paymentHandoff?: UcpPaymentHandlerHandoff;
-    signCheckout?: (
-      checkout: Readonly<Record<string, unknown>>,
-    ) => Readonly<Record<string, unknown>>;
+    signCheckout?: (checkout: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>;
   }> = {},
 ) {
   const checkout = {
@@ -508,10 +506,7 @@ function readCheckoutSessionId(input: UcpOperationHandlerInput) {
   return input.params.id || readString(input.arguments.id) || "";
 }
 
-function readCheckoutItem(
-  source: Readonly<Record<string, unknown>>,
-  body: CheckoutIntentBody,
-) {
+function readCheckoutItem(source: Readonly<Record<string, unknown>>, body: CheckoutIntentBody) {
   const sourceItem = readObject(source.item) ?? source;
   const items = Array.isArray(source.items)
     ? source.items
@@ -527,21 +522,20 @@ async function readInputObject<T extends Readonly<Record<string, unknown>>>(
   input: UcpOperationHandlerInput,
 ): Promise<T> {
   const args = input.arguments ?? {};
-  return Object.keys(args).length > 0
-    ? args as T
-    : readJsonObject<T>(input.request);
+  return Object.keys(args).length > 0 ? (args as T) : readJsonObject<T>(input.request);
 }
 
-async function readJsonObject<T extends Readonly<Record<string, unknown>>>(
-  request: Request,
-): Promise<T> {
-  const value = await request.clone().json().catch(() => ({}));
+async function readJsonObject<T extends Readonly<Record<string, unknown>>>(request: Request): Promise<T> {
+  const value = await request
+    .clone()
+    .json()
+    .catch(() => ({}));
   return (readObject(value) ?? {}) as T;
 }
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Readonly<Record<string, unknown>>
+    ? (value as Readonly<Record<string, unknown>>)
     : null;
 }
 

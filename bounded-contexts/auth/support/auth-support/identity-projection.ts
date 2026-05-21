@@ -1,10 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  type AccountId,
-  type UserId,
-} from "@chase-sets/primitives/typed-ids";
+import { type AccountId, type UserId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_BOOTSTRAP_ACCOUNT_ID,
   AUTH_BOOTSTRAP_TENANT_ID,
@@ -216,13 +213,7 @@ async function syncUserEmailLookups(
            contact_method_id = $3,
            is_verified = $4,
            updated_at = $5`,
-      [
-        normalizeAuthEmail(method.value),
-        userId,
-        method.contactMethodId,
-        method.verifiedAt !== null,
-        updatedAt,
-      ],
+      [normalizeAuthEmail(method.value), userId, method.contactMethodId, method.verifiedAt !== null, updatedAt],
     );
   }
 }
@@ -250,13 +241,7 @@ async function syncUserPhoneLookups(
            contact_method_id = $3,
            is_verified = $4,
            updated_at = $5`,
-      [
-        normalizeAuthPhoneNumber(method.value),
-        userId,
-        method.contactMethodId,
-        method.verifiedAt !== null,
-        updatedAt,
-      ],
+      [normalizeAuthPhoneNumber(method.value), userId, method.contactMethodId, method.verifiedAt !== null, updatedAt],
     );
   }
 }
@@ -298,21 +283,11 @@ async function upsertMembershipMirror(
          role_permissions = $5::jsonb,
          status = $6,
          updated_at = $7`,
-    [
-      membershipId,
-      userId,
-      accountId,
-      roleKey,
-      JSON.stringify(AUTH_ROLE_PERMISSIONS[roleKey]),
-      status,
-      updatedAt,
-    ],
+    [membershipId, userId, accountId, roleKey, JSON.stringify(AUTH_ROLE_PERMISSIONS[roleKey]), status, updatedAt],
   );
 }
 
-export function buildAuthIdentityUserProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.user.created": async (event) => {
       const { userId, displayName, givenName, familyName, primaryEmail, primaryContactMethod } = event.data as {
@@ -422,16 +397,15 @@ export function buildAuthIdentityUserProjectionHandlers(
         `SELECT contact_methods FROM auth_identity_users WHERE user_id = $1`,
         [userId],
       );
-      const contactMethods = (((current.rows[0]?.contact_methods as never[]) ?? []) as ContactMethodRow[])
-        .map((method) =>
-          method.contactMethodId ===
-          (event.data as { contactMethodId: string }).contactMethodId
+      const contactMethods = (((current.rows[0]?.contact_methods as never[]) ?? []) as ContactMethodRow[]).map(
+        (method) =>
+          method.contactMethodId === (event.data as { contactMethodId: string }).contactMethodId
             ? {
                 ...method,
                 verifiedAt: (event.data as { verifiedAt: string }).verifiedAt,
               }
             : method,
-        );
+      );
 
       await db.query(
         `UPDATE auth_identity_users
@@ -449,10 +423,7 @@ export function buildAuthIdentityUserProjectionHandlers(
         [userId],
       );
       const authMethods = [
-        ...new Set([
-          ...(current.rows[0]?.auth_methods ?? []),
-          (event.data as { authMethod: string }).authMethod,
-        ]),
+        ...new Set([...(current.rows[0]?.auth_methods ?? []), (event.data as { authMethod: string }).authMethod]),
       ].sort((left, right) => left.localeCompare(right));
 
       await db.query(
@@ -507,19 +478,15 @@ export function buildAuthIdentityUserProjectionHandlers(
         `SELECT social_login_links FROM auth_identity_users WHERE user_id = $1`,
         [userId],
       );
-      const currentLinks =
-        (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
+      const currentLinks = (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
       const links = [
-        ...currentLinks.filter((currentLink) =>
-          currentLink.providerName !== link.providerName ||
-          currentLink.providerSubject !== link.providerSubject
+        ...currentLinks.filter(
+          (currentLink) =>
+            currentLink.providerName !== link.providerName || currentLink.providerSubject !== link.providerSubject,
         ),
         link,
       ].sort((left, right) =>
-        `${left.providerName}:${left.providerSubject}`
-          .localeCompare(
-            `${right.providerName}:${right.providerSubject}`,
-          ),
+        `${left.providerName}:${left.providerSubject}`.localeCompare(`${right.providerName}:${right.providerSubject}`),
       );
 
       await db.query(
@@ -577,9 +544,7 @@ export function buildAuthIdentityUserProjectionHandlers(
   };
 }
 
-export function buildAuthIdentityMembershipProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.membership.granted": async (event) => {
       const { membershipId, userId, accountId, roleKey } = event.data as {
@@ -615,15 +580,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(
           event.timing.recordedAt,
         ],
       );
-      await upsertMembershipMirror(
-        db,
-        membershipId,
-        userId,
-        accountId,
-        roleKey,
-        "active",
-        event.timing.recordedAt,
-      );
+      await upsertMembershipMirror(db, membershipId, userId, accountId, roleKey, "active", event.timing.recordedAt);
     },
     "identity.membership.role-changed": async (event) => {
       const membershipId = extractIdFromStreamId(event.streamId, "identity.membership-");
@@ -659,7 +616,11 @@ export function buildAuthIdentityMembershipProjectionHandlers(
     },
     "identity.membership.revoked": async (event) => {
       const membershipId = extractIdFromStreamId(event.streamId, "identity.membership-");
-      const existing = await db.query<{ user_id: string; account_id: string; role_key: keyof typeof AUTH_ROLE_PERMISSIONS }>(
+      const existing = await db.query<{
+        user_id: string;
+        account_id: string;
+        role_key: keyof typeof AUTH_ROLE_PERMISSIONS;
+      }>(
         `SELECT user_id, account_id, role_key
          FROM auth_identity_memberships
          WHERE membership_id = $1`,
@@ -689,7 +650,11 @@ export function buildAuthIdentityMembershipProjectionHandlers(
     },
     "identity.membership.reinstated": async (event) => {
       const membershipId = extractIdFromStreamId(event.streamId, "identity.membership-");
-      const existing = await db.query<{ user_id: string; account_id: string; role_key: keyof typeof AUTH_ROLE_PERMISSIONS }>(
+      const existing = await db.query<{
+        user_id: string;
+        account_id: string;
+        role_key: keyof typeof AUTH_ROLE_PERMISSIONS;
+      }>(
         `SELECT user_id, account_id, role_key
          FROM auth_identity_memberships
          WHERE membership_id = $1`,
@@ -720,9 +685,7 @@ export function buildAuthIdentityMembershipProjectionHandlers(
   };
 }
 
-export function buildAuthIdentityInvitationProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildAuthIdentityInvitationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.invitation.created": async (event) => {
       const { invitationId, accountId, email, roleKey, expiresAt } = event.data as {
@@ -762,11 +725,7 @@ export function buildAuthIdentityInvitationProjectionHandlers(
          SET expires_at = $2,
              updated_at = $3
          WHERE invitation_id = $1`,
-        [
-          invitationId,
-          (event.data as { expiresAt: string }).expiresAt,
-          event.timing.recordedAt,
-        ],
+        [invitationId, (event.data as { expiresAt: string }).expiresAt, event.timing.recordedAt],
       );
     },
     "identity.invitation.cancelled": async (event) => {
@@ -813,21 +772,12 @@ export function buildAuthIdentityInvitationProjectionHandlers(
   };
 }
 
-export async function getAuthIdentityUser(
-  db: PgQueryable,
-  userId: string,
-) {
-  const result = await db.query<AuthIdentityUserRow>(
-    `SELECT * FROM auth_identity_users WHERE user_id = $1`,
-    [userId],
-  );
+export async function getAuthIdentityUser(db: PgQueryable, userId: string) {
+  const result = await db.query<AuthIdentityUserRow>(`SELECT * FROM auth_identity_users WHERE user_id = $1`, [userId]);
   return result.rows[0] ?? null;
 }
 
-export async function getAuthIdentityUserByEmail(
-  db: PgQueryable,
-  email: string,
-) {
+export async function getAuthIdentityUserByEmail(db: PgQueryable, email: string) {
   const result = await db.query<AuthIdentityUserRow>(
     `SELECT users.*
      FROM auth_identity_user_emails AS emails
@@ -838,10 +788,7 @@ export async function getAuthIdentityUserByEmail(
   return result.rows[0] ?? null;
 }
 
-export async function getAuthIdentityUserByPhone(
-  db: PgQueryable,
-  phone: string,
-) {
+export async function getAuthIdentityUserByPhone(db: PgQueryable, phone: string) {
   const result = await db.query<AuthIdentityUserRow>(
     `SELECT users.*
      FROM auth_identity_user_phones AS phones
@@ -889,11 +836,7 @@ export async function listActiveAuthMembershipsForUser(
   }));
 }
 
-export async function getActiveAuthMembershipForUserAccount(
-  db: PgQueryable,
-  userId: string,
-  accountId: string,
-) {
+export async function getActiveAuthMembershipForUserAccount(db: PgQueryable, userId: string, accountId: string) {
   const result = await db.query<AuthIdentityMembershipRow>(
     `SELECT *
      FROM auth_identity_memberships
@@ -907,10 +850,7 @@ export async function getActiveAuthMembershipForUserAccount(
   return result.rows[0] ?? null;
 }
 
-export async function getAuthIdentityInvitation(
-  db: PgQueryable,
-  invitationId: string,
-) {
+export async function getAuthIdentityInvitation(db: PgQueryable, invitationId: string) {
   const result = await db.query<AuthIdentityInvitationRow>(
     `SELECT * FROM auth_identity_invitations WHERE invitation_id = $1`,
     [invitationId],

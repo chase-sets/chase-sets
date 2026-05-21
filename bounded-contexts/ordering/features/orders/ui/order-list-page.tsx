@@ -98,20 +98,27 @@ export function OrderingOrderListPage({
                   </Stack>
                   <Grid columns={{ base: 1, sm: 3 }} gap={3}>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.quantity")}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("ordering.features.orders.ui.orderListPage.quantity")}
+                      </Text>
                       <Text weight="semibold">{order.total_quantity}</Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.total")}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("ordering.features.orders.ui.orderListPage.total")}
+                      </Text>
                       <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
                     </Stack>
                     <Stack gap={1}>
-                      <Text size="sm" tone="secondary">{t("ordering.features.orders.ui.orderListPage.seller.payout")}</Text>
+                      <Text size="sm" tone="secondary">
+                        {t("ordering.features.orders.ui.orderListPage.seller.payout")}
+                      </Text>
                       <Text>{formatMoney(order.seller_payout_amount)}</Text>
                     </Stack>
                   </Grid>
                   <LinkButton href={`${orderDetailBasePath}/${order.order_id}`} tone="secondary">
-                    {t("ordering.features.orders.ui.orderListPage.open.order")}</LinkButton>
+                    {t("ordering.features.orders.ui.orderListPage.open.order")}
+                  </LinkButton>
                 </Stack>
               </Surface>
             ))

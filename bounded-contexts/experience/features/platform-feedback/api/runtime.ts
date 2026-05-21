@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -44,11 +41,7 @@ type PlatformFeedbackRuntimeDeps = Readonly<{
 }>;
 
 export type PlatformFeedbackServices = Readonly<{
-  commandHandler: CommandHandler<
-    PlatformFeedbackCommand,
-    PlatformFeedbackState,
-    PlatformFeedbackEvent
-  >;
+  commandHandler: CommandHandler<PlatformFeedbackCommand, PlatformFeedbackState, PlatformFeedbackEvent>;
   submitPlatformFeedback: (
     params: Readonly<{
       userId: string;
@@ -90,9 +83,7 @@ export type PlatformFeedbackServices = Readonly<{
     archivedByUserId: string,
     context: EventStoreContext,
   ) => Promise<{ feedbackId: string; version: number }>;
-  listPlatformFeedback: (
-    params: Parameters<typeof listPlatformFeedback>[1],
-  ) => ReturnType<typeof listPlatformFeedback>;
+  listPlatformFeedback: (params: Parameters<typeof listPlatformFeedback>[1]) => ReturnType<typeof listPlatformFeedback>;
   getPlatformFeedback: (feedbackId: string) => ReturnType<typeof getPlatformFeedback>;
   getPlatformFeedbackMetrics: () => ReturnType<typeof getPlatformFeedbackMetrics>;
   projectors: readonly Projector[];
@@ -109,25 +100,11 @@ function snoozedUntil(now: Date) {
   return new Date(now.getTime() + SEVEN_DAYS_MS).toISOString();
 }
 
-function stablePromptId(
-  accountId: string,
-  workflow: string,
-  key: string | null,
-) {
-  return [
-    "pfp",
-    accountId,
-    workflow,
-    key ?? "workflow",
-  ]
-    .join("-")
-    .replace(/[^A-Za-z0-9_-]/g, "-");
+function stablePromptId(accountId: string, workflow: string, key: string | null) {
+  return ["pfp", accountId, workflow, key ?? "workflow"].join("-").replace(/[^A-Za-z0-9_-]/g, "-");
 }
 
-async function requireFeedback(
-  db: PgQueryable,
-  feedbackId: string,
-) {
+async function requireFeedback(db: PgQueryable, feedbackId: string) {
   const feedback = await getPlatformFeedback(db, feedbackId);
   if (!feedback) {
     throw new ExperienceDomainError("Platform feedback not found.");
@@ -136,9 +113,7 @@ async function requireFeedback(
   return feedback;
 }
 
-export function createPlatformFeedbackRuntime(
-  deps: PlatformFeedbackRuntimeDeps,
-): PlatformFeedbackServices {
+export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps): PlatformFeedbackServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -150,12 +125,14 @@ export function createPlatformFeedbackRuntime(
     decide: decidePlatformFeedback,
   });
 
-  async function ensureSubmissionAllowed(params: Readonly<{
-    accountId: string;
-    workflow: string;
-    relatedEntityKey: string | null;
-    now: Date;
-  }>) {
+  async function ensureSubmissionAllowed(
+    params: Readonly<{
+      accountId: string;
+      workflow: string;
+      relatedEntityKey: string | null;
+      now: Date;
+    }>,
+  ) {
     const hasDuplicate = await hasRecentPlatformFeedbackSubmission(deps.db, {
       accountId: params.accountId,
       workflow: params.workflow,
@@ -164,9 +141,7 @@ export function createPlatformFeedbackRuntime(
     });
 
     if (hasDuplicate) {
-      throw new ExperienceDomainError(
-        "Platform feedback has already been submitted for this workflow.",
-      );
+      throw new ExperienceDomainError("Platform feedback has already been submitted for this workflow.");
     }
   }
 

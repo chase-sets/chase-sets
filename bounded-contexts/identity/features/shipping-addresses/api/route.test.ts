@@ -48,30 +48,28 @@ function buildServices(overrides: Partial<ShippingAddressServices> = {}) {
 
 describe("shipping address API route", () => {
   it("drains the shipping address projection after adding an address", async () => {
-    const runOnce = vi.fn()
+    const runOnce = vi
+      .fn()
       .mockResolvedValueOnce({ processed: 1, lastGlobalPosition: "1" })
       .mockResolvedValueOnce({ processed: 0, lastGlobalPosition: "1" });
     const services = buildServices({
       projectors: [{ projectorName: "identity-shipping-address-projection", runOnce }],
     });
 
-    const response = await buildApp(services).request(
-      "/accounts/acc_1/shipping-addresses",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          label: "Home",
-          name: "Alex Collector",
-          line1: "100 Main St",
-          city: "Chicago",
-          state: "IL",
-          postalCode: "60601",
-          country: "US",
-          makeDefault: true,
-        }),
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    const response = await buildApp(services).request("/accounts/acc_1/shipping-addresses", {
+      method: "POST",
+      body: JSON.stringify({
+        label: "Home",
+        name: "Alex Collector",
+        line1: "100 Main St",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        makeDefault: true,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
 
     expect(response.status).toBe(201);
     expect(services.commandHandler).toHaveBeenCalledOnce();

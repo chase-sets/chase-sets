@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -31,17 +28,13 @@ import { buildDimensionProjectionHandlers } from "../read-model/projection";
 
 export type DimensionServices = Readonly<{
   commandHandler: CommandHandler<DimensionCommand, DimensionState, DimensionEvent>;
-  listDimensions: (
-    params?: Parameters<typeof listDimensions>[1],
-  ) => ReturnType<typeof listDimensions>;
+  listDimensions: (params?: Parameters<typeof listDimensions>[1]) => ReturnType<typeof listDimensions>;
   getDimension: (dimensionId: string) => ReturnType<typeof getDimension>;
   bulkLifecycle: BulkLifecycleOperations<DimensionListParams, DimensionCommand, DimensionState, DimensionEvent>;
   projectors: readonly Projector[];
 }>;
 
-export function createDimensionRuntime(
-  deps: CatalogRuntimeDeps,
-): DimensionServices {
+export function createDimensionRuntime(deps: CatalogRuntimeDeps): DimensionServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -58,14 +51,18 @@ export function createDimensionRuntime(
       projectorName: "catalog-dimension-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: withCatalogAdminRealtimeInvalidation(
-        buildDimensionProjectionHandlers(deps.db),
-        deps.db,
-        { projectionName: "catalog-dimension-projection", surface: "dimensions" },
-      ),
+      handlers: withCatalogAdminRealtimeInvalidation(buildDimensionProjectionHandlers(deps.db), deps.db, {
+        projectionName: "catalog-dimension-projection",
+        surface: "dimensions",
+      }),
     }),
   ];
-  const bulkLifecycle = createBulkLifecycleOperations<DimensionListParams, DimensionCommand, DimensionState, DimensionEvent>({
+  const bulkLifecycle = createBulkLifecycleOperations<
+    DimensionListParams,
+    DimensionCommand,
+    DimensionState,
+    DimensionEvent
+  >({
     actions: [
       {
         action: "activate",

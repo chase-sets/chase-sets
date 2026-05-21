@@ -12,10 +12,7 @@ import {
   Text,
   type Tone,
 } from "@chase-sets/design-system";
-import type {
-  SettlementPayoutRow,
-  SettlementProviderIdempotencyKeyRow,
-} from "../read-model/queries";
+import type { SettlementPayoutRow, SettlementProviderIdempotencyKeyRow } from "../read-model/queries";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -95,9 +92,11 @@ export function SettlementPayoutOperationsPage({
         actions={
           <Stack direction="row" gap={2}>
             <LinkButton href="/account/money-health" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutOperationsPage.money.health")}</LinkButton>
+              {t("settlement.features.payouts.ui.payoutOperationsPage.money.health")}
+            </LinkButton>
             <LinkButton href="/account/payouts" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutOperationsPage.back.to.payouts")}</LinkButton>
+              {t("settlement.features.payouts.ui.payoutOperationsPage.back.to.payouts")}
+            </LinkButton>
           </Stack>
         }
       />
@@ -107,19 +106,32 @@ export function SettlementPayoutOperationsPage({
           <Stack gap={3}>
             <form method="post">
               <input type="hidden" name="intent" value="run-reconciliation" />
-              <Button type="submit">{t("settlement.features.payouts.ui.payoutOperationsPage.run.reconciliation")}</Button>
+              <Button type="submit">
+                {t("settlement.features.payouts.ui.payoutOperationsPage.run.reconciliation")}
+              </Button>
             </form>
             <Text size="sm" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutOperationsPage.last.checked")}{lastCheckedAt ? new Date(lastCheckedAt).toLocaleString() : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked.in.this.session")}
+              {t("settlement.features.payouts.ui.payoutOperationsPage.last.checked")}
+              {lastCheckedAt
+                ? new Date(lastCheckedAt).toLocaleString()
+                : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked.in.this.session")}
             </Text>
             {runResult ? (
               <Stack gap={1}>
                 <Text size="sm" tone="secondary">
-                  {t("settlement.features.payouts.ui.payoutOperationsPage.checked")}{runResult.checked}{t("settlement.features.payouts.ui.payoutOperationsPage.reconciled")}{runResult.reconciled}{t("settlement.features.payouts.ui.payoutOperationsPage.ignored")}{runResult.ignored}{t("settlement.features.payouts.ui.payoutOperationsPage.skipped")}{runResult.skipped}.
+                  {t("settlement.features.payouts.ui.payoutOperationsPage.checked")}
+                  {runResult.checked}
+                  {t("settlement.features.payouts.ui.payoutOperationsPage.reconciled")}
+                  {runResult.reconciled}
+                  {t("settlement.features.payouts.ui.payoutOperationsPage.ignored")}
+                  {runResult.ignored}
+                  {t("settlement.features.payouts.ui.payoutOperationsPage.skipped")}
+                  {runResult.skipped}.
                 </Text>
                 {runResult.errors.length > 0 ? (
                   <Text size="sm" tone="secondary">
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}{runResult.errors.map((error) => error.message).join("; ")}
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
+                    {runResult.errors.map((error) => error.message).join("; ")}
                   </Text>
                 ) : null}
               </Stack>
@@ -131,10 +143,32 @@ export function SettlementPayoutOperationsPage({
       <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.needs.attention")}>
         <DataTable
           rows={[
-            { id: "failed", label: t("settlement.features.payouts.ui.payoutOperationsPage.failed.payouts"), value: failedCount, detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.reported.failure.or.internal.submission") },
-            { id: "missing-reference", label: t("settlement.features.payouts.ui.payoutOperationsPage.missing.provider.references"), value: missingReferenceCount, detail: t("settlement.features.payouts.ui.payoutOperationsPage.transfer.or.payout.reference.has.not") },
-            { id: "retry-queued", label: t("settlement.features.payouts.ui.payoutOperationsPage.retry.queued.2"), value: retryQueuedCount, detail: t("settlement.features.payouts.ui.payoutOperationsPage.retry.policy.has.a.next.provider") },
-            { id: "stale-checks", label: t("settlement.features.payouts.ui.payoutOperationsPage.stale.reconciliation"), value: staleCheckCount, detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.status.has.not.been.checked") },
+            {
+              id: "failed",
+              label: t("settlement.features.payouts.ui.payoutOperationsPage.failed.payouts"),
+              value: failedCount,
+              detail: t(
+                "settlement.features.payouts.ui.payoutOperationsPage.provider.reported.failure.or.internal.submission",
+              ),
+            },
+            {
+              id: "missing-reference",
+              label: t("settlement.features.payouts.ui.payoutOperationsPage.missing.provider.references"),
+              value: missingReferenceCount,
+              detail: t("settlement.features.payouts.ui.payoutOperationsPage.transfer.or.payout.reference.has.not"),
+            },
+            {
+              id: "retry-queued",
+              label: t("settlement.features.payouts.ui.payoutOperationsPage.retry.queued.2"),
+              value: retryQueuedCount,
+              detail: t("settlement.features.payouts.ui.payoutOperationsPage.retry.policy.has.a.next.provider"),
+            },
+            {
+              id: "stale-checks",
+              label: t("settlement.features.payouts.ui.payoutOperationsPage.stale.reconciliation"),
+              value: staleCheckCount,
+              detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.status.has.not.been.checked"),
+            },
           ]}
           getRowId={(row) => row.id}
           columns={[
@@ -146,11 +180,7 @@ export function SettlementPayoutOperationsPage({
             {
               key: "value",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.count"),
-              cell: (row) => (
-                <Badge tone={row.value > 0 ? "warning" : "success"}>
-                  {row.value}
-                </Badge>
-              ),
+              cell: (row) => <Badge tone={row.value > 0 ? "warning" : "success"}>{row.value}</Badge>,
             },
             {
               key: "detail",
@@ -178,9 +208,7 @@ export function SettlementPayoutOperationsPage({
             {
               key: "status",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.status"),
-              cell: (row) => (
-                <Badge tone={operationsTone(row)}>{operationsLabel(row)}</Badge>
-              ),
+              cell: (row) => <Badge tone={operationsTone(row)}>{operationsLabel(row)}</Badge>,
             },
             {
               key: "amount",
@@ -200,18 +228,20 @@ export function SettlementPayoutOperationsPage({
             {
               key: "last_reconciled_at",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.last.checked.2"),
-              cell: (row) => row.last_reconciled_at
-                ? new Date(row.last_reconciled_at).toLocaleString()
-                : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked"),
+              cell: (row) =>
+                row.last_reconciled_at
+                  ? new Date(row.last_reconciled_at).toLocaleString()
+                  : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked"),
             },
             {
               key: "retry",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.retry.policy"),
-              cell: (row) => row.next_retry_at
-                ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}; next ${new Date(row.next_retry_at).toLocaleString()}`
-                : row.retry_count > 0
-                  ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}`
-                  : t("settlement.features.payouts.ui.payoutOperationsPage.none"),
+              cell: (row) =>
+                row.next_retry_at
+                  ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}; next ${new Date(row.next_retry_at).toLocaleString()}`
+                  : row.retry_count > 0
+                    ? `${row.retry_count} attempt${row.retry_count === 1 ? "" : "s"}`
+                    : t("settlement.features.payouts.ui.payoutOperationsPage.none"),
             },
             {
               key: "updated_at",
@@ -223,12 +253,15 @@ export function SettlementPayoutOperationsPage({
               header: t("settlement.features.payouts.ui.payoutOperationsPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/account/payouts/${row.payout_id}`} tone="secondary" size="sm">
-                  {t("settlement.features.payouts.ui.payoutOperationsPage.open")}</LinkButton>
+                  {t("settlement.features.payouts.ui.payoutOperationsPage.open")}
+                </LinkButton>
               ),
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.payoutOperationsPage.no.payouts.need.attention")}
-          emptyDescription={t("settlement.features.payouts.ui.payoutOperationsPage.provider.payout.reconciliation.is.clear")}
+          emptyDescription={t(
+            "settlement.features.payouts.ui.payoutOperationsPage.provider.payout.reconciliation.is.clear",
+          )}
         />
       </PageSection>
 
@@ -250,7 +283,8 @@ export function SettlementPayoutOperationsPage({
             {
               key: "provider",
               header: t("settlement.features.payouts.ui.payoutOperationsPage.provider.reference"),
-              cell: (row) => row.provider_object_reference ?? t("settlement.features.payouts.ui.payoutOperationsPage.pending"),
+              cell: (row) =>
+                row.provider_object_reference ?? t("settlement.features.payouts.ui.payoutOperationsPage.pending"),
             },
             {
               key: "idempotency",
@@ -264,7 +298,9 @@ export function SettlementPayoutOperationsPage({
             },
           ]}
           emptyTitle={t("settlement.features.payouts.ui.payoutOperationsPage.no.provider.attempts")}
-          emptyDescription={t("settlement.features.payouts.ui.payoutOperationsPage.provider.transfer.and.payout.submissions.appear")}
+          emptyDescription={t(
+            "settlement.features.payouts.ui.payoutOperationsPage.provider.transfer.and.payout.submissions.appear",
+          )}
         />
       </PageSection>
     </Page>

@@ -14,11 +14,7 @@ import {
   type HealthProjectionReplaySummary,
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
-import {
-  createApiHost,
-  resolveApiHostMounts,
-  type ApiHostRuntime,
-} from "@chase-sets/platform-runtime/api";
+import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import {
   createIdentityAuthMiddleware,
@@ -34,25 +30,18 @@ export type PlatformIdentityServices = Readonly<{
 }>;
 
 export type BuildAdminSupportApiOptions = Readonly<{
-  getProjectionReplay?: () =>
-    | HealthProjectionReplaySummary
-    | Promise<HealthProjectionReplaySummary>;
+  getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
   readinessChecks?: readonly ReadinessCheck[];
   resolveActor?: PlatformActorResolver;
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
 }>;
 
-export function createAdminSupportApiHost(
-  options: Parameters<typeof createApiHost>[2],
-): ApiHostRuntime {
+export function createAdminSupportApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
   return createApiHost(apiContextRegistry, "admin-support-api", options);
 }
 
-export function buildAdminSupportApiApp(
-  runtime: ApiHostRuntime,
-  options: BuildAdminSupportApiOptions = {},
-) {
+export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildAdminSupportApiOptions = {}) {
   const app = new Hono<TenantContextEnv>();
   const apiMounts = resolveApiHostMounts(runtime);
   const identityServices = {
@@ -84,16 +73,11 @@ export function buildAdminSupportApiApp(
     );
   }
 
-  const platformActorMiddleware = createPlatformActorMiddleware(
-    options.resolveActor ?? (async () => null),
-  );
+  const platformActorMiddleware = createPlatformActorMiddleware(options.resolveActor ?? (async () => null));
   attachApiMountMiddleware(
     app,
     apiMounts
-      .filter(
-        (mount) =>
-          mount.contextName === "auth" || mount.contextName === "identity",
-      )
+      .filter((mount) => mount.contextName === "auth" || mount.contextName === "identity")
       .map((mount) => mount.mountPath),
     createIdentityAuthMiddleware(identityServices, {
       internalAuthSecret: options.internalAuthSecret,
@@ -102,20 +86,13 @@ export function buildAdminSupportApiApp(
   attachApiMountMiddleware(
     app,
     apiMounts
-      .filter(
-        (mount) =>
-          mount.requiresAuth &&
-          mount.contextName !== "auth" &&
-          mount.contextName !== "identity",
-      )
+      .filter((mount) => mount.requiresAuth && mount.contextName !== "auth" && mount.contextName !== "identity")
       .map((mount) => mount.mountPath),
     platformActorMiddleware,
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
-  attachWriteDrainMiddleware(app, apiMounts, () =>
-    drainContextRuntime(runtime),
-  );
+  attachWriteDrainMiddleware(app, apiMounts, () => drainContextRuntime(runtime));
   mountApiRouters(app, apiMounts);
 
   return app;

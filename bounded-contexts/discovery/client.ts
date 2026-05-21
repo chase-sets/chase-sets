@@ -1,14 +1,8 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import type { buildDiscoveryApi } from "./api";
-import type {
-  CategoryListResponse,
-  DiscoveryCategoryItem,
-} from "./features/categories/api/contracts";
-import type {
-  CreateProductAlertRequest,
-  ProductAlertListResponse,
-} from "./features/product-alerts/api/contracts";
+import type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
+import type { CreateProductAlertRequest, ProductAlertListResponse } from "./features/product-alerts/api/contracts";
 
 export type {
   DiscoveryItemDetail,
@@ -18,14 +12,8 @@ export type {
   DiscoverySearchResponse,
 } from "./support/client-support/contracts";
 export type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
-export type {
-  CategoryListResponse,
-  DiscoveryCategoryItem,
-} from "./features/categories/api/contracts";
-export type {
-  CreateProductAlertRequest,
-  ProductAlertListResponse,
-} from "./features/product-alerts/api/contracts";
+export type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
+export type { CreateProductAlertRequest, ProductAlertListResponse } from "./features/product-alerts/api/contracts";
 export type { ProductAlertPageRow } from "./features/product-alerts/read-model/queries";
 
 import type {
@@ -61,9 +49,7 @@ export interface DiscoveryApiClientOptions {
   credentials?: RequestCredentials;
 }
 
-function resolveHeaders(
-  headers?: HeadersInit | (() => HeadersInit),
-) {
+function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
 
@@ -112,14 +98,10 @@ export function createDiscoveryApiClient({
       );
     },
     async listCategories(): Promise<CategoryListResponse> {
-      return parseJsonResponse(
-        await client.categories.$get({ header: headers }),
-      );
+      return parseJsonResponse(await client.categories.$get({ header: headers }));
     },
     async listProductAlerts(): Promise<ProductAlertListResponse> {
-      return parseJsonResponse(
-        await client.account["product-alerts"].$get({ header: headers }),
-      );
+      return parseJsonResponse(await client.account["product-alerts"].$get({ header: headers }));
     },
     async createProductAlert(body: CreateProductAlertRequest) {
       return parseJsonResponse(
@@ -181,9 +163,7 @@ export function createDiscoveryApiClient({
       );
     },
     async listSitemapUrls(): Promise<{ items: DiscoverySitemapUrl[]; total: number; count: number }> {
-      return parseJsonResponse(
-        await client["sitemap-urls"].$get({ header: headers }),
-      );
+      return parseJsonResponse(await client["sitemap-urls"].$get({ header: headers }));
     },
   };
 }

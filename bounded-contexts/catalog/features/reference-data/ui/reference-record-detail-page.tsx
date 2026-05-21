@@ -25,20 +25,36 @@ import {
   reviseReferenceRecord,
   useReferenceRecord,
 } from "./use-reference-data";
-import {
-  formatAttributesInput,
-  formatAttributesSummary,
-  parseAttributesInput,
-} from "./reference-data-form";
+import { formatAttributesInput, formatAttributesSummary, parseAttributesInput } from "./reference-data-form";
 
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.publish"), action: "publish", tone: "primary" }];
+      return [
+        {
+          label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.publish"),
+          action: "publish",
+          tone: "primary",
+        },
+      ];
     case "active":
-      return [{ label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.deprecate"), action: "deprecate", confirm: true, tone: "danger" }];
+      return [
+        {
+          label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.deprecate"),
+          action: "deprecate",
+          confirm: true,
+          tone: "danger",
+        },
+      ];
     case "deprecated":
-      return [{ label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
+      return [
+        {
+          label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.archive"),
+          action: "archive",
+          confirm: true,
+          tone: "danger",
+        },
+      ];
     default:
       return [];
   }
@@ -122,9 +138,12 @@ export function ReferenceRecordDetailPage({
       archive: () => archiveReferenceRecord(id),
     };
     await actions[action]?.();
-    addToast(t("catalog.features.referenceData.ui.referenceRecordDetailPage.lifecycle.completed", {
-      action: lifecycleActionLabel(action),
-    }), "success");
+    addToast(
+      t("catalog.features.referenceData.ui.referenceRecordDetailPage.lifecycle.completed", {
+        action: lifecycleActionLabel(action),
+      }),
+      "success",
+    );
     refresh();
   }
 
@@ -171,9 +190,10 @@ export function ReferenceRecordDetailPage({
     }
 
     setEditRelationships((current) => [
-      ...current.filter((relationship) =>
-        relationship.relationshipType !== nextRelationship.relationshipType ||
-        relationship.referenceId !== nextRelationship.referenceId,
+      ...current.filter(
+        (relationship) =>
+          relationship.relationshipType !== nextRelationship.relationshipType ||
+          relationship.referenceId !== nextRelationship.referenceId,
       ),
       nextRelationship,
     ]);
@@ -186,7 +206,10 @@ export function ReferenceRecordDetailPage({
       <EntityDetailPage
         title={data?.name ?? t("catalog.features.referenceData.ui.referenceRecordDetailPage.reference.record")}
         breadcrumbs={[
-          { label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.reference.records"), href: "/reference-records" },
+          {
+            label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.reference.records"),
+            href: "/reference-records",
+          },
           { label: data?.name ?? id },
         ]}
         actions={
@@ -216,10 +239,19 @@ export function ReferenceRecordDetailPage({
                 { key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.type"), value: data.type_key },
                 { key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.key"), value: data.key },
                 { key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.name"), value: data.name },
-                { key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.description"), value: data.description ?? "—" },
-                { key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.attributes"), value: formatAttributesSummary(data.attributes) },
+                {
+                  key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.description"),
+                  value: data.description ?? "—",
+                },
+                {
+                  key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.attributes"),
+                  value: formatAttributesSummary(data.attributes),
+                },
                 { key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.status"), value: data.status },
-                { key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.updated"), value: data.updated_at },
+                {
+                  key: t("catalog.features.referenceData.ui.referenceRecordDetailPage.updated"),
+                  value: data.updated_at,
+                },
               ]}
             />
 
@@ -239,7 +271,11 @@ export function ReferenceRecordDetailPage({
         open={editing}
         onOpenChange={setEditing}
         title={t("catalog.features.referenceData.ui.referenceRecordDetailPage.edit.reference.record")}
-        footer={<Button onClick={handleRevise}>{t("catalog.features.referenceData.ui.referenceRecordDetailPage.save")}</Button>}
+        footer={
+          <Button onClick={handleRevise}>
+            {t("catalog.features.referenceData.ui.referenceRecordDetailPage.save")}
+          </Button>
+        }
       >
         <Stack gap={3}>
           {typeOptions.length > 0 ? (
@@ -250,11 +286,27 @@ export function ReferenceRecordDetailPage({
               onValueChange={setEditTypeKey}
             />
           ) : (
-            <TextInput label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.type.key")} value={editTypeKey} onChange={(event) => setEditTypeKey(event.target.value)} />
+            <TextInput
+              label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.type.key")}
+              value={editTypeKey}
+              onChange={(event) => setEditTypeKey(event.target.value)}
+            />
           )}
-          <TextInput label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.key")} value={editKey} onChange={(event) => setEditKey(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.name")} value={editName} onChange={(event) => setEditName(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.description")} value={editDescription} onChange={(event) => setEditDescription(event.target.value)} />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.key")}
+            value={editKey}
+            onChange={(event) => setEditKey(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.name")}
+            value={editName}
+            onChange={(event) => setEditName(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.description")}
+            value={editDescription}
+            onChange={(event) => setEditDescription(event.target.value)}
+          />
           <Textarea
             label={t("catalog.features.referenceData.ui.referenceRecordDetailPage.attributes")}
             description={t("catalog.features.referenceData.ui.referenceRecordDetailPage.attributes.description")}
@@ -275,7 +327,9 @@ export function ReferenceRecordDetailPage({
                 value={relationshipReferenceId}
                 onValueChange={setRelationshipReferenceId}
                 placeholder={t("catalog.features.referenceData.ui.referenceRecordDetailPage.choose.reference.record")}
-                noMatchesLabel={t("catalog.features.referenceData.ui.referenceRecordDetailPage.no.reference.records.match")}
+                noMatchesLabel={t(
+                  "catalog.features.referenceData.ui.referenceRecordDetailPage.no.reference.records.match",
+                )}
               />
               <Button tone="secondary" onClick={handleAddRelationship}>
                 {t("catalog.features.referenceData.ui.referenceRecordDetailPage.add.relationship")}
@@ -292,12 +346,15 @@ export function ReferenceRecordDetailPage({
                     <Button
                       tone="danger"
                       size="sm"
-                      onClick={() => setEditRelationships((current) =>
-                        current.filter((relationship) =>
-                          relationship.relationshipType !== row.relationshipType ||
-                          relationship.referenceId !== row.referenceId,
-                        ),
-                      )}
+                      onClick={() =>
+                        setEditRelationships((current) =>
+                          current.filter(
+                            (relationship) =>
+                              relationship.relationshipType !== row.relationshipType ||
+                              relationship.referenceId !== row.referenceId,
+                          ),
+                        )
+                      }
                     >
                       {t("catalog.features.referenceData.ui.referenceRecordDetailPage.remove")}
                     </Button>

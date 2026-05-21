@@ -6,9 +6,7 @@ import {
   summarizeProjectionReplayStatuses,
   type ContextProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
-import {
-  type PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import { type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
 type RuntimeShape = Readonly<{
   projectionGroups: readonly ContextProjectionGroup[];
@@ -65,18 +63,10 @@ function printUsage(): void {
 
 async function closePools(pools: Readonly<Record<string, PgTransactionalPool>>): Promise<void> {
   const uniquePools = [...new Set(Object.values(pools))];
-  await Promise.all(
-    uniquePools.map((pool) =>
-      (pool as unknown as { end: () => Promise<void> }).end(),
-    ),
-  );
+  await Promise.all(uniquePools.map((pool) => (pool as unknown as { end: () => Promise<void> }).end()));
 }
 
-async function printStatuses(
-  deployableName: string,
-  runtime: RuntimeShape,
-  contextName?: string,
-): Promise<void> {
+async function printStatuses(deployableName: string, runtime: RuntimeShape, contextName?: string): Promise<void> {
   const groups = await refreshProjectionGroupStatuses(runtime, { contextName });
   const summary = summarizeProjectionReplayStatuses(groups);
 
@@ -95,8 +85,7 @@ async function printStatuses(
 }
 
 async function main(): Promise<void> {
-  const [deployableName, action = "status", contextName, projectionName] =
-    process.argv.slice(2);
+  const [deployableName, action = "status", contextName, projectionName] = process.argv.slice(2);
 
   if (!deployableName || !(deployableName in deployableLoaders)) {
     printUsage();

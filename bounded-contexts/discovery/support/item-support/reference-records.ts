@@ -58,11 +58,7 @@ export async function loadReferenceRecordMap(
   }
 
   const rowsById = await loadReferenceRecordRowsByGraph(db, tableName, uniqueIds);
-  const buildReference = (
-    row: ReferenceRecordRow,
-    depth: number,
-    path: ReadonlySet<string>,
-  ): ReferenceRecordRef => {
+  const buildReference = (row: ReferenceRecordRow, depth: number, path: ReadonlySet<string>): ReferenceRecordRef => {
     const nextPath = new Set(path);
     nextPath.add(row.reference_record_id);
 
@@ -90,16 +86,12 @@ export async function loadReferenceRecordMap(
     uniqueIds.flatMap((referenceId) => {
       const row = rowsById.get(referenceId);
 
-      return row
-        ? [[row.reference_record_id, buildReference(row, 0, new Set())] as const]
-        : [];
+      return row ? [[row.reference_record_id, buildReference(row, 0, new Set())] as const] : [];
     }),
   );
 }
 
-export function flattenReferenceRecordText(
-  reference: ReferenceRecordRef | undefined,
-): string[] {
+export function flattenReferenceRecordText(reference: ReferenceRecordRef | undefined): string[] {
   if (!reference) {
     return [];
   }
@@ -128,9 +120,7 @@ export function flattenReferenceRecordText(
   return values.filter((value) => value.trim().length > 0);
 }
 
-export function collectReferenceRecords(
-  reference: ReferenceRecordRef | undefined,
-): ReferenceRecordRef[] {
+export function collectReferenceRecords(reference: ReferenceRecordRef | undefined): ReferenceRecordRef[] {
   if (!reference) {
     return [];
   }
@@ -188,9 +178,7 @@ export async function findReferenceRecordIdsByRelatedReferenceGraph(
        WHERE relationship->>'referenceId' = ANY($1::text[])`,
       [frontier],
     );
-    const next = result.rows
-      .map((row) => row.reference_record_id)
-      .filter((recordId) => !visited.has(recordId));
+    const next = result.rows.map((row) => row.reference_record_id).filter((recordId) => !visited.has(recordId));
 
     for (const recordId of next) {
       visited.add(recordId);
@@ -268,10 +256,7 @@ function recordValueText(value: unknown): string[] {
   }
 
   if (typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => [
-      key,
-      ...recordValueText(entry),
-    ]);
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => [key, ...recordValueText(entry)]);
   }
 
   return [];

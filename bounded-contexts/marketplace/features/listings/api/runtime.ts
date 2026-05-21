@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -55,11 +52,7 @@ import {
 const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as never;
 const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as never;
 const MAX_LISTING_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
-const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
+const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function createMarketplaceSystemContext(accountId: string): EventStoreContext {
   return {
@@ -85,11 +78,7 @@ export class MarketplaceSalesFeeQuoteStaleError extends Error {
 }
 
 export type MarketplaceListingServices = Readonly<{
-  commandHandler: CommandHandler<
-    MarketplaceListingCommand,
-    MarketplaceListingState,
-    MarketplaceListingEvent
-  >;
+  commandHandler: CommandHandler<MarketplaceListingCommand, MarketplaceListingState, MarketplaceListingEvent>;
   sellerAvailabilityCommandHandler: CommandHandler<
     SellerListingAvailabilityCommand,
     SellerListingAvailabilityState,
@@ -203,9 +192,7 @@ export type MarketplaceListingServices = Readonly<{
     params: Readonly<{ accountId: string; listingId: string }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
-  getSellerListingAvailability: (
-    accountId: string,
-  ) => ReturnType<typeof getSellerListingAvailability>;
+  getSellerListingAvailability: (accountId: string) => ReturnType<typeof getSellerListingAvailability>;
   disableSellerListingAvailability: (
     params: Readonly<{
       accountId: string;
@@ -218,37 +205,28 @@ export type MarketplaceListingServices = Readonly<{
     params: Readonly<{ accountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: string; version: number; status: "available" }>;
-  listSellerListings: (
-    params: Parameters<typeof listSellerListings>[1],
-  ) => ReturnType<typeof listSellerListings>;
+  listSellerListings: (params: Parameters<typeof listSellerListings>[1]) => ReturnType<typeof listSellerListings>;
   listSellerInventoryItemSupply: (
     params: Parameters<typeof listSellerInventoryItemSupply>[1],
   ) => ReturnType<typeof listSellerInventoryItemSupply>;
-  getSellerListing: (
-    listingId: string,
-    accountId: string,
-  ) => ReturnType<typeof getSellerListing>;
+  getSellerListing: (listingId: string, accountId: string) => ReturnType<typeof getSellerListing>;
   listSellerListingFeeHistory: (
     params: Readonly<{ listingId: string; accountId: string }>,
   ) => Promise<readonly MarketplaceListingFeeHistoryEntry[]>;
   listSellerListingFeeLockReport: (
     params: Parameters<typeof listSellerListingFeeLockReport>[1],
   ) => Promise<{ items: MarketplaceListingFeeLockReportEntry[]; total: number }>;
-  getMarketSummaryForItem: (
-    itemId: string,
-  ) => ReturnType<typeof getMarketSummaryForItem>;
+  getMarketSummaryForItem: (itemId: string) => ReturnType<typeof getMarketSummaryForItem>;
   listItemListings: (itemId: string) => ReturnType<typeof listItemListings>;
-  getInventoryItemSupply: (
-    itemId: string,
-    accountId?: string,
-  ) => ReturnType<typeof getInventoryItemSupply>;
+  getInventoryItemSupply: (itemId: string, accountId?: string) => ReturnType<typeof getInventoryItemSupply>;
   reconcileInventoryCapacity: (inventoryItemId: string) => Promise<void>;
   projectors: readonly Projector[];
 }>;
 
-type ListingRuntimeDeps = MarketplaceRuntimeDeps & Readonly<{
-  commercialTermsResolver: CommercialTermsResolver;
-}>;
+type ListingRuntimeDeps = MarketplaceRuntimeDeps &
+  Readonly<{
+    commercialTermsResolver: CommercialTermsResolver;
+  }>;
 
 export type MarketplaceListingPhotoUpload = Readonly<{
   body: Uint8Array;
@@ -257,9 +235,7 @@ export type MarketplaceListingPhotoUpload = Readonly<{
   altText?: string | null;
 }>;
 
-export function createMarketplaceListingRuntime(
-  deps: ListingRuntimeDeps,
-): MarketplaceListingServices {
+export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): MarketplaceListingServices {
   const repository = createAggregateRepository({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
@@ -291,11 +267,7 @@ export function createMarketplaceListingRuntime(
     const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
     assert(supply, "Inventory item not found.");
 
-    const activeQuantityCap = await getActiveQuantityCapForInventoryItem(
-      deps.db,
-      inventoryItemId,
-      excludeListingId,
-    );
+    const activeQuantityCap = await getActiveQuantityCapForInventoryItem(deps.db, inventoryItemId, excludeListingId);
     assert(
       activeQuantityCap + requestedQuantityCap <= supply.available_quantity,
       "Active listing quantity caps cannot exceed current sellable inventory.",
@@ -308,14 +280,8 @@ export function createMarketplaceListingRuntime(
       return;
     }
 
-    const activeListings = await listActiveListingsForInventoryItem(
-      deps.db,
-      inventoryItemId,
-    );
-    let activeTotal = activeListings.reduce(
-      (sum, listing) => sum + listing.quantity_cap,
-      0,
-    );
+    const activeListings = await listActiveListingsForInventoryItem(deps.db, inventoryItemId);
+    let activeTotal = activeListings.reduce((sum, listing) => sum + listing.quantity_cap, 0);
 
     for (const listing of activeListings) {
       if (activeTotal <= supply.available_quantity) {
@@ -335,10 +301,7 @@ export function createMarketplaceListingRuntime(
     const aggregate = await repository.load(`marketplace.listing-${listingId}`);
     const listing = aggregate.state;
 
-    assert(
-      listing.listingId !== null && listing.accountId === accountId,
-      "Listing not found.",
-    );
+    assert(listing.listingId !== null && listing.accountId === accountId, "Listing not found.");
 
     return listing;
   }
@@ -359,12 +322,14 @@ export function createMarketplaceListingRuntime(
     }
   }
 
-  async function normalizePhotoUploads(params: Readonly<{
-    accountId: string;
-    listingId: string;
-    listingPhotoUploads: readonly MarketplaceListingPhotoUpload[];
-    existingPhotoCount?: number;
-  }>): Promise<MarketplaceListingPhoto[]> {
+  async function normalizePhotoUploads(
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      listingPhotoUploads: readonly MarketplaceListingPhotoUpload[];
+      existingPhotoCount?: number;
+    }>,
+  ): Promise<MarketplaceListingPhoto[]> {
     if (params.listingPhotoUploads.length === 0) {
       return [];
     }
@@ -374,18 +339,9 @@ export function createMarketplaceListingRuntime(
     const photos: MarketplaceListingPhoto[] = [];
     for (const [index, upload] of params.listingPhotoUploads.entries()) {
       const contentType = upload.contentType.toLowerCase();
-      assert(
-        LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType),
-        "Listing photos must be JPEG, PNG, or WebP images.",
-      );
-      assert(
-        upload.body.byteLength > 0,
-        "Listing photo uploads cannot be empty.",
-      );
-      assert(
-        upload.body.byteLength <= MAX_LISTING_PHOTO_UPLOAD_BYTES,
-        "Listing photo uploads cannot exceed 10 MB.",
-      );
+      assert(LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType), "Listing photos must be JPEG, PNG, or WebP images.");
+      assert(upload.body.byteLength > 0, "Listing photo uploads cannot be empty.");
+      assert(upload.body.byteLength <= MAX_LISTING_PHOTO_UPLOAD_BYTES, "Listing photo uploads cannot exceed 10 MB.");
 
       const photoId = createId("lpho");
       photos.push(
@@ -405,20 +361,22 @@ export function createMarketplaceListingRuntime(
     return photos;
   }
 
-  async function upsertBatchInventorySnapshot(params: Readonly<{
-    accountId: string;
-    inventoryItemId: string;
-    catalogItemId: string;
-    productId: string;
-    selectedOptions: readonly { dimensionId: string; optionId: string }[];
-    gradedCard?: MarketplaceListingState["gradedCard"];
-    storageLocationId: string;
-    storageLocationName: string;
-    shipFromCode: string;
-    shipFromAddress: AddressSnapshot;
-    totalQuantity: number;
-    acquisitionCostAmount: string | null;
-  }>) {
+  async function upsertBatchInventorySnapshot(
+    params: Readonly<{
+      accountId: string;
+      inventoryItemId: string;
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      gradedCard?: MarketplaceListingState["gradedCard"];
+      storageLocationId: string;
+      storageLocationName: string;
+      shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
+      totalQuantity: number;
+      acquisitionCostAmount: string | null;
+    }>,
+  ) {
     await deps.db.query(
       `INSERT INTO marketplace_supply_locations (
          storage_location_id,
@@ -496,9 +454,7 @@ export function createMarketplaceListingRuntime(
     event: Awaited<ReturnType<typeof deps.eventStore.readStream>>[number],
   ): MarketplaceListingFeeHistoryEntry | null {
     const data =
-      typeof event.payload === "object" && event.payload !== null
-        ? (event.payload as Record<string, unknown>)
-        : {};
+      typeof event.payload === "object" && event.payload !== null ? (event.payload as Record<string, unknown>) : {};
 
     if (
       ![
@@ -540,11 +496,7 @@ export function createMarketplaceListingRuntime(
     }>,
     context: EventStoreContext,
   ) {
-    const supply = await getInventoryItemSupply(
-      deps.db,
-      params.inventoryItemId,
-      params.accountId,
-    );
+    const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
     assert(supply, "Inventory item not found.");
     const quote = await quoteListingTerms(params.accountId, params.priceAmount);
 
@@ -564,15 +516,13 @@ export function createMarketplaceListingRuntime(
         return {
           listingId,
           version: photoResult.version,
-          feeQuoteFingerprint:
-            existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
+          feeQuoteFingerprint: existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
         };
       }
       return {
         listingId,
         version: existing.version,
-        feeQuoteFingerprint:
-          existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
+        feeQuoteFingerprint: existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
       };
     }
     const listingPhotos = await normalizePhotoUploads({
@@ -723,11 +673,7 @@ export function createMarketplaceListingRuntime(
 
       if (listing.status === "active") {
         assert(listing.inventoryItemId, "Listing inventory item is missing.");
-        await ensureActiveCapacity(
-          listing.inventoryItemId,
-          params.quantityCap,
-          params.listingId,
-        );
+        await ensureActiveCapacity(listing.inventoryItemId, params.quantityCap, params.listingId);
       }
 
       const result = await commandHandler({
@@ -774,11 +720,7 @@ export function createMarketplaceListingRuntime(
       const quote = await quoteListingTerms(params.accountId, listing.priceAmount);
       assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
 
-      await ensureActiveCapacity(
-        listing.inventoryItemId,
-        listing.quantityCap,
-        params.listingId,
-      );
+      await ensureActiveCapacity(listing.inventoryItemId, listing.quantityCap, params.listingId);
 
       const result = await commandHandler({
         streamId: `marketplace.listing-${params.listingId}`,
@@ -819,8 +761,7 @@ export function createMarketplaceListingRuntime(
 
       return { listingId: params.listingId, version: result.version };
     },
-    getSellerListingAvailability: (accountId) =>
-      getSellerListingAvailability(deps.db, accountId),
+    getSellerListingAvailability: (accountId) => getSellerListingAvailability(deps.db, accountId),
     disableSellerListingAvailability: async (params, context) => {
       const result = await sellerAvailabilityCommandHandler({
         streamId: `marketplace.seller-listing-availability-${params.accountId}`,
@@ -858,10 +799,8 @@ export function createMarketplaceListingRuntime(
       };
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
-    listSellerInventoryItemSupply: (params) =>
-      listSellerInventoryItemSupply(deps.db, params),
-    getSellerListing: (listingId, accountId) =>
-      getSellerListing(deps.db, listingId, accountId),
+    listSellerInventoryItemSupply: (params) => listSellerInventoryItemSupply(deps.db, params),
+    getSellerListing: (listingId, accountId) => getSellerListing(deps.db, listingId, accountId),
     listSellerListingFeeHistory: async (params) => {
       await loadOwnedListingState(params.listingId, params.accountId);
       const events = await deps.eventStore.readStream({
@@ -873,12 +812,10 @@ export function createMarketplaceListingRuntime(
         .filter((entry): entry is MarketplaceListingFeeHistoryEntry => Boolean(entry))
         .sort((left, right) => right.stream_version - left.stream_version);
     },
-    listSellerListingFeeLockReport: (params) =>
-      listSellerListingFeeLockReport(deps.db, params),
+    listSellerListingFeeLockReport: (params) => listSellerListingFeeLockReport(deps.db, params),
     getMarketSummaryForItem: (itemId) => getMarketSummaryForItem(deps.db, itemId),
     listItemListings: (itemId) => listItemListings(deps.db, itemId),
-    getInventoryItemSupply: (itemId, accountId) =>
-      getInventoryItemSupply(deps.db, itemId, accountId),
+    getInventoryItemSupply: (itemId, accountId) => getInventoryItemSupply(deps.db, itemId, accountId),
     reconcileInventoryCapacity,
     projectors: [
       createProjector({

@@ -8,10 +8,7 @@ import type { Projector } from "@chase-sets/event-core/projector";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
-import {
-  defaultShippingQuotePolicy,
-  type ShippingQuotePolicy,
-} from "../../features/orders/domain/policies";
+import { defaultShippingQuotePolicy, type ShippingQuotePolicy } from "../../features/orders/domain/policies";
 
 export type OrderingServiceOptions = Readonly<{
   shippingQuotePolicy?: ShippingQuotePolicy;
@@ -37,8 +34,7 @@ export function createOrderingServices(
     eventStore,
     checkpointStore,
     db,
-    shippingQuotePolicy:
-      options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
+    shippingQuotePolicy: options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
     taxQuoteResolver: options.taxQuoteResolver,
   });
 

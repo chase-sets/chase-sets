@@ -1,7 +1,4 @@
-import type {
-  RealtimeTopicManifest,
-  RealtimeTopicPolicyManifest,
-} from "@chase-sets/platform-runtime/realtime";
+import type { RealtimeTopicManifest, RealtimeTopicPolicyManifest } from "@chase-sets/platform-runtime/realtime";
 import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runtime/realtime-web";
 
 export const marketplaceRealtimeTopics = {
@@ -10,12 +7,14 @@ export const marketplaceRealtimeTopics = {
 } as const;
 
 export const marketplaceRealtimeRouteTopics = {
-  accountListings: (accountId: string) => createRealtimeRouteSubscriptionPreset("marketplace.accountListings", [
-    marketplaceRealtimeTopics.accountListings(accountId),
-  ]),
-  accountOffers: (accountId: string) => createRealtimeRouteSubscriptionPreset("marketplace.accountOffers", [
-    marketplaceRealtimeTopics.accountOffers(accountId),
-  ]),
+  accountListings: (accountId: string) =>
+    createRealtimeRouteSubscriptionPreset("marketplace.accountListings", [
+      marketplaceRealtimeTopics.accountListings(accountId),
+    ]),
+  accountOffers: (accountId: string) =>
+    createRealtimeRouteSubscriptionPreset("marketplace.accountOffers", [
+      marketplaceRealtimeTopics.accountOffers(accountId),
+    ]),
 } as const;
 
 export const marketplaceRealtimeManifest = {
@@ -33,11 +32,7 @@ export const marketplaceRealtimeTopicPolicyManifest = {
       name: "marketplace-account-surface",
       match: (topic) => {
         const segments = topic.split(":");
-        if (
-          segments.length !== 3 ||
-          segments[0] !== "account" ||
-          !TOPIC_ID_PATTERN.test(segments[1] ?? "")
-        ) {
+        if (segments.length !== 3 || segments[0] !== "account" || !TOPIC_ID_PATTERN.test(segments[1] ?? "")) {
           return null;
         }
 

@@ -8,9 +8,8 @@ import { loadCatalogListRouteData } from "../../support/shell-support/list-query
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCatalogRequestApiClient(request);
-  return loadCatalogListRouteData<SourceObservationIntegrationScope>(
-    request,
-    (query) => api.listSourceObservationIntegrationScopes(query),
+  return loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
+    api.listSourceObservationIntegrationScopes(query),
   );
 }
 

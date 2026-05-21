@@ -85,9 +85,7 @@ describe("checkout cart page", () => {
       updated_at: "2026-04-29T00:00:00.000Z",
     };
 
-    const markup = renderToString(
-      <CheckoutCartPage cartLines={[cartLine, duplicateLine]} />,
-    );
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
 
     expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
     expect(markup).toContain("Charizard");
@@ -121,9 +119,7 @@ describe("checkout cart page", () => {
       seller_options: [],
     };
 
-    const markup = renderToString(
-      <CheckoutCartPage cartLines={[cartLine, lockedLine, unavailableLine]} />,
-    );
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine, lockedLine, unavailableLine]} />);
 
     expect(markup).toContain("Smart Match at checkout");
     expect(markup).toContain("Selected listings");

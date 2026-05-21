@@ -26,10 +26,7 @@ export function recordCommittedEvents(events: readonly StoredEvent[]): void {
   for (const event of events) {
     store.eventIds.push(String(event.eventId));
     const globalPosition = String(event.globalPosition);
-    if (
-      !store.maxGlobalPosition ||
-      BigInt(globalPosition) > BigInt(store.maxGlobalPosition)
-    ) {
+    if (!store.maxGlobalPosition || BigInt(globalPosition) > BigInt(store.maxGlobalPosition)) {
       store.maxGlobalPosition = globalPosition;
     }
   }

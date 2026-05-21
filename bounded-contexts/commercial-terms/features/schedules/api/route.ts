@@ -12,20 +12,36 @@ function requireAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("commercialTerms.features.schedules.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("commercialTerms.features.schedules.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("commercialTerms.features.schedules.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authorization_forbidden",
+            message: t("commercialTerms.features.schedules.api.route.forbidden"),
+          },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -36,10 +52,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("commercialTerms.features.schedules.api.route.request.failed");
 }
 
-export function createScheduleRoutes(
-  services: ScheduleServices,
-  resolutions: ResolutionServices,
-) {
+export function createScheduleRoutes(services: ScheduleServices, resolutions: ResolutionServices) {
   const app = new Hono<CommercialTermsApiEnv>();
 
   app.get("/", async (c) => {
@@ -67,7 +80,10 @@ export function createScheduleRoutes(
 
     const schedule = await services.getSchedule(c.req.param("id"));
     if (!schedule) {
-      return c.json({ error: { code: "not_found", message: t("commercialTerms.features.schedules.api.route.schedule.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("commercialTerms.features.schedules.api.route.schedule.not.found") } },
+        404,
+      );
     }
 
     return c.json(schedule);
@@ -80,7 +96,15 @@ export function createScheduleRoutes(
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("commercialTerms.features.schedules.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("commercialTerms.features.schedules.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -94,10 +118,7 @@ export function createScheduleRoutes(
           marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
           shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
           status: String(body.status ?? "active") as never,
-          effectiveFrom:
-            typeof body.effectiveFrom === "string"
-              ? body.effectiveFrom
-              : new Date().toISOString(),
+          effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
           effectiveUntil:
             typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0
               ? body.effectiveUntil
@@ -108,11 +129,13 @@ export function createScheduleRoutes(
 
       const preview =
         typeof body.previewAmount === "string" && body.previewAmount.trim().length > 0
-          ? await resolutions.previewListingTerms({
-              accountId: access.actor.accountId,
-              amount: body.previewAmount,
-              effectiveAt: new Date().toISOString(),
-            }).catch(() => null)
+          ? await resolutions
+              .previewListingTerms({
+                accountId: access.actor.accountId,
+                amount: body.previewAmount,
+                effectiveAt: new Date().toISOString(),
+              })
+              .catch(() => null)
           : null;
 
       return c.json({ id: result.scheduleId, version: result.version, preview }, 201);

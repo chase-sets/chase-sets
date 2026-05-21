@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -220,10 +216,7 @@ export type ItemBlueprintAssignedEvent = DomainEvent<
   }>
 >;
 
-export type ItemFieldValueSetEvent = DomainEvent<
-  "catalog.catalog-item.field-value-set",
-  ItemFieldValue
->;
+export type ItemFieldValueSetEvent = DomainEvent<"catalog.catalog-item.field-value-set", ItemFieldValue>;
 
 export type ItemFieldValueClearedEvent = DomainEvent<
   "catalog.catalog-item.field-value-cleared",
@@ -253,10 +246,7 @@ export type ItemPublishedEvent = DomainEvent<
   }>
 >;
 
-export type ItemMetadataRevisedEvent = DomainEvent<
-  "catalog.catalog-item.metadata-revised",
-  ItemMetadata
->;
+export type ItemMetadataRevisedEvent = DomainEvent<"catalog.catalog-item.metadata-revised", ItemMetadata>;
 
 export type ItemTagsSetEvent = DomainEvent<
   "catalog.catalog-item.tags-set",
@@ -286,10 +276,7 @@ export type ItemImageFallbackSetEvent = DomainEvent<
   }>
 >;
 
-export type ItemImageFallbackClearedEvent = DomainEvent<
-  "catalog.catalog-item.image-fallback-cleared",
-  EmptyEventData
->;
+export type ItemImageFallbackClearedEvent = DomainEvent<"catalog.catalog-item.image-fallback-cleared", EmptyEventData>;
 
 export type ItemExternalProductReferenceLinkedEvent = DomainEvent<
   "catalog.catalog-item.external-product-reference-linked",
@@ -304,20 +291,11 @@ export type ItemExternalProductReferenceUnlinkedEvent = DomainEvent<
   }>
 >;
 
-export type ItemRetiredEvent = DomainEvent<
-  "catalog.catalog-item.retired",
-  EmptyEventData
->;
+export type ItemRetiredEvent = DomainEvent<"catalog.catalog-item.retired", EmptyEventData>;
 
-export type ItemArchivedEvent = DomainEvent<
-  "catalog.catalog-item.archived",
-  EmptyEventData
->;
+export type ItemArchivedEvent = DomainEvent<"catalog.catalog-item.archived", EmptyEventData>;
 
-export type ItemDraftRemovedEvent = DomainEvent<
-  "catalog.catalog-item.draft-removed",
-  EmptyEventData
->;
+export type ItemDraftRemovedEvent = DomainEvent<"catalog.catalog-item.draft-removed", EmptyEventData>;
 
 export type CatalogItemEvent =
   | ItemCreatedEvent
@@ -339,11 +317,10 @@ export type CatalogItemEvent =
   | ItemArchivedEvent
   | ItemDraftRemovedEvent;
 
-export const decideCatalogItem: AggregateDecider<
-  CatalogItemState,
-  CatalogItemCommand,
-  CatalogItemEvent
-> = (state, command) => {
+export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCommand, CatalogItemEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "CreateCatalogItem":
       assert(state.id === null, "Catalog item has already been created.");
@@ -357,9 +334,7 @@ export const decideCatalogItem: AggregateDecider<
             itemId: command.itemId,
             languageCode: normalizeLanguageCode(command.languageCode),
             title: normalizeLocalizedTextMap(command.title, { requiredEnglish: true }),
-            subtitle: command.subtitle
-              ? normalizeLocalizedTextMap(command.subtitle)
-              : null,
+            subtitle: command.subtitle ? normalizeLocalizedTextMap(command.subtitle) : null,
             description: command.description
               ? normalizeLocalizedTextMap(command.description)
               : localizedTextMapFromEnglish(""),
@@ -421,10 +396,7 @@ export const decideCatalogItem: AggregateDecider<
     case "AssignCatalogItemToCategory":
       requireCreatedItem(state);
       assertCatalogItemCanBeModified(state);
-      assert(
-        !state.categoryIds.includes(command.categoryId),
-        "Item already belongs to that category.",
-      );
+      assert(!state.categoryIds.includes(command.categoryId), "Item already belongs to that category.");
 
       return [
         {
@@ -437,10 +409,7 @@ export const decideCatalogItem: AggregateDecider<
     case "RemoveCatalogItemFromCategory":
       requireCreatedItem(state);
       assertCatalogItemCanBeModified(state);
-      assert(
-        state.categoryIds.includes(command.categoryId),
-        "Item does not belong to that category.",
-      );
+      assert(state.categoryIds.includes(command.categoryId), "Item does not belong to that category.");
 
       return [
         {
@@ -454,21 +423,13 @@ export const decideCatalogItem: AggregateDecider<
       requireCreatedItem(state);
       assert(state.status === "draft", "Only draft items can be published.");
       assert(state.blueprintId !== null, "Items require a blueprint before publish.");
-      assert(
-        command.blueprintIsActive,
-        "Items may only publish against active blueprints.",
-      );
+      assert(command.blueprintIsActive, "Items may only publish against active blueprints.");
 
       const requiredFieldIds = normalizeRequiredFieldIds(command.requiredFieldIds);
-      const populatedFieldIds = new Set(
-        state.fieldValues.map((fieldValue) => fieldValue.fieldId),
-      );
+      const populatedFieldIds = new Set(state.fieldValues.map((fieldValue) => fieldValue.fieldId));
 
       for (const requiredFieldId of requiredFieldIds) {
-        assert(
-          populatedFieldIds.has(requiredFieldId),
-          "Items must satisfy all required field rules before publish.",
-        );
+        assert(populatedFieldIds.has(requiredFieldId), "Items must satisfy all required field rules before publish.");
       }
 
       return [
@@ -491,12 +452,8 @@ export const decideCatalogItem: AggregateDecider<
           data: {
             languageCode: normalizeLanguageCode(command.languageCode ?? state.languageCode),
             title: normalizeLocalizedTextMap(command.title, { requiredEnglish: true }),
-            subtitle: command.subtitle
-              ? normalizeLocalizedTextMap(command.subtitle)
-              : null,
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            subtitle: command.subtitle ? normalizeLocalizedTextMap(command.subtitle) : null,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
           },
         },
       ];
@@ -584,9 +541,7 @@ export const decideCatalogItem: AggregateDecider<
       assert(externalKey.length > 0, "External product references require an external key.");
       assert(
         state.externalProductReferences.some(
-          (reference) =>
-            reference.providerKey === providerKey &&
-            reference.externalKey === externalKey,
+          (reference) => reference.providerKey === providerKey && reference.externalKey === externalKey,
         ),
         "External product reference is not linked to this item.",
       );
@@ -623,10 +578,7 @@ export const decideCatalogItem: AggregateDecider<
   }
 };
 
-export const evolveCatalogItem: AggregateEvolver<
-  CatalogItemState,
-  CatalogItemEvent
-> = (state, event) => {
+export const evolveCatalogItem: AggregateEvolver<CatalogItemState, CatalogItemEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.catalog-item.created":
       return {
@@ -647,32 +599,24 @@ export const evolveCatalogItem: AggregateEvolver<
       return {
         ...state,
         fieldValues: normalizeFieldValues([
-          ...state.fieldValues.filter(
-            (fieldValue) => fieldValue.fieldId !== event.data.fieldId,
-          ),
+          ...state.fieldValues.filter((fieldValue) => fieldValue.fieldId !== event.data.fieldId),
           event.data,
         ]),
       };
     case "catalog.catalog-item.field-value-cleared":
       return {
         ...state,
-        fieldValues: state.fieldValues.filter(
-          (fieldValue) => fieldValue.fieldId !== event.data.fieldId,
-        ),
+        fieldValues: state.fieldValues.filter((fieldValue) => fieldValue.fieldId !== event.data.fieldId),
       };
     case "catalog.catalog-item.category-assigned":
       return {
         ...state,
-        categoryIds: [...state.categoryIds, event.data.categoryId].sort((left, right) =>
-          left.localeCompare(right),
-        ),
+        categoryIds: [...state.categoryIds, event.data.categoryId].sort((left, right) => left.localeCompare(right)),
       };
     case "catalog.catalog-item.category-removed":
       return {
         ...state,
-        categoryIds: state.categoryIds.filter(
-          (categoryId) => categoryId !== event.data.categoryId,
-        ),
+        categoryIds: state.categoryIds.filter((categoryId) => categoryId !== event.data.categoryId),
       };
     case "catalog.catalog-item.published":
       return {
@@ -719,8 +663,7 @@ export const evolveCatalogItem: AggregateEvolver<
         externalProductReferences: normalizeExternalProductReferences([
           ...state.externalProductReferences.filter(
             (reference) =>
-              reference.providerKey !== event.data.providerKey ||
-              reference.externalKey !== event.data.externalKey,
+              reference.providerKey !== event.data.providerKey || reference.externalKey !== event.data.externalKey,
           ),
           event.data,
         ]),
@@ -730,8 +673,7 @@ export const evolveCatalogItem: AggregateEvolver<
         ...state,
         externalProductReferences: state.externalProductReferences.filter(
           (reference) =>
-            reference.providerKey !== event.data.providerKey ||
-            reference.externalKey !== event.data.externalKey,
+            reference.providerKey !== event.data.providerKey || reference.externalKey !== event.data.externalKey,
         ),
       };
     case "catalog.catalog-item.retired":
@@ -768,25 +710,16 @@ function assertCatalogItemCanBeRevised(state: CatalogItemState): void {
   assert(state.status !== "removed", "Removed draft items cannot be revised.");
 }
 
-export function resolveCatalogItemTitle(
-  item: Pick<CatalogItemState, "title">,
-  locale = "en",
-): string {
+export function resolveCatalogItemTitle(item: Pick<CatalogItemState, "title">, locale = "en"): string {
   return resolveLocalizedTextMap(item.title, locale);
 }
 
-export function resolveCatalogItemSubtitle(
-  item: Pick<CatalogItemState, "subtitle">,
-  locale = "en",
-): string | null {
+export function resolveCatalogItemSubtitle(item: Pick<CatalogItemState, "subtitle">, locale = "en"): string | null {
   const value = resolveLocalizedTextMap(item.subtitle, locale);
   return value.length > 0 ? value : null;
 }
 
-export function resolveCatalogItemDescription(
-  item: Pick<CatalogItemState, "description">,
-  locale = "en",
-): string {
+export function resolveCatalogItemDescription(item: Pick<CatalogItemState, "description">, locale = "en"): string {
   return resolveLocalizedTextMap(item.description, locale);
 }
 
@@ -795,35 +728,22 @@ function normalizeLanguageCode(languageCode: string | undefined): string {
 }
 
 function assertLocalizedTitle(title: LocalizedTextMap): void {
-  assert(
-    title.values?.en?.trim().length > 0,
-    "Catalog items require an English title.",
-  );
+  assert(title.values?.en?.trim().length > 0, "Catalog items require an English title.");
 }
 
-function normalizeFieldValues(
-  fieldValues: readonly ItemFieldValue[],
-): readonly ItemFieldValue[] {
-  ensureUniqueBy(
-    fieldValues,
-    (fieldValue) => fieldValue.fieldId,
-    "Catalog items may only hold one value per field.",
-  );
+function normalizeFieldValues(fieldValues: readonly ItemFieldValue[]): readonly ItemFieldValue[] {
+  ensureUniqueBy(fieldValues, (fieldValue) => fieldValue.fieldId, "Catalog items may only hold one value per field.");
 
-  return [...fieldValues].sort((left, right) =>
-    left.fieldId.localeCompare(right.fieldId),
-  );
+  return [...fieldValues].sort((left, right) => left.fieldId.localeCompare(right.fieldId));
 }
 
 function normalizeTags(tags: readonly string[]): string[] {
-  return [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0))].sort(
-    (left, right) => left.localeCompare(right),
+  return [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0))].sort((left, right) =>
+    left.localeCompare(right),
   );
 }
 
-function normalizeImageFallback(
-  imageFallback: CatalogItemImageFallback,
-): CatalogItemImageFallback {
+function normalizeImageFallback(imageFallback: CatalogItemImageFallback): CatalogItemImageFallback {
   const url = imageFallback.url.trim();
   const alt = imageFallback.alt.trim();
 
@@ -927,12 +847,8 @@ function normalizeExternalProductReferences(
   return normalized;
 }
 
-function normalizeRequiredFieldIds(
-  fieldIds: readonly FieldId[],
-): readonly FieldId[] {
-  const normalized = [...new Set(fieldIds)].sort((left, right) =>
-    left.localeCompare(right),
-  );
+function normalizeRequiredFieldIds(fieldIds: readonly FieldId[]): readonly FieldId[] {
+  const normalized = [...new Set(fieldIds)].sort((left, right) => left.localeCompare(right));
 
   ensureUniqueBy(
     normalized.map((fieldId) => ({ fieldId })),

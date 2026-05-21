@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildPaymentsOrderInputProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
@@ -88,11 +86,8 @@ export function buildPaymentsOrderInputProjectionHandlers(
           // Marketplace Checkout Fee is payment-level; order inputs stay explicit at zero.
           "0.00",
           data.commercialTermsSnapshot.sellerNetAmount,
-          data.commercialTermsSnapshot.sellerItemNetAmount ??
-            data.commercialTermsSnapshot.sellerNetAmount,
-          data.commercialTermsSnapshot.shippingAllowanceAmount ??
-            data.shippingAllowanceAmount ??
-            "0.00",
+          data.commercialTermsSnapshot.sellerItemNetAmount ?? data.commercialTermsSnapshot.sellerNetAmount,
+          data.commercialTermsSnapshot.shippingAllowanceAmount ?? data.shippingAllowanceAmount ?? "0.00",
           data.shippingOverageAmount ?? "0.00",
           data.commercialTermsSnapshot.sellerShippingPayoutAmount ??
             data.commercialTermsSnapshot.shippingAllowanceAmount ??

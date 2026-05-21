@@ -3,12 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
-const {
-  mockUseLoaderData,
-  mockUseActionData,
-  mockUseNavigation,
-  mockRequireActorFromAuthApi,
-} = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockUseNavigation: vi.fn(),
@@ -99,10 +94,7 @@ describe("marketplace account sale review route", () => {
           return Promise.resolve(jsonResponse(opportunity));
         }
 
-        if (
-          url.includes("/api/marketplace/reviews") &&
-          (init?.method ?? "GET").toUpperCase() === "POST"
-        ) {
+        if (url.includes("/api/marketplace/reviews") && (init?.method ?? "GET").toUpperCase() === "POST") {
           return Promise.resolve(jsonResponse({ id: "rev_2", version: 1 }, 201));
         }
 

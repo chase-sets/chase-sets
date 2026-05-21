@@ -13,20 +13,33 @@ function requireReviewAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("reputation.features.reviews.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("reputation.features.reviews.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("reputation.features.reviews.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -37,9 +50,7 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("reputation.features.reviews.api.route.request.failed");
 }
 
-export function createPublicReputationRoutes(
-  services: ReviewServices,
-) {
+export function createPublicReputationRoutes(services: ReviewServices) {
   const app = new Hono<ReputationApiEnv>();
 
   app.get("/:accountId/review-summary", async (c) => {
@@ -66,9 +77,7 @@ export function createPublicReputationRoutes(
   return app;
 }
 
-export function createAccountReviewRoutes(
-  services: ReviewServices,
-) {
+export function createAccountReviewRoutes(services: ReviewServices) {
   const app = new Hono<ReputationApiEnv>();
 
   app.get("/written", async (c) => {
@@ -119,12 +128,17 @@ export function createAccountReviewRoutes(
       return access.response;
     }
 
-    const opportunity = await services.getOrderReviewOpportunity(
-      c.req.param("orderId"),
-      access.actor.accountId,
-    );
+    const opportunity = await services.getOrderReviewOpportunity(c.req.param("orderId"), access.actor.accountId);
     if (!opportunity) {
-      return c.json({ error: { code: "not_found", message: t("reputation.features.reviews.api.route.review.opportunity.not.found") } }, 404);
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("reputation.features.reviews.api.route.review.opportunity.not.found"),
+          },
+        },
+        404,
+      );
     }
 
     return c.json(opportunity);
@@ -136,12 +150,12 @@ export function createAccountReviewRoutes(
       return access.response;
     }
 
-    const review = await services.getAccountReview(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const review = await services.getAccountReview(c.req.param("id"), access.actor.accountId);
     if (!review) {
-      return c.json({ error: { code: "not_found", message: t("reputation.features.reviews.api.route.review.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("reputation.features.reviews.api.route.review.not.found") } },
+        404,
+      );
     }
 
     return c.json(review);
@@ -155,7 +169,15 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("reputation.features.reviews.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -167,10 +189,7 @@ export function createAccountReviewRoutes(
           authorAccountId: access.actor.accountId,
           subjectAccountId: String(body.subjectAccountId ?? ""),
           rating: Number(body.rating ?? 0),
-          feedback:
-            typeof body.feedback === "string"
-              ? body.feedback
-              : null,
+          feedback: typeof body.feedback === "string" ? body.feedback : null,
         },
         context,
       );
@@ -188,7 +207,15 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("reputation.features.reviews.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -199,10 +226,7 @@ export function createAccountReviewRoutes(
           reviewId: c.req.param("id"),
           authorAccountId: access.actor.accountId,
           rating: Number(body.rating ?? 0),
-          feedback:
-            typeof body.feedback === "string"
-              ? body.feedback
-              : null,
+          feedback: typeof body.feedback === "string" ? body.feedback : null,
         },
         context,
       );
@@ -220,7 +244,15 @@ export function createAccountReviewRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("reputation.features.reviews.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("reputation.features.reviews.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     try {

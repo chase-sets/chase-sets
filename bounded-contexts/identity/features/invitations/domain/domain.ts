@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, InvitationId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   EMPTY_EVENT_DATA,
@@ -75,26 +71,11 @@ export type InvitationCreatedEvent = DomainEvent<
   }>
 >;
 
-export type InvitationResentEvent = DomainEvent<
-  "identity.invitation.resent",
-  Readonly<{ expiresAt: string }>
->;
-export type InvitationCancelledEvent = DomainEvent<
-  "identity.invitation.cancelled",
-  EmptyEventData
->;
-export type InvitationAcceptedEvent = DomainEvent<
-  "identity.invitation.accepted",
-  Readonly<{ userId: UserId }>
->;
-export type InvitationDeclinedEvent = DomainEvent<
-  "identity.invitation.declined",
-  EmptyEventData
->;
-export type InvitationExpiredEvent = DomainEvent<
-  "identity.invitation.expired",
-  EmptyEventData
->;
+export type InvitationResentEvent = DomainEvent<"identity.invitation.resent", Readonly<{ expiresAt: string }>>;
+export type InvitationCancelledEvent = DomainEvent<"identity.invitation.cancelled", EmptyEventData>;
+export type InvitationAcceptedEvent = DomainEvent<"identity.invitation.accepted", Readonly<{ userId: UserId }>>;
+export type InvitationDeclinedEvent = DomainEvent<"identity.invitation.declined", EmptyEventData>;
+export type InvitationExpiredEvent = DomainEvent<"identity.invitation.expired", EmptyEventData>;
 
 export type InvitationEvent =
   | InvitationCreatedEvent
@@ -104,11 +85,10 @@ export type InvitationEvent =
   | InvitationDeclinedEvent
   | InvitationExpiredEvent;
 
-export const decideInvitation: AggregateDecider<
-  InvitationState,
-  InvitationCommand,
-  InvitationEvent
-> = (state, command) => {
+export const decideInvitation: AggregateDecider<InvitationState, InvitationCommand, InvitationEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "CreateInvitation":
       assert(state.id === null, "Invitation has already been created.");
@@ -154,10 +134,7 @@ export const decideInvitation: AggregateDecider<
   }
 };
 
-export const evolveInvitation: AggregateEvolver<
-  InvitationState,
-  InvitationEvent
-> = (state, event) => {
+export const evolveInvitation: AggregateEvolver<InvitationState, InvitationEvent> = (state, event) => {
   switch (event.type) {
     case "identity.invitation.created":
       return {

@@ -13,26 +13,12 @@ export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "titl
   actions?: ReactNode;
 }
 
-export function PageHeader({
-  eyebrow,
-  title,
-  description,
-  actions,
-  className,
-  ...props
-}: PageHeaderProps) {
+export function PageHeader({ eyebrow, title, description, actions, className, ...props }: PageHeaderProps) {
   return (
-    <header
-      {...props}
-      className={cn("grid gap-4 md:grid-cols-[1fr_auto] md:items-end", className)}
-    >
+    <header {...props} className={cn("grid gap-4 md:grid-cols-[1fr_auto] md:items-end", className)}>
       <div className="grid max-w-3xl gap-3">
-        {eyebrow ? (
-          <div className="text-xs font-semibold uppercase text-[var(--primary)]">{eyebrow}</div>
-        ) : null}
-        <h1 className="ds-display m-0 text-balance text-3xl leading-tight md:text-4xl">
-          {title}
-        </h1>
+        {eyebrow ? <div className="text-xs font-semibold uppercase text-[var(--primary)]">{eyebrow}</div> : null}
+        <h1 className="ds-display m-0 text-balance text-3xl leading-tight md:text-4xl">{title}</h1>
         {description ? (
           <p className="m-0 text-base leading-7 text-[var(--muted-foreground)] md:text-lg">{description}</p>
         ) : null}
@@ -48,25 +34,14 @@ export interface PageSectionProps extends Omit<HTMLAttributes<HTMLElement>, "tit
   actions?: ReactNode;
 }
 
-export function PageSection({
-  title,
-  description,
-  actions,
-  children,
-  className,
-  ...props
-}: PageSectionProps) {
+export function PageSection({ title, description, actions, children, className, ...props }: PageSectionProps) {
   return (
     <section {...props} className={cn("grid gap-4", className)}>
       {title || description || actions ? (
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="grid gap-1">
             {title ? <h2 className="ds-display m-0 text-xl md:text-2xl">{title}</h2> : null}
-            {description ? (
-              <p className="m-0 text-sm leading-6 text-[var(--muted-foreground)]">
-                {description}
-              </p>
-            ) : null}
+            {description ? <p className="m-0 text-sm leading-6 text-[var(--muted-foreground)]">{description}</p> : null}
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
         </div>
@@ -90,10 +65,7 @@ export function Grid({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 
 export function Surface({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div
-      {...props}
-      className={cn("ds-panel rounded-[var(--radius)] border border-[var(--border)] p-5", className)}
-    />
+    <div {...props} className={cn("ds-panel rounded-[var(--radius)] border border-[var(--border)] p-5", className)} />
   );
 }
 
@@ -116,7 +88,7 @@ export function PageStepper({ items }: { items: StepperItem[] }) {
             "rounded-[var(--radius-lg)] border p-3 text-sm font-semibold",
             item.status === "current"
               ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-[var(--shadow-sm)]"
-              : "border-[var(--muted)] bg-[var(--card)] text-[var(--muted-foreground)]"
+              : "border-[var(--muted)] bg-[var(--card)] text-[var(--muted-foreground)]",
           )}
         >
           {index + 1}. {item.label}
@@ -129,7 +101,7 @@ export function PageStepper({ items }: { items: StepperItem[] }) {
 export function EmptyState({
   title,
   description,
-  action
+  action,
 }: {
   title: ReactNode;
   description?: ReactNode;

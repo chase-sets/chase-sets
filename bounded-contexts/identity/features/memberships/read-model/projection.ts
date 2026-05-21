@@ -34,9 +34,7 @@ async function upsertMembershipMirror(
   );
 }
 
-export function buildMembershipProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildMembershipProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.membership.granted": async (event) => {
       const { membershipId, userId, accountId, roleKey } = event.data as {
@@ -63,24 +61,9 @@ export function buildMembershipProjectionHandlers(
              role_permissions = $5::jsonb,
              status = 'active',
              updated_at = $6`,
-        [
-          membershipId,
-          userId,
-          accountId,
-          roleKey,
-          JSON.stringify(ROLE_PERMISSIONS[roleKey]),
-          event.timing.recordedAt,
-        ],
+        [membershipId, userId, accountId, roleKey, JSON.stringify(ROLE_PERMISSIONS[roleKey]), event.timing.recordedAt],
       );
-      await upsertMembershipMirror(
-        db,
-        membershipId,
-        userId,
-        accountId,
-        roleKey,
-        "active",
-        event.timing.recordedAt,
-      );
+      await upsertMembershipMirror(db, membershipId, userId, accountId, roleKey, "active", event.timing.recordedAt);
     },
     "identity.membership.role-changed": async (event) => {
       const membershipId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
@@ -98,12 +81,7 @@ export function buildMembershipProjectionHandlers(
              role_permissions = $3::jsonb,
              updated_at = $4
          WHERE membership_id = $1`,
-        [
-          membershipId,
-          roleKey,
-          JSON.stringify(ROLE_PERMISSIONS[roleKey]),
-          event.timing.recordedAt,
-        ],
+        [membershipId, roleKey, JSON.stringify(ROLE_PERMISSIONS[roleKey]), event.timing.recordedAt],
       );
       if (row) {
         await upsertMembershipMirror(

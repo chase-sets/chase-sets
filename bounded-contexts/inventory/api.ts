@@ -35,39 +35,36 @@ export function buildInventoryApi(services: InventoryServices) {
   app.use("*", async (c, next) => {
     const actor = c.get("actor");
     if (!actor) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: "Authentication required.",
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: "Authentication required.",
+          },
         },
-      }, 401);
+        401,
+      );
     }
 
     const requiredPermission = requiredPermissionForMethod(c.req.method);
     if (!actor.permissions.includes(requiredPermission)) {
-      return c.json({
-        error: {
-          code: "authorization_forbidden",
-          message: "Forbidden.",
+      return c.json(
+        {
+          error: {
+            code: "authorization_forbidden",
+            message: "Forbidden.",
+          },
         },
-      }, 403);
+        403,
+      );
     }
 
     await next();
   });
 
-  app.route(
-    "/catalog-items",
-    inventoryCatalogItemRoutes(services.catalogItems),
-  );
-  app.route(
-    "/storage-locations",
-    inventoryStorageLocationRoutes(services.storageLocations),
-  );
-  app.route(
-    "/import-batches",
-    inventoryImportBatchRoutes(services.importBatches),
-  );
+  app.route("/catalog-items", inventoryCatalogItemRoutes(services.catalogItems));
+  app.route("/storage-locations", inventoryStorageLocationRoutes(services.storageLocations));
+  app.route("/import-batches", inventoryImportBatchRoutes(services.importBatches));
   app.route("/items", inventoryItemRoutes(services.items, services.holds));
   app.route("/holds", inventoryHoldRoutes(services.holds));
 

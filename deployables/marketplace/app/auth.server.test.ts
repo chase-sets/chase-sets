@@ -67,9 +67,7 @@ describe("marketplace auth host", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/select?returnTo=%2Faccount");
-    expect(response.headers.get("Set-Cookie")).toContain(
-      "chase_sets_account_selection=selection_token",
-    );
+    expect(response.headers.get("Set-Cookie")).toContain("chase_sets_account_selection=selection_token");
   });
 
   it("treats transient auth gateway failures as unauthenticated for optional actor resolution", async () => {
@@ -78,9 +76,7 @@ describe("marketplace auth host", () => {
       vi.fn(() => Promise.resolve(new Response(null, { status: 502 }))),
     );
 
-    await expect(
-      resolveMarketplaceActor(new Request("http://localhost/search")),
-    ).resolves.toBeNull();
+    await expect(resolveMarketplaceActor(new Request("http://localhost/search"))).resolves.toBeNull();
   });
 
   it("redirects protected routes to sign-in when actor resolution has a transient gateway failure", async () => {
@@ -98,8 +94,6 @@ describe("marketplace auth host", () => {
 
     expect(thrown).toBeInstanceOf(Response);
     expect((thrown as Response).status).toBe(302);
-    expect((thrown as Response).headers.get("Location")).toBe(
-      "/sign-in?returnTo=%2Faccount%2Flistings",
-    );
+    expect((thrown as Response).headers.get("Location")).toBe("/sign-in?returnTo=%2Faccount%2Flistings");
   });
 });

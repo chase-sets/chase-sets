@@ -89,10 +89,7 @@ export function createExperienceApiClient({
       }>,
     ): Promise<PlatformFeedbackPromptEligibility> {
       return parseJsonResponse(
-        await configuredFetch(
-          `${baseUrl}/platform-feedback/prompt${toQuery(params)}`,
-          { method: "GET" },
-        ),
+        await configuredFetch(`${baseUrl}/platform-feedback/prompt${toQuery(params)}`, { method: "GET" }),
       );
     },
     async submitPlatformFeedback(body: SubmitPlatformFeedbackRequest) {
@@ -112,19 +109,13 @@ export function createExperienceApiClient({
       );
     },
     async listPlatformFeedback(query = ""): Promise<ListResponse<PlatformFeedbackListItem>> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/platform-feedback${query ? `?${query}` : ""}`),
-      );
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/platform-feedback${query ? `?${query}` : ""}`));
     },
     async getPlatformFeedback(feedbackId: string): Promise<PlatformFeedbackDetail> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/platform-feedback/${encodeURIComponent(feedbackId)}`),
-      );
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/platform-feedback/${encodeURIComponent(feedbackId)}`));
     },
     async getPlatformFeedbackMetrics(): Promise<PlatformFeedbackMetrics> {
-      return parseJsonResponse(
-        await configuredFetch(`${baseUrl}/platform-feedback/metrics`),
-      );
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/platform-feedback/metrics`));
     },
     async markReviewed(feedbackId: string) {
       return parseJsonResponse(

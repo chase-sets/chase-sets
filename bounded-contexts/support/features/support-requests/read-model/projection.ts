@@ -1,15 +1,8 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  SupportChecklistItem,
-  SupportEvidence,
-  SupportResolution,
-  SupportResponse,
-} from "../domain/common";
+import type { SupportChecklistItem, SupportEvidence, SupportResolution, SupportResponse } from "../domain/common";
 
-export function buildSupportRequestProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildSupportRequestProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
       const data = event.data as {
@@ -114,12 +107,7 @@ export function buildSupportRequestProjectionHandlers(
              updated_at = $3,
              responses = responses || $4::jsonb
          WHERE support_request_id = $1`,
-        [
-          data.supportRequestId,
-          data.status,
-          data.response.submittedAt,
-          JSON.stringify([data.response]),
-        ],
+        [data.supportRequestId, data.status, data.response.submittedAt, JSON.stringify([data.response])],
       );
     },
     "support.support-request.escalated": async (event) => {
@@ -148,11 +136,7 @@ export function buildSupportRequestProjectionHandlers(
              updated_at = $2,
              resolution = $3::jsonb
          WHERE support_request_id = $1`,
-        [
-          data.supportRequestId,
-          data.resolution.resolvedAt,
-          JSON.stringify(data.resolution),
-        ],
+        [data.supportRequestId, data.resolution.resolvedAt, JSON.stringify(data.resolution)],
       );
     },
     "support.support-request.closed": async (event) => {

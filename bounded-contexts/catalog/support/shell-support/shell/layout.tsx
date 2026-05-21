@@ -1,12 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useState, type ReactNode } from "react";
-import {
-  AdminShell,
-  ChaseRoot,
-  SellerBadge,
-  type ColorMode,
-  type NavigationItem,
-} from "@chase-sets/design-system";
+import { AdminShell, ChaseRoot, SellerBadge, type ColorMode, type NavigationItem } from "@chase-sets/design-system";
 import { CatalogAdminProviders } from "./providers";
 
 export function CatalogAdminLayout({

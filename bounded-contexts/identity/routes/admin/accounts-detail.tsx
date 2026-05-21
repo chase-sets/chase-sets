@@ -30,7 +30,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
   return redirect(`/identity/accounts/${accountId}`);
 }
 
-export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.accountsDetail.account.detail.identity.admin") }];
+export const meta: MetaFunction = () => [
+  { title: t("identity.routes.admin.accountsDetail.account.detail.identity.admin") },
+];
 
 export default function AccountDetailRoute() {
   const data = useLoaderData<typeof loader>();

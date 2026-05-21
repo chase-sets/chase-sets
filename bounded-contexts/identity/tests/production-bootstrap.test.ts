@@ -83,11 +83,7 @@ describe("platform admin production bootstrap", () => {
       accountName: "Chase Sets Platform",
     });
 
-    const serializedCommands = JSON.stringify([
-      ...records.accounts,
-      ...records.users,
-      ...records.memberships,
-    ]);
+    const serializedCommands = JSON.stringify([...records.accounts, ...records.users, ...records.memberships]);
 
     expect(result).toMatchObject({
       userId: "usr_platform_admin",

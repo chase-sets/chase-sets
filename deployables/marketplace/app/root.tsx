@@ -16,22 +16,9 @@ import {
 import { buildCanonicalUrl, shouldIndexMarketplace } from "./seo";
 import { resolveMarketplaceActor } from "./auth.server";
 import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
-import {
-  ChaseRoot,
-  Container,
-  LinkButton,
-  MarketplaceEmptyState,
-  Page,
-  Stack,
-} from "@chase-sets/design-system";
-import {
-  createCheckoutRequestApiClient,
-  readAnonymousCartId,
-} from "@chase-sets/checkout/server";
-import {
-  createIdentityRequestApiClient,
-  type CurrentActorDisplay,
-} from "@chase-sets/identity/server";
+import { ChaseRoot, Container, LinkButton, MarketplaceEmptyState, Page, Stack } from "@chase-sets/design-system";
+import { createCheckoutRequestApiClient, readAnonymousCartId } from "@chase-sets/checkout/server";
+import { createIdentityRequestApiClient, type CurrentActorDisplay } from "@chase-sets/identity/server";
 
 type MarketplaceRootActor = Awaited<ReturnType<typeof resolveMarketplaceActor>>;
 
@@ -56,10 +43,7 @@ async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
   }
 }
 
-async function resolveCurrentActorDisplay(
-  request: Request,
-  actor: MarketplaceRootActor,
-) {
+async function resolveCurrentActorDisplay(request: Request, actor: MarketplaceRootActor) {
   if (!actor) {
     return null;
   }
@@ -85,13 +69,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const data = useLoaderData<typeof loader>() as
-    | Awaited<ReturnType<typeof loader>>
-    | undefined;
+  const data = useLoaderData<typeof loader>() as Awaited<ReturnType<typeof loader>> | undefined;
   const location = useLocation();
-  const origin =
-    data?.origin ??
-    (typeof window === "undefined" ? "http://localhost" : window.location.origin);
+  const origin = data?.origin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin);
   const shouldIndex = data?.shouldIndex ?? shouldIndexMarketplace();
   const canonicalUrl = buildCanonicalUrl({
     origin,
@@ -138,12 +118,8 @@ export function ErrorBoundary() {
     : error instanceof Error
       ? error.message
       : t("marketplace.app.root.unknown.error");
-  const title = isNotFound
-    ? t("marketplace.app.root.page.not.found")
-    : t("marketplace.app.root.marketplace.error");
-  const description = isNotFound
-    ? t("marketplace.app.root.page.not.found.description")
-    : message;
+  const title = isNotFound ? t("marketplace.app.root.page.not.found") : t("marketplace.app.root.marketplace.error");
+  const description = isNotFound ? t("marketplace.app.root.page.not.found.description") : message;
 
   return (
     <html lang="en">
@@ -168,9 +144,7 @@ export function ErrorBoundary() {
                     trustCue={t("marketplace.app.root.error.trust.cue")}
                     recoveryActions={
                       <>
-                        <LinkButton href="/search">
-                          {t("marketplace.app.root.browse.marketplace")}
-                        </LinkButton>
+                        <LinkButton href="/search">{t("marketplace.app.root.browse.marketplace")}</LinkButton>
                         <LinkButton href="/" tone="secondary">
                           {t("marketplace.app.root.go.home")}
                         </LinkButton>

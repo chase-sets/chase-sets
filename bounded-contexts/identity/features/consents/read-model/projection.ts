@@ -4,15 +4,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 export function buildConsentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.consent.recorded": async (event) => {
-      const {
-        consentId,
-        subjectType,
-        userId,
-        accountId,
-        policyKey,
-        policyVersion,
-        recordedAt,
-      } = event.data as {
+      const { consentId, subjectType, userId, accountId, policyKey, policyVersion, recordedAt } = event.data as {
         consentId: string;
         subjectType: string;
         userId: string | null;
@@ -41,16 +33,7 @@ export function buildConsentProjectionHandlers(db: PgQueryable): ProjectorHandle
              policy_version = $6,
              recorded_at = $7,
              updated_at = $8`,
-        [
-          consentId,
-          subjectType,
-          userId,
-          accountId,
-          policyKey,
-          policyVersion,
-          recordedAt,
-          event.timing.recordedAt,
-        ],
+        [consentId, subjectType, userId, accountId, policyKey, policyVersion, recordedAt, event.timing.recordedAt],
       );
     },
   };

@@ -1,11 +1,4 @@
-import {
-  Button,
-  Card,
-  Stack,
-  Text,
-  TextInput,
-  PasswordInput,
-} from "@chase-sets/design-system";
+import { Button, Card, Stack, Text, TextInput, PasswordInput } from "@chase-sets/design-system";
 import type { FormEvent } from "react";
 
 export function AuthFormPage({
@@ -50,13 +43,7 @@ export function AuthFormPage({
         <form action={action} method={method} onSubmit={onSubmit}>
           <Stack gap={3}>
             {hiddenFields?.map((field) => (
-              <input
-                key={field.name}
-                type="hidden"
-                name={field.name}
-                value={field.value}
-                readOnly
-              />
+              <input key={field.name} type="hidden" name={field.name} value={field.value} readOnly />
             ))}
             {fields.map((field) =>
               field.type === "password" ? (

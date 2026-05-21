@@ -64,4 +64,3 @@ export async function executeListQuery<T>(
     total: Number.parseInt(countResult.rows[0].count, 10),
   };
 }
-

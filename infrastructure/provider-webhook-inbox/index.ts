@@ -15,10 +15,7 @@ function assertSafeTableName(tableName: string) {
   }
 }
 
-export async function recordProviderWebhookEvent(
-  db: PgQueryable,
-  entry: ProviderWebhookInboxEntry,
-) {
+export async function recordProviderWebhookEvent(db: PgQueryable, entry: ProviderWebhookInboxEntry) {
   assertSafeTableName(entry.tableName);
   const result = await db.query<{ provider_event_id: string }>(
     `INSERT INTO ${entry.tableName} (

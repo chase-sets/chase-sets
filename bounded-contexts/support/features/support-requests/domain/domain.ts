@@ -1,13 +1,5 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import type {
-  AccountId,
-  OrderId,
-  SupportRequestId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
   assertNever,
@@ -34,11 +26,7 @@ import {
   type SupportResponse,
   type SupportResponseType,
 } from "./common";
-import {
-  createChecklist,
-  getSupportFlowDefinition,
-  includesEvidenceType,
-} from "./flow-catalog";
+import { createChecklist, getSupportFlowDefinition, includesEvidenceType } from "./flow-catalog";
 
 export type SupportRequestState = Readonly<{
   supportRequestId: SupportRequestId | null;
@@ -250,10 +238,7 @@ function addHours(timestamp: string, hours: number | null) {
   return date.toISOString();
 }
 
-function inferStatusAfterEvidence(
-  state: SupportRequestState,
-  updatedChecklist: readonly SupportChecklistItem[],
-) {
+function inferStatusAfterEvidence(state: SupportRequestState, updatedChecklist: readonly SupportChecklistItem[]) {
   if (state.status === "resolved" || state.status === "closed" || state.status === "cancelled") {
     return state.status;
   }
@@ -284,71 +269,43 @@ function satisfyChecklist(
 
 function normalizeEvidence(command: SubmitSupportEvidenceCommand): SupportEvidence {
   return {
-    evidenceId: normalizeRequiredText(
-      command.evidenceId,
-      "Support evidence must include an id.",
-    ),
+    evidenceId: normalizeRequiredText(command.evidenceId, "Support evidence must include an id."),
     submittedByAccountId: command.submittedByAccountId ?? null,
     submittedByRole: normalizeRequesterRole(command.submittedByRole),
     evidenceType: normalizeEvidenceType(command.evidenceType),
-    summary: normalizeRequiredText(
-      command.summary,
-      "Support evidence must include a summary.",
-    ),
+    summary: normalizeRequiredText(command.summary, "Support evidence must include a summary."),
     occurredAt: command.occurredAt
-      ? normalizeIsoTimestamp(
-          command.occurredAt,
-          "Support evidence occurrence time must be valid.",
-        )
+      ? normalizeIsoTimestamp(command.occurredAt, "Support evidence occurrence time must be valid.")
       : null,
-    submittedAt: normalizeIsoTimestamp(
-      command.submittedAt,
-      "Support evidence submission must record a timestamp.",
-    ),
+    submittedAt: normalizeIsoTimestamp(command.submittedAt, "Support evidence submission must record a timestamp."),
     attachments: normalizeAttachments(command.attachments),
   };
 }
 
 function normalizeResponse(command: RecordSupportResponseCommand): SupportResponse {
   return {
-    responseId: normalizeRequiredText(
-      command.responseId,
-      "Support response must include an id.",
-    ),
+    responseId: normalizeRequiredText(command.responseId, "Support response must include an id."),
     responseType: normalizeResponseType(command.responseType),
     submittedByAccountId: command.submittedByAccountId ?? null,
     submittedByRole: normalizeRequesterRole(command.submittedByRole),
-    summary: normalizeRequiredText(
-      command.summary,
-      "Support response must include a summary.",
-    ),
-    submittedAt: normalizeIsoTimestamp(
-      command.submittedAt,
-      "Support response must record a timestamp.",
-    ),
+    summary: normalizeRequiredText(command.summary, "Support response must include a summary."),
+    submittedAt: normalizeIsoTimestamp(command.submittedAt, "Support response must record a timestamp."),
   };
 }
 
-export const decideSupportRequest: AggregateDecider<
-  SupportRequestState,
-  SupportRequestCommand,
-  SupportRequestEvent
-> = (state, command) => {
+export const decideSupportRequest: AggregateDecider<SupportRequestState, SupportRequestCommand, SupportRequestEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "OpenSupportRequest": {
       assert(state.supportRequestId === null, "Support request is already open.");
       const flowType = normalizeFlowType(command.flowType);
       const definition = getSupportFlowDefinition(flowType);
       const openedByRole = normalizeRequesterRole(command.openedByRole);
-      assert(
-        definition.openedBy.includes(openedByRole),
-        "This support flow cannot be opened by that role.",
-      );
+      assert(definition.openedBy.includes(openedByRole), "This support flow cannot be opened by that role.");
 
-      const openedAt = normalizeIsoTimestamp(
-        command.openedAt,
-        "Support request opening must record a timestamp.",
-      );
+      const openedAt = normalizeIsoTimestamp(command.openedAt, "Support request opening must record a timestamp.");
       const checklist = createChecklist(flowType);
       return [
         {
@@ -385,11 +342,7 @@ export const decideSupportRequest: AggregateDecider<
         "This evidence type is not accepted for the support flow.",
       );
 
-      const updatedChecklist = satisfyChecklist(
-        state.checklist,
-        evidence.evidenceType,
-        evidence.submittedAt,
-      );
+      const updatedChecklist = satisfyChecklist(state.checklist, evidence.evidenceType, evidence.submittedAt);
       const status = inferStatusAfterEvidence(state, updatedChecklist);
 
       return [
@@ -428,9 +381,7 @@ export const decideSupportRequest: AggregateDecider<
           data: {
             supportRequestId: state.supportRequestId,
             response,
-            status: response.responseType === "request-support-review"
-              ? "ready-for-support"
-              : "ready-for-support",
+            status: response.responseType === "request-support-review" ? "ready-for-support" : "ready-for-support",
           },
         },
       ];
@@ -450,24 +401,15 @@ export const decideSupportRequest: AggregateDecider<
           type: "support.support-request.escalated",
           data: {
             supportRequestId: state.supportRequestId,
-            escalatedAt: normalizeIsoTimestamp(
-              command.escalatedAt,
-              "Support escalation must record a timestamp.",
-            ),
-            reason: normalizeRequiredText(
-              command.reason,
-              "Support escalation must include a reason.",
-            ),
+            escalatedAt: normalizeIsoTimestamp(command.escalatedAt, "Support escalation must record a timestamp."),
+            reason: normalizeRequiredText(command.reason, "Support escalation must include a reason."),
           },
         },
       ];
     }
     case "ResolveSupportRequest": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
-      assert(
-        state.status !== "closed" && state.status !== "cancelled",
-        "Closed support requests cannot be resolved.",
-      );
+      assert(state.status !== "closed" && state.status !== "cancelled", "Closed support requests cannot be resolved.");
       if (state.status === "resolved") {
         return [];
       }
@@ -480,16 +422,10 @@ export const decideSupportRequest: AggregateDecider<
       );
       const resolution: SupportResolution = {
         resolutionType,
-        summary: normalizeRequiredText(
-          command.summary,
-          "Support resolution must include a summary.",
-        ),
+        summary: normalizeRequiredText(command.summary, "Support resolution must include a summary."),
         refundAmount: normalizeMoneyAmount(command.refundAmount, "Refund amount"),
         resolvedByAccountId: command.resolvedByAccountId ?? null,
-        resolvedAt: normalizeIsoTimestamp(
-          command.resolvedAt,
-          "Support resolution must record a timestamp.",
-        ),
+        resolvedAt: normalizeIsoTimestamp(command.resolvedAt, "Support resolution must record a timestamp."),
       };
       return [
         {
@@ -517,10 +453,7 @@ export const decideSupportRequest: AggregateDecider<
           data: {
             supportRequestId: state.supportRequestId,
             orderId: state.orderId!,
-            closedAt: normalizeIsoTimestamp(
-              command.closedAt,
-              "Support closure must record a timestamp.",
-            ),
+            closedAt: normalizeIsoTimestamp(command.closedAt, "Support closure must record a timestamp."),
           },
         },
       ];
@@ -540,14 +473,8 @@ export const decideSupportRequest: AggregateDecider<
           data: {
             supportRequestId: state.supportRequestId,
             orderId: state.orderId!,
-            cancelledAt: normalizeIsoTimestamp(
-              command.cancelledAt,
-              "Support cancellation must record a timestamp.",
-            ),
-            reason: normalizeRequiredText(
-              command.reason,
-              "Support cancellation must include a reason.",
-            ),
+            cancelledAt: normalizeIsoTimestamp(command.cancelledAt, "Support cancellation must record a timestamp."),
+            reason: normalizeRequiredText(command.reason, "Support cancellation must include a reason."),
           },
         },
       ];
@@ -557,10 +484,7 @@ export const decideSupportRequest: AggregateDecider<
   }
 };
 
-export const evolveSupportRequest: AggregateEvolver<
-  SupportRequestState,
-  SupportRequestEvent
-> = (state, event) => {
+export const evolveSupportRequest: AggregateEvolver<SupportRequestState, SupportRequestEvent> = (state, event) => {
   switch (event.type) {
     case "support.support-request.opened":
       return {

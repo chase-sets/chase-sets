@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  bootstrapPlatformControlPlane,
-  createPostgresPlatformControlPlane,
-} from "./control-plane";
+import { bootstrapPlatformControlPlane, createPostgresPlatformControlPlane } from "./control-plane";
 
 describe("platform control plane", () => {
   it("bootstraps additive coordination tables", async () => {

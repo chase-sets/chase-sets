@@ -14,7 +14,11 @@ export const module: BcApiModule<CatalogServices, PgTransactionalPool, CatalogHo
   routePrefix: "/api/catalog",
   streamPrefix: "catalog.",
   schemaSql: catalogAuthoringSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<
+    CatalogServices,
+    PgTransactionalPool,
+    CatalogHostPorts
+  >["apiMounts"],
   createServices: (pool, ports) => createCatalogServices(pool, ports),
   buildApis: (services) => [buildCatalogAuthoringApi(services)],
   projectors: (services) => services.projectors,

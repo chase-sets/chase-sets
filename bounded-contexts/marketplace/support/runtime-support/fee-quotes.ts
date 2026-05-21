@@ -1,14 +1,16 @@
 import type { CommercialTermsResolver } from "../../api";
 import type { MarketplaceListingTermsPreview } from "../../features/listings/ui/contracts";
 
-export function createFeeQuoteFingerprint(quote: Readonly<{
-  basis_amount: string;
-  marketplace_sales_fee_unit_amount: string;
-  seller_net_unit_amount: string;
-  shipping_allowance_percentage_bps: number;
-  schedule_id: string | null;
-  agreement_id: string | null;
-}>) {
+export function createFeeQuoteFingerprint(
+  quote: Readonly<{
+    basis_amount: string;
+    marketplace_sales_fee_unit_amount: string;
+    seller_net_unit_amount: string;
+    shipping_allowance_percentage_bps: number;
+    schedule_id: string | null;
+    agreement_id: string | null;
+  }>,
+) {
   return [
     quote.basis_amount,
     quote.marketplace_sales_fee_unit_amount,

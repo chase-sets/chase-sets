@@ -1,12 +1,6 @@
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import {
-  getApiHostContextNames,
-  type ApiHostContextName,
-} from "@chase-sets/platform-runtime/api";
-import {
-  getContextDatabaseEnvName,
-  type PlatformApiBaseConfig,
-} from "./config";
+import { getApiHostContextNames, type ApiHostContextName } from "@chase-sets/platform-runtime/api";
+import { getContextDatabaseEnvName, type PlatformApiBaseConfig } from "./config";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 const platformApiContexts = getApiHostContextNames(apiContextRegistry, "platform-api");
@@ -26,9 +20,7 @@ function resolveContextDatabaseUrl(
   }
 
   throw new Error(
-    `Missing database URL for context '${contextName}'. Set ${getContextDatabaseEnvName(
-      contextName,
-    )} or DATABASE_URL.`,
+    `Missing database URL for context '${contextName}'. Set ${getContextDatabaseEnvName(contextName)} or DATABASE_URL.`,
   );
 }
 
@@ -59,10 +51,9 @@ export function createPlatformApiPools(
   return {
     ...contextPools,
     control: resolvePool(
-      config.controlDatabaseUrl ?? config.sharedDatabaseUrl ?? resolveContextDatabaseUrl(
-        config,
-        platformApiContexts[0],
-      ),
+      config.controlDatabaseUrl ??
+        config.sharedDatabaseUrl ??
+        resolveContextDatabaseUrl(config, platformApiContexts[0]),
     ),
   };
 }
@@ -73,13 +64,7 @@ const DEFAULT_POOL_CONFIG = {
   connectionTimeoutMillis: 5_000,
 };
 
-export async function closePlatformApiPools(
-  pools: Readonly<Record<string, PgTransactionalPool>>,
-): Promise<void> {
+export async function closePlatformApiPools(pools: Readonly<Record<string, PgTransactionalPool>>): Promise<void> {
   const uniquePools = [...new Set(Object.values(pools))];
-  await Promise.all(
-    uniquePools.map((pool) =>
-      (pool as unknown as { end: () => Promise<void> }).end(),
-    ),
-  );
+  await Promise.all(uniquePools.map((pool) => (pool as unknown as { end: () => Promise<void> }).end()));
 }

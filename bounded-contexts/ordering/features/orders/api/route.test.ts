@@ -4,10 +4,12 @@ import type { OrderingApiEnv } from "../../../api";
 import { createAccountPurchaseOrderRoutes } from "./route";
 import type { OrderingOrderServices } from "./runtime";
 
-function buildApp(options: Readonly<{
-  actor: OrderingApiEnv["Variables"]["actor"];
-  services: OrderingOrderServices;
-}>) {
+function buildApp(
+  options: Readonly<{
+    actor: OrderingApiEnv["Variables"]["actor"];
+    services: OrderingOrderServices;
+  }>,
+) {
   const app = new Hono<OrderingApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -213,9 +215,7 @@ describe("ordering purchase routes", () => {
     const services = {
       ...createServices(),
       createOrdersFromCheckout: vi.fn(async () => {
-        throw new Error(
-          "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
-        );
+        throw new Error("Sign in is required to confirm checkout for listings with daily or customer purchase limits.");
       }),
     } as unknown as OrderingOrderServices;
     const app = buildApp({
@@ -256,8 +256,7 @@ describe("ordering purchase routes", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "account_sign_in_required",
-        message:
-          "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
+        message: "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
       },
     });
     expect(services.createOrdersFromCheckout).toHaveBeenCalledWith(

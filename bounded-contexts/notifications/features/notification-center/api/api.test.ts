@@ -29,21 +29,23 @@ describe("notifications api", () => {
   it("lists centralized feed items and marks them read", async () => {
     const services = {
       feed: {
-        listWebNotifications: vi.fn(async () => [{
-          notificationId: "1",
-          deliveryId: "del_1",
-          userId: null,
-          accountId: "acc_1",
-          messageType: "ordering.order.created",
-          criticality: "commerce",
-          title: "Order confirmed",
-          body: "Your order is ready.",
-          actionHref: "/account/purchases/ord_1",
-          correlationId: "ord_1",
-          sourceIdempotencyKey: "order:ord_1",
-          readAt: null,
-          createdAt: "2026-05-13T00:00:00.000Z",
-        }]),
+        listWebNotifications: vi.fn(async () => [
+          {
+            notificationId: "1",
+            deliveryId: "del_1",
+            userId: null,
+            accountId: "acc_1",
+            messageType: "ordering.order.created",
+            criticality: "commerce",
+            title: "Order confirmed",
+            body: "Your order is ready.",
+            actionHref: "/account/purchases/ord_1",
+            correlationId: "ord_1",
+            sourceIdempotencyKey: "order:ord_1",
+            readAt: null,
+            createdAt: "2026-05-13T00:00:00.000Z",
+          },
+        ]),
         countUnreadWebNotifications: vi.fn(async () => 1),
         markWebNotificationRead: vi.fn(async () => undefined),
         markAllWebNotificationsRead: vi.fn(async () => undefined),
@@ -154,10 +156,7 @@ describe("notifications api", () => {
       },
     } as unknown as NotificationsServices;
     const app = new Hono();
-    app.route(
-      "/api/notifications/provider",
-      buildNotificationsMobileMessageWebhookApi(services),
-    );
+    app.route("/api/notifications/provider", buildNotificationsMobileMessageWebhookApi(services));
 
     const response = await app.request(
       "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks?deliveryId=delivery_1",
@@ -177,9 +176,7 @@ describe("notifications api", () => {
       event_kind: "delivery-status",
       provider_message_id: "SM123",
     });
-    expect(
-      services.mobileMessageWebhookGateway.processMobileMessageWebhook,
-    ).toHaveBeenCalledWith({
+    expect(services.mobileMessageWebhookGateway.processMobileMessageWebhook).toHaveBeenCalledWith({
       rawBody: "MessageSid=SM123&MessageStatus=delivered",
       url: "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks?deliveryId=delivery_1",
       contentType: "application/x-www-form-urlencoded",

@@ -10,11 +10,7 @@ export interface PopoverProps {
   children?: ReactNode;
 }
 
-export function Popover({
-  trigger,
-  title,
-  children
-}: PopoverProps) {
+export function Popover({ trigger, title, children }: PopoverProps) {
   const { overlayNode } = usePortalRoots();
   const motionSettings = useChaseMotion();
   const [open, setOpen] = useState(false);
@@ -22,7 +18,7 @@ export function Popover({
     motionSettings,
     open,
     { opacity: 1, y: 0, scale: 1 },
-    { opacity: 0, y: 8, scale: 0.98 }
+    { opacity: 0, y: 8, scale: 0.98 },
   );
 
   return (
@@ -35,13 +31,11 @@ export function Popover({
               initial: motionProps.initial,
               animate: motionProps.animate,
               transition: motionProps.transition,
-              className: "modern-surface w-[min(90vw,22rem)] rounded-tokenLg border border-muted p-4 shadow-overlay"
+              className: "modern-surface w-[min(90vw,22rem)] rounded-tokenLg border border-muted p-4 shadow-overlay",
             })}
           >
-              {title ? (
-                <div className="mb-2 text-sm font-semibold text-foreground">{title}</div>
-              ) : null}
-              {children}
+            {title ? <div className="mb-2 text-sm font-semibold text-foreground">{title}</div> : null}
+            {children}
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>

@@ -10,18 +10,10 @@ import {
   clearAccountSelectionCookie,
   createRedirectResponse,
 } from "../auth-support/http";
-import {
-  consumeSocialLoginState,
-  insertSocialLoginState,
-} from "../auth-support/store";
+import { consumeSocialLoginState, insertSocialLoginState } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import type { SocialLoginProviderName } from "../social-login-support/providers";
-import {
-  createIdentityMutations,
-  createOwnedUserDisplayName,
-  getBootstrapContext,
-  type AuthApiApp,
-} from "./support";
+import { createIdentityMutations, createOwnedUserDisplayName, getBootstrapContext, type AuthApiApp } from "./support";
 
 const SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH = "/sign-in";
 const SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH = "/register";
@@ -38,37 +30,24 @@ function isSocialLoginJourney(value: string): value is SocialLoginJourney {
   return value === "sign-in" || value === "registration";
 }
 
-function getSocialLoginProvider(
-  services: AuthServices,
-  providerName: string,
-) {
-  return services.socialLoginProviders.find(
-    (provider) => provider.providerName === providerName,
-  );
+function getSocialLoginProvider(services: AuthServices, providerName: string) {
+  return services.socialLoginProviders.find((provider) => provider.providerName === providerName);
 }
 
 function getSafeReturnToFromUrl(url: URL) {
   const returnTo = url.searchParams.get("returnTo");
-  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
-    ? returnTo
-    : SOCIAL_LOGIN_SUCCESS_PATH;
+  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : SOCIAL_LOGIN_SUCCESS_PATH;
 }
 
 function buildSocialRedirectUri(requestUrl: URL, providerName: string) {
-  return new URL(`/api/auth/social/${providerName}/callback`, requestUrl.origin)
-    .toString();
+  return new URL(`/api/auth/social/${providerName}/callback`, requestUrl.origin).toString();
 }
 
 function getFallbackPath(journey: SocialLoginJourney) {
-  return journey === "registration"
-    ? SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH
-    : SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH;
+  return journey === "registration" ? SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH : SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH;
 }
 
-function redirectToFallback(
-  message: string,
-  journey: SocialLoginJourney = "sign-in",
-) {
+function redirectToFallback(message: string, journey: SocialLoginJourney = "sign-in") {
   const url = new URL(getFallbackPath(journey), "https://chase-sets.local");
   url.searchParams.set("socialLoginError", message);
   return createRedirectResponse(`${url.pathname}${url.search}`);
@@ -95,15 +74,10 @@ function completeSocialLoginAuthentication(
 }
 
 function getErrorStatus(error: unknown) {
-  return error && typeof error === "object" && "status" in error
-    ? Number((error as { status: unknown }).status)
-    : null;
+  return error && typeof error === "object" && "status" in error ? Number((error as { status: unknown }).status) : null;
 }
 
-export function registerSocialLoginRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthServices) {
   app.get("/social/providers", (c) =>
     c.json({
       providers: services.socialLoginProviders.map((provider) => ({
@@ -125,9 +99,7 @@ export function registerSocialLoginRoutes(
 
     const requestUrl = new URL(c.req.url);
     const state = services.auth.issueOpaqueToken("social");
-    const journey = requestUrl.searchParams.get("journey") === "registration"
-      ? "registration"
-      : "sign-in";
+    const journey = requestUrl.searchParams.get("journey") === "registration" ? "registration" : "sign-in";
     await insertSocialLoginState(services.db, {
       stateHash: services.auth.hashSecret(state),
       providerName,
@@ -166,9 +138,7 @@ export function registerSocialLoginRoutes(
       return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.state.invalid"));
     }
 
-    const journey = isSocialLoginJourney(stateRecord.journey)
-      ? stateRecord.journey
-      : "sign-in";
+    const journey = isSocialLoginJourney(stateRecord.journey) ? stateRecord.journey : "sign-in";
     let profile: Awaited<ReturnType<typeof provider.exchangeCallback>>;
     try {
       profile = await provider.exchangeCallback({
@@ -176,26 +146,20 @@ export function registerSocialLoginRoutes(
         redirectUri: buildSocialRedirectUri(requestUrl, providerName),
       });
     } catch {
-      return redirectToFallback(
-        t("auth.support.apiSupport.socialLoginRoutes.provider.failed"),
-        journey,
-      );
+      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.provider.failed"), journey);
     }
 
     if (!profile.email || !profile.emailVerified) {
-      return redirectToFallback(
-        t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"),
-        journey,
-      );
+      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.verified.email.required"), journey);
     }
 
     const identityMutations = createIdentityMutations(c);
     const email = services.identity.normalizeEmail(profile.email);
     let user =
-      await services.identity.getUserBySocialLogin({
+      (await services.identity.getUserBySocialLogin({
         providerName,
         providerSubject: profile.providerSubject,
-      }) ?? await services.identity.getUserByEmail(email);
+      })) ?? (await services.identity.getUserByEmail(email));
     let accountId: string | undefined;
 
     if (!user) {
@@ -210,10 +174,7 @@ export function registerSocialLoginRoutes(
     }
 
     if (!user || user.status !== "active") {
-      return redirectToFallback(
-        t("auth.support.apiSupport.socialLoginRoutes.user.unavailable"),
-        journey,
-      );
+      return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.user.unavailable"), journey);
     }
 
     try {
@@ -224,9 +185,10 @@ export function registerSocialLoginRoutes(
         email,
       });
     } catch (error) {
-      const message = getErrorStatus(error) === 409
-        ? t("auth.support.apiSupport.socialLoginRoutes.provider.already.linked")
-        : t("auth.support.apiSupport.socialLoginRoutes.provider.failed");
+      const message =
+        getErrorStatus(error) === 409
+          ? t("auth.support.apiSupport.socialLoginRoutes.provider.already.linked")
+          : t("auth.support.apiSupport.socialLoginRoutes.provider.failed");
       return redirectToFallback(message, journey);
     }
 
@@ -237,10 +199,6 @@ export function registerSocialLoginRoutes(
       context: getBootstrapContext(c),
     });
 
-    return completeSocialLoginAuthentication(
-      c.req.raw,
-      authResult,
-      stateRecord.return_to,
-    );
+    return completeSocialLoginAuthentication(c.req.raw, authResult, stateRecord.return_to);
   });
 }

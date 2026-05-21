@@ -70,10 +70,11 @@ export type PaymentReconciliationRunRow = Readonly<{
   completed_at: string;
 }>;
 
-type PaymentPageRow = Omit<PaymentDetailRow, "order_ids" | "seller_payouts"> & Readonly<{
-  order_ids: unknown;
-  seller_payouts: unknown;
-}>;
+type PaymentPageRow = Omit<PaymentDetailRow, "order_ids" | "seller_payouts"> &
+  Readonly<{
+    order_ids: unknown;
+    seller_payouts: unknown;
+  }>;
 
 function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
   return {
@@ -83,11 +84,12 @@ function mapPaymentRow(row: PaymentPageRow): PaymentDetailRow {
       ? row.order_ids.filter((value): value is string => typeof value === "string")
       : [],
     seller_payouts: Array.isArray(row.seller_payouts)
-      ? row.seller_payouts.filter((value): value is PaymentDetailRow["seller_payouts"][number] =>
-          Boolean(value) &&
-          typeof value === "object" &&
-          typeof (value as { orderId?: unknown }).orderId === "string" &&
-          typeof (value as { sellerAccountId?: unknown }).sellerAccountId === "string",
+      ? row.seller_payouts.filter(
+          (value): value is PaymentDetailRow["seller_payouts"][number] =>
+            Boolean(value) &&
+            typeof value === "object" &&
+            typeof (value as { orderId?: unknown }).orderId === "string" &&
+            typeof (value as { sellerAccountId?: unknown }).sellerAccountId === "string",
         )
       : [],
   };
@@ -145,10 +147,7 @@ export async function getAccountPayment(
   return row ? mapPaymentRow(row) : null;
 }
 
-export async function getPaymentById(
-  db: PgQueryable,
-  paymentId: string,
-): Promise<PaymentDetailRow | null> {
+export async function getPaymentById(db: PgQueryable, paymentId: string): Promise<PaymentDetailRow | null> {
   const result = await db.query<PaymentPageRow>(
     `${paymentSelect}
      WHERE payment_id = $1`,
@@ -159,10 +158,7 @@ export async function getPaymentById(
   return row ? mapPaymentRow(row) : null;
 }
 
-export async function getCapturedPaymentByOrderId(
-  db: PgQueryable,
-  orderId: string,
-): Promise<PaymentDetailRow | null> {
+export async function getCapturedPaymentByOrderId(db: PgQueryable, orderId: string): Promise<PaymentDetailRow | null> {
   const result = await db.query<PaymentPageRow>(
     `${paymentSelect}
      WHERE status = 'captured'

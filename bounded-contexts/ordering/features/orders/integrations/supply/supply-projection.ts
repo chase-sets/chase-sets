@@ -356,9 +356,10 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       );
     },
     "marketplace.offer.accepted": async (event) => {
-      const data = event.data as unknown as Omit<AcceptedOfferParams, "context"> & Readonly<{
-        acceptedAt: string;
-      }>;
+      const data = event.data as unknown as Omit<AcceptedOfferParams, "context"> &
+        Readonly<{
+          acceptedAt: string;
+        }>;
 
       await db.query(
         `INSERT INTO ordering_offer_acceptance_inputs (
@@ -447,9 +448,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
   };
 }
 
-export function buildOrderingInventorySupplyProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.item.created": async (event) => {
       const data = event.data as {
@@ -533,14 +532,7 @@ export function buildOrderingInventorySupplyProjectionHandlers(
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE ordering_inventory_hold_inputs.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.holdId,
-          data.itemId,
-          data.accountId,
-          data.quantity,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
+        [data.holdId, data.itemId, data.accountId, data.quantity, event.timing.recordedAt, event.streamVersion],
       );
     },
     "inventory.hold.released": async (event) => {

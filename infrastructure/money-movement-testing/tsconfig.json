@@ -2,12 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "../..",
-    "types": [
-      "vitest/globals"
-    ]
+    "types": ["vitest/globals"]
   },
-  "include": [
-    "./index.ts",
-    "./index.test.ts"
-  ]
+  "include": ["./index.ts", "./index.test.ts"]
 }

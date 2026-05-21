@@ -15,10 +15,13 @@ const {
 } = vi.hoisted(() => ({
   mockClaimGuestCheckoutWithPasskey: vi.fn(),
   mockClaimGuestCheckoutWithMagicLink: vi.fn(),
-  mockCompleteBrowserAuthentication: vi.fn(() => new Response(null, {
-    status: 302,
-    headers: { Location: "/account/payments/pay_1" },
-  })),
+  mockCompleteBrowserAuthentication: vi.fn(
+    () =>
+      new Response(null, {
+        status: 302,
+        headers: { Location: "/account/payments/pay_1" },
+      }),
+  ),
   mockCreateInternalAuthRequestApiClient: vi.fn(),
   mockCreatePaymentsRequestApiClient: vi.fn(),
   mockGetAccountPayment: vi.fn(),
@@ -175,14 +178,10 @@ describe("guest payment claim action", () => {
       label: "Passkey",
       publicKey: "{}",
     });
-    expect(mockCompleteBrowserAuthentication).toHaveBeenCalledWith(
-      expect.any(Request),
-      authResult,
-      {
-        defaultSuccessPath: "/account/payments/pay_1",
-        accountSelectionPath: "/account/select",
-      },
-    );
+    expect(mockCompleteBrowserAuthentication).toHaveBeenCalledWith(expect.any(Request), authResult, {
+      defaultSuccessPath: "/account/payments/pay_1",
+      accountSelectionPath: "/account/select",
+    });
     expect((result as Response).status).toBe(302);
   });
 
@@ -269,9 +268,7 @@ describe("guest payment claim action", () => {
       marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_retry",
       returnUrlPath: "/checkout/payments/:paymentId",
     });
-    expect((result as Response).headers.get("Location")).toBe(
-      "/checkout/payments/pay_retry",
-    );
+    expect((result as Response).headers.get("Location")).toBe("/checkout/payments/pay_retry");
   });
 
   it("returns retry-scoped errors when guest payment recovery fails", async () => {
@@ -311,9 +308,11 @@ describe("guest payment claim action", () => {
 
   it("uses the expired-link recovery response when guest retry loses payment access", async () => {
     const { PaymentsApiError } = await import("../support/request-support/api-client");
-    mockGetAccountPayment.mockRejectedValue(new PaymentsApiError(401, {
-      error: "guest token expired",
-    }));
+    mockGetAccountPayment.mockRejectedValue(
+      new PaymentsApiError(401, {
+        error: "guest token expired",
+      }),
+    );
 
     const form = new URLSearchParams();
     form.set("intent", "retry-payment");
@@ -339,9 +338,11 @@ describe("guest payment claim action", () => {
 
   it("throws a controlled expired-link response for invalid guest payment access", async () => {
     const { PaymentsApiError } = await import("../support/request-support/api-client");
-    mockGetAccountPayment.mockRejectedValue(new PaymentsApiError(401, {
-      error: "guest token expired",
-    }));
+    mockGetAccountPayment.mockRejectedValue(
+      new PaymentsApiError(401, {
+        error: "guest token expired",
+      }),
+    );
 
     let response: Response | null = null;
     try {

@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   assert,
   assertNever,
@@ -165,16 +161,10 @@ export const decidePlatformFeedback: AggregateDecider<
             comment: normalizeComment(command.comment),
             followUpConsent: Boolean(command.followUpConsent),
             workflow: normalizeWorkflow(command.workflow),
-            sourceRoutePath: normalizeRequiredText(
-              command.sourceRoutePath,
-              "Source route path is required.",
-            ),
+            sourceRoutePath: normalizeRequiredText(command.sourceRoutePath, "Source route path is required."),
             relatedEntities,
             relatedEntityKey: relatedEntityKey(relatedEntities),
-            submittedAt: ensureIsoTimestamp(
-              command.submittedAt,
-              "Submission must record a timestamp.",
-            ),
+            submittedAt: ensureIsoTimestamp(command.submittedAt, "Submission must record a timestamp."),
           },
         },
       ];
@@ -190,20 +180,11 @@ export const decidePlatformFeedback: AggregateDecider<
             userId: normalizeRequiredText(command.userId, "User is required."),
             accountId: normalizeRequiredText(command.accountId, "Account is required."),
             workflow: normalizeWorkflow(command.workflow),
-            sourceRoutePath: normalizeRequiredText(
-              command.sourceRoutePath,
-              "Source route path is required.",
-            ),
+            sourceRoutePath: normalizeRequiredText(command.sourceRoutePath, "Source route path is required."),
             relatedEntities,
             relatedEntityKey: relatedEntityKey(relatedEntities),
-            dismissedAt: ensureIsoTimestamp(
-              command.dismissedAt,
-              "Dismissal must record a timestamp.",
-            ),
-            snoozedUntil: ensureIsoTimestamp(
-              command.snoozedUntil,
-              "Dismissal must record a snooze timestamp.",
-            ),
+            dismissedAt: ensureIsoTimestamp(command.dismissedAt, "Dismissal must record a timestamp."),
+            snoozedUntil: ensureIsoTimestamp(command.snoozedUntil, "Dismissal must record a snooze timestamp."),
           },
         },
       ];
@@ -220,14 +201,8 @@ export const decidePlatformFeedback: AggregateDecider<
           type: "experience.platform-feedback.reviewed",
           data: {
             feedbackId: state.feedbackId,
-            reviewedByUserId: normalizeRequiredText(
-              command.reviewedByUserId,
-              "Reviewer is required.",
-            ),
-            reviewedAt: ensureIsoTimestamp(
-              command.reviewedAt,
-              "Review must record a timestamp.",
-            ),
+            reviewedByUserId: normalizeRequiredText(command.reviewedByUserId, "Reviewer is required."),
+            reviewedAt: ensureIsoTimestamp(command.reviewedAt, "Review must record a timestamp."),
           },
         },
       ];
@@ -242,14 +217,8 @@ export const decidePlatformFeedback: AggregateDecider<
           type: "experience.platform-feedback.archived",
           data: {
             feedbackId: state.feedbackId,
-            archivedByUserId: normalizeRequiredText(
-              command.archivedByUserId,
-              "Archiver is required.",
-            ),
-            archivedAt: ensureIsoTimestamp(
-              command.archivedAt,
-              "Archive must record a timestamp.",
-            ),
+            archivedByUserId: normalizeRequiredText(command.archivedByUserId, "Archiver is required."),
+            archivedAt: ensureIsoTimestamp(command.archivedAt, "Archive must record a timestamp."),
           },
         },
       ];
@@ -258,10 +227,10 @@ export const decidePlatformFeedback: AggregateDecider<
   }
 };
 
-export const evolvePlatformFeedback: AggregateEvolver<
-  PlatformFeedbackState,
-  PlatformFeedbackEvent
-> = (state, event) => {
+export const evolvePlatformFeedback: AggregateEvolver<PlatformFeedbackState, PlatformFeedbackEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "experience.platform-feedback.submitted":
       return {

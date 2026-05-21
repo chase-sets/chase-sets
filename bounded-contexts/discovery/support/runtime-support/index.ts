@@ -7,4 +7,3 @@ export type DiscoveryRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
 }>;
-

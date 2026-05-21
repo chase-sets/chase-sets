@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideCheckoutCart,
-  evolveCheckoutCart,
-  initialCheckoutCartState,
-} from "./domain";
+import { decideCheckoutCart, evolveCheckoutCart, initialCheckoutCartState } from "./domain";
 
 describe("checkout cart domain", () => {
   it("adds, updates, removes, and clears cart lines on checkout", () => {

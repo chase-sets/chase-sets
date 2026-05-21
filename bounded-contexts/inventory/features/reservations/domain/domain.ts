@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   assert,
   assertNever,
@@ -104,22 +100,21 @@ export type InventoryReservationEvent =
   | InventoryReservationRejectedEvent
   | InventoryReservationReleasedEvent;
 
-function normalizeReservationInput(input: Readonly<{
-  reservationRequestId: string;
-  orderId: string;
-  sellerAccountId: string;
-  inventoryItemId: string;
-  quantity: number;
-}>) {
+function normalizeReservationInput(
+  input: Readonly<{
+    reservationRequestId: string;
+    orderId: string;
+    sellerAccountId: string;
+    inventoryItemId: string;
+    quantity: number;
+  }>,
+) {
   return {
     reservationRequestId: normalizeLabel(input.reservationRequestId),
     orderId: normalizeLabel(input.orderId),
     sellerAccountId: normalizeLabel(input.sellerAccountId),
     inventoryItemId: normalizeLabel(input.inventoryItemId),
-    quantity: ensurePositiveInteger(
-      input.quantity,
-      "Inventory reservation quantity must be a positive whole number.",
-    ),
+    quantity: ensurePositiveInteger(input.quantity, "Inventory reservation quantity must be a positive whole number."),
   };
 }
 
@@ -133,17 +128,11 @@ export const decideInventoryReservation: AggregateDecider<
       const normalized = normalizeReservationInput(command);
       const holdId = normalizeLabel(command.holdId);
 
-      if (
-        state.status === "confirmed" &&
-        state.holdId === holdId
-      ) {
+      if (state.status === "confirmed" && state.holdId === holdId) {
         return [];
       }
 
-      assert(
-        state.status === null,
-        "Inventory reservation has already been resolved.",
-      );
+      assert(state.status === null, "Inventory reservation has already been resolved.");
 
       return [
         {
@@ -159,17 +148,11 @@ export const decideInventoryReservation: AggregateDecider<
       const normalized = normalizeReservationInput(command);
       const reason = normalizeLabel(command.reason);
 
-      if (
-        state.status === "rejected" &&
-        state.rejectionReason === reason
-      ) {
+      if (state.status === "rejected" && state.rejectionReason === reason) {
         return [];
       }
 
-      assert(
-        state.status === null,
-        "Inventory reservation has already been resolved.",
-      );
+      assert(state.status === null, "Inventory reservation has already been resolved.");
 
       return [
         {
@@ -182,10 +165,7 @@ export const decideInventoryReservation: AggregateDecider<
       ];
     }
     case "ReleaseInventoryReservation":
-      assert(
-        state.status === "confirmed",
-        "Only confirmed inventory reservations can be released.",
-      );
+      assert(state.status === "confirmed", "Only confirmed inventory reservations can be released.");
       return [
         {
           type: "inventory.reservation.released",
@@ -202,10 +182,10 @@ export const decideInventoryReservation: AggregateDecider<
   }
 };
 
-export const evolveInventoryReservation: AggregateEvolver<
-  InventoryReservationState,
-  InventoryReservationEvent
-> = (state, event) => {
+export const evolveInventoryReservation: AggregateEvolver<InventoryReservationState, InventoryReservationEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "inventory.reservation.confirmed":
       return {

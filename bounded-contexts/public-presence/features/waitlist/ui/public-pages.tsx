@@ -34,10 +34,7 @@ import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare-previ
 import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp?url";
 import { trackWaitlistEvent } from "./analytics";
 
-export type WaitlistActionData =
-  | Readonly<{ status: "joined" }>
-  | Readonly<{ status: "error"; message: string }>
-  | null;
+export type WaitlistActionData = Readonly<{ status: "joined" }> | Readonly<{ status: "error"; message: string }> | null;
 
 const roleItems = [
   { value: "both", label: t("publicPresence.waitlist.role.both") },
@@ -76,12 +73,7 @@ const interestItems = [
 const interestSelectItems = interestItems.map(({ value, label }) => ({ value, label }));
 
 type WaitlistMarketplaceIntent = "both" | "buy" | "sell";
-type WaitlistInterest =
-  | "low-sales-fees"
-  | "bulk-listing"
-  | "set-completion"
-  | "pricing-tools"
-  | "efficient-shipping";
+type WaitlistInterest = "low-sales-fees" | "bulk-listing" | "set-completion" | "pricing-tools" | "efficient-shipping";
 
 type WaitlistIntent = Readonly<{
   role: WaitlistMarketplaceIntent;
@@ -170,11 +162,7 @@ function BadgeRow({ children }: { children: ReactNode }) {
   return <Inline gap={1}>{children}</Inline>;
 }
 
-export function PublicPresencePageShell({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export function PublicPresencePageShell({ children }: { children: ReactNode }) {
   return (
     <ChaseRoot colorMode="system">
       <SkipLink />
@@ -272,9 +260,10 @@ export function PublicPresenceHomePage({
     setIntent(nextIntent);
     trackWaitlistEvent("cta_clicked", {
       section,
-      cta_label: nextIntent.role === "sell"
-        ? t("publicPresence.home.paths.sell.action")
-        : t("publicPresence.home.paths.buy.action"),
+      cta_label:
+        nextIntent.role === "sell"
+          ? t("publicPresence.home.paths.sell.action")
+          : t("publicPresence.home.paths.buy.action"),
       role: nextIntent.role,
       interest: nextIntent.interest,
       variant: "landing-audit-remediation",
@@ -378,11 +367,7 @@ function AudiencePathSection({
               ]}
             />
             <Inline>
-              <Button
-                tone="secondary"
-                size="sm"
-                onClick={() => onIntentSelect(sellerIntent, "audience_path_seller")}
-              >
+              <Button tone="secondary" size="sm" onClick={() => onIntentSelect(sellerIntent, "audience_path_seller")}>
                 {t("publicPresence.home.paths.sell.action")}
               </Button>
             </Inline>
@@ -403,11 +388,7 @@ function AudiencePathSection({
               ]}
             />
             <Inline>
-              <Button
-                tone="secondary"
-                size="sm"
-                onClick={() => onIntentSelect(buyerIntent, "audience_path_buyer")}
-              >
+              <Button tone="secondary" size="sm" onClick={() => onIntentSelect(buyerIntent, "audience_path_buyer")}>
                 {t("publicPresence.home.paths.buy.action")}
               </Button>
             </Inline>
@@ -430,10 +411,7 @@ function SignupExpectationSection() {
           <Stack gap={3}>
             <Heading level={3}>{t("publicPresence.waitlist.trust.title")}</Heading>
             <List
-              items={[
-                t("publicPresence.waitlist.trust.noTransactions"),
-                t("publicPresence.waitlist.trust.review"),
-              ]}
+              items={[t("publicPresence.waitlist.trust.noTransactions"), t("publicPresence.waitlist.trust.review")]}
             />
           </Stack>
         </Surface>
@@ -644,9 +622,7 @@ function BuyerProofShippingValue() {
       <s className="text-[var(--destructive)] decoration-[var(--destructive)]">
         {t("publicPresence.home.buyerProof.math.shipping.original")}
       </s>
-      <span className="text-[var(--trust)]">
-        {t("publicPresence.home.buyerProof.math.shipping.net")}
-      </span>
+      <span className="text-[var(--trust)]">{t("publicPresence.home.buyerProof.math.shipping.net")}</span>
     </span>
   );
 }
@@ -681,11 +657,7 @@ function WhyJoinNow() {
     >
       <Grid columns={{ base: 1, md: 3 }} gap={4}>
         {cards.map((card) => (
-          <Surface
-            key={card.titleKey}
-            tone="subtle"
-            elevated
-          >
+          <Surface key={card.titleKey} tone="subtle" elevated>
             <Stack gap={3}>
               <BadgeRow>
                 <Badge tone={card.badgeTone}>{t(card.badgeKey)}</Badge>
@@ -725,7 +697,9 @@ function LaunchPriorityPanel() {
           <Stack gap={3}>
             <Inline gap={2}>
               <Badge tone="accent">{t("publicPresence.home.foundingBadge.badge")}</Badge>
-              <Text size="sm" weight="semibold">{t("publicPresence.home.stat.status.value")}</Text>
+              <Text size="sm" weight="semibold">
+                {t("publicPresence.home.stat.status.value")}
+              </Text>
             </Inline>
             <Heading level={3}>{t("publicPresence.home.foundingBadge.title")}</Heading>
             <Text tone="secondary">{t("publicPresence.home.foundingBadge.description")}</Text>
@@ -737,7 +711,9 @@ function LaunchPriorityPanel() {
               ].map(([value, label]) => (
                 <Stack key={value} gap={1}>
                   <Text weight="bold">{t(value)}</Text>
-                  <Text size="sm" tone="secondary">{t(label)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t(label)}
+                  </Text>
                 </Stack>
               ))}
             </Grid>
@@ -824,7 +800,7 @@ function ProductSignalPreview() {
           truncateValueCue={false}
           protection={t("publicPresence.preview.listing.protection.value")}
           returnPolicy={t("publicPresence.preview.listing.returnPolicy.value")}
-          primaryAction={(
+          primaryAction={
             <LinkButton
               href="#waitlist-form"
               size="sm"
@@ -832,8 +808,8 @@ function ProductSignalPreview() {
             >
               {t("publicPresence.preview.listing.action")}
             </LinkButton>
-          )}
-          secondaryAction={(
+          }
+          secondaryAction={
             <LinkButton
               href="/order-protection"
               tone="secondary"
@@ -842,7 +818,7 @@ function ProductSignalPreview() {
             >
               {t("publicPresence.preview.listing.secondaryAction")}
             </LinkButton>
-          )}
+          }
         />
         <Stack gap={4}>
           <PriceBreakdown
@@ -851,9 +827,18 @@ function ProductSignalPreview() {
             lines={[
               { label: t("publicPresence.preview.total.item"), value: t("publicPresence.preview.total.item.value") },
               { label: t("publicPresence.preview.total.shipping"), value: <DiscountedShippingValue /> },
-              { label: t("publicPresence.preview.total.shippingCredit"), value: t("publicPresence.preview.total.shippingCredit.value") },
-              { label: t("publicPresence.preview.total.orderProcessing"), value: t("publicPresence.preview.total.orderProcessing.value") },
-              { label: t("publicPresence.preview.total.protection"), value: t("publicPresence.preview.total.protection.value") },
+              {
+                label: t("publicPresence.preview.total.shippingCredit"),
+                value: t("publicPresence.preview.total.shippingCredit.value"),
+              },
+              {
+                label: t("publicPresence.preview.total.orderProcessing"),
+                value: t("publicPresence.preview.total.orderProcessing.value"),
+              },
+              {
+                label: t("publicPresence.preview.total.protection"),
+                value: t("publicPresence.preview.total.protection.value"),
+              },
             ]}
             totalLabel={t("publicPresence.preview.total.due")}
             total={t("publicPresence.preview.total.due.value")}
@@ -869,7 +854,9 @@ function ProductSignalPreview() {
               ].map(([title, description]) => (
                 <Stack key={title} gap={1}>
                   <Text weight="semibold">{t(title)}</Text>
-                  <Text size="sm" tone="secondary">{t(description)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t(description)}
+                  </Text>
                 </Stack>
               ))}
             </Stack>
@@ -886,9 +873,7 @@ function DiscountedShippingValue() {
       <s className="text-[var(--destructive)] decoration-[var(--destructive)]">
         {t("publicPresence.preview.total.shipping.original")}
       </s>
-      <span className="text-[var(--trust)]">
-        {t("publicPresence.preview.total.shipping.net")}
-      </span>
+      <span className="text-[var(--trust)]">{t("publicPresence.preview.total.shipping.net")}</span>
     </span>
   );
 }
@@ -925,9 +910,7 @@ function FinalCtaSection({
               t("publicPresence.home.finalCta.point.terms"),
             ]}
           />
-          <Inline gap={2}>
-            {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} /> : null}
-          </Inline>
+          <Inline gap={2}>{discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} /> : null}</Inline>
         </Stack>
         <WaitlistSignupPanel
           actionData={actionData}
@@ -1018,7 +1001,9 @@ function WaitlistSignupPanel({
         {isHero ? (
           <Stack gap={1}>
             <Text weight="semibold">{t("publicPresence.waitlist.compactTitle")}</Text>
-            <Text size="sm" tone="secondary">{t("publicPresence.waitlist.compactDescription")}</Text>
+            <Text size="sm" tone="secondary">
+              {t("publicPresence.waitlist.compactDescription")}
+            </Text>
           </Stack>
         ) : (
           <Stack gap={2}>
@@ -1027,7 +1012,9 @@ function WaitlistSignupPanel({
             </BadgeRow>
             <Heading level={2}>{t("publicPresence.waitlist.formTitle")}</Heading>
             <Text tone="secondary">{t("publicPresence.waitlist.formDescription")}</Text>
-            <Text size="sm" tone="secondary">{t("publicPresence.waitlist.promise")}</Text>
+            <Text size="sm" tone="secondary">
+              {t("publicPresence.waitlist.promise")}
+            </Text>
           </Stack>
         )}
         {actionData?.status === "joined" ? (
@@ -1038,11 +1025,7 @@ function WaitlistSignupPanel({
           />
         ) : null}
         {actionData?.status === "error" ? (
-          <Banner
-            tone="danger"
-            title={t("publicPresence.waitlist.error.title")}
-            description={actionData.message}
-          />
+          <Banner tone="danger" title={t("publicPresence.waitlist.error.title")} description={actionData.message} />
         ) : null}
         <form method="post" action="?index" onSubmit={handleSubmit}>
           <Stack gap={isHero ? 2 : 4}>
@@ -1069,9 +1052,7 @@ function WaitlistSignupPanel({
                   items={roleItems}
                   required
                   onFocus={() => trackFormStart("role")}
-                  onChange={(event) => trackRoleSelected(
-                    event.currentTarget.value as WaitlistMarketplaceIntent,
-                  )}
+                  onChange={(event) => trackRoleSelected(event.currentTarget.value as WaitlistMarketplaceIntent)}
                 />
                 <NativeSelect
                   label={t("publicPresence.waitlist.interests")}
@@ -1081,9 +1062,7 @@ function WaitlistSignupPanel({
                   items={interestSelectItems}
                   required
                   onFocus={() => trackFormStart("interests")}
-                  onChange={(event) => trackInterestSelected(
-                    event.currentTarget.value as WaitlistInterest,
-                  )}
+                  onChange={(event) => trackInterestSelected(event.currentTarget.value as WaitlistInterest)}
                 />
               </Grid>
             )}
@@ -1105,17 +1084,8 @@ function WaitlistSignupPanel({
               }}
               required
             />
-            {emailConsent ? (
-              <input type="hidden" name="emailConsent" value="yes" readOnly />
-            ) : null}
-            <input
-              type="text"
-              name="website"
-              tabIndex={-1}
-              autoComplete="off"
-              aria-hidden="true"
-              hidden
-            />
+            {emailConsent ? <input type="hidden" name="emailConsent" value="yes" readOnly /> : null}
+            <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" hidden />
             <input type="hidden" name="pagePath" value={source.pagePath} readOnly />
             <input type="hidden" name="referrer" value={source.referrer ?? ""} readOnly />
             <input type="hidden" name="utmSource" value={source.utmSource ?? ""} readOnly />
@@ -1126,7 +1096,9 @@ function WaitlistSignupPanel({
             <Button type="submit" size="lg" block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>
-            <Text size="sm" tone="secondary">{t("publicPresence.waitlist.noCommitment")}</Text>
+            <Text size="sm" tone="secondary">
+              {t("publicPresence.waitlist.noCommitment")}
+            </Text>
           </Stack>
         </form>
       </Stack>
@@ -1144,11 +1116,7 @@ function FaqPreview() {
       description={t("publicPresence.faq.description")}
     >
       <Inline>
-        <LinkButton
-          href="/faq"
-          tone="secondary"
-          onClick={() => trackCtaClick("faq", "faq")}
-        >
+        <LinkButton href="/faq" tone="secondary" onClick={() => trackCtaClick("faq", "faq")}>
           {t("publicPresence.faq.all")}
         </LinkButton>
       </Inline>
@@ -1185,18 +1153,16 @@ export function PublicInfoPage({ content }: { content: PublicInfoPageContent }) 
   return (
     <PublicPresencePageShell>
       <Page>
-        <PageHeader
-          eyebrow={content.eyebrow}
-          title={content.title}
-          description={content.description}
-        />
+        <PageHeader eyebrow={content.eyebrow} title={content.title} description={content.description} />
         <Grid columns={{ base: 1, md: 2 }} gap={4}>
           {content.sections.map((section) => (
             <Surface key={section.title} elevated>
               <Stack gap={3}>
                 <Heading level={2}>{section.title}</Heading>
                 {section.body.map((paragraph) => (
-                  <Text key={paragraph} tone="secondary">{paragraph}</Text>
+                  <Text key={paragraph} tone="secondary">
+                    {paragraph}
+                  </Text>
                 ))}
               </Stack>
             </Surface>

@@ -2,19 +2,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-);
+export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-export const workspaceRoots = [
-  "bounded-contexts",
-  "contracts",
-  "infrastructure",
-  "packages",
-  "deployables",
-];
+export const workspaceRoots = ["bounded-contexts", "contracts", "infrastructure", "packages", "deployables"];
 
 export function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));

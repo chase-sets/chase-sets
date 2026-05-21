@@ -5,4 +5,3 @@ export function extractIdFromStreamId(streamId: string, prefix: string): string 
 
   return streamId.slice(prefix.length);
 }
-

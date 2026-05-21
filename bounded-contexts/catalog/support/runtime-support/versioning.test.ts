@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogItemId, OptionId, DimensionId } from "../../ids";
-import {
-  resolveProduct,
-  toProductSchema,
-  type ProductDefiningBlueprint,
-} from "./versioning";
+import { resolveProduct, toProductSchema, type ProductDefiningBlueprint } from "./versioning";
 
 const catalogItemId = "cat_charizard" as CatalogItemId;
 const formDimensionId = "dim_form" as DimensionId;
@@ -19,12 +15,7 @@ const psaOptionId = "chc_company_psa" as OptionId;
 const gemMintOptionId = "chc_grade_10" as OptionId;
 
 const blueprint: ProductDefiningBlueprint = {
-  canonicalDimensionOrder: [
-    formDimensionId,
-    conditionDimensionId,
-    gradingCompanyDimensionId,
-    gradeDimensionId,
-  ],
+  canonicalDimensionOrder: [formDimensionId, conditionDimensionId, gradingCompanyDimensionId, gradeDimensionId],
   dimensionRules: [
     {
       dimensionId: formDimensionId,
@@ -35,25 +26,19 @@ const blueprint: ProductDefiningBlueprint = {
       dimensionId: conditionDimensionId,
       required: true,
       allowedOptionIds: [nearMintOptionId],
-      appliesWhen: [
-        { dimensionId: formDimensionId, optionIds: [rawOptionId] },
-      ],
+      appliesWhen: [{ dimensionId: formDimensionId, optionIds: [rawOptionId] }],
     },
     {
       dimensionId: gradingCompanyDimensionId,
       required: true,
       allowedOptionIds: [psaOptionId],
-      appliesWhen: [
-        { dimensionId: formDimensionId, optionIds: [gradedOptionId] },
-      ],
+      appliesWhen: [{ dimensionId: formDimensionId, optionIds: [gradedOptionId] }],
     },
     {
       dimensionId: gradeDimensionId,
       required: true,
       allowedOptionIds: [gemMintOptionId],
-      appliesWhen: [
-        { dimensionId: formDimensionId, optionIds: [gradedOptionId] },
-      ],
+      appliesWhen: [{ dimensionId: formDimensionId, optionIds: [gradedOptionId] }],
     },
   ],
 };
@@ -128,14 +113,15 @@ describe("catalog product resolution", () => {
 
   it("includes appliesWhen in the exported schema", () => {
     const schema = toProductSchema(blueprint);
-    expect(schema.dimensions.find((dimension) => dimension.dimensionId === String(conditionDimensionId)))
-      .toMatchObject({
+    expect(schema.dimensions.find((dimension) => dimension.dimensionId === String(conditionDimensionId))).toMatchObject(
+      {
         appliesWhen: [
           {
             dimensionId: String(formDimensionId),
             optionIds: [String(rawOptionId)],
           },
         ],
-      });
+      },
+    );
   });
 });

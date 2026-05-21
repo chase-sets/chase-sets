@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -136,10 +132,7 @@ export type ComponentCreatedEvent = DomainEvent<
   }>
 >;
 
-export type ComponentFieldRuleAddedEvent = DomainEvent<
-  "catalog.component.field-rule-added",
-  ComponentFieldRule
->;
+export type ComponentFieldRuleAddedEvent = DomainEvent<"catalog.component.field-rule-added", ComponentFieldRule>;
 
 export type ComponentFieldRuleRemovedEvent = DomainEvent<
   "catalog.component.field-rule-removed",
@@ -160,25 +153,13 @@ export type ComponentDimensionRuleRemovedEvent = DomainEvent<
   }>
 >;
 
-export type ComponentRulesConfiguredEvent = DomainEvent<
-  "catalog.component.rules-configured",
-  ComponentRuleSet
->;
+export type ComponentRulesConfiguredEvent = DomainEvent<"catalog.component.rules-configured", ComponentRuleSet>;
 
-export type ComponentActivatedEvent = DomainEvent<
-  "catalog.component.activated",
-  EmptyEventData
->;
+export type ComponentActivatedEvent = DomainEvent<"catalog.component.activated", EmptyEventData>;
 
-export type ComponentDeprecatedEvent = DomainEvent<
-  "catalog.component.deprecated",
-  EmptyEventData
->;
+export type ComponentDeprecatedEvent = DomainEvent<"catalog.component.deprecated", EmptyEventData>;
 
-export type ComponentArchivedEvent = DomainEvent<
-  "catalog.component.archived",
-  EmptyEventData
->;
+export type ComponentArchivedEvent = DomainEvent<"catalog.component.archived", EmptyEventData>;
 
 export type ComponentEvent =
   | ComponentCreatedEvent
@@ -191,11 +172,7 @@ export type ComponentEvent =
   | ComponentDeprecatedEvent
   | ComponentArchivedEvent;
 
-export const decideComponent: AggregateDecider<
-  ComponentState,
-  ComponentCommand,
-  ComponentEvent
-> = (state, command) => {
+export const decideComponent: AggregateDecider<ComponentState, ComponentCommand, ComponentEvent> = (state, command) => {
   switch (command.type) {
     case "CreateComponent":
       assert(state.id === null, "Component has already been created.");
@@ -250,9 +227,7 @@ export const decideComponent: AggregateDecider<
       requireCreatedComponent(state);
       assert(state.status !== "archived", "Archived components cannot be changed.");
       assert(
-        !state.dimensionRules.some(
-          (rule) => rule.dimensionId === command.dimensionId,
-        ),
+        !state.dimensionRules.some((rule) => rule.dimensionId === command.dimensionId),
         "Component already contains that dimension rule.",
       );
 
@@ -271,9 +246,7 @@ export const decideComponent: AggregateDecider<
       requireCreatedComponent(state);
       assert(state.status !== "archived", "Archived components cannot be changed.");
       assert(
-        state.dimensionRules.some(
-          (rule) => rule.dimensionId === command.dimensionId,
-        ),
+        state.dimensionRules.some((rule) => rule.dimensionId === command.dimensionId),
         "Component does not contain that dimension rule.",
       );
 
@@ -295,9 +268,7 @@ export const decideComponent: AggregateDecider<
           data: {
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
             fieldRules: normalizeFieldRules(command.fieldRules),
             dimensionRules: normalizeDimensionRules(command.dimensionRules),
           },
@@ -315,10 +286,7 @@ export const decideComponent: AggregateDecider<
       ];
     case "DeprecateComponent":
       requireCreatedComponent(state);
-      assert(
-        state.status === "active",
-        "Only active components can be deprecated.",
-      );
+      assert(state.status === "active", "Only active components can be deprecated.");
 
       return [
         {
@@ -328,10 +296,7 @@ export const decideComponent: AggregateDecider<
       ];
     case "ArchiveComponent":
       requireCreatedComponent(state);
-      assert(
-        state.status === "deprecated",
-        "Only deprecated components can be archived.",
-      );
+      assert(state.status === "deprecated", "Only deprecated components can be archived.");
 
       return [
         {
@@ -344,10 +309,7 @@ export const decideComponent: AggregateDecider<
   }
 };
 
-export const evolveComponent: AggregateEvolver<ComponentState, ComponentEvent> = (
-  state,
-  event,
-) => {
+export const evolveComponent: AggregateEvolver<ComponentState, ComponentEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.component.created":
       return {
@@ -366,24 +328,17 @@ export const evolveComponent: AggregateEvolver<ComponentState, ComponentEvent> =
     case "catalog.component.field-rule-removed":
       return {
         ...state,
-        fieldRules: state.fieldRules.filter(
-          (rule) => rule.fieldId !== event.data.fieldId,
-        ),
+        fieldRules: state.fieldRules.filter((rule) => rule.fieldId !== event.data.fieldId),
       };
     case "catalog.component.dimension-rule-added":
       return {
         ...state,
-        dimensionRules: normalizeDimensionRules([
-          ...state.dimensionRules,
-          event.data,
-        ]),
+        dimensionRules: normalizeDimensionRules([...state.dimensionRules, event.data]),
       };
     case "catalog.component.dimension-rule-removed":
       return {
         ...state,
-        dimensionRules: state.dimensionRules.filter(
-          (rule) => rule.dimensionId !== event.data.dimensionId,
-        ),
+        dimensionRules: state.dimensionRules.filter((rule) => rule.dimensionId !== event.data.dimensionId),
       };
     case "catalog.component.rules-configured":
       return {
@@ -425,27 +380,16 @@ function normalizeFieldRule(rule: ComponentFieldRule): ComponentFieldRule {
   };
 }
 
-function normalizeFieldRules(
-  rules: readonly ComponentFieldRule[],
-): ComponentFieldRule[] {
+function normalizeFieldRules(rules: readonly ComponentFieldRule[]): ComponentFieldRule[] {
   const normalized = rules.map(normalizeFieldRule);
 
-  ensureUniqueBy(
-    normalized,
-    (rule) => rule.fieldId,
-    "Component field rules must be unique per field.",
-  );
+  ensureUniqueBy(normalized, (rule) => rule.fieldId, "Component field rules must be unique per field.");
 
   return normalized.sort((left, right) => left.fieldId.localeCompare(right.fieldId));
 }
 
-function normalizeDimensionRule(
-  rule: ComponentDimensionRule,
-): ComponentDimensionRule {
-  const appliesWhen = normalizeDimensionApplicability(
-    rule.dimensionId,
-    rule.appliesWhen,
-  );
+function normalizeDimensionRule(rule: ComponentDimensionRule): ComponentDimensionRule {
+  const appliesWhen = normalizeDimensionApplicability(rule.dimensionId, rule.appliesWhen);
 
   return {
     dimensionId: rule.dimensionId,
@@ -455,20 +399,12 @@ function normalizeDimensionRule(
   };
 }
 
-function normalizeDimensionRules(
-  rules: readonly ComponentDimensionRule[],
-): ComponentDimensionRule[] {
+function normalizeDimensionRules(rules: readonly ComponentDimensionRule[]): ComponentDimensionRule[] {
   const normalized = rules.map(normalizeDimensionRule);
 
-  ensureUniqueBy(
-    normalized,
-    (rule) => rule.dimensionId,
-    "Component dimension rules must be unique per dimension.",
-  );
+  ensureUniqueBy(normalized, (rule) => rule.dimensionId, "Component dimension rules must be unique per dimension.");
 
-  return normalized.sort((left, right) =>
-    left.dimensionId.localeCompare(right.dimensionId),
-  );
+  return normalized.sort((left, right) => left.dimensionId.localeCompare(right.dimensionId));
 }
 
 function normalizeDimensionApplicability(
@@ -476,10 +412,7 @@ function normalizeDimensionApplicability(
   clauses?: readonly ComponentDimensionApplicabilityClause[],
 ): ComponentDimensionApplicabilityClause[] {
   const normalized = (clauses ?? []).map((clause) => {
-    assert(
-      clause.dimensionId !== dimensionId,
-      "Dimension rules cannot depend on their own dimension.",
-    );
+    assert(clause.dimensionId !== dimensionId, "Dimension rules cannot depend on their own dimension.");
 
     return {
       dimensionId: clause.dimensionId,
@@ -493,10 +426,5 @@ function normalizeDimensionApplicability(
     "Dimension rule applicability must be unique per referenced dimension.",
   );
 
-  return normalized.sort((left, right) =>
-    left.dimensionId.localeCompare(right.dimensionId),
-  );
+  return normalized.sort((left, right) => left.dimensionId.localeCompare(right.dimensionId));
 }
-
-
-

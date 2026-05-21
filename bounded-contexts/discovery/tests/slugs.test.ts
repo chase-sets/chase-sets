@@ -1,15 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  createMarketplaceSlug,
-  createSlugBase,
-  rememberSlugRedirect,
-} from "../support/runtime-support/slugs";
+import { createMarketplaceSlug, createSlugBase, rememberSlugRedirect } from "../support/runtime-support/slugs";
 
 describe("marketplace slugs", () => {
   it("normalizes readable words for URL paths", () => {
-    expect(createSlugBase("Poke\u0301mon TCG & Sealed: Base Set #4/102")).toBe(
-      "pokemon-tcg-and-sealed-base-set-4-102",
-    );
+    expect(createSlugBase("Poke\u0301mon TCG & Sealed: Base Set #4/102")).toBe("pokemon-tcg-and-sealed-base-set-4-102");
   });
 
   it("adds a stable id suffix so names can collide safely", () => {

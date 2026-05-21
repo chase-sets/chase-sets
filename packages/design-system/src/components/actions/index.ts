@@ -38,7 +38,7 @@ export type {
   TopNavProps,
   SideNavProps,
   BottomNavProps,
-  NavRailProps
+  NavRailProps,
 } from "./navigation";
 
 export { CopyButton } from "./copy-button";

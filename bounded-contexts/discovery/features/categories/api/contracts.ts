@@ -1,4 +1,1 @@
-export type {
-  CategoryListResponse,
-  DiscoveryCategoryItem,
-} from "../ui/contracts";
+export type { CategoryListResponse, DiscoveryCategoryItem } from "../ui/contracts";

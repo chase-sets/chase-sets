@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -43,14 +39,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "create-item") {
-      const result = await api.createItem({
+      const result = (await api.createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
         storageLocationId: formData.get("storageLocationId"),
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
-        acquisitionCostAmount:
-          String(formData.get("acquisitionCostAmount") ?? "").trim() || null,
-      }) as { id?: string };
+        acquisitionCostAmount: String(formData.get("acquisitionCostAmount") ?? "").trim() || null,
+      })) as { id?: string };
       const feedback = new URLSearchParams({
         feedbackWorkflow: "inventory-create",
       });
@@ -95,11 +90,7 @@ export default function MarketplaceInventoryRoute() {
           <PlatformFeedbackPrompt
             workflow="inventory-create"
             sourceRoutePath="/account/inventory"
-            relatedEntities={
-              feedbackEntityId
-                ? [{ type: "inventory-item", id: feedbackEntityId }]
-                : []
-            }
+            relatedEntities={feedbackEntityId ? [{ type: "inventory-item", id: feedbackEntityId }] : []}
             title={t("inventory.routes.marketplace.accountInventory.feedback.title")}
             description={t("inventory.routes.marketplace.accountInventory.feedback.description")}
           />

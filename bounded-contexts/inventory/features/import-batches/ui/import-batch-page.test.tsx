@@ -1,10 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type {
-  InventoryImportBatch,
-  InventoryImportBatchDetail,
-  InventoryImportBatchRow,
-} from "../read-model/queries";
+import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import { InventoryImportBatchPage } from "./import-batch-page";
 
 const timestamp = "2026-05-09T00:00:00.000Z";
@@ -64,9 +60,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
 }
 
 function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchDetail {
-  const acceptedCount = rows.filter((entry) =>
-    entry.status === "accepted" || entry.status === "committed",
-  ).length;
+  const acceptedCount = rows.filter((entry) => entry.status === "accepted" || entry.status === "committed").length;
   const committedCount = rows.filter((entry) => entry.status === "committed").length;
   return {
     ...batch({
@@ -82,9 +76,7 @@ function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchD
 
 describe("InventoryImportBatchPage", () => {
   it("renders the empty upload and recent import state", () => {
-    const html = renderToString(
-      <InventoryImportBatchPage batches={[]} storageLocations={[]} detail={null} />,
-    );
+    const html = renderToString(<InventoryImportBatchPage batches={[]} storageLocations={[]} detail={null} />);
 
     expect(html).toContain("Inventory import");
     expect(html).toContain("Upload CSV");

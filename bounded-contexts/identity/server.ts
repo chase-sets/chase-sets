@@ -11,10 +11,7 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
 import type { PermissionKey } from "./support/runtime-support/common";
-import {
-  createIdentityApiClient,
-  IdentityApiError,
-} from "./support/request-support/api-client";
+import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -48,50 +45,68 @@ export function createIdentityRequestApiClient(request: Request) {
 }
 
 export type IdentityAuthMutationClient = Readonly<{
-  createGuestAccount: (params: Readonly<{
-    email: string;
-    displayName: string;
-  }>) => Promise<Readonly<{ accountId: string }>>;
-  createUser: (params: Readonly<{
-    email: string;
-    displayName: string;
-  }>) => Promise<Readonly<{ userId: string }>>;
-  createPersonalIdentity: (params: Readonly<{
-    email?: string | null;
-    phone?: string | null;
-    displayName: string;
-    givenName?: string;
-    familyName?: string;
-    consents?: readonly { policyKey: string; policyVersion: string }[];
-  }>) => Promise<Readonly<{ userId: string; accountId: string; membershipId: string }>>;
-  enablePasswordCredential: (params: Readonly<{
-    userId: string;
-    credentialId: string;
-  }>) => Promise<void>;
-  registerPasskeyCredential: (params: Readonly<{
-    userId: string;
-    credentialId: string;
-  }>) => Promise<void>;
-  enableSmsCode: (params: Readonly<{
-    userId: string;
-  }>) => Promise<void>;
-  linkSocialLogin: (params: Readonly<{
-    userId: string;
-    providerName: "google" | "facebook";
-    providerSubject: string;
-    email: string;
-  }>) => Promise<void>;
-  claimGuestAccount: (params: Readonly<{
-    accountId: string;
-    userId: string;
-    roleKey: string;
-  }>) => Promise<Readonly<{ membershipId: string }>>;
-  acceptInvitationForUser: (params: Readonly<{
-    invitationId: string;
-    userId: string;
-    accountId: string;
-    roleKey: string;
-  }>) => Promise<Readonly<{ membershipId: string }>>;
+  createGuestAccount: (
+    params: Readonly<{
+      email: string;
+      displayName: string;
+    }>,
+  ) => Promise<Readonly<{ accountId: string }>>;
+  createUser: (
+    params: Readonly<{
+      email: string;
+      displayName: string;
+    }>,
+  ) => Promise<Readonly<{ userId: string }>>;
+  createPersonalIdentity: (
+    params: Readonly<{
+      email?: string | null;
+      phone?: string | null;
+      displayName: string;
+      givenName?: string;
+      familyName?: string;
+      consents?: readonly { policyKey: string; policyVersion: string }[];
+    }>,
+  ) => Promise<Readonly<{ userId: string; accountId: string; membershipId: string }>>;
+  enablePasswordCredential: (
+    params: Readonly<{
+      userId: string;
+      credentialId: string;
+    }>,
+  ) => Promise<void>;
+  registerPasskeyCredential: (
+    params: Readonly<{
+      userId: string;
+      credentialId: string;
+    }>,
+  ) => Promise<void>;
+  enableSmsCode: (
+    params: Readonly<{
+      userId: string;
+    }>,
+  ) => Promise<void>;
+  linkSocialLogin: (
+    params: Readonly<{
+      userId: string;
+      providerName: "google" | "facebook";
+      providerSubject: string;
+      email: string;
+    }>,
+  ) => Promise<void>;
+  claimGuestAccount: (
+    params: Readonly<{
+      accountId: string;
+      userId: string;
+      roleKey: string;
+    }>,
+  ) => Promise<Readonly<{ membershipId: string }>>;
+  acceptInvitationForUser: (
+    params: Readonly<{
+      invitationId: string;
+      userId: string;
+      accountId: string;
+      roleKey: string;
+    }>,
+  ) => Promise<Readonly<{ membershipId: string }>>;
 }>;
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -103,9 +118,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function createIdentityAuthRequestClient(
-  request: Request,
-): IdentityAuthMutationClient {
+export function createIdentityAuthRequestClient(request: Request): IdentityAuthMutationClient {
   const fetch = createForwardedAuthFetch(request);
   const baseUrl = resolveRequestApiBaseUrl(request, "/api/identity/internal/auth");
   const postJson = async <T>(path: string, body: Record<string, unknown>) =>
@@ -153,17 +166,17 @@ export function createIdentityAuthRequestClient(
   };
 }
 
-export function createActorEventStoreContext(
-  actor: ResolvedActor,
-) {
+export function createActorEventStoreContext(actor: ResolvedActor) {
   return createGenericActorEventStoreContext(actor);
 }
 
-export async function resolveActorFromIdentityApi(options: Readonly<{
-  identityApiBaseUrl: string;
-  request: Request;
-  fetch?: typeof globalThis.fetch;
-}>): Promise<ResolvedActor | null> {
+export async function resolveActorFromIdentityApi(
+  options: Readonly<{
+    identityApiBaseUrl: string;
+    request: Request;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): Promise<ResolvedActor | null> {
   const authApiBaseUrl = new URL(options.identityApiBaseUrl);
   authApiBaseUrl.pathname = "/api/auth";
   return resolveActorFromAuthApi({
@@ -173,21 +186,22 @@ export async function resolveActorFromIdentityApi(options: Readonly<{
   });
 }
 
-export async function requireActorFromIdentityApi(options: Readonly<{
-  request: Request;
-  permission?: PermissionKey;
-  signInPath?: string;
-  identityApiBaseUrl?: string;
-  fetch?: typeof globalThis.fetch;
-}>): Promise<ResolvedActor> {
+export async function requireActorFromIdentityApi(
+  options: Readonly<{
+    request: Request;
+    permission?: PermissionKey;
+    signInPath?: string;
+    identityApiBaseUrl?: string;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): Promise<ResolvedActor> {
   return requireActorFromAuthApi({
     request: options.request,
     permission: options.permission,
     signInPath: options.signInPath,
-    authApiBaseUrl:
-      options.identityApiBaseUrl
-        ? new URL("/api/auth", `${options.identityApiBaseUrl}/`).toString().replace(/\/$/, "")
-        : resolveRequestApiBaseUrl(options.request, "/api/auth"),
+    authApiBaseUrl: options.identityApiBaseUrl
+      ? new URL("/api/auth", `${options.identityApiBaseUrl}/`).toString().replace(/\/$/, "")
+      : resolveRequestApiBaseUrl(options.request, "/api/auth"),
     fetch: options.fetch,
   });
 }

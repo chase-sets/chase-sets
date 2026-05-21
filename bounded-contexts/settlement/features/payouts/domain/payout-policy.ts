@@ -40,10 +40,7 @@ export function resolvePayoutAmountSelection(
   }
 }
 
-export function assertPayoutAmountWithinPolicy(
-  amount: string,
-  currencyCode: string,
-) {
+export function assertPayoutAmountWithinPolicy(amount: string, currencyCode: string) {
   const normalizedCurrencyCode = normalizeCurrencyCode(currencyCode);
   const normalizedAmount = normalizeMoneyAmount(amount, {
     fieldName: "Payout amount",

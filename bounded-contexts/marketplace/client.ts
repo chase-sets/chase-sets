@@ -1,9 +1,6 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
-import {
-  attachResponseMetadata,
-  type ListResponse,
-} from "@chase-sets/http/responses";
+import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildMarketplaceApi } from "./api";
 
 export type {
@@ -114,9 +111,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listItemListings(
-      productId: string,
-    ): Promise<ListResponse<MarketplaceItemListing>> {
+    async listItemListings(productId: string): Promise<ListResponse<MarketplaceItemListing>> {
       return parseJsonResponse(
         await client["products"][":productId"].listings.$get({
           param: { productId },
@@ -124,9 +119,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSellerListings(
-      query = "",
-    ): Promise<ListResponse<MarketplaceListingListItem>> {
+    async listSellerListings(query = ""): Promise<ListResponse<MarketplaceListingListItem>> {
       return parseJsonResponse(
         await client.account.listings.$get({
           query: queryFromString(query),
@@ -134,9 +127,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSellerListingInventory(
-      query = "",
-    ): Promise<ListResponse<MarketplaceListingInventoryItemOption>> {
+    async listSellerListingInventory(query = ""): Promise<ListResponse<MarketplaceListingInventoryItemOption>> {
       return parseJsonResponse(
         await client.account["listing-inventory"].$get({
           query: queryFromString(query),
@@ -185,9 +176,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSellerListingFeeLockReport(
-      query = "",
-    ): Promise<ListResponse<MarketplaceListingFeeLockReportEntry>> {
+    async listSellerListingFeeLockReport(query = ""): Promise<ListResponse<MarketplaceListingFeeLockReportEntry>> {
       return parseJsonResponse(
         await client.account.listings["fee-lock-report"].$get({
           query: queryFromString(query),
@@ -221,9 +210,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async previewListingTerms(
-      body: Record<string, unknown>,
-    ): Promise<MarketplaceListingTermsPreview> {
+    async previewListingTerms(body: Record<string, unknown>): Promise<MarketplaceListingTermsPreview> {
       return parseJsonResponse(
         await client.account.listings.preview.$post({
           json: body,
@@ -285,9 +272,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSubmittedOffers(
-      query = "",
-    ): Promise<ListResponse<SubmittedOfferListItem>> {
+    async listSubmittedOffers(query = ""): Promise<ListResponse<SubmittedOfferListItem>> {
       return parseJsonResponse(
         await client.account.offers.submitted.$get({
           query: queryFromString(query),
@@ -311,9 +296,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listOfferMatches(
-      query = "",
-    ): Promise<ListResponse<OfferMatchListItem>> {
+    async listOfferMatches(query = ""): Promise<ListResponse<OfferMatchListItem>> {
       return parseJsonResponse(
         await client.account.offers.matches.$get({
           query: queryFromString(query),
@@ -329,9 +312,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async previewOfferAcceptanceTerms(
-      id: string,
-    ): Promise<MarketplaceListingTermsPreview> {
+    async previewOfferAcceptanceTerms(id: string): Promise<MarketplaceListingTermsPreview> {
       return parseJsonResponse(
         await client.account.offers.matches[":id"]["terms-preview"].$get({
           param: { id },

@@ -17,4 +17,3 @@ export default function UsersRoute() {
   const data = useLoaderData<typeof loader>();
   return <UserListPage initialData={data} />;
 }
-

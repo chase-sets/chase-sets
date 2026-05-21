@@ -57,22 +57,15 @@ export function apiErrorResponse(
   };
 }
 
-export function authenticationRequiredResponse(
-  message = "Authentication required.",
-): ApiErrorResponse {
+export function authenticationRequiredResponse(message = "Authentication required."): ApiErrorResponse {
   return apiErrorResponse("authentication_required", message);
 }
 
-export function forbiddenResponse(
-  message = "Forbidden.",
-): ApiErrorResponse {
+export function forbiddenResponse(message = "Forbidden."): ApiErrorResponse {
   return apiErrorResponse("authorization_forbidden", message);
 }
 
-export function validationFailedResponse(
-  message: string,
-  details?: readonly ApiErrorDetail[],
-): ApiErrorResponse {
+export function validationFailedResponse(message: string, details?: readonly ApiErrorDetail[]): ApiErrorResponse {
   return apiErrorResponse("validation_failed", message, details);
 }
 
@@ -84,17 +77,11 @@ export function conflictResponse(message: string): ApiErrorResponse {
   return apiErrorResponse("conflict", message);
 }
 
-export function internalErrorResponse(
-  message = "Internal server error.",
-): ApiErrorResponse {
+export function internalErrorResponse(message = "Internal server error."): ApiErrorResponse {
   return apiErrorResponse("internal_error", message);
 }
 
-export function commandResponse(
-  id: string,
-  version: number,
-  status = "accepted",
-): CommandResponse {
+export function commandResponse(id: string, version: number, status = "accepted"): CommandResponse {
   return { id, version, status };
 }
 
@@ -115,11 +102,8 @@ export function readResponseConsistencyMetadata(
     return null;
   }
 
-  const commitPosition =
-    response.headers.get("Chase-Sets-Commit-Position") ?? undefined;
-  const commitEventIds = (
-    response.headers.get("Chase-Sets-Commit-Event-Ids") ?? ""
-  )
+  const commitPosition = response.headers.get("Chase-Sets-Commit-Position") ?? undefined;
+  const commitEventIds = (response.headers.get("Chase-Sets-Commit-Event-Ids") ?? "")
     .split(",")
     .map((eventId) => eventId.trim())
     .filter(Boolean);
@@ -131,10 +115,7 @@ export function readResponseConsistencyMetadata(
   };
 }
 
-export function attachResponseMetadata<T>(
-  body: T,
-  response: Pick<Response, "headers">,
-): T {
+export function attachResponseMetadata<T>(body: T, response: Pick<Response, "headers">): T {
   if (typeof body !== "object" || body === null) {
     return body;
   }
@@ -158,9 +139,7 @@ export function getResponseMetadata(value: unknown): ResponseMetadata | null {
 }
 
 function pathFromUrl(url: URL, originalPath: string): string {
-  return /^[a-z][a-z0-9+.-]*:/i.test(originalPath)
-    ? url.toString()
-    : `${url.pathname}${url.search}${url.hash}`;
+  return /^[a-z][a-z0-9+.-]*:/i.test(originalPath) ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
 }
 
 function tokenFromMetadata(source: unknown, nowMs: number): string | null {
@@ -172,11 +151,7 @@ function tokenFromMetadata(source: unknown, nowMs: number): string | null {
   return position ? `${encodeURIComponent(position)}.${nowMs}` : null;
 }
 
-export function appendFreshWriteToken(
-  path: string,
-  source: unknown,
-  nowMs = Date.now(),
-): string {
+export function appendFreshWriteToken(path: string, source: unknown, nowMs = Date.now()): string {
   const token = tokenFromMetadata(source, nowMs);
   if (!token) {
     return path;
@@ -195,10 +170,7 @@ export function readFreshWriteToken(
   const url =
     requestOrUrl instanceof URL
       ? requestOrUrl
-      : new URL(
-          typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url,
-          "https://chase-sets.local",
-        );
+      : new URL(typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url, "https://chase-sets.local");
   const token = url.searchParams.get(FRESH_WRITE_PARAM);
   if (!token) {
     return null;
@@ -225,19 +197,19 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function loadFreshlyWrittenResource<T>(options: Readonly<{
-  request: Request;
-  load: () => Promise<T>;
-  isNotFound: (error: unknown) => boolean;
-  retryDelaysMs?: readonly number[];
-  nowMs?: () => number;
-  maxAgeMs?: number;
-}>): Promise<T> {
+export async function loadFreshlyWrittenResource<T>(
+  options: Readonly<{
+    request: Request;
+    load: () => Promise<T>;
+    isNotFound: (error: unknown) => boolean;
+    retryDelaysMs?: readonly number[];
+    nowMs?: () => number;
+    maxAgeMs?: number;
+  }>,
+): Promise<T> {
   const nowMs = options.nowMs ?? Date.now;
-  const retryDelaysMs =
-    options.retryDelaysMs ?? DEFAULT_FRESH_WRITE_RETRY_DELAYS_MS;
-  const shouldRetry = () =>
-    Boolean(readFreshWriteToken(options.request, nowMs(), options.maxAgeMs));
+  const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_FRESH_WRITE_RETRY_DELAYS_MS;
+  const shouldRetry = () => Boolean(readFreshWriteToken(options.request, nowMs(), options.maxAgeMs));
 
   for (let attempt = 0; ; attempt += 1) {
     try {

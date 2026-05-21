@@ -5,9 +5,7 @@ export type HonoClientEndpointInput = Readonly<{
   header?: HeadersInit;
 }>;
 
-export type HonoClientEndpoint = (
-  input?: HonoClientEndpointInput,
-) => Promise<Response>;
+export type HonoClientEndpoint = (input?: HonoClientEndpointInput) => Promise<Response>;
 
 type HonoClientRouteMethods = Readonly<{
   $delete: HonoClientEndpoint;
@@ -17,8 +15,7 @@ type HonoClientRouteMethods = Readonly<{
   $put: HonoClientEndpoint;
 }>;
 
-export type HonoClientResource = HonoClientRouteMethods & Readonly<{
-  [PathSegment in string as PathSegment extends `$${string}`
-    ? never
-    : PathSegment]: HonoClientResource;
-}>;
+export type HonoClientResource = HonoClientRouteMethods &
+  Readonly<{
+    [PathSegment in string as PathSegment extends `$${string}` ? never : PathSegment]: HonoClientResource;
+  }>;

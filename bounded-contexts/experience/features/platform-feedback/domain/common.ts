@@ -134,9 +134,7 @@ export function normalizeRelatedEntities(
     .filter((entity) => entity.type.length > 0 && entity.id.length > 0);
 }
 
-export function relatedEntityKey(
-  entities: readonly PlatformFeedbackRelatedEntity[] = [],
-) {
+export function relatedEntityKey(entities: readonly PlatformFeedbackRelatedEntity[] = []) {
   const primary = normalizeRelatedEntities(entities)[0];
   return primary ? `${primary.type}:${primary.id}` : null;
 }

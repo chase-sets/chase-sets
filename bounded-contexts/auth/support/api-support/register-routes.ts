@@ -3,16 +3,9 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
-import {
-  createIdentityMutations,
-  getBootstrapContext,
-  type AuthApiApp,
-} from "./support";
+import { createIdentityMutations, getBootstrapContext, type AuthApiApp } from "./support";
 
-export function registerRegistrationRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServices) {
   app.post("/register", async (c) => {
     const body = await c.req.json();
     const identityMutations = createIdentityMutations(c);

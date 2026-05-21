@@ -4,19 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 
-const {
-  mockUseLoaderData,
-  mockUseNavigate,
-  mockUseNavigation,
-  mockUseSearchParams,
-  mockSubscribeRealtimePatches,
-} = vi.hoisted(() => ({
-  mockUseLoaderData: vi.fn(),
-  mockUseNavigate: vi.fn(),
-  mockUseNavigation: vi.fn(),
-  mockUseSearchParams: vi.fn(),
-  mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
-}));
+const { mockUseLoaderData, mockUseNavigate, mockUseNavigation, mockUseSearchParams, mockSubscribeRealtimePatches } =
+  vi.hoisted(() => ({
+    mockUseLoaderData: vi.fn(),
+    mockUseNavigate: vi.fn(),
+    mockUseNavigation: vi.fn(),
+    mockUseSearchParams: vi.fn(),
+    mockSubscribeRealtimePatches: vi.fn(() => ({ close: vi.fn() })),
+  }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -294,9 +289,7 @@ describe("marketplace search route", () => {
 
     render(<SearchRoute />);
 
-    expect(screen.getByRole("link", { name: "View details for Pikachu" }).getAttribute("href")).toBe(
-      "/items/pikachu",
-    );
+    expect(screen.getByRole("link", { name: "View details for Pikachu" }).getAttribute("href")).toBe("/items/pikachu");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
       "/items/pikachu?market=buy",
     );
@@ -309,9 +302,7 @@ describe("marketplace search route", () => {
     expect(screen.getAllByText("English").length).toBeGreaterThan(0);
     expect(screen.queryByText("Language: en")).toBeNull();
     expect(screen.queryByText("Compare")).toBeNull();
-    expect(
-      screen.queryByText("Compare price, seller trust, and fulfillment before choosing."),
-    ).toBeNull();
+    expect(screen.queryByText("Compare price, seller trust, and fulfillment before choosing.")).toBeNull();
   });
 
   it("frames market-only result cards as offer and supply opportunities", () => {
@@ -344,16 +335,22 @@ describe("marketplace search route", () => {
       slug: "raichu",
       title: "Raichu",
     };
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
-      items: [secondPageItem],
-      facets: [],
-      total: null,
-      count: 1,
-      nextCursor: null,
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            items: [secondPageItem],
+            facets: [],
+            total: null,
+            count: 1,
+            nextCursor: null,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     mockUseLoaderData.mockReturnValue(searchDataWithCursor("pikachu"));
     mockUseNavigate.mockReturnValue(vi.fn());
@@ -382,16 +379,22 @@ describe("marketplace search route", () => {
       slug: "raichu",
       title: "Raichu",
     };
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
-      items: [secondPageItem],
-      facets: [],
-      total: null,
-      count: 1,
-      nextCursor: null,
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            items: [secondPageItem],
+            facets: [],
+            total: null,
+            count: 1,
+            nextCursor: null,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     mockUseLoaderData.mockReturnValue(searchDataWithCursor("pikachu"));
     mockUseNavigate.mockReturnValue(vi.fn());
@@ -414,16 +417,22 @@ describe("marketplace search route", () => {
       slug: "raichu",
       title: "Raichu",
     };
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
-      items: [secondPageItem],
-      facets: [],
-      total: null,
-      count: 1,
-      nextCursor: null,
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            items: [secondPageItem],
+            facets: [],
+            total: null,
+            count: 1,
+            nextCursor: null,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     mockUseLoaderData.mockReturnValue(searchDataWithCursor("pikachu"));
     mockUseNavigate.mockReturnValue(vi.fn());
@@ -435,24 +444,26 @@ describe("marketplace search route", () => {
 
     await waitFor(() => expect(screen.getByText("Raichu")).toBeTruthy());
 
-    const subscriptionOptions = (mockSubscribeRealtimePatches.mock.calls.at(-1) as
-      | [SubscribeRealtimePatchesOptions]
-      | undefined)?.[0];
+    const subscriptionOptions = (
+      mockSubscribeRealtimePatches.mock.calls.at(-1) as [SubscribeRealtimePatchesOptions] | undefined
+    )?.[0];
     const patch = {
       kind: "projection.patch",
       context: "discovery",
       projection: "discovery-market-projection",
       topics: ["public:market"],
-      changes: [{
-        op: "summary",
-        entity: "discovery.marketSummary",
-        id: "cat_raichu",
-        value: {
-          lowest_price_amount: "7.00",
-          active_listing_count: 4,
-          total_visible_quantity: 4,
+      changes: [
+        {
+          op: "summary",
+          entity: "discovery.marketSummary",
+          id: "cat_raichu",
+          value: {
+            lowest_price_amount: "7.00",
+            active_listing_count: 4,
+            total_visible_quantity: 4,
+          },
         },
-      }],
+      ],
     } satisfies RealtimeProjectionPatch;
 
     act(() => subscriptionOptions?.onPatch(patch));

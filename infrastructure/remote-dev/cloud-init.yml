@@ -7,14 +7,14 @@ users:
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
-      - {{SSH_PUBLIC_KEY}}
+      - { { SSH_PUBLIC_KEY } }
 ssh_pwauth: false
 disable_root: false
 write_files:
   - path: /usr/local/bin/chase-sets-remote-dev
     permissions: "0755"
     encoding: b64
-    content: {{REMOTE_HELPER_B64}}
+    content: { { REMOTE_HELPER_B64 } }
   - path: /etc/chase-sets/session
     permissions: "0644"
     content: |

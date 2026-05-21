@@ -2,11 +2,7 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 
 export type SellerListingAvailabilityStatus = "available" | "unavailable";
 
-export type SellerListingAvailabilityReasonCategory =
-  | "travel"
-  | "audit"
-  | "operations"
-  | "other";
+export type SellerListingAvailabilityReasonCategory = "travel" | "audit" | "operations" | "other";
 
 export type SellerListingAvailabilityState = Readonly<{
   accountId: string | null;
@@ -99,9 +95,7 @@ function normalizeIsoDate(value: string | null) {
   return normalized;
 }
 
-function normalizeReasonCategory(
-  value: SellerListingAvailabilityReasonCategory | null,
-) {
+function normalizeReasonCategory(value: SellerListingAvailabilityReasonCategory | null) {
   return value;
 }
 
@@ -126,15 +120,17 @@ export const decideSellerListingAvailability: AggregateDecider<
         return [];
       }
 
-      return [{
-        type: "marketplace.seller-listing-availability.disabled",
-        data: {
-          accountId,
-          reasonCategory,
-          availableAgainOn,
-          disabledAt,
+      return [
+        {
+          type: "marketplace.seller-listing-availability.disabled",
+          data: {
+            accountId,
+            reasonCategory,
+            availableAgainOn,
+            disabledAt,
+          },
         },
-      }];
+      ];
     }
     case "EnableSellerListingAvailability": {
       const accountId = normalizeAccountId(command.accountId);
@@ -145,13 +141,15 @@ export const decideSellerListingAvailability: AggregateDecider<
         return [];
       }
 
-      return [{
-        type: "marketplace.seller-listing-availability.enabled",
-        data: {
-          accountId,
-          enabledAt,
+      return [
+        {
+          type: "marketplace.seller-listing-availability.enabled",
+          data: {
+            accountId,
+            enabledAt,
+          },
         },
-      }];
+      ];
     }
     default:
       return assertNever(command);

@@ -12,13 +12,7 @@ import {
   UiPageSection,
 } from "@chase-sets/design-system";
 
-export function SecurityPage({
-  user,
-  apiKeys,
-}: {
-  user: User;
-  apiKeys: readonly ApiKey[];
-}) {
+export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly ApiKey[] }) {
   const enabledMethods = user.auth_methods.length
     ? user.auth_methods.join(", ")
     : t("identity.features.apiKeys.ui.accountSecurityPage.no.interactive.methods.enabled");
@@ -32,7 +26,9 @@ export function SecurityPage({
       <UiPageHeader
         eyebrow={t("identity.features.apiKeys.ui.accountSecurityPage.account")}
         title={t("identity.features.apiKeys.ui.accountSecurityPage.security")}
-        description={t("identity.features.apiKeys.ui.accountSecurityPage.authentication.methods.passkeys.sessions.and.api")}
+        description={t(
+          "identity.features.apiKeys.ui.accountSecurityPage.authentication.methods.passkeys.sessions.and.api",
+        )}
       />
       <MarketplaceDashboardPanel
         title={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection")}
@@ -73,9 +69,10 @@ export function SecurityPage({
               },
               {
                 label: t("identity.features.apiKeys.ui.accountSecurityPage.api.keys"),
-                value: apiKeys.length > 0
-                  ? apiKeys.map((key) => `${key.name} (${key.status})`).join(", ")
-                  : t("identity.features.apiKeys.ui.accountSecurityPage.no.api.keys.yet"),
+                value:
+                  apiKeys.length > 0
+                    ? apiKeys.map((key) => `${key.name} (${key.status})`).join(", ")
+                    : t("identity.features.apiKeys.ui.accountSecurityPage.no.api.keys.yet"),
               },
             ]}
           />

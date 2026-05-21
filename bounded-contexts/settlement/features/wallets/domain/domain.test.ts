@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideWallet,
-  evolveWallet,
-  initialWalletState,
-} from "./domain";
+import { decideWallet, evolveWallet, initialWalletState } from "./domain";
 
 describe("settlement wallet domain", () => {
   it("opens a wallet, posts a pending credit, and releases it to available balance", () => {
@@ -55,10 +51,7 @@ describe("settlement wallet domain", () => {
         fundsStatus: "available" as const,
         postedAt: "2026-04-02T00:01:00.000Z",
       },
-    ].reduce(
-      (state, command) => decideWallet(state, command).reduce(evolveWallet, state),
-      initialWalletState,
-    );
+    ].reduce((state, command) => decideWallet(state, command).reduce(evolveWallet, state), initialWalletState);
 
     const debitedState = decideWallet(creditedState, {
       type: "PostLedgerEntry",
@@ -94,10 +87,7 @@ describe("settlement wallet domain", () => {
         fundsStatus: "available" as const,
         postedAt: "2026-04-02T00:01:00.000Z",
       },
-    ].reduce(
-      (state, command) => decideWallet(state, command).reduce(evolveWallet, state),
-      initialWalletState,
-    );
+    ].reduce((state, command) => decideWallet(state, command).reduce(evolveWallet, state), initialWalletState);
 
     expect(() =>
       decideWallet(creditedState, {
@@ -133,8 +123,7 @@ describe("settlement wallet domain", () => {
         postedAt: "2026-04-02T00:01:00.000Z",
       },
     ].reduce(
-      (currentState, command) =>
-        decideWallet(currentState, command).reduce(evolveWallet, currentState),
+      (currentState, command) => decideWallet(currentState, command).reduce(evolveWallet, currentState),
       initialWalletState,
     );
 

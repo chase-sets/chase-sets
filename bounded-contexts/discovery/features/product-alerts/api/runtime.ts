@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -17,20 +14,12 @@ import {
   type ProductAlertEvent,
   type ProductAlertState,
 } from "../domain/domain";
-import {
-  getProductAlert,
-  listProductAlerts,
-  type ProductAlertPageRow,
-} from "../read-model/queries";
+import { getProductAlert, listProductAlerts, type ProductAlertPageRow } from "../read-model/queries";
 import { buildProductAlertPageProjectionHandlers } from "../read-model/projection";
 import type { CreateProductAlertRequest } from "./contracts";
 
 export type ProductAlertServices = Readonly<{
-  commandHandler: CommandHandler<
-    ProductAlertCommand,
-    ProductAlertState,
-    ProductAlertEvent
-  >;
+  commandHandler: CommandHandler<ProductAlertCommand, ProductAlertState, ProductAlertEvent>;
   createProductAlert: (
     input: CreateProductAlertRequest & Readonly<{ accountId: string }>,
     context: EventStoreContext,
@@ -47,18 +36,12 @@ export type ProductAlertServices = Readonly<{
     input: Readonly<{ accountId: string; alertId: string }>,
     context: EventStoreContext,
   ) => Promise<Readonly<{ alertId: string; version: number }>>;
-  listProductAlerts: (
-    input: Readonly<{ accountId: string }>,
-  ) => Promise<readonly ProductAlertPageRow[]>;
-  getProductAlert: (
-    input: Readonly<{ accountId: string; alertId: string }>,
-  ) => Promise<ProductAlertPageRow | null>;
+  listProductAlerts: (input: Readonly<{ accountId: string }>) => Promise<readonly ProductAlertPageRow[]>;
+  getProductAlert: (input: Readonly<{ accountId: string; alertId: string }>) => Promise<ProductAlertPageRow | null>;
   projectors: readonly Projector[];
 }>;
 
-export function createProductAlertRuntime(
-  deps: DiscoveryRuntimeDeps,
-): ProductAlertServices {
+export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAlertServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,

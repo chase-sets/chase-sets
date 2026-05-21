@@ -1,12 +1,7 @@
 import { t } from "@chase-sets/localization";
-import type {
-  FulfillmentPackingSlip,
-  FulfillmentPackingSlipFormat,
-} from "./contracts";
+import type { FulfillmentPackingSlip, FulfillmentPackingSlipFormat } from "./contracts";
 
-function formatAddress(
-  address: FulfillmentPackingSlip["shipping_destination_snapshot"],
-) {
+function formatAddress(address: FulfillmentPackingSlip["shipping_destination_snapshot"]) {
   return [
     address.name,
     address.company,
@@ -18,9 +13,7 @@ function formatAddress(
 }
 
 function printSizeClass(format: FulfillmentPackingSlipFormat) {
-  return format === "thermal-4x6"
-    ? "fulfillment-packing-slip--thermal"
-    : "fulfillment-packing-slip--letter";
+  return format === "thermal-4x6" ? "fulfillment-packing-slip--thermal" : "fulfillment-packing-slip--letter";
 }
 
 function printPageSize(format: FulfillmentPackingSlipFormat) {
@@ -486,21 +479,14 @@ export function FulfillmentPackingSlipPrintPage({
         <div className="fulfillment-packing-slip-toolbar__actions">
           <form className="fulfillment-packing-slip-toolbar__form" method="get">
             {slips.map((slip) => (
-              <input
-                key={slip.shipment_id}
-                type="hidden"
-                name="shipmentIds"
-                value={slip.shipment_id}
-              />
+              <input key={slip.shipment_id} type="hidden" name="shipmentIds" value={slip.shipment_id} />
             ))}
             <div className="fulfillment-packing-slip-field">
               <label htmlFor="packing-slip-format">
                 {t("fulfillment.features.shipments.ui.packingSlipPage.format")}
               </label>
               <select id="packing-slip-format" name="format" defaultValue={format}>
-                <option value="letter">
-                  {t("fulfillment.features.shipments.ui.packingSlipPage.letter")}
-                </option>
+                <option value="letter">{t("fulfillment.features.shipments.ui.packingSlipPage.letter")}</option>
                 <option value="thermal-4x6">
                   {t("fulfillment.features.shipments.ui.packingSlipPage.thermal.4x6")}
                 </option>
@@ -513,20 +499,13 @@ export function FulfillmentPackingSlipPrintPage({
               {t("fulfillment.features.shipments.ui.packingSlipPage.change.format")}
             </button>
           </form>
-          <button
-            className="fulfillment-packing-slip-button"
-            type="button"
-            onClick={() => globalThis.print?.()}
-          >
+          <button className="fulfillment-packing-slip-button" type="button" onClick={() => globalThis.print?.()}>
             {t("fulfillment.features.shipments.ui.packingSlipPage.print")}
           </button>
         </div>
       </div>
 
-      <div
-        className="fulfillment-packing-slip-print-root"
-        data-format={format}
-      >
+      <div className="fulfillment-packing-slip-print-root" data-format={format}>
         {slips.map((slip) => (
           <article
             key={slip.shipment_id}
@@ -592,9 +571,7 @@ export function FulfillmentPackingSlipPrintPage({
                     <tr key={line.line_id}>
                       <td>
                         <strong>{line.item_title}</strong>
-                        {line.item_subtitle ? (
-                          <div>{line.item_subtitle}</div>
-                        ) : null}
+                        {line.item_subtitle ? <div>{line.item_subtitle}</div> : null}
                       </td>
                       <td>{line.product_summary ?? t("fulfillment.features.shipments.ui.packingSlipPage.standard")}</td>
                       <td className="fulfillment-packing-slip__qty">{line.quantity}</td>

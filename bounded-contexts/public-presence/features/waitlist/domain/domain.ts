@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   assert,
   assertNever,
@@ -77,30 +73,21 @@ export type WaitlistSignupUpdatedEvent = DomainEvent<
   }>
 >;
 
-export type WaitlistSignupEvent =
-  | WaitlistSignupRecordedEvent
-  | WaitlistSignupUpdatedEvent;
+export type WaitlistSignupEvent = WaitlistSignupRecordedEvent | WaitlistSignupUpdatedEvent;
 
-export const decideWaitlistSignup: AggregateDecider<
-  WaitlistSignupState,
-  WaitlistSignupCommand,
-  WaitlistSignupEvent
-> = (state, command) => {
+export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, WaitlistSignupCommand, WaitlistSignupEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "RecordWaitlistSignup": {
       const email = normalizeEmail(command.email);
       const signupId = stableWaitlistSignupId(email);
       const role = normalizeWaitlistCommerceIntent(command.role);
       const interests = normalizeWaitlistInterests(command.interests);
-      const recordedAt = ensureIsoTimestamp(
-        command.recordedAt,
-        "Waitlist signup must record a timestamp.",
-      );
+      const recordedAt = ensureIsoTimestamp(command.recordedAt, "Waitlist signup must record a timestamp.");
       const consentAcceptedAt = command.emailConsentAcceptedAt
-        ? ensureIsoTimestamp(
-            command.emailConsentAcceptedAt,
-            "Email consent must record a timestamp.",
-          )
+        ? ensureIsoTimestamp(command.emailConsentAcceptedAt, "Email consent must record a timestamp.")
         : null;
 
       assert(consentAcceptedAt !== null, "Email consent is required.");
@@ -142,10 +129,7 @@ export const decideWaitlistSignup: AggregateDecider<
   }
 };
 
-export const evolveWaitlistSignup: AggregateEvolver<
-  WaitlistSignupState,
-  WaitlistSignupEvent
-> = (state, event) => {
+export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, WaitlistSignupEvent> = (state, event) => {
   switch (event.type) {
     case "public-presence.waitlist-signup.recorded":
       return {

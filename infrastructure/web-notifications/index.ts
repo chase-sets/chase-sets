@@ -59,25 +59,26 @@ export type WebNotificationFeedItem = Readonly<{
   createdAt: string;
 }>;
 
-export type ListWebNotificationsInput = WebNotificationFeedScope & Readonly<{
-  limit?: number;
-  offset?: number;
-  includeRead?: boolean;
-}>;
+export type ListWebNotificationsInput = WebNotificationFeedScope &
+  Readonly<{
+    limit?: number;
+    offset?: number;
+    includeRead?: boolean;
+  }>;
 
-export type MarkWebNotificationReadInput = WebNotificationFeedScope & Readonly<{
-  deliveryId: string;
-  readAt?: string;
-}>;
+export type MarkWebNotificationReadInput = WebNotificationFeedScope &
+  Readonly<{
+    deliveryId: string;
+    readAt?: string;
+  }>;
 
-export type MarkAllWebNotificationsReadInput = WebNotificationFeedScope & Readonly<{
-  readAt?: string;
-}>;
+export type MarkAllWebNotificationsReadInput = WebNotificationFeedScope &
+  Readonly<{
+    readAt?: string;
+  }>;
 
 export interface WebNotificationFeed {
-  listWebNotifications(
-    input: ListWebNotificationsInput,
-  ): Promise<readonly WebNotificationFeedItem[]>;
+  listWebNotifications(input: ListWebNotificationsInput): Promise<readonly WebNotificationFeedItem[]>;
   countUnreadWebNotifications(input: WebNotificationFeedScope): Promise<number>;
   markWebNotificationRead(input: MarkWebNotificationReadInput): Promise<void>;
   markAllWebNotificationsRead(input: MarkAllWebNotificationsReadInput): Promise<void>;
@@ -93,15 +94,12 @@ export function createPostgresWebNotificationAdapter(
   return {
     channel: "web",
     providerName: "web-notification-feed",
-    async sendNotificationChannel(
-      delivery: NotificationDelivery,
-    ): Promise<SentNotificationReceipt> {
+    async sendNotificationChannel(delivery: NotificationDelivery): Promise<SentNotificationReceipt> {
       const channel = assertWebChannel(delivery.channel);
       const createdAt = now().toISOString();
       const title = channel.title?.trim() || delivery.message.title;
       const body = channel.body?.trim() || delivery.message.body;
-      const actionHref =
-        channel.actionHref?.trim() || delivery.message.actionHref?.trim() || null;
+      const actionHref = channel.actionHref?.trim() || delivery.message.actionHref?.trim() || null;
 
       await db.query(
         `INSERT INTO ${tableName} (
@@ -144,9 +142,7 @@ export function createPostgresWebNotificationAdapter(
   };
 }
 
-export function createPostgresWebNotificationFeed(
-  options: PostgresWebNotificationAdapterOptions,
-): WebNotificationFeed {
+export function createPostgresWebNotificationFeed(options: PostgresWebNotificationAdapterOptions): WebNotificationFeed {
   const db = options.db;
   const tableName = assertSqlIdentifier(options.tableName ?? DEFAULT_TABLE_NAME);
   const now = options.now ?? (() => new Date());
@@ -258,9 +254,7 @@ type WebNotificationRow = Readonly<{
   created_at: Date | string;
 }>;
 
-function rowToWebNotificationFeedItem(
-  row: WebNotificationRow,
-): WebNotificationFeedItem {
+function rowToWebNotificationFeedItem(row: WebNotificationRow): WebNotificationFeedItem {
   return {
     notificationId: String(row.notification_id),
     deliveryId: row.delivery_id,
@@ -278,10 +272,7 @@ function rowToWebNotificationFeedItem(
   };
 }
 
-function webNotificationScopeClause(
-  scope: WebNotificationFeedScope,
-  firstParameterIndex: number,
-) {
+function webNotificationScopeClause(scope: WebNotificationFeedScope, firstParameterIndex: number) {
   const clauses: string[] = [];
   const values: unknown[] = [];
 

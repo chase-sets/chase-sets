@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -149,14 +146,10 @@ function resolvePaymentReturnPath(value: string | null | undefined, paymentId: P
     return fallback;
   }
 
-  return raw
-    .replaceAll(":paymentId", paymentId)
-    .replaceAll("{paymentId}", paymentId);
+  return raw.replaceAll(":paymentId", paymentId).replaceAll("{paymentId}", paymentId);
 }
 
-function sumOrderAmounts(
-  orders: readonly Readonly<{ total_amount: string }>[],
-) {
+function sumOrderAmounts(orders: readonly Readonly<{ total_amount: string }>[]) {
   return orders
     .reduce(
       (sum, order) =>
@@ -214,29 +207,31 @@ function buildSellerPayoutComponents(
     if (!order.seller_account_id) {
       return [];
     }
-    return [{
-      orderId: order.order_id as OrderId,
-      sellerAccountId: order.seller_account_id as AccountId,
-      sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount ?? order.seller_net_amount, {
-        fieldName: "Seller item net amount",
-        allowZero: true,
-      }),
-      shippingAllowanceAmount: normalizeMoneyAmount(order.shipping_allowance_amount ?? "0.00", {
-        fieldName: "Shipping allowance amount",
-        allowZero: true,
-      }),
-      sellerShippingPayoutAmount: normalizeMoneyAmount(
-        order.seller_shipping_payout_amount ?? order.shipping_allowance_amount ?? "0.00",
-        {
-          fieldName: "Seller shipping payout amount",
+    return [
+      {
+        orderId: order.order_id as OrderId,
+        sellerAccountId: order.seller_account_id as AccountId,
+        sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount ?? order.seller_net_amount, {
+          fieldName: "Seller item net amount",
           allowZero: true,
-        },
-      ),
-      sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount ?? order.seller_net_amount, {
-        fieldName: "Seller payout amount",
-        allowZero: true,
-      }),
-    }];
+        }),
+        shippingAllowanceAmount: normalizeMoneyAmount(order.shipping_allowance_amount ?? "0.00", {
+          fieldName: "Shipping allowance amount",
+          allowZero: true,
+        }),
+        sellerShippingPayoutAmount: normalizeMoneyAmount(
+          order.seller_shipping_payout_amount ?? order.shipping_allowance_amount ?? "0.00",
+          {
+            fieldName: "Seller shipping payout amount",
+            allowZero: true,
+          },
+        ),
+        sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount ?? order.seller_net_amount, {
+          fieldName: "Seller payout amount",
+          allowZero: true,
+        }),
+      },
+    ];
   });
 }
 
@@ -262,13 +257,15 @@ function ceilMoneyAmount(value: number) {
   return (Math.ceil((value + Number.EPSILON) * 100) / 100).toFixed(2);
 }
 
-function quoteMarketplaceCheckoutFee(params: Readonly<{
-  orderAmount: string;
-  externalBasisAmount: string;
-  balanceCreditAmount: string;
-  paymentMethodCategory: PaymentMethodCategory;
-  quotedAt?: string;
-}>): MarketplaceCheckoutFeeQuote {
+function quoteMarketplaceCheckoutFee(
+  params: Readonly<{
+    orderAmount: string;
+    externalBasisAmount: string;
+    balanceCreditAmount: string;
+    paymentMethodCategory: PaymentMethodCategory;
+    quotedAt?: string;
+  }>,
+): MarketplaceCheckoutFeeQuote {
   const policyVersion = "marketplace-checkout-fee-v1";
   const externalBasis = Number.parseFloat(
     normalizeMoneyAmount(params.externalBasisAmount, {
@@ -276,22 +273,14 @@ function quoteMarketplaceCheckoutFee(params: Readonly<{
       allowZero: true,
     }),
   );
-  const method =
-    externalBasis === 0 ? "platform-credit" : params.paymentMethodCategory;
-  const rateBps =
-    method === "platform-credit" ? 0 : method === "bank-account" ? 50 : 290;
+  const method = externalBasis === 0 ? "platform-credit" : params.paymentMethodCategory;
+  const rateBps = method === "platform-credit" ? 0 : method === "bank-account" ? 50 : 290;
   const fixedAmount = method === "card" ? 0.3 : 0;
   const rate = rateBps / 10_000;
-  const feeAmount = rate > 0 || fixedAmount > 0
-    ? ceilMoneyAmount((externalBasis * rate + fixedAmount) / (1 - rate))
-    : "0.00";
-  const cardFeeAmount =
-    externalBasis > 0
-      ? ceilMoneyAmount((externalBasis * 0.029 + 0.3) / (1 - 0.029))
-      : "0.00";
-  const reductionAmount = ceilMoneyAmount(
-    Number.parseFloat(cardFeeAmount) - Number.parseFloat(feeAmount),
-  );
+  const feeAmount =
+    rate > 0 || fixedAmount > 0 ? ceilMoneyAmount((externalBasis * rate + fixedAmount) / (1 - rate)) : "0.00";
+  const cardFeeAmount = externalBasis > 0 ? ceilMoneyAmount((externalBasis * 0.029 + 0.3) / (1 - 0.029)) : "0.00";
+  const reductionAmount = ceilMoneyAmount(Number.parseFloat(cardFeeAmount) - Number.parseFloat(feeAmount));
   const totalAmount = addMoney(params.orderAmount, feeAmount);
   const processorAmount = addMoney(params.externalBasisAmount, feeAmount);
   const quotedAt = params.quotedAt ?? new Date().toISOString();
@@ -319,11 +308,7 @@ function quoteMarketplaceCheckoutFee(params: Readonly<{
   };
 }
 
-async function loadAccountOrders(
-  db: PgQueryable,
-  orderIds: readonly OrderId[],
-  accountId: AccountId,
-) {
+async function loadAccountOrders(db: PgQueryable, orderIds: readonly OrderId[], accountId: AccountId) {
   const orders = await listPaymentOrderInputs(db, orderIds, accountId);
   const ordersById = new Map(orders.map((order) => [order.order_id, order]));
 
@@ -333,9 +318,7 @@ async function loadAccountOrders(
       throw new PaymentsDomainError(`Order ${orderId} was not found.`);
     }
     if (order.status !== "pending-payment") {
-      throw new PaymentsDomainError(
-        `Order ${orderId} is not eligible for payment in status ${order.status}.`,
-      );
+      throw new PaymentsDomainError(`Order ${orderId} is not eligible for payment in status ${order.status}.`);
     }
   }
 
@@ -363,10 +346,13 @@ export type PaymentServices = Readonly<{
       agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<PaymentDetailRow & Readonly<{
-    processor_publishable_key: string | null;
-    provider_events: readonly PaymentProviderEventRow[];
-  }>>;
+  ) => Promise<
+    PaymentDetailRow &
+      Readonly<{
+        processor_publishable_key: string | null;
+        provider_events: readonly PaymentProviderEventRow[];
+      }>
+  >;
   recoverCheckoutPayment: (
     params: Readonly<{
       accountId: AccountId;
@@ -384,10 +370,13 @@ export type PaymentServices = Readonly<{
       agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<PaymentDetailRow & Readonly<{
-    processor_publishable_key: string | null;
-    provider_events: readonly PaymentProviderEventRow[];
-  }>>;
+  ) => Promise<
+    PaymentDetailRow &
+      Readonly<{
+        processor_publishable_key: string | null;
+        provider_events: readonly PaymentProviderEventRow[];
+      }>
+  >;
   getCheckoutRecoveryOptions: (
     params: Readonly<{
       accountId: AccountId;
@@ -396,22 +385,26 @@ export type PaymentServices = Readonly<{
       requestedBalanceCreditAmount?: string | null;
       paymentMethodCategory?: string | null;
     }>,
-  ) => Promise<Readonly<{
-    recovery_reference_id: string;
-    can_recover: boolean;
-    recommended_action: "start-payment" | "use-existing-payment" | "unavailable";
-    checkout_status: CheckoutStatusResult;
-  }>>;
+  ) => Promise<
+    Readonly<{
+      recovery_reference_id: string;
+      can_recover: boolean;
+      recommended_action: "start-payment" | "use-existing-payment" | "unavailable";
+      checkout_status: CheckoutStatusResult;
+    }>
+  >;
   getAccountPayment: (
     paymentId: string,
     accountId: string,
-  ) => Promise<(PaymentDetailRow & Readonly<{
-    processor_publishable_key: string | null;
-    provider_events: readonly PaymentProviderEventRow[];
-  }>) | null>;
-  getPaymentMoneyTimeline: (
-    params: Readonly<{ paymentId: string; accountId: string }>,
-  ) => Promise<Readonly<{
+  ) => Promise<
+    | (PaymentDetailRow &
+        Readonly<{
+          processor_publishable_key: string | null;
+          provider_events: readonly PaymentProviderEventRow[];
+        }>)
+    | null
+  >;
+  getPaymentMoneyTimeline: (params: Readonly<{ paymentId: string; accountId: string }>) => Promise<Readonly<{
     payment_id: string;
     account_id: string;
     items: readonly Readonly<{
@@ -442,16 +435,16 @@ export type PaymentServices = Readonly<{
   listPaymentsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
   ) => Promise<PaymentDetailRow[]>;
-  listReconciliationRuns: (
-    params?: Readonly<{ limit?: number }>,
-  ) => Promise<PaymentReconciliationRunRow[]>;
-  getProviderHealth: () => Promise<Readonly<{
-    provider_name: string;
-    confirmation_experience: PaymentProcessorPublicConfig["confirmationExperience"];
-    dynamic_payment_methods: boolean;
-    sensitive_payment_details_handled_by_provider: boolean;
-    webhook_signature_required: boolean;
-  }>>;
+  listReconciliationRuns: (params?: Readonly<{ limit?: number }>) => Promise<PaymentReconciliationRunRow[]>;
+  getProviderHealth: () => Promise<
+    Readonly<{
+      provider_name: string;
+      confirmation_experience: PaymentProcessorPublicConfig["confirmationExperience"];
+      dynamic_payment_methods: boolean;
+      sensitive_payment_details_handled_by_provider: boolean;
+      webhook_signature_required: boolean;
+    }>
+  >;
   scanPaymentsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
   ) => Promise<Readonly<{ checked: number; attention: number; payment_ids: readonly string[] }>>;
@@ -463,9 +456,7 @@ export type PaymentServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createPaymentRuntime(
-  deps: PaymentRuntimeDeps,
-): PaymentServices {
+export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -482,25 +473,19 @@ export function createPaymentRuntime(
   function exposePayment(
     payment: PaymentDetailRow,
     providerEvents: readonly PaymentProviderEventRow[] = [],
-  ): PaymentDetailRow & Readonly<{
-    processor_publishable_key: string | null;
-    provider_events: readonly PaymentProviderEventRow[];
-  }> {
+  ): PaymentDetailRow &
+    Readonly<{
+      processor_publishable_key: string | null;
+      provider_events: readonly PaymentProviderEventRow[];
+    }> {
     const canConfirmWithProcessor = payment.status === "pending-confirmation";
-    const canUseProcessorManagedForm =
-      canConfirmWithProcessor && Boolean(payment.processor_client_secret);
+    const canUseProcessorManagedForm = canConfirmWithProcessor && Boolean(payment.processor_client_secret);
 
     return {
       ...payment,
-      processor_client_secret: canUseProcessorManagedForm
-        ? payment.processor_client_secret
-        : null,
-      processor_redirect_url: canConfirmWithProcessor
-        ? payment.processor_redirect_url
-        : null,
-      processor_publishable_key: canUseProcessorManagedForm
-        ? publicConfig.publishableKey
-        : null,
+      processor_client_secret: canUseProcessorManagedForm ? payment.processor_client_secret : null,
+      processor_redirect_url: canConfirmWithProcessor ? payment.processor_redirect_url : null,
+      processor_publishable_key: canUseProcessorManagedForm ? publicConfig.publishableKey : null,
       provider_events: providerEvents,
     };
   }
@@ -508,21 +493,15 @@ export function createPaymentRuntime(
   return {
     commandHandler,
     async getCheckoutStatus(params) {
-      const accountId = normalizeRequiredText(
-        params.accountId,
-        "Account is required.",
-      ) as AccountId;
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const orderIds = normalizeOrderIds(params.orderIds);
       const orders = await loadAccountOrders(deps.db, orderIds, accountId);
       const amount = sumOrderAmounts(orders);
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
-      const requestedBalanceCreditAmount = normalizeMoneyAmount(
-        params.requestedBalanceCreditAmount ?? "0.00",
-        {
-          fieldName: "Balance credit amount",
-          allowZero: true,
-        },
-      );
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
+        fieldName: "Balance credit amount",
+        allowZero: true,
+      });
       const balanceCredit = deps.balanceCreditResolver
         ? await deps.balanceCreditResolver.resolveBalanceCredit({
             buyerAccountId: accountId,
@@ -546,22 +525,18 @@ export function createPaymentRuntime(
           allowZero: true,
         },
       );
-      const paymentMethodCategory = normalizePaymentMethodCategory(
-        params.paymentMethodCategory,
+      const paymentMethodCategory = normalizePaymentMethodCategory(params.paymentMethodCategory);
+      const paymentMethodQuotes = (["card", "bank-account", "platform-credit"] as const).map((method) =>
+        quoteMarketplaceCheckoutFee({
+          orderAmount: amount,
+          externalBasisAmount: externalAmount,
+          balanceCreditAmount: appliedAmount,
+          paymentMethodCategory: method,
+        }),
       );
-      const paymentMethodQuotes = (["card", "bank-account", "platform-credit"] as const)
-        .map((method) =>
-          quoteMarketplaceCheckoutFee({
-            orderAmount: amount,
-            externalBasisAmount: externalAmount,
-            balanceCreditAmount: appliedAmount,
-            paymentMethodCategory: method,
-          }),
-        );
       const marketplaceCheckoutFee =
-        paymentMethodQuotes.find(
-          (quote) => quote.payment_method_category === paymentMethodCategory,
-        ) ?? paymentMethodQuotes[0]!;
+        paymentMethodQuotes.find((quote) => quote.payment_method_category === paymentMethodCategory) ??
+        paymentMethodQuotes[0]!;
 
       return {
         order_ids: orderIds,
@@ -575,8 +550,7 @@ export function createPaymentRuntime(
           external_amount: externalAmount,
         },
         can_start_payment: compareMoney(amount, "0.00") > 0,
-        unavailable_reasons:
-          compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"],
+        unavailable_reasons: compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"],
         unavailable_reason_details:
           compareMoney(amount, "0.00") > 0
             ? []
@@ -635,19 +609,11 @@ export function createPaymentRuntime(
       };
     },
     async createAccountPayment(params, context) {
-      const accountId = normalizeRequiredText(
-        params.accountId,
-        "Account is required.",
-      ) as AccountId;
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const sourceContext = params.sourceContext?.trim() || null;
       const sourceReferenceId = params.sourceReferenceId?.trim() || null;
       if (sourceContext && sourceReferenceId) {
-        const existing = await getPaymentBySource(
-          deps.db,
-          sourceContext,
-          sourceReferenceId,
-          accountId,
-        );
+        const existing = await getPaymentBySource(deps.db, sourceContext, sourceReferenceId, accountId);
         if (existing) {
           return exposePayment(existing);
         }
@@ -656,13 +622,10 @@ export function createPaymentRuntime(
       const orders = await loadAccountOrders(deps.db, orderIds, accountId);
       const amount = sumOrderAmounts(orders);
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
-      const requestedBalanceCreditAmount = normalizeMoneyAmount(
-        params.requestedBalanceCreditAmount ?? "0.00",
-        {
-          fieldName: "Balance credit amount",
-          allowZero: true,
-        },
-      );
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
+        fieldName: "Balance credit amount",
+        allowZero: true,
+      });
       const balanceCredit = deps.balanceCreditResolver
         ? await deps.balanceCreditResolver.resolveBalanceCredit({
             buyerAccountId: accountId,
@@ -689,13 +652,8 @@ export function createPaymentRuntime(
       if (compareMoney(balanceCreditAmount, amount) > 0) {
         throw new PaymentsDomainError("Balance credit cannot exceed the payment amount.");
       }
-      const paymentMethodCategory = normalizePaymentMethodCategory(
-        params.paymentMethodCategory,
-      );
-      if (
-        paymentMethodCategory === "platform-credit" &&
-        compareMoney(externalBasisAmount, "0.00") > 0
-      ) {
+      const paymentMethodCategory = normalizePaymentMethodCategory(params.paymentMethodCategory);
+      if (paymentMethodCategory === "platform-credit" && compareMoney(externalBasisAmount, "0.00") > 0) {
         throw new PaymentsDomainError(
           "Platform credit must cover the order balance before it can be used as the payment method.",
         );
@@ -706,81 +664,68 @@ export function createPaymentRuntime(
         balanceCreditAmount,
         paymentMethodCategory,
       });
-      if (
-        params.marketplaceCheckoutFeeQuoteFingerprint !==
-        marketplaceCheckoutFeeQuote.quote_fingerprint
-      ) {
-        throw new PaymentsDomainError(
-          `fee_quote_stale:${JSON.stringify(marketplaceCheckoutFeeQuote)}`,
-        );
+      if (params.marketplaceCheckoutFeeQuoteFingerprint !== marketplaceCheckoutFeeQuote.quote_fingerprint) {
+        throw new PaymentsDomainError(`fee_quote_stale:${JSON.stringify(marketplaceCheckoutFeeQuote)}`);
       }
       const paymentAmount = marketplaceCheckoutFeeQuote.total_amount;
       const processorAmount = marketplaceCheckoutFeeQuote.processor_amount;
       const marketplaceSalesFeeAmount = sumFeeAmounts(orders, "marketplace_sales_fee_amount");
-      const marketplaceCheckoutFeeAmount =
-        marketplaceCheckoutFeeQuote.marketplace_checkout_fee_amount;
+      const marketplaceCheckoutFeeAmount = marketplaceCheckoutFeeQuote.marketplace_checkout_fee_amount;
       const sellerNetAmount = sumFeeAmounts(orders, "seller_net_amount");
       const sellerPayoutAmount = sumFeeAmounts(orders, "seller_payout_amount");
       const sellerPayouts = buildSellerPayoutComponents(orders);
       const paymentId = createId("pay") as PaymentId;
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
-      const returnUrlPath = resolvePaymentReturnPath(
-        params.returnUrlPath,
-        paymentId,
-      );
+      const returnUrlPath = resolvePaymentReturnPath(params.returnUrlPath, paymentId);
       const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
-      const createAgenticPaymentSession =
-        deps.processorGateway.createAgenticPaymentSession?.bind(deps.processorGateway);
+      const createAgenticPaymentSession = deps.processorGateway.createAgenticPaymentSession?.bind(
+        deps.processorGateway,
+      );
       if (params.agenticPayment && !createAgenticPaymentSession) {
-        throw new PaymentsDomainError(
-          "Agentic payment handoff is not supported by the configured payment processor.",
-        );
+        throw new PaymentsDomainError("Agentic payment handoff is not supported by the configured payment processor.");
       }
-      const processorPayment = compareMoney(processorAmount, "0.00") === 0
-        ? {
-            processorName: publicConfig.processorName,
-            processorPaymentKind: "balance-credit" as const,
-            processorPaymentReference: `balance-credit:${paymentId}`,
-            processorClientSecret: null,
-            processorRedirectUrl: null,
-            processorStatus: "balance-credit-captured",
-          }
-        : params.agenticPayment
-          ? await createAgenticPaymentSession!({
-              paymentId,
-              buyerAccountId: accountId,
-              orderIds,
-              amount: processorAmount,
-              currencyCode,
-              paymentMethodCategory,
-              description:
-                orderIds.length === 1
-                  ? `Chase Sets order ${orderIds[0]}`
-                  : `Chase Sets checkout for ${orderIds.length} orders`,
-              returnUrl: returnUrlBase
-                ? `${returnUrlBase}${returnUrlPath}`
-                : null,
-              idempotencyKey: providerIdempotencyKey,
-              clientRiskContext: params.clientRiskContext ?? null,
-              agenticPayment: params.agenticPayment,
-            })
-        : await deps.processorGateway.createPaymentSession({
-            paymentId,
-            buyerAccountId: accountId,
-            orderIds,
-            amount: processorAmount,
-            currencyCode,
-            paymentMethodCategory,
-            description:
-              orderIds.length === 1
-                ? `Chase Sets order ${orderIds[0]}`
-                : `Chase Sets checkout for ${orderIds.length} orders`,
-            returnUrl: returnUrlBase
-              ? `${returnUrlBase}${returnUrlPath}`
-              : null,
-            idempotencyKey: providerIdempotencyKey,
-            clientRiskContext: params.clientRiskContext ?? null,
-          });
+      const processorPayment =
+        compareMoney(processorAmount, "0.00") === 0
+          ? {
+              processorName: publicConfig.processorName,
+              processorPaymentKind: "balance-credit" as const,
+              processorPaymentReference: `balance-credit:${paymentId}`,
+              processorClientSecret: null,
+              processorRedirectUrl: null,
+              processorStatus: "balance-credit-captured",
+            }
+          : params.agenticPayment
+            ? await createAgenticPaymentSession!({
+                paymentId,
+                buyerAccountId: accountId,
+                orderIds,
+                amount: processorAmount,
+                currencyCode,
+                paymentMethodCategory,
+                description:
+                  orderIds.length === 1
+                    ? `Chase Sets order ${orderIds[0]}`
+                    : `Chase Sets checkout for ${orderIds.length} orders`,
+                returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
+                idempotencyKey: providerIdempotencyKey,
+                clientRiskContext: params.clientRiskContext ?? null,
+                agenticPayment: params.agenticPayment,
+              })
+            : await deps.processorGateway.createPaymentSession({
+                paymentId,
+                buyerAccountId: accountId,
+                orderIds,
+                amount: processorAmount,
+                currencyCode,
+                paymentMethodCategory,
+                description:
+                  orderIds.length === 1
+                    ? `Chase Sets order ${orderIds[0]}`
+                    : `Chase Sets checkout for ${orderIds.length} orders`,
+                returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
+                idempotencyKey: providerIdempotencyKey,
+                clientRiskContext: params.clientRiskContext ?? null,
+              });
       const createdAt = new Date().toISOString();
 
       await commandHandler({
@@ -845,10 +790,8 @@ export function createPaymentRuntime(
         processor_amount: processorAmount,
         marketplace_sales_fee_amount: marketplaceSalesFeeAmount,
         marketplace_checkout_fee_amount: marketplaceCheckoutFeeAmount,
-        marketplace_checkout_fee_policy_version:
-          marketplaceCheckoutFeeQuote.policy_version,
-        marketplace_checkout_fee_quote_fingerprint:
-          marketplaceCheckoutFeeQuote.quote_fingerprint,
+        marketplace_checkout_fee_policy_version: marketplaceCheckoutFeeQuote.policy_version,
+        marketplace_checkout_fee_quote_fingerprint: marketplaceCheckoutFeeQuote.quote_fingerprint,
         payment_method_category: marketplaceCheckoutFeeQuote.payment_method_category,
         seller_net_amount: sellerNetAmount,
         seller_payout_amount: sellerPayoutAmount,
@@ -862,9 +805,7 @@ export function createPaymentRuntime(
         processor_status: processorPayment.processorStatus,
         source_context: sourceContext,
         source_reference_id: sourceReferenceId,
-        status: compareMoney(processorAmount, "0.00") === 0
-          ? "captured"
-          : "pending-confirmation",
+        status: compareMoney(processorAmount, "0.00") === 0 ? "captured" : "pending-confirmation",
         failure_code: null,
         failure_message: null,
         created_at: createdAt,
@@ -879,22 +820,17 @@ export function createPaymentRuntime(
     recoverCheckoutPayment(params, context) {
       const orderIds = normalizeOrderIds(params.orderIds);
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
-      const requestedBalanceCreditAmount = normalizeMoneyAmount(
-        params.requestedBalanceCreditAmount ?? "0.00",
-        {
-          fieldName: "Balance credit amount",
-          allowZero: true,
-        },
-      );
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
+        fieldName: "Balance credit amount",
+        allowZero: true,
+      });
       return this.createAccountPayment(
         {
           ...params,
           orderIds,
           currencyCode,
           requestedBalanceCreditAmount,
-          paymentMethodCategory: normalizePaymentMethodCategory(
-            params.paymentMethodCategory,
-          ),
+          paymentMethodCategory: normalizePaymentMethodCategory(params.paymentMethodCategory),
           agenticPayment: params.agenticPayment ?? null,
           sourceContext: "checkout-recovery",
           sourceReferenceId: checkoutRecoveryReference({
@@ -902,28 +838,20 @@ export function createPaymentRuntime(
             orderIds,
             currencyCode,
             requestedBalanceCreditAmount,
-            paymentMethodCategory: normalizePaymentMethodCategory(
-              params.paymentMethodCategory,
-            ),
+            paymentMethodCategory: normalizePaymentMethodCategory(params.paymentMethodCategory),
           }),
         },
         context,
       );
     },
     async getCheckoutRecoveryOptions(params) {
-      const accountId = normalizeRequiredText(
-        params.accountId,
-        "Account is required.",
-      ) as AccountId;
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const orderIds = normalizeOrderIds(params.orderIds);
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
-      const requestedBalanceCreditAmount = normalizeMoneyAmount(
-        params.requestedBalanceCreditAmount ?? "0.00",
-        {
-          fieldName: "Balance credit amount",
-          allowZero: true,
-        },
-      );
+      const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
+        fieldName: "Balance credit amount",
+        allowZero: true,
+      });
       const checkoutStatus = await this.getCheckoutStatus({
         accountId,
         orderIds,
@@ -936,16 +864,9 @@ export function createPaymentRuntime(
         orderIds,
         currencyCode,
         requestedBalanceCreditAmount,
-        paymentMethodCategory: normalizePaymentMethodCategory(
-          params.paymentMethodCategory,
-        ),
+        paymentMethodCategory: normalizePaymentMethodCategory(params.paymentMethodCategory),
       });
-      const existing = await getPaymentBySource(
-        deps.db,
-        "checkout-recovery",
-        recoveryReferenceId,
-        accountId,
-      );
+      const existing = await getPaymentBySource(deps.db, "checkout-recovery", recoveryReferenceId, accountId);
 
       return {
         recovery_reference_id: recoveryReferenceId,
@@ -971,11 +892,7 @@ export function createPaymentRuntime(
       return exposePayment(payment, providerEvents);
     },
     async getPaymentMoneyTimeline(params) {
-      const payment = await getAccountPayment(
-        deps.db,
-        params.paymentId,
-        params.accountId,
-      );
+      const payment = await getAccountPayment(deps.db, params.paymentId, params.accountId);
       if (!payment) {
         return null;
       }
@@ -1045,9 +962,7 @@ export function createPaymentRuntime(
               },
             ]
           : []),
-      ].sort((left, right) =>
-        left.occurred_at.localeCompare(right.occurred_at),
-      );
+      ].sort((left, right) => left.occurred_at.localeCompare(right.occurred_at));
 
       return {
         payment_id: payment.payment_id,
@@ -1056,19 +971,15 @@ export function createPaymentRuntime(
       };
     },
     getProviderEvent: (params) => getPaymentProviderEvent(deps.db, params),
-    listProviderIdempotencyKeys: (params) =>
-      listPaymentProviderIdempotencyKeys(deps.db, params),
-    listPaymentsNeedingReconciliation: (params) =>
-      listPaymentsNeedingReconciliation(deps.db, params),
-    listReconciliationRuns: (params) =>
-      listPaymentReconciliationRuns(deps.db, params),
+    listProviderIdempotencyKeys: (params) => listPaymentProviderIdempotencyKeys(deps.db, params),
+    listPaymentsNeedingReconciliation: (params) => listPaymentsNeedingReconciliation(deps.db, params),
+    listReconciliationRuns: (params) => listPaymentReconciliationRuns(deps.db, params),
     async getProviderHealth() {
       return {
         provider_name: publicConfig.processorName,
         confirmation_experience: publicConfig.confirmationExperience,
         dynamic_payment_methods: publicConfig.dynamicPaymentMethods,
-        sensitive_payment_details_handled_by_provider:
-          publicConfig.sensitivePaymentDetailsHandledByProcessor,
+        sensitive_payment_details_handled_by_provider: publicConfig.sensitivePaymentDetailsHandledByProcessor,
         webhook_signature_required: true,
       };
     },
@@ -1102,8 +1013,7 @@ export function createPaymentRuntime(
         providerEventId: webhookEvent.eventId,
         providerName: webhookEvent.processorName,
         eventKind: webhookEvent.kind,
-        providerObjectReference:
-          webhookEvent.internalPaymentId ?? webhookEvent.processorPaymentReference,
+        providerObjectReference: webhookEvent.internalPaymentId ?? webhookEvent.processorPaymentReference,
       });
       if (!isNewProviderEvent) {
         return { received: true, ignored: true };

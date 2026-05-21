@@ -43,10 +43,7 @@ export async function listDiscoveryCategories(
   return result.rows;
 }
 
-export async function getDiscoveryCategoryBySlug(
-  db: PgQueryable,
-  slug: string,
-): Promise<DiscoveryCategoryRow | null> {
+export async function getDiscoveryCategoryBySlug(db: PgQueryable, slug: string): Promise<DiscoveryCategoryRow | null> {
   const result = await db.query<DiscoveryCategoryRow>(
     `SELECT category.*
      FROM discovery_categories AS category

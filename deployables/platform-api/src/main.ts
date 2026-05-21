@@ -3,10 +3,7 @@ import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
-import {
-  createFacebookSocialLoginProvider,
-  createGoogleSocialLoginProvider,
-} from "@chase-sets/auth/server";
+import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
@@ -18,9 +15,7 @@ import {
   readFilesystemObject,
   type ObjectStorage,
 } from "@chase-sets/object-storage";
-import {
-  createTwilioMessagingWebhookGateway,
-} from "@chase-sets/twilio-messaging";
+import { createTwilioMessagingWebhookGateway } from "@chase-sets/twilio-messaging";
 import {
   createMergedRealtimeWakeSignal,
   createPostgresRealtimeStreamLimiter,
@@ -124,12 +119,13 @@ const socialLoginProviders = [
       ]
     : []),
 ];
-const mobileMessageWebhookGateway = config.mobileMessaging.kind === "twilio"
-  ? createTwilioMessagingWebhookGateway({
-      authToken: config.mobileMessaging.authToken,
-      requireSignature: config.mobileMessaging.requireWebhookSignature,
-    })
-  : undefined;
+const mobileMessageWebhookGateway =
+  config.mobileMessaging.kind === "twilio"
+    ? createTwilioMessagingWebhookGateway({
+        authToken: config.mobileMessaging.authToken,
+        requireSignature: config.mobileMessaging.requireWebhookSignature,
+      })
+    : undefined;
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 
@@ -170,10 +166,9 @@ const runtime = createPlatformApiHost({
   },
 });
 const realtimeStores = runtime.mountedContexts
-  .filter((entry) =>
-    entry.contextName === "catalog" ||
-    entry.contextName === "discovery" ||
-    entry.contextName === "marketplace"
+  .filter(
+    (entry) =>
+      entry.contextName === "catalog" || entry.contextName === "discovery" || entry.contextName === "marketplace",
   )
   .map((entry) => ({
     contextName: entry.contextName,
@@ -291,10 +286,7 @@ const realtimeObserver = {
   },
 } satisfies RealtimeObserver;
 const realtimeWakeSignal = config.realtime.wakeSignalEnabled
-  ? await createPlatformRealtimeWakeSignal(
-      [...new Set(realtimeStores.map((store) => store.db))],
-      realtimeObserver,
-    )
+  ? await createPlatformRealtimeWakeSignal([...new Set(realtimeStores.map((store) => store.db))], realtimeObserver)
   : undefined;
 const ucpObserver = {
   signedWriteRejected: (event) => {
@@ -410,17 +402,13 @@ if (realtimeRetentionSweeper) {
   void realtimeRetentionSweeper.sweep();
 }
 
-function createCatalogAssetStorage(
-  storageConfig: PlatformApiCatalogAssetStorageConfig,
-): ObjectStorage {
+function createCatalogAssetStorage(storageConfig: PlatformApiCatalogAssetStorageConfig): ObjectStorage {
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
 }
 
-function createListingPhotoStorage(
-  storageConfig: PlatformApiListingPhotoStorageConfig,
-): ObjectStorage {
+function createListingPhotoStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
@@ -477,17 +465,10 @@ function mountLocalListingPhotoRoute(
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
-const realtimePartitionMaintainerStores = [...new Set(
-  realtimeStores.map((store) => store.db),
-)].map((db) => {
-  const contextNames = realtimeStores
-    .filter((store) => store.db === db)
-    .map((store) => store.contextName);
+const realtimePartitionMaintainerStores = [...new Set(realtimeStores.map((store) => store.db))].map((db) => {
+  const contextNames = realtimeStores.filter((store) => store.db === db).map((store) => store.contextName);
   return { db, contextNames };
 });
 const realtimePartitionMaintainers = config.realtime.backgroundMaintenanceEnabled
@@ -529,10 +510,12 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-async function createPlatformRealtimeStreamLimiter(): Promise<Readonly<{
-  limiter?: RealtimeStreamLimiter;
-  stop?: () => Promise<void>;
-}>> {
+async function createPlatformRealtimeStreamLimiter(): Promise<
+  Readonly<{
+    limiter?: RealtimeStreamLimiter;
+    stop?: () => Promise<void>;
+  }>
+> {
   if (config.realtime.streamLimiter.kind === "postgres") {
     return {
       limiter: createPostgresRealtimeStreamLimiter({
@@ -564,9 +547,7 @@ async function createPlatformRealtimeStreamLimiter(): Promise<Readonly<{
             keys: [...options.keys],
             arguments: [...options.arguments],
           });
-          return typeof result === "number" || typeof result === "string"
-            ? result
-            : Number(result ?? 0);
+          return typeof result === "number" || typeof result === "string" ? result : Number(result ?? 0);
         },
       },
       namespace: config.realtime.streamLimiter.namespace,

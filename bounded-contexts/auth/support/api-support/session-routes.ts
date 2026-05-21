@@ -1,16 +1,9 @@
 import { t } from "@chase-sets/localization";
 import { sessionRoutes } from "../../features/sessions/api/route";
 import { revokeSession, type AuthServices } from "../runtime-support/services";
-import {
-  createPermissionGuard,
-  getRequiredContext,
-  type AuthApiApp,
-} from "./support";
+import { createPermissionGuard, getRequiredContext, type AuthApiApp } from "./support";
 
-export function registerSessionApiRoutes(
-  app: AuthApiApp,
-  services: AuthServices,
-) {
+export function registerSessionApiRoutes(app: AuthApiApp, services: AuthServices) {
   app.get("/session", async (c) => {
     const actor = c.var.actor;
     if (!actor) {

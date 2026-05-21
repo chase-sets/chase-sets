@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   ensureIsoTimestamp,
@@ -74,8 +70,9 @@ export type PayoutReadinessRecordedEvent = DomainEvent<
 export type PayoutReadinessEvent = PayoutReadinessRecordedEvent;
 
 function normalizeRequirements(values: readonly string[] | undefined) {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))]
-    .sort((left, right) => left.localeCompare(right));
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
 export const decidePayoutReadiness: AggregateDecider<
@@ -93,32 +90,20 @@ export const decidePayoutReadiness: AggregateDecider<
             status: normalizePayoutReadinessStatus(command.status),
             missingRequirements: normalizeRequirements(command.missingRequirements),
             providerReference: normalizeOptionalText(command.providerReference),
-            onboardingStatus: normalizeProviderSetupStatus(
-              command.onboardingStatus ?? "not-started",
-            ),
-            transferCapabilityStatus: normalizeProviderCapabilityStatus(
-              command.transferCapabilityStatus ?? "inactive",
-            ),
-            payoutCapabilityStatus: normalizeProviderCapabilityStatus(
-              command.payoutCapabilityStatus ?? "inactive",
-            ),
+            onboardingStatus: normalizeProviderSetupStatus(command.onboardingStatus ?? "not-started"),
+            transferCapabilityStatus: normalizeProviderCapabilityStatus(command.transferCapabilityStatus ?? "inactive"),
+            payoutCapabilityStatus: normalizeProviderCapabilityStatus(command.payoutCapabilityStatus ?? "inactive"),
             payoutDestinationStatus: normalizeProviderPayoutDestinationStatus(
               command.payoutDestinationStatus ?? "missing",
             ),
-            recordedAt: ensureIsoTimestamp(
-              command.recordedAt,
-              "Payout readiness recording must include a timestamp.",
-            ),
+            recordedAt: ensureIsoTimestamp(command.recordedAt, "Payout readiness recording must include a timestamp."),
           },
         },
       ];
   }
 };
 
-export const evolvePayoutReadiness: AggregateEvolver<
-  PayoutReadinessState,
-  PayoutReadinessEvent
-> = (_state, event) => {
+export const evolvePayoutReadiness: AggregateEvolver<PayoutReadinessState, PayoutReadinessEvent> = (_state, event) => {
   switch (event.type) {
     case "settlement.payout-readiness.recorded":
       return {

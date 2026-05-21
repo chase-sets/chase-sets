@@ -13,10 +13,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.membershipsDetail.membership.detail.identity.admin") }];
+export const meta: MetaFunction = () => [
+  { title: t("identity.routes.admin.membershipsDetail.membership.detail.identity.admin") },
+];
 
 export default function MembershipDetailRoute() {
   const data = useLoaderData<typeof loader>();
   return <MembershipDetailPage data={data.data} />;
 }
-

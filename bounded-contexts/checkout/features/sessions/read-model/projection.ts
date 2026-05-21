@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildCheckoutSessionProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "checkout.session.started": async (event) => {
       const data = event.data as {

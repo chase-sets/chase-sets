@@ -1,20 +1,10 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-} from "@chase-sets/http/responses";
+import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  createInventoryRequestApiClient,
-  InventoryApiError,
-} from "../../support/request-support/api-client";
+import { createInventoryRequestApiClient, InventoryApiError } from "../../support/request-support/api-client";
 import { InventoryImportBatchPage } from "../../features/import-batches/ui/import-batch-page";
 
 const DEFAULT_IMPORT_QUERY = "limit=25&offset=0";
@@ -33,8 +23,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     detail: batchId
       ? await loadFreshlyWrittenResource({
           request,
-          isNotFound: (error) =>
-            error instanceof InventoryApiError && error.status === 404,
+          isNotFound: (error) => error instanceof InventoryApiError && error.status === 404,
           load: () => api.getImportBatch(batchId),
         })
       : null,
@@ -53,24 +42,15 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     if (intent === "create-batch") {
       const uploadedFile = formData.get("file");
-      const file = uploadedFile instanceof File && uploadedFile.size > 0
-        ? uploadedFile
-        : null;
+      const file = uploadedFile instanceof File && uploadedFile.size > 0 ? uploadedFile : null;
       const result = await api.createImportBatch({
         csvText: file ? await file.text() : String(formData.get("csvText") ?? ""),
         sourceKey: String(formData.get("sourceKey") ?? "native-csv"),
         quantityMode: String(formData.get("quantityMode") ?? "add"),
-        defaultStorageLocationId:
-          String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
-        sourceFilename:
-          (file?.name ?? String(formData.get("sourceFilename") ?? "").trim()) || null,
+        defaultStorageLocationId: String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
+        sourceFilename: (file?.name ?? String(formData.get("sourceFilename") ?? "").trim()) || null,
       });
-      return redirect(
-        appendFreshWriteToken(
-          `/account/inventory/imports/${result.batch_id}`,
-          result,
-        ),
-      );
+      return redirect(appendFreshWriteToken(`/account/inventory/imports/${result.batch_id}`, result));
     }
 
     if (intent === "commit-batch") {

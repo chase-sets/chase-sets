@@ -18,10 +18,7 @@ import type { SettlementPayoutRow } from "../read-model/queries";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 import { PayoutReadinessPanel } from "../../payout-readiness/ui/payout-readiness-panel";
-import {
-  capPayoutAmountToPolicy,
-  payoutAmountPolicy,
-} from "../domain/payout-policy";
+import { capPayoutAmountToPolicy, payoutAmountPolicy } from "../domain/payout-policy";
 import { payoutUnavailableReasonLabel } from "../domain/reason-codes";
 
 function formatMoney(amount: string, currencyCode: string) {
@@ -75,10 +72,7 @@ function estimatedArrivalLabel(row: SettlementPayoutRow) {
   return t("settlement.features.payouts.ui.payoutListPage.after.provider.submission");
 }
 
-function payoutUnavailableReasons(
-  wallet: SettlementWalletRow,
-  payoutReadiness?: SettlementPayoutReadinessRow | null,
-) {
+function payoutUnavailableReasons(wallet: SettlementWalletRow, payoutReadiness?: SettlementPayoutReadinessRow | null) {
   const reasons: string[] = [];
   const availableBalance = Number.parseFloat(wallet.available_balance_amount);
   if (!payoutReadiness || payoutReadiness.status === "not-started") {
@@ -142,15 +136,12 @@ export function SettlementPayoutListPage({
     payoutReadiness?.status === "ready" &&
     setupFresh &&
     Number.parseFloat(wallet.available_balance_amount) > 0;
-  const unavailableReasons = canRequestPayout
-    ? []
-    : payoutUnavailableReasons(wallet, payoutReadiness);
+  const unavailableReasons = canRequestPayout ? [] : payoutUnavailableReasons(wallet, payoutReadiness);
   const confirmationRemainingBalance = payoutConfirmation
-    ? payoutConfirmation.preview?.estimated_wallet_balance_after ??
-      subtractMoney(wallet.available_balance_amount, payoutConfirmation.amount)
+    ? (payoutConfirmation.preview?.estimated_wallet_balance_after ??
+      subtractMoney(wallet.available_balance_amount, payoutConfirmation.amount))
     : null;
-  const confirmationCanRequest =
-    canRequestPayout && (payoutConfirmation?.preview?.can_request ?? true);
+  const confirmationCanRequest = canRequestPayout && (payoutConfirmation?.preview?.can_request ?? true);
 
   return (
     <Page>
@@ -162,10 +153,12 @@ export function SettlementPayoutListPage({
           <Stack direction="row" gap={2}>
             {showOperations ? (
               <LinkButton href="/account/payout-operations" tone="secondary">
-                {t("settlement.features.payouts.ui.payoutListPage.operations")}</LinkButton>
+                {t("settlement.features.payouts.ui.payoutListPage.operations")}
+              </LinkButton>
             ) : null}
             <LinkButton href="/account/settlement" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutListPage.view.wallet")}</LinkButton>
+              {t("settlement.features.payouts.ui.payoutListPage.view.wallet")}
+            </LinkButton>
           </Stack>
         }
       />
@@ -188,17 +181,20 @@ export function SettlementPayoutListPage({
         <Card>
           <Stack gap={3}>
             {payoutReadiness ? (
-              <PayoutReadinessPanel
-                payoutReadiness={payoutReadiness}
-                showActions={canSetupPayouts}
-              />
+              <PayoutReadinessPanel payoutReadiness={payoutReadiness} showActions={canSetupPayouts} />
             ) : null}
             <Stack gap={1}>
               <Text size="sm" tone="secondary">
-                {t("settlement.features.payouts.ui.payoutListPage.available.to.request")}{formatMoney(wallet.available_balance_amount, wallet.currency_code)}
+                {t("settlement.features.payouts.ui.payoutListPage.available.to.request")}
+                {formatMoney(wallet.available_balance_amount, wallet.currency_code)}
               </Text>
               <Text size="sm" tone="secondary">
-                {t("settlement.features.payouts.ui.payoutListPage.payouts.must.be.between")}{formatMoney(payoutAmountPolicy.minimumAmount, payoutAmountPolicy.currencyCode)} {t("settlement.features.payouts.ui.payoutListPage.and")}{formatMoney(payoutAmountPolicy.maximumAmount, payoutAmountPolicy.currencyCode)}{t("settlement.features.payouts.ui.payoutListPage.arrival.is.usually.1.3.business")}</Text>
+                {t("settlement.features.payouts.ui.payoutListPage.payouts.must.be.between")}
+                {formatMoney(payoutAmountPolicy.minimumAmount, payoutAmountPolicy.currencyCode)}{" "}
+                {t("settlement.features.payouts.ui.payoutListPage.and")}
+                {formatMoney(payoutAmountPolicy.maximumAmount, payoutAmountPolicy.currencyCode)}
+                {t("settlement.features.payouts.ui.payoutListPage.arrival.is.usually.1.3.business")}
+              </Text>
             </Stack>
             {unavailableReasons.length > 0 ? (
               <ProgressiveDisclosure
@@ -226,19 +222,26 @@ export function SettlementPayoutListPage({
                       <input type="hidden" name="note" value={payoutConfirmation.note} />
                     ) : null}
                     <Stack gap={1}>
-                      <Text weight="semibold">{t("settlement.features.payouts.ui.payoutListPage.confirm.payout.request")}</Text>
-                      <Text size="sm" tone="secondary">
-                        {t("settlement.features.payouts.ui.payoutListPage.amount")}{formatMoney(payoutConfirmation.amount, wallet.currency_code)}
+                      <Text weight="semibold">
+                        {t("settlement.features.payouts.ui.payoutListPage.confirm.payout.request")}
                       </Text>
                       <Text size="sm" tone="secondary">
-                        {t("settlement.features.payouts.ui.payoutListPage.available.after.request")}{formatMoney(confirmationRemainingBalance ?? "0.00", wallet.currency_code)}
+                        {t("settlement.features.payouts.ui.payoutListPage.amount")}
+                        {formatMoney(payoutConfirmation.amount, wallet.currency_code)}
                       </Text>
                       <Text size="sm" tone="secondary">
-                        {t("settlement.features.payouts.ui.payoutListPage.payout.account.saved.payout.account")}</Text>
+                        {t("settlement.features.payouts.ui.payoutListPage.available.after.request")}
+                        {formatMoney(confirmationRemainingBalance ?? "0.00", wallet.currency_code)}
+                      </Text>
                       <Text size="sm" tone="secondary">
-                        {t("settlement.features.payouts.ui.payoutListPage.estimated.arrival.usually.1.3.business")}</Text>
+                        {t("settlement.features.payouts.ui.payoutListPage.payout.account.saved.payout.account")}
+                      </Text>
                       <Text size="sm" tone="secondary">
-                        {t("settlement.features.payouts.ui.payoutListPage.if.the.provider.cannot.complete.the")}</Text>
+                        {t("settlement.features.payouts.ui.payoutListPage.estimated.arrival.usually.1.3.business")}
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        {t("settlement.features.payouts.ui.payoutListPage.if.the.provider.cannot.complete.the")}
+                      </Text>
                       {payoutConfirmation.preview?.unavailable_reason_details.length ? (
                         <ProgressiveDisclosure
                           title={t("settlement.features.payouts.ui.payoutListPage.before.this.can.be.requested")}
@@ -247,101 +250,98 @@ export function SettlementPayoutListPage({
                           defaultOpen
                         >
                           <Stack gap={1}>
-                            {payoutConfirmation.preview.unavailable_reason_details.map(
-                              (reason) => (
-                                <Text key={reason.code} size="sm" tone="secondary">
-                                  {reason.message}
-                                </Text>
-                              ),
-                            )}
+                            {payoutConfirmation.preview.unavailable_reason_details.map((reason) => (
+                              <Text key={reason.code} size="sm" tone="secondary">
+                                {reason.message}
+                              </Text>
+                            ))}
                           </Stack>
                         </ProgressiveDisclosure>
                       ) : null}
                       {payoutConfirmation.note ? (
                         <Text size="sm" tone="secondary">
-                          {t("settlement.features.payouts.ui.payoutListPage.note")}{payoutConfirmation.note}
+                          {t("settlement.features.payouts.ui.payoutListPage.note")}
+                          {payoutConfirmation.note}
                         </Text>
                       ) : null}
                     </Stack>
                     <Button type="submit" disabled={!confirmationCanRequest}>
-                      {t("settlement.features.payouts.ui.payoutListPage.confirm.payout")}</Button>
+                      {t("settlement.features.payouts.ui.payoutListPage.confirm.payout")}
+                    </Button>
                   </Stack>
                 </form>
                 <form method="post">
                   <input type="hidden" name="intent" value="edit-payout" />
                   <input type="hidden" name="amount" value={payoutConfirmation.amount} />
-                  {payoutConfirmation.note ? (
-                    <input type="hidden" name="note" value={payoutConfirmation.note} />
-                  ) : null}
+                  {payoutConfirmation.note ? <input type="hidden" name="note" value={payoutConfirmation.note} /> : null}
                   <Button type="submit" tone="secondary">
-                    {t("settlement.features.payouts.ui.payoutListPage.back.to.edit")}</Button>
+                    {t("settlement.features.payouts.ui.payoutListPage.back.to.edit")}
+                  </Button>
                 </form>
               </Stack>
             ) : (
               <form method="post">
-              <Stack gap={3}>
-                <input type="hidden" name="intent" value="preview-payout" />
-                <input
-                  type="hidden"
-                  name="availableAmount"
-                  value={wallet.available_balance_amount}
-                />
-                <CurrencyInput
-                  label={t("settlement.features.payouts.ui.payoutListPage.amount.2")}
-                  name="amount"
-                  placeholder="0.00"
-                  inputMode="decimal"
-                  min={payoutAmountPolicy.minimumAmount}
-                  max={payoutAmountPolicy.maximumAmount}
-                  step="0.01"
-                  required
-                  disabled={!canRequestPayout}
-                  defaultValue={payoutDraft?.amount ?? ""}
-                />
-                <Stack direction="row" gap={2}>
-                  <Button
-                    type="submit"
-                    name="quickAmount"
-                    value="minimum"
-                    tone="secondary"
+                <Stack gap={3}>
+                  <input type="hidden" name="intent" value="preview-payout" />
+                  <input type="hidden" name="availableAmount" value={wallet.available_balance_amount} />
+                  <CurrencyInput
+                    label={t("settlement.features.payouts.ui.payoutListPage.amount.2")}
+                    name="amount"
+                    placeholder="0.00"
+                    inputMode="decimal"
+                    min={payoutAmountPolicy.minimumAmount}
+                    max={payoutAmountPolicy.maximumAmount}
+                    step="0.01"
+                    required
                     disabled={!canRequestPayout}
+                    defaultValue={payoutDraft?.amount ?? ""}
+                  />
+                  <Stack direction="row" gap={2}>
+                    <Button
+                      type="submit"
+                      name="quickAmount"
+                      value="minimum"
+                      tone="secondary"
+                      disabled={!canRequestPayout}
+                    >
+                      {t("settlement.features.payouts.ui.payoutListPage.minimum")}
+                      {formatMoney(payoutAmountPolicy.minimumAmount, wallet.currency_code)}
+                    </Button>
+                    <Button
+                      type="submit"
+                      name="quickAmount"
+                      value="available"
+                      tone="secondary"
+                      disabled={!canRequestPayout}
+                    >
+                      {t("settlement.features.payouts.ui.payoutListPage.full.available")}
+                      {formatMoney(capPayoutAmountToPolicy(wallet.available_balance_amount), wallet.currency_code)}
+                    </Button>
+                  </Stack>
+                  <ProgressiveDisclosure
+                    title={t("settlement.features.payouts.ui.payoutListPage.note.2")}
+                    summary={
+                      payoutDraft?.note
+                        ? t("settlement.features.payouts.ui.payoutListPage.note.summary", {
+                            note: payoutDraft.note,
+                          })
+                        : t("settlement.features.payouts.ui.payoutListPage.optional.memo")
+                    }
+                    tone="info"
                   >
-                    {t("settlement.features.payouts.ui.payoutListPage.minimum")}{formatMoney(payoutAmountPolicy.minimumAmount, wallet.currency_code)}
-                  </Button>
-                  <Button
-                    type="submit"
-                    name="quickAmount"
-                    value="available"
-                    tone="secondary"
-                    disabled={!canRequestPayout}
-                  >
-                    {t("settlement.features.payouts.ui.payoutListPage.full.available")}{formatMoney(
-                      capPayoutAmountToPolicy(wallet.available_balance_amount),
-                      wallet.currency_code,
-                    )}
+                    <TextInput
+                      label={t("settlement.features.payouts.ui.payoutListPage.note.2")}
+                      name="note"
+                      placeholder={t("settlement.features.payouts.ui.payoutListPage.optional.memo")}
+                      disabled={!canRequestPayout}
+                      defaultValue={payoutDraft?.note ?? ""}
+                    />
+                  </ProgressiveDisclosure>
+                  <Button type="submit" disabled={!canRequestPayout}>
+                    {t("settlement.features.payouts.ui.payoutListPage.preview.payout")}
                   </Button>
                 </Stack>
-                <ProgressiveDisclosure
-                  title={t("settlement.features.payouts.ui.payoutListPage.note.2")}
-                  summary={payoutDraft?.note
-                    ? t("settlement.features.payouts.ui.payoutListPage.note.summary", {
-                        note: payoutDraft.note,
-                      })
-                    : t("settlement.features.payouts.ui.payoutListPage.optional.memo")}
-                  tone="info"
-                >
-                  <TextInput
-                    label={t("settlement.features.payouts.ui.payoutListPage.note.2")}
-                    name="note"
-                    placeholder={t("settlement.features.payouts.ui.payoutListPage.optional.memo")}
-                    disabled={!canRequestPayout}
-                    defaultValue={payoutDraft?.note ?? ""}
-                  />
-                </ProgressiveDisclosure>
-                <Button type="submit" disabled={!canRequestPayout}>
-                  {t("settlement.features.payouts.ui.payoutListPage.preview.payout")}</Button>
-              </Stack>
-            </form>
+              </form>
             )}
           </Stack>
         </Card>
@@ -360,9 +360,7 @@ export function SettlementPayoutListPage({
             {
               key: "status",
               header: t("settlement.features.payouts.ui.payoutListPage.status"),
-              cell: (row) => (
-                <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>
-              ),
+              cell: (row) => <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>,
             },
             {
               key: "destination",
@@ -384,7 +382,8 @@ export function SettlementPayoutListPage({
               header: t("settlement.features.payouts.ui.payoutListPage.actions"),
               cell: (row) => (
                 <LinkButton href={`/account/payouts/${row.payout_id}`} tone="secondary" size="sm">
-                  {t("settlement.features.payouts.ui.payoutListPage.open")}</LinkButton>
+                  {t("settlement.features.payouts.ui.payoutListPage.open")}
+                </LinkButton>
               ),
             },
           ]}

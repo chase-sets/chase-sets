@@ -1,11 +1,4 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -16,8 +9,7 @@ const commands = new Set(["sync", "pull", "push", "check", "doctor", "path"]);
 
 export function resolveDefaultEnvHome(env = process.env) {
   return path.resolve(
-    env.CHASE_SETS_LOCAL_ENV_HOME ??
-      path.join(os.homedir(), ".config", "chase-sets", "env", "local"),
+    env.CHASE_SETS_LOCAL_ENV_HOME ?? path.join(os.homedir(), ".config", "chase-sets", "env", "local"),
   );
 }
 
@@ -75,15 +67,10 @@ function discoverDeployableEnvTargets(rootDir, envHome) {
       };
     })
     .filter((target) => existsSync(target.examplePath))
-    .sort((left, right) =>
-      targetLabel(left).localeCompare(targetLabel(right), "en"),
-    );
+    .sort((left, right) => targetLabel(left).localeCompare(targetLabel(right), "en"));
 }
 
-export function discoverEnvTargets({
-  rootDir = defaultRootDir,
-  envHome = resolveDefaultEnvHome(),
-} = {}) {
+export function discoverEnvTargets({ rootDir = defaultRootDir, envHome = resolveDefaultEnvHome() } = {}) {
   const rootTestTarget = {
     name: "root test",
     kind: "test",
@@ -160,8 +147,7 @@ function executeAction(plan, command) {
     return { ...plan, action: "none", changed: false };
   }
 
-  const action =
-    command === "pull" || command === "push" ? command : plan.action;
+  const action = command === "pull" || command === "push" ? command : plan.action;
 
   if (action === "pull") {
     copyFile(plan.target.sharedPath, plan.target.worktreePath);
@@ -213,11 +199,7 @@ function formatResult(result) {
 }
 
 function hasCheckFailure(result) {
-  return (
-    result.status === "shared-missing" ||
-    result.status === "worktree-missing" ||
-    result.status === "drifted"
-  );
+  return result.status === "shared-missing" || result.status === "worktree-missing" || result.status === "drifted";
 }
 
 function runCli() {

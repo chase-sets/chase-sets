@@ -42,8 +42,21 @@ export type SesSendRequestOptions = Readonly<{
 
 export type SesSendEmailRequest = Readonly<{
   FromEmailAddress: string;
-  Destination: Readonly<{ ToAddresses: readonly string[]; CcAddresses?: readonly string[]; BccAddresses?: readonly string[] }>;
-  Content: Readonly<{ Simple: Readonly<{ Subject: Readonly<{ Data: string; Charset: "UTF-8" }>; Body: Readonly<{ Html: Readonly<{ Data: string; Charset: "UTF-8" }>; Text: Readonly<{ Data: string; Charset: "UTF-8" }> }>; Headers: readonly Readonly<{ Name: string; Value: string }>[] }> }>;
+  Destination: Readonly<{
+    ToAddresses: readonly string[];
+    CcAddresses?: readonly string[];
+    BccAddresses?: readonly string[];
+  }>;
+  Content: Readonly<{
+    Simple: Readonly<{
+      Subject: Readonly<{ Data: string; Charset: "UTF-8" }>;
+      Body: Readonly<{
+        Html: Readonly<{ Data: string; Charset: "UTF-8" }>;
+        Text: Readonly<{ Data: string; Charset: "UTF-8" }>;
+      }>;
+      Headers: readonly Readonly<{ Name: string; Value: string }>[];
+    }>;
+  }>;
   ConfigurationSetName?: string;
   FromEmailAddressIdentityArn?: string;
   EmailTags: readonly Readonly<{ Name: string; Value: string }>[];
@@ -68,7 +81,10 @@ type SesNotificationEnvelope = Readonly<{
   }>;
 }>;
 
-function normalizeOptional(value?: string | null) { const n = value?.trim() ?? ""; return n.length > 0 ? n : null; }
+function normalizeOptional(value?: string | null) {
+  const n = value?.trim() ?? "";
+  return n.length > 0 ? n : null;
+}
 
 function mapError(error: unknown) {
   if (error instanceof ProviderAdapterError) return error;
@@ -80,17 +96,15 @@ function mapError(error: unknown) {
   );
 }
 
-function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 export function createSesSendRequest(options: SesSendRequestOptions) {
-  const client =
-    options.client ??
-    new SESv2Client({ ...options.clientConfig, region: options.region });
+  const client = options.client ?? new SESv2Client({ ...options.clientConfig, region: options.region });
 
   return async (input: SesSendEmailRequest): Promise<SesSendEmailResponse> => {
-    const response = await client.send(
-      new SendEmailCommand(toAwsSendEmailCommandInput(input)),
-    );
+    const response = await client.send(new SendEmailCommand(toAwsSendEmailCommandInput(input)));
     if (!response.MessageId) {
       throw new Error("SES did not return a message id.");
     }
@@ -99,19 +113,13 @@ export function createSesSendRequest(options: SesSendRequestOptions) {
   };
 }
 
-function toAwsSendEmailCommandInput(
-  input: SesSendEmailRequest,
-): SendEmailCommandInput {
+function toAwsSendEmailCommandInput(input: SesSendEmailRequest): SendEmailCommandInput {
   return {
     FromEmailAddress: input.FromEmailAddress,
     Destination: {
       ToAddresses: [...input.Destination.ToAddresses],
-      ...(input.Destination.CcAddresses
-        ? { CcAddresses: [...input.Destination.CcAddresses] }
-        : {}),
-      ...(input.Destination.BccAddresses
-        ? { BccAddresses: [...input.Destination.BccAddresses] }
-        : {}),
+      ...(input.Destination.CcAddresses ? { CcAddresses: [...input.Destination.CcAddresses] } : {}),
+      ...(input.Destination.BccAddresses ? { BccAddresses: [...input.Destination.BccAddresses] } : {}),
     },
     Content: {
       Simple: {
@@ -124,28 +132,17 @@ function toAwsSendEmailCommandInput(
       },
     },
     EmailTags: input.EmailTags.map((tag) => ({ ...tag })),
-    ...(input.ConfigurationSetName
-      ? { ConfigurationSetName: input.ConfigurationSetName }
-      : {}),
-    ...(input.FromEmailAddressIdentityArn
-      ? { FromEmailAddressIdentityArn: input.FromEmailAddressIdentityArn }
-      : {}),
+    ...(input.ConfigurationSetName ? { ConfigurationSetName: input.ConfigurationSetName } : {}),
+    ...(input.FromEmailAddressIdentityArn ? { FromEmailAddressIdentityArn: input.FromEmailAddressIdentityArn } : {}),
   };
 }
 
 export function parseSesNotificationEvent(rawBody: string): SesNotificationEvent | null {
   const body = JSON.parse(rawBody) as SesNotificationEnvelope;
-  const message = (
-    typeof body.Message === "string"
-      ? JSON.parse(body.Message)
-      : body
-  ) as SesNotificationEnvelope;
-  const eventType =
-    typeof message.eventType === "string" ? message.eventType : "";
+  const message = (typeof body.Message === "string" ? JSON.parse(body.Message) : body) as SesNotificationEnvelope;
+  const eventType = typeof message.eventType === "string" ? message.eventType : "";
   if (!["Delivery", "Bounce", "Complaint"].includes(eventType)) return null;
-  const destination = Array.isArray(message.mail?.destination)
-    ? message.mail.destination
-    : [];
+  const destination = Array.isArray(message.mail?.destination) ? message.mail.destination : [];
   const recipients = destination.filter((v): v is string => typeof v === "string");
   return {
     messageId: String(message.mail?.messageId ?? ""),
@@ -208,7 +205,12 @@ export function createSesTransactionalEmailGateway(options: SesEmailGatewayOptio
         try {
           const response = await options.sendRequest(input);
           options.onResult?.({ messageType: message.messageType, success: true });
-          return { providerName: "amazon-ses", providerMessageId: response.MessageId, acceptedAt: now().toISOString(), attemptCount: attempt };
+          return {
+            providerName: "amazon-ses",
+            providerMessageId: response.MessageId,
+            acceptedAt: now().toISOString(),
+            attemptCount: attempt,
+          };
         } catch (error) {
           lastError = mapError(error);
           options.onResult?.({ messageType: message.messageType, success: false, error: lastError.message });
@@ -222,17 +224,13 @@ export function createSesTransactionalEmailGateway(options: SesEmailGatewayOptio
   };
 }
 
-export function createSesEmailNotificationAdapter(
-  options: SesEmailGatewayOptions,
-): NotificationChannelAdapter {
+export function createSesEmailNotificationAdapter(options: SesEmailGatewayOptions): NotificationChannelAdapter {
   const gateway = createSesTransactionalEmailGateway(options);
 
   return {
     channel: "email",
     providerName: "amazon-ses",
-    async sendNotificationChannel(
-      delivery: NotificationDelivery,
-    ): Promise<SentNotificationReceipt> {
+    async sendNotificationChannel(delivery: NotificationDelivery): Promise<SentNotificationReceipt> {
       const channel = assertEmailChannel(delivery.channel);
       const receipt = await gateway.sendTransactionalEmail({
         messageType: delivery.message.messageType,
@@ -242,8 +240,7 @@ export function createSesEmailNotificationAdapter(
         bcc: channel.bcc,
         subject: channel.subject?.trim() || delivery.message.title,
         templateId: channel.templateId?.trim() || delivery.message.templateId,
-        templateVersion:
-          channel.templateVersion ?? delivery.message.templateVersion,
+        templateVersion: channel.templateVersion ?? delivery.message.templateVersion,
         locale: delivery.message.locale,
         templateData: {
           ...delivery.message.templateData,
@@ -265,9 +262,7 @@ export function createSesEmailNotificationAdapter(
   };
 }
 
-function assertEmailChannel(
-  channel: NotificationDelivery["channel"],
-): EmailNotificationChannel {
+function assertEmailChannel(channel: NotificationDelivery["channel"]): EmailNotificationChannel {
   if (channel.channel !== "email") {
     throw new Error(`SES email adapter cannot send '${channel.channel}'.`);
   }

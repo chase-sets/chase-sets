@@ -13,11 +13,7 @@ export type InventoryHoldRow = Readonly<{
   released_at: string | null;
 }>;
 
-export async function getInventoryHold(
-  db: PgQueryable,
-  holdId: string,
-  accountId: string,
-) {
+export async function getInventoryHold(db: PgQueryable, holdId: string, accountId: string) {
   const result = await db.query<InventoryHoldRow>(
     `SELECT
        hold_id,

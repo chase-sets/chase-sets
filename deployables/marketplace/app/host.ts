@@ -13,14 +13,11 @@ export function resolveMarketplaceNavItems(
   actor?: Readonly<{ permissions?: readonly string[] }> | null,
   options: Readonly<{ cartCount?: number }> = {},
 ): NavigationItem[] {
-  const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor)
-    .map(toTraderNavItem);
+  const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor).map(toTraderNavItem);
   const cartCount = options.cartCount ?? 0;
 
   if (!actor || slot === "bottom-nav") {
-    const resolvedItems = slot === "bottom-nav" && actor
-      ? buildMarketplaceBottomNav(items)
-      : items;
+    const resolvedItems = slot === "bottom-nav" && actor ? buildMarketplaceBottomNav(items) : items;
     const withCart = withCartNavigation(resolvedItems, cartCount, { includeGuestCart: !actor });
 
     return slot === "top-nav" ? moveCartLast(withCart) : withCart;
@@ -42,12 +39,14 @@ export function resolveMarketplaceAccountMenuItems(
       .filter((item) => accountChildKeys.has(item.key) && Boolean(item.href)),
   ).flatMap((item) =>
     item.href
-      ? [{
-          key: item.key,
-          label: item.label,
-          href: item.href,
-          icon: item.icon,
-        }]
+      ? [
+          {
+            key: item.key,
+            label: item.label,
+            href: item.href,
+            icon: item.icon,
+          },
+        ]
       : [],
   );
 }
@@ -61,22 +60,13 @@ const sellingWorkflowKeys = new Set([
   "sale-shipments",
 ]);
 
-const sellingInfrastructureKeys = new Set([
-  "shipments",
-]);
+const sellingInfrastructureKeys = new Set(["shipments"]);
 const topNavUtilityKeys = new Set(["account", "cart", "notifications", "register", "sign-in"]);
 
 const accountChildKeys = new Set(["account", "wallet", "payouts", "submitted-offers", "reviews"]);
 const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
 const accountChildNavOrder = ["account", "wallet", "payouts", "submitted-offers", "reviews"];
-const sellingNavOrder = [
-  "inventory",
-  "inventory-imports",
-  "listings",
-  "offer-matches",
-  "sales",
-  "sale-shipments",
-];
+const sellingNavOrder = ["inventory", "inventory-imports", "listings", "offer-matches", "sales", "sale-shipments"];
 
 const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   account: {
@@ -181,21 +171,13 @@ function withCartNavigation(
     placement: "utility",
   };
 
-  return [
-    ...items,
-    cartItem,
-  ];
+  return [...items, cartItem];
 }
 
 function moveCartLast(items: NavigationItem[]): NavigationItem[] {
   const cartItem = items.find((item) => item.key === "cart");
 
-  return cartItem
-    ? [
-        ...items.filter((item) => item.key !== "cart"),
-        cartItem,
-      ]
-    : items;
+  return cartItem ? [...items.filter((item) => item.key !== "cart"), cartItem] : items;
 }
 
 function orderAccountNav(items: NavigationItem[]): NavigationItem[] {
@@ -262,30 +244,24 @@ function orderSellingNav(items: NavigationItem[]): NavigationItem[] {
 }
 
 function sellingLandingHref(items: readonly NavigationItem[]): string {
-  return items.find((item) => item.key === "listings")?.href
-    ?? items[0]?.href
-    ?? "/account/listings";
+  return items.find((item) => item.key === "listings")?.href ?? items[0]?.href ?? "/account/listings";
 }
 
-function buildMarketplaceBottomNav(
-  items: NavigationItem[],
-): NavigationItem[] {
+function buildMarketplaceBottomNav(items: NavigationItem[]): NavigationItem[] {
   const visibleItems = items.filter((item) => !sellingInfrastructureKeys.has(item.key));
-  const sellingItems = orderSellingNav(
-    visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
-  );
+  const sellingItems = orderSellingNav(visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)));
   const accountItems = orderAccountNav(
-    visibleItems.filter((item) => ["search", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key)),
+    visibleItems.filter((item) =>
+      ["search", "cart", "purchases", "notifications", "account", "reviews"].includes(item.key),
+    ),
   );
   const walletItem = visibleItems.find((item) => item.key === "wallet");
   const accountItem = accountItems.find((item) => item.key === "account");
   const accountGroup: NavigationItem | undefined = accountItem
     ? {
         ...accountItem,
-        children: orderAccountChildNav(
-          visibleItems.filter((item) => accountChildKeys.has(item.key)),
-        ),
-    }
+        children: orderAccountChildNav(visibleItems.filter((item) => accountChildKeys.has(item.key))),
+      }
     : undefined;
 
   if (sellingItems.length === 0) {
@@ -294,11 +270,10 @@ function buildMarketplaceBottomNav(
       5 - (walletItem ? 1 : 0) - (accountGroup ? 1 : 0),
     );
 
-    return [
-      ...primaryAccountItems,
-      ...(walletItem ? [walletItem] : []),
-      ...(accountGroup ? [accountGroup] : []),
-    ].slice(0, 5);
+    return [...primaryAccountItems, ...(walletItem ? [walletItem] : []), ...(accountGroup ? [accountGroup] : [])].slice(
+      0,
+      5,
+    );
   }
 
   const sellingGroup: NavigationItem = {
@@ -322,27 +297,17 @@ function buildMarketplaceBottomNav(
   ].slice(0, 5);
 }
 
-function compactBottomPrimaryItems(
-  items: NavigationItem[],
-  capacity: number,
-): NavigationItem[] {
-  if (
-    items.length <= capacity ||
-    !items.some((item) => item.key === "notifications")
-  ) {
+function compactBottomPrimaryItems(items: NavigationItem[], capacity: number): NavigationItem[] {
+  if (items.length <= capacity || !items.some((item) => item.key === "notifications")) {
     return items;
   }
 
   return items.filter((item) => item.key !== "purchases");
 }
 
-function groupMarketplaceTopNav(
-  items: NavigationItem[],
-): NavigationItem[] {
+function groupMarketplaceTopNav(items: NavigationItem[]): NavigationItem[] {
   const visibleItems = items.filter((item) => !sellingInfrastructureKeys.has(item.key));
-  const sellingItems = orderSellingNav(
-    visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)),
-  );
+  const sellingItems = orderSellingNav(visibleItems.filter((item) => sellingWorkflowKeys.has(item.key)));
   const accountItems = orderAccountNav(
     visibleItems.filter((item) => !sellingWorkflowKeys.has(item.key) && !accountChildKeys.has(item.key)),
   );
@@ -359,8 +324,5 @@ function groupMarketplaceTopNav(
     children: sellingItems,
   };
 
-  return [
-    ...accountItems,
-    sellingGroup,
-  ];
+  return [...accountItems, sellingGroup];
 }

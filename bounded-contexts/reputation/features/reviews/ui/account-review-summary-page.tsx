@@ -9,10 +9,7 @@ import {
   ReviewCard,
   Stack,
 } from "@chase-sets/design-system";
-import type {
-  ReviewSummary,
-  ReviewListItem,
-} from "./contracts";
+import type { ReviewSummary, ReviewListItem } from "./contracts";
 
 function formatAverage(summary: ReviewSummary) {
   return summary.average_rating ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.not.yet.rated");
@@ -43,7 +40,9 @@ export function ReviewSummaryPage({
       <PageHeader
         eyebrow={t("reputation.features.reviews.ui.accountReviewSummaryPage.reviews")}
         title={accountLabel}
-        description={t("reputation.features.reviews.ui.accountReviewSummaryPage.canonical.post.transaction.feedback.and.rating")}
+        description={t(
+          "reputation.features.reviews.ui.accountReviewSummaryPage.canonical.post.transaction.feedback.and.rating",
+        )}
         actions={actions}
       />
 
@@ -66,7 +65,9 @@ export function ReviewSummaryPage({
           {reviews.length === 0 ? (
             <MarketplaceEmptyState
               title={t("reputation.features.reviews.ui.accountReviewSummaryPage.no.reviews.yet")}
-              description={t("reputation.features.reviews.ui.accountReviewSummaryPage.completed.transactions.will.surface.here.once")}
+              description={t(
+                "reputation.features.reviews.ui.accountReviewSummaryPage.completed.transactions.will.surface.here.once",
+              )}
             />
           ) : (
             reviews.map((review) => (
@@ -74,7 +75,9 @@ export function ReviewSummaryPage({
                 key={review.review_id}
                 author={review.author_display_name ?? review.author_account_id}
                 rating={review.rating}
-                body={review.feedback ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.no.written.feedback")}
+                body={
+                  review.feedback ?? t("reputation.features.reviews.ui.accountReviewSummaryPage.no.written.feedback")
+                }
                 meta="Verified order"
                 verified
               />

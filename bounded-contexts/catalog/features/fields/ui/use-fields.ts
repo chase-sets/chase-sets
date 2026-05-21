@@ -3,7 +3,10 @@ import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type { LocalizedTextMap } from "@chase-sets/localization";
 import type { Field } from "./contracts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
-import type { BulkLifecyclePreview, BulkLifecycleResult } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import type {
+  BulkLifecyclePreview,
+  BulkLifecycleResult,
+} from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 export function useFieldList(query: string, initialData?: ListResponse<Field> | null) {
   return useFetch(() => api.listFields<ListResponse<Field>>(query), [query], initialData);
@@ -24,13 +27,16 @@ export function createField(body: {
   return api.createField<CommandResponse>(body);
 }
 
-export function configureField(id: string, body: {
-  key: string;
-  name: LocalizedTextMap;
-  description?: LocalizedTextMap;
-  valueType: string;
-  behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
-}) {
+export function configureField(
+  id: string,
+  body: {
+    key: string;
+    name: LocalizedTextMap;
+    description?: LocalizedTextMap;
+    valueType: string;
+    behavior: { filterable: boolean; searchable: boolean; sortable: boolean };
+  },
+) {
   return api.reviseField<CommandResponse>(id, body);
 }
 
@@ -53,7 +59,3 @@ export function previewBulkFieldLifecycle(action: string, selection: unknown) {
 export function confirmBulkFieldLifecycle(action: string, selection: unknown) {
   return api.confirmBulkFieldLifecycle<BulkLifecycleResult>(action, selection);
 }
-
-
-
-

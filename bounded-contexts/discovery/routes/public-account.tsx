@@ -20,10 +20,7 @@ import {
 } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import {
-  createDiscoveryRequestApiClient,
-  DiscoveryApiError,
-} from "../support/request-support/api-client";
+import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
 import { discoveryAssetUrls } from "../support/client-support/assets";
 import { applyDiscoveryPublicAccountPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
@@ -138,9 +135,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
         })
       : t("discovery.routes.publicAccount.this.marketplace.account.is.not.available"),
   }),
-  ...(data?.canonicalUrl
-    ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }]
-    : []),
+  ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
 ];
 
 export default function PublicAccountRoute() {
@@ -162,9 +157,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const account = useRealtimePatchedSnapshot({
     initialSnapshot: data.account,
     snapshotKey: JSON.stringify(data.account),
-    topics: data.account
-      ? discoveryRealtimeRouteTopics.publicAccount(data.account.account_id).topics
-      : [],
+    topics: data.account ? discoveryRealtimeRouteTopics.publicAccount(data.account.account_id).topics : [],
     applyPatch: applyDiscoveryPublicAccountPatch,
     onSyncRequired: reloadForRealtimeSync,
   });
@@ -268,10 +261,11 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                           <Text size="sm" weight="semibold">
                             {reviewDate
                               ? t("discovery.routes.publicAccount.review.byline", {
-                                  author: review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer"),
+                                  author:
+                                    review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer"),
                                   date: reviewDate,
                                 })
-                              : review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer")}
+                              : (review.author_display_name ?? t("discovery.routes.publicAccount.marketplace.buyer"))}
                           </Text>
                           <Text size="sm" tone="secondary">
                             {review.feedback ?? t("discovery.routes.publicAccount.no.written.feedback")}
@@ -347,10 +341,7 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                   availability={availabilityDetail}
                   condition={
                     listing.product_summary ? (
-                      <ProductOptions
-                        options={productOptionsFromSummary(listing.product_summary)}
-                        variant="compact"
-                      />
+                      <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="compact" />
                     ) : (
                       t("discovery.routes.publicAccount.standard.product")
                     )
@@ -379,7 +370,9 @@ function PublicAccountRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           <MarketplaceEmptyState
             title={t("discovery.routes.publicAccount.no.active.listings")}
             description={t("discovery.routes.publicAccount.this.account.does.not.have.active")}
-            recoveryActions={<LinkButton href="/search">{t("discovery.routes.publicAccount.browse.marketplace")}</LinkButton>}
+            recoveryActions={
+              <LinkButton href="/search">{t("discovery.routes.publicAccount.browse.marketplace")}</LinkButton>
+            }
           />
         )}
       </Stack>

@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  action as listingAction,
-  loader as listingLoader,
-} from "@chase-sets/marketplace/routes/account-listing";
-import type {
-  MarketplaceListingTermsPreview,
-} from "@chase-sets/marketplace/server";
+import { action as listingAction, loader as listingLoader } from "@chase-sets/marketplace/routes/account-listing";
+import type { MarketplaceListingTermsPreview } from "@chase-sets/marketplace/server";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -54,9 +49,7 @@ describe("marketplace listing detail route", () => {
 
         listingReads += 1;
         if (listingReads === 1) {
-          return Promise.resolve(
-            jsonResponse({ error: { code: "not_found", message: "Missing." } }, 404),
-          );
+          return Promise.resolve(jsonResponse({ error: { code: "not_found", message: "Missing." } }, 404));
         }
 
         return Promise.resolve(
@@ -70,9 +63,7 @@ describe("marketplace listing detail route", () => {
     );
 
     const result = await listingLoader({
-      request: new Request(
-        `http://localhost/account/listings/lst_1?afterWrite=42.${Date.now()}`,
-      ),
+      request: new Request(`http://localhost/account/listings/lst_1?afterWrite=42.${Date.now()}`),
       params: { listingId: "lst_1" },
       context: undefined,
     } as never);

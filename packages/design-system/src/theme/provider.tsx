@@ -5,21 +5,12 @@ import {
   useSyncExternalStore,
   useState,
   type HTMLAttributes,
-  type PropsWithChildren
+  type PropsWithChildren,
 } from "react";
 import { MotionConfig } from "motion/react";
-import {
-  resolveChaseMotion,
-  type ChaseMotionSettings,
-  type ReducedMotionSetting
-} from "../motion/config";
+import { resolveChaseMotion, type ChaseMotionSettings, type ReducedMotionSetting } from "../motion/config";
 import { cx } from "../utils/cx";
-import {
-  resolveThemeOverrideStyle,
-  type ColorMode,
-  type DensityMode,
-  type ThemeOverrides
-} from "./tokens";
+import { resolveThemeOverrideStyle, type ColorMode, type DensityMode, type ThemeOverrides } from "./tokens";
 
 interface PortalContextValue {
   overlayNode: HTMLDivElement | null;
@@ -27,12 +18,10 @@ interface PortalContextValue {
 }
 
 const DensityContext = createContext<DensityMode>("comfortable");
-const MotionContext = createContext<ChaseMotionSettings>(
-  resolveChaseMotion(undefined, "user", false)
-);
+const MotionContext = createContext<ChaseMotionSettings>(resolveChaseMotion(undefined, "user", false));
 const PortalContext = createContext<PortalContextValue>({
   overlayNode: null,
-  toastNode: null
+  toastNode: null,
 });
 
 type RootFrameProps = Omit<HTMLAttributes<HTMLDivElement>, "className" | "style">;
@@ -79,20 +68,12 @@ export function ChaseRoot({
 }: ChaseRootProps) {
   const [overlayNode, setOverlayNode] = useState<HTMLDivElement | null>(null);
   const [toastNode, setToastNode] = useState<HTMLDivElement | null>(null);
-  const systemReducedMotion = useSyncExternalStore(
-    subscribeToReducedMotion,
-    getReducedMotionSnapshot,
-    () => false
-  );
+  const systemReducedMotion = useSyncExternalStore(subscribeToReducedMotion, getReducedMotionSnapshot, () => false);
   const resolvedReducedMotion =
-    reducedMotion === "always"
-      ? true
-      : reducedMotion === "never"
-        ? false
-        : systemReducedMotion;
+    reducedMotion === "always" ? true : reducedMotion === "never" ? false : systemReducedMotion;
   const motionSettings = useMemo(
     () => resolveChaseMotion(theme, reducedMotion, resolvedReducedMotion),
-    [theme, reducedMotion, resolvedReducedMotion]
+    [theme, reducedMotion, resolvedReducedMotion],
   );
 
   return (
@@ -103,7 +84,7 @@ export function ChaseRoot({
             reducedMotion={reducedMotion}
             transition={{
               duration: motionSettings.durations.base,
-              ease: motionSettings.easing
+              ease: motionSettings.easing,
             }}
           >
             <div
@@ -113,7 +94,7 @@ export function ChaseRoot({
               data-density={density}
               data-reduced-motion={resolvedReducedMotion ? "true" : "false"}
               className={cx(
-                "chase-root relative isolate min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-background font-body text-foreground"
+                "chase-root relative isolate min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-background font-body text-foreground",
               )}
               style={resolveThemeOverrideStyle(theme)}
             >
@@ -128,19 +109,12 @@ export function ChaseRoot({
   );
 }
 
-export interface ThemeScopeProps
-  extends PropsWithChildren,
-    RootFrameProps {
+export interface ThemeScopeProps extends PropsWithChildren, RootFrameProps {
   colorMode?: ColorMode;
   theme?: ThemeOverrides;
 }
 
-export function ThemeScope({
-  children,
-  colorMode,
-  theme,
-  ...rest
-}: ThemeScopeProps) {
+export function ThemeScope({ children, colorMode, theme, ...rest }: ThemeScopeProps) {
   return (
     <div
       {...rest}
@@ -186,12 +160,12 @@ export function ColorModeToggle({
   onValueChange,
   lightLabel = "Light",
   darkLabel = "Dark",
-  systemLabel = "System"
+  systemLabel = "System",
 }: ColorModeToggleProps) {
   const labels: Record<ColorMode, string> = {
     light: lightLabel,
     dark: darkLabel,
-    system: systemLabel
+    system: systemLabel,
   };
 
   function cycle() {

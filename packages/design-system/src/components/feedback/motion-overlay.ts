@@ -13,7 +13,7 @@ export function resolveOverlayMotion(
   enterValues: TargetAndTransition,
   exitValues: TargetAndTransition,
   initialValues?: TargetAndTransition,
-  speed: "fast" | "base" | "slow" = "fast"
+  speed: "fast" | "base" | "slow" = "fast",
 ): OverlayMotionProps {
   if (settings.reducedMotion) {
     return { initial: false, animate: undefined, transition: undefined };
@@ -22,20 +22,18 @@ export function resolveOverlayMotion(
   return {
     initial: initialValues ?? exitValues,
     animate: open ? enterValues : exitValues,
-    transition: { duration: settings.durations[speed], ease: settings.easing }
+    transition: { duration: settings.durations[speed], ease: settings.easing },
   };
 }
 
 export function resolveOverlayFade(
   settings: ChaseMotionSettings,
   open: boolean,
-  speed: "fast" | "base" | "slow" = "base"
+  speed: "fast" | "base" | "slow" = "base",
 ): OverlayMotionProps {
   return {
     initial: false,
     animate: settings.reducedMotion ? undefined : open ? { opacity: 1 } : { opacity: 0 },
-    transition: settings.reducedMotion
-      ? undefined
-      : { duration: settings.durations[speed], ease: settings.easing }
+    transition: settings.reducedMotion ? undefined : { duration: settings.durations[speed], ease: settings.easing },
   };
 }

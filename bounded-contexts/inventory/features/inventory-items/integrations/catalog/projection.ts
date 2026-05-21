@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -76,10 +72,7 @@ async function loadNameMap(
   return new Map(result.rows.map((row) => [row.id, row.name]));
 }
 
-async function buildVersionSchema(
-  db: PgQueryable,
-  blueprintId: string,
-): Promise<unknown | null> {
+async function buildVersionSchema(db: PgQueryable, blueprintId: string): Promise<unknown | null> {
   const blueprintResult = await db.query<InventoryCatalogBlueprintRow>(
     `SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1`,
     [blueprintId],
@@ -95,9 +88,7 @@ async function buildVersionSchema(
   const dimensionIds = [
     ...new Set([
       ...dimensionRules.map((rule) => rule.dimensionId),
-      ...dimensionRules.flatMap((rule) =>
-        (rule.appliesWhen ?? []).map((clause) => clause.dimensionId),
-      ),
+      ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
       ...canonicalDimensionOrder,
     ]),
   ];
@@ -107,20 +98,16 @@ async function buildVersionSchema(
   ]);
 
   const [dimensionNames, choiceRows] = await Promise.all([
-    loadNameMap(
-      db,
-      "inventory_catalog_dimensions",
-      "dimension_id",
-      "name",
-      dimensionIds,
-    ),
+    loadNameMap(db, "inventory_catalog_dimensions", "dimension_id", "name", dimensionIds),
     optionIds.length > 0
-      ? db.query<ChoiceDetailRow>(
-          `SELECT option_id, code, label_i18n, label
+      ? db
+          .query<ChoiceDetailRow>(
+            `SELECT option_id, code, label_i18n, label
            FROM inventory_catalog_dimension_options
            WHERE option_id = ANY($1)`,
-          [optionIds],
-        ).then((result) => result.rows)
+            [optionIds],
+          )
+          .then((result) => result.rows)
       : Promise.resolve([] as ChoiceDetailRow[]),
   ]);
 
@@ -153,10 +140,7 @@ async function buildVersionSchema(
   };
 }
 
-async function refreshInventoryCatalogItem(
-  db: PgQueryable,
-  itemId: string,
-): Promise<void> {
+async function refreshInventoryCatalogItem(db: PgQueryable, itemId: string): Promise<void> {
   const result = await db.query<InventoryCatalogItemRow>(
     `SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at
      FROM inventory_catalog_items
@@ -169,35 +153,24 @@ async function refreshInventoryCatalogItem(
     return;
   }
 
-  const productSchema = item.blueprint_id
-    ? await buildVersionSchema(db, item.blueprint_id)
-    : null;
+  const productSchema = item.blueprint_id ? await buildVersionSchema(db, item.blueprint_id) : null;
 
   await db.query(
     `UPDATE inventory_catalog_items
      SET product_schema = $2,
          updated_at = $3
      WHERE catalog_item_id = $1`,
-    [
-      itemId,
-      productSchema === null ? null : JSON.stringify(productSchema),
-      item.updated_at,
-    ],
+    [itemId, productSchema === null ? null : JSON.stringify(productSchema), item.updated_at],
   );
 }
 
-async function refreshItemsByBlueprint(
-  db: PgQueryable,
-  blueprintId: string,
-): Promise<void> {
+async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1`,
     [blueprintId],
   );
 
-  await Promise.all(
-    result.rows.map((row) => refreshInventoryCatalogItem(db, row.catalog_item_id)),
-  );
+  await Promise.all(result.rows.map((row) => refreshInventoryCatalogItem(db, row.catalog_item_id)));
 }
 
 async function refreshAllItems(db: PgQueryable): Promise<void> {
@@ -205,14 +178,10 @@ async function refreshAllItems(db: PgQueryable): Promise<void> {
     `SELECT catalog_item_id FROM inventory_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
-  await Promise.all(
-    result.rows.map((row) => refreshInventoryCatalogItem(db, row.catalog_item_id)),
-  );
+  await Promise.all(result.rows.map((row) => refreshInventoryCatalogItem(db, row.catalog_item_id)));
 }
 
-export function buildInventoryCatalogItemProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildInventoryCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
       const { itemId, languageCode, title, subtitle } = event.data as {
@@ -383,10 +352,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
       );
     },
     "catalog.blueprint.revised": async (event) => {
-      const blueprintId = extractIdFromStreamId(
-        event.streamId,
-        BLUEPRINT_STREAM_PREFIX,
-      );
+      const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { name } = event.data as { name: unknown };
       const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
 
@@ -405,10 +371,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
       await refreshItemsByBlueprint(db, blueprintId);
     },
     "catalog.blueprint.dimensions-set": async (event) => {
-      const blueprintId = extractIdFromStreamId(
-        event.streamId,
-        BLUEPRINT_STREAM_PREFIX,
-      );
+      const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { dimensionRules } = event.data as { dimensionRules: unknown };
 
       await db.query(
@@ -416,20 +379,13 @@ export function buildInventoryCatalogItemProjectionHandlers(
          SET dimension_rules = $2,
              updated_at = $3
          WHERE blueprint_id = $1`,
-        [
-          blueprintId,
-          JSON.stringify(Array.isArray(dimensionRules) ? dimensionRules : []),
-          event.timing.recordedAt,
-        ],
+        [blueprintId, JSON.stringify(Array.isArray(dimensionRules) ? dimensionRules : []), event.timing.recordedAt],
       );
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
     "catalog.blueprint.product-resolution-rules-set": async (event) => {
-      const blueprintId = extractIdFromStreamId(
-        event.streamId,
-        BLUEPRINT_STREAM_PREFIX,
-      );
+      const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { canonicalDimensionOrder } = event.data as {
         canonicalDimensionOrder: unknown;
       };
@@ -441,9 +397,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
          WHERE blueprint_id = $1`,
         [
           blueprintId,
-          JSON.stringify(
-            Array.isArray(canonicalDimensionOrder) ? canonicalDimensionOrder : [],
-          ),
+          JSON.stringify(Array.isArray(canonicalDimensionOrder) ? canonicalDimensionOrder : []),
           event.timing.recordedAt,
         ],
       );
@@ -451,10 +405,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
       await refreshItemsByBlueprint(db, blueprintId);
     },
     "catalog.blueprint.published": async (event) => {
-      const blueprintId = extractIdFromStreamId(
-        event.streamId,
-        BLUEPRINT_STREAM_PREFIX,
-      );
+      const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
 
       await db.query(
         `UPDATE inventory_catalog_blueprints
@@ -489,10 +440,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
       await refreshAllItems(db);
     },
     "catalog.dimension.revised": async (event) => {
-      const dimensionId = extractIdFromStreamId(
-        event.streamId,
-        DIMENSION_STREAM_PREFIX,
-      );
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { name } = event.data as { name: unknown };
       const resolvedName = resolveLocalizedTextMap(coerceLocalizedTextMap(name));
 
@@ -511,10 +459,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
       await refreshAllItems(db);
     },
     "catalog.dimension.option-added": async (event) => {
-      const dimensionId = extractIdFromStreamId(
-        event.streamId,
-        DIMENSION_STREAM_PREFIX,
-      );
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { optionId, code, label, labels } = event.data as {
         optionId: string;
         code: string;
@@ -551,10 +496,7 @@ export function buildInventoryCatalogItemProjectionHandlers(
       await refreshAllItems(db);
     },
     "catalog.dimension.option-revised": async (event) => {
-      const dimensionId = extractIdFromStreamId(
-        event.streamId,
-        DIMENSION_STREAM_PREFIX,
-      );
+      const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { optionId, code, label, labels } = event.data as {
         optionId: string;
         code: string;

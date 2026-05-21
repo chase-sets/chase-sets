@@ -1,17 +1,6 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import {
-  normalizeAddressSnapshot,
-  type AddressSnapshot,
-} from "@chase-sets/primitives/address-snapshot";
-import type {
-  AccountId,
-  OrderId,
-  ShipmentId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   assert,
@@ -381,28 +370,13 @@ function normalizeShipmentLines(lines: readonly FulfillmentShipmentLine[]) {
   assert(lines.length > 0, "Shipments must include at least one line.");
   return lines.map((line) => ({
     lineId: line.lineId,
-    orderLineId: normalizeRequiredText(
-      line.orderLineId,
-      "Shipment lines must reference an order line.",
-    ),
-    catalogItemId: normalizeRequiredText(
-      line.catalogItemId,
-      "Shipment lines must reference a catalog item.",
-    ),
-    productId: normalizeRequiredText(
-      line.productId,
-      "Shipment lines must reference a product id.",
-    ),
-    itemTitle: normalizeRequiredText(
-      line.itemTitle,
-      "Shipment lines must include an item title.",
-    ),
+    orderLineId: normalizeRequiredText(line.orderLineId, "Shipment lines must reference an order line."),
+    catalogItemId: normalizeRequiredText(line.catalogItemId, "Shipment lines must reference a catalog item."),
+    productId: normalizeRequiredText(line.productId, "Shipment lines must reference a product id."),
+    itemTitle: normalizeRequiredText(line.itemTitle, "Shipment lines must include an item title."),
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     productSummary: normalizeOptionalText(line.productSummary),
-    quantity: ensurePositiveInteger(
-      line.quantity,
-      "Shipment line quantity must be a positive whole number.",
-    ),
+    quantity: ensurePositiveInteger(line.quantity, "Shipment line quantity must be a positive whole number."),
   }));
 }
 
@@ -422,24 +396,15 @@ export const decideFulfillmentShipment: AggregateDecider<
             orderId: command.orderId,
             buyerAccountId: command.buyerAccountId,
             sellerAccountId: command.sellerAccountId,
-            shippingOption: normalizeRequiredText(
-              command.shippingOption,
-              "Shipment must include a shipping option.",
-            ),
+            shippingOption: normalizeRequiredText(command.shippingOption, "Shipment must include a shipping option."),
             shippingDestinationSnapshot: normalizeAddressSnapshot(
               command.shippingDestinationSnapshot,
               "Shipping destination",
             ),
-            shippingOriginSnapshot: normalizeAddressSnapshot(
-              command.shippingOriginSnapshot,
-              "Shipping origin",
-            ),
+            shippingOriginSnapshot: normalizeAddressSnapshot(command.shippingOriginSnapshot, "Shipping origin"),
             shippingPlanSnapshot: command.shippingPlanSnapshot ?? null,
             lines: normalizeShipmentLines(command.lines),
-            createdAt: ensureIsoTimestamp(
-              command.createdAt,
-              "Shipment creation must record a timestamp.",
-            ),
+            createdAt: ensureIsoTimestamp(command.createdAt, "Shipment creation must record a timestamp."),
           },
         },
       ];
@@ -448,60 +413,34 @@ export const decideFulfillmentShipment: AggregateDecider<
       if (state.packageStatus === "packed") {
         return [];
       }
-      assert(
-        state.status === "awaiting-package",
-        "Only shipments awaiting package preparation can be packed.",
-      );
+      assert(state.status === "awaiting-package", "Only shipments awaiting package preparation can be packed.");
       return [
         {
           type: "fulfillment.shipment.package-prepared",
           data: {
             shipmentId: state.shipmentId,
-            packageCount: ensurePositiveInteger(
-              command.packageCount,
-              "Package count must be a positive whole number.",
-            ),
-            preparedAt: ensureIsoTimestamp(
-              command.preparedAt,
-              "Package preparation must record a timestamp.",
-            ),
+            packageCount: ensurePositiveInteger(command.packageCount, "Package count must be a positive whole number."),
+            preparedAt: ensureIsoTimestamp(command.preparedAt, "Package preparation must record a timestamp."),
           },
         },
       ];
     case "AttachShipmentLabel":
       assert(state.shipmentId !== null, "Shipment must be created first.");
-      assert(
-        state.packageStatus === "packed",
-        "Shipments must be packed before a label can be attached.",
-      );
-      assert(
-        state.status === "awaiting-label",
-        "Only shipments awaiting a label can attach one.",
-      );
+      assert(state.packageStatus === "packed", "Shipments must be packed before a label can be attached.");
+      assert(state.status === "awaiting-label", "Only shipments awaiting a label can attach one.");
       return [
         {
           type: "fulfillment.shipment.label-attached",
           data: {
             shipmentId: state.shipmentId,
             shippingMethod: normalizeShippingMethod(command.shippingMethod),
-            carrierName: normalizeRequiredText(
-              command.carrierName,
-              "Carrier name is required.",
-            ),
-            labelReference: normalizeRequiredText(
-              command.labelReference,
-              "Label reference is required.",
-            ),
+            carrierName: normalizeRequiredText(command.carrierName, "Carrier name is required."),
+            labelReference: normalizeRequiredText(command.labelReference, "Label reference is required."),
             labelDocumentUrl: normalizeOptionalText(command.labelDocumentUrl),
-            trackingIdentifier: normalizeRequiredText(
-              command.trackingIdentifier,
-              "Tracking identifier is required.",
-            ),
+            trackingIdentifier: normalizeRequiredText(command.trackingIdentifier, "Tracking identifier is required."),
             postageProviderName: normalizeOptionalText(command.postageProviderName),
             postageProviderMode: normalizeOptionalText(command.postageProviderMode),
-            postageProviderShipmentId: normalizeOptionalText(
-              command.postageProviderShipmentId,
-            ),
+            postageProviderShipmentId: normalizeOptionalText(command.postageProviderShipmentId),
             postageProviderLabelId: normalizeOptionalText(command.postageProviderLabelId),
             postageRateId: normalizeOptionalText(command.postageRateId),
             postageServiceLevel: normalizeOptionalText(command.postageServiceLevel),
@@ -546,23 +485,14 @@ export const decideFulfillmentShipment: AggregateDecider<
                   ),
                 }
               : null,
-            attachedAt: ensureIsoTimestamp(
-              command.attachedAt,
-              "Label attachment must record a timestamp.",
-            ),
+            attachedAt: ensureIsoTimestamp(command.attachedAt, "Label attachment must record a timestamp."),
           },
         },
       ];
     case "RecordShipmentLabelPurchaseFailed":
       assert(state.shipmentId !== null, "Shipment must be created first.");
-      assert(
-        state.packageStatus === "packed",
-        "Shipments must be packed before a label can be purchased.",
-      );
-      assert(
-        state.status === "awaiting-label",
-        "Only shipments awaiting a label can record label purchase errors.",
-      );
+      assert(state.packageStatus === "packed", "Shipments must be packed before a label can be purchased.");
+      assert(state.status === "awaiting-label", "Only shipments awaiting a label can record label purchase errors.");
       return [
         {
           type: "fulfillment.shipment.label-purchase-failed",
@@ -577,41 +507,23 @@ export const decideFulfillmentShipment: AggregateDecider<
               "Postage provider mode is required.",
             ),
             errorCode: normalizeOptionalText(command.errorCode),
-            errorMessage: normalizeRequiredText(
-              command.errorMessage,
-              "Label error message is required.",
-            ),
-            failedAt: ensureIsoTimestamp(
-              command.failedAt,
-              "Label error must record a timestamp.",
-            ),
+            errorMessage: normalizeRequiredText(command.errorMessage, "Label error message is required."),
+            failedAt: ensureIsoTimestamp(command.failedAt, "Label error must record a timestamp."),
           },
         },
       ];
     case "VoidShipmentLabel":
       assert(state.shipmentId !== null, "Shipment must be created first.");
-      assert(
-        state.status === "label-attached",
-        "Only attached labels can be voided before dispatch.",
-      );
-      assert(
-        state.labelStatus === "purchased",
-        "Only purchased labels can be voided.",
-      );
+      assert(state.status === "label-attached", "Only attached labels can be voided before dispatch.");
+      assert(state.labelStatus === "purchased", "Only purchased labels can be voided.");
       return [
         {
           type: "fulfillment.shipment.label-voided",
           data: {
             shipmentId: state.shipmentId,
-            refundStatus: normalizeRequiredText(
-              command.refundStatus,
-              "Label refund status is required.",
-            ),
+            refundStatus: normalizeRequiredText(command.refundStatus, "Label refund status is required."),
             refundReference: normalizeOptionalText(command.refundReference),
-            voidedAt: ensureIsoTimestamp(
-              command.voidedAt,
-              "Label void must record a timestamp.",
-            ),
+            voidedAt: ensureIsoTimestamp(command.voidedAt, "Label void must record a timestamp."),
           },
         },
       ];
@@ -623,10 +535,7 @@ export const decideFulfillmentShipment: AggregateDecider<
       if (state.status === "cancelled") {
         return [];
       }
-      assert(
-        state.status === "awaiting-package",
-        "Only shipments awaiting package preparation can be cancelled.",
-      );
+      assert(state.status === "awaiting-package", "Only shipments awaiting package preparation can be cancelled.");
       return [
         {
           type: "fulfillment.shipment.cancelled",
@@ -635,10 +544,7 @@ export const decideFulfillmentShipment: AggregateDecider<
             orderId: state.orderId,
             buyerAccountId: state.buyerAccountId,
             sellerAccountId: state.sellerAccountId,
-            cancelledAt: ensureIsoTimestamp(
-              command.cancelledAt,
-              "Shipment cancellation must record a timestamp.",
-            ),
+            cancelledAt: ensureIsoTimestamp(command.cancelledAt, "Shipment cancellation must record a timestamp."),
           },
         },
       ];
@@ -647,19 +553,13 @@ export const decideFulfillmentShipment: AggregateDecider<
       if (state.status === "dispatched") {
         return [];
       }
-      assert(
-        state.status === "label-attached",
-        "Only labeled shipments can be dispatched.",
-      );
+      assert(state.status === "label-attached", "Only labeled shipments can be dispatched.");
       return [
         {
           type: "fulfillment.shipment.dispatched",
           data: {
             shipmentId: state.shipmentId,
-            dispatchedAt: ensureIsoTimestamp(
-              command.dispatchedAt,
-              "Dispatch must record a timestamp.",
-            ),
+            dispatchedAt: ensureIsoTimestamp(command.dispatchedAt, "Dispatch must record a timestamp."),
           },
         },
       ];
@@ -667,10 +567,7 @@ export const decideFulfillmentShipment: AggregateDecider<
       assert(state.shipmentId !== null, "Shipment must be created first.");
       assert(state.orderId !== null, "Shipment must reference an order before delivery.");
       assert(state.buyerAccountId !== null, "Shipment must reference a buyer before delivery.");
-      assert(
-        state.shippingDestinationSnapshot !== null,
-        "Shipment must include a destination before delivery.",
-      );
+      assert(state.shippingDestinationSnapshot !== null, "Shipment must include a destination before delivery.");
       if (state.status === "delivered") {
         return [];
       }
@@ -687,10 +584,7 @@ export const decideFulfillmentShipment: AggregateDecider<
             buyerAccountId: state.buyerAccountId,
             shippingDestinationSnapshot: state.shippingDestinationSnapshot,
             trackingIdentifier: state.trackingIdentifier,
-            deliveredAt: ensureIsoTimestamp(
-              command.deliveredAt,
-              "Delivery must record a timestamp.",
-            ),
+            deliveredAt: ensureIsoTimestamp(command.deliveredAt, "Delivery must record a timestamp."),
           },
         },
       ];
@@ -709,10 +603,7 @@ export const decideFulfillmentShipment: AggregateDecider<
           data: {
             shipmentId: state.shipmentId,
             reason: normalizeOptionalText(command.reason),
-            returnedAt: ensureIsoTimestamp(
-              command.returnedAt,
-              "Shipment return must record a timestamp.",
-            ),
+            returnedAt: ensureIsoTimestamp(command.returnedAt, "Shipment return must record a timestamp."),
           },
         },
       ];
@@ -729,10 +620,7 @@ export const decideFulfillmentShipment: AggregateDecider<
             shipmentId: state.shipmentId,
             exceptionType: normalizeShipmentExceptionType(command.exceptionType),
             notes: normalizeOptionalText(command.notes),
-            raisedAt: ensureIsoTimestamp(
-              command.raisedAt,
-              "Shipment exception must record a timestamp.",
-            ),
+            raisedAt: ensureIsoTimestamp(command.raisedAt, "Shipment exception must record a timestamp."),
           },
         },
       ];
@@ -741,10 +629,10 @@ export const decideFulfillmentShipment: AggregateDecider<
   }
 };
 
-export const evolveFulfillmentShipment: AggregateEvolver<
-  FulfillmentShipmentState,
-  FulfillmentShipmentEvent
-> = (state, event) => {
+export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentState, FulfillmentShipmentEvent> = (
+  state,
+  event,
+) => {
   switch (event.type) {
     case "fulfillment.shipment.created":
       return {
@@ -841,8 +729,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<
       return {
         ...state,
         status: "awaiting-label",
-        labelStatus:
-          event.data.refundStatus === "refunded" ? "voided" : "void-requested",
+        labelStatus: event.data.refundStatus === "refunded" ? "voided" : "void-requested",
         labelRefundStatus: event.data.refundStatus,
         labelRefundReference: event.data.refundReference,
         labelVoidedAt: event.data.voidedAt,

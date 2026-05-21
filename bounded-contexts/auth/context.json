@@ -1,19 +1,10 @@
 {
   "contextName": "auth",
   "packageName": "@chase-sets/auth",
-  "ownedNouns": [
-    "authentication",
-    "session-journey",
-    "account-selection"
-  ],
+  "ownedNouns": ["authentication", "session-journey", "account-selection"],
   "streamPrefix": "auth.",
   "apiBasePath": "/api/auth",
-  "slices": [
-    "account-selection",
-    "registration",
-    "sessions",
-    "sign-in"
-  ],
+  "slices": ["account-selection", "registration", "sessions", "sign-in"],
   "allowedSupportDirectories": [
     "api-support",
     "auth-support",
@@ -25,29 +16,15 @@
     "ucp-support",
     "ui-support"
   ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./host-config",
-    "./routes/*",
-    "./seed-support/*",
-    "./server",
-    "./web"
-  ],
-  "allowedContextDependencies": [
-    "@chase-sets/identity"
-  ],
-  "seedRequirements": [
-    "identity"
-  ],
+  "publicExports": [".", "./context", "./host-config", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "allowedContextDependencies": ["@chase-sets/identity"],
+  "seedRequirements": ["identity"],
   "eventSubscriptions": [
     {
       "sourceContextName": "identity",
       "projectionName": "auth-identity-user-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "auth-identity-user-projection"
-      ],
+      "projectorNames": ["auth-identity-user-projection"],
       "eventTypes": [
         "identity.user.created",
         "identity.user.profile-updated",
@@ -66,9 +43,7 @@
       "sourceContextName": "identity",
       "projectionName": "auth-identity-membership-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "auth-identity-membership-projection"
-      ],
+      "projectorNames": ["auth-identity-membership-projection"],
       "eventTypes": [
         "identity.membership.granted",
         "identity.membership.role-changed",
@@ -81,9 +56,7 @@
       "sourceContextName": "identity",
       "projectionName": "auth-identity-invitation-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "auth-identity-invitation-projection"
-      ],
+      "projectorNames": ["auth-identity-invitation-projection"],
       "eventTypes": [
         "identity.invitation.created",
         "identity.invitation.resent",
@@ -98,35 +71,20 @@
   "projectionGroups": [
     {
       "projectionName": "auth-identity-user-projection",
-      "sourceContextNames": [
-        "identity"
-      ],
-      "ownedTables": [
-        "auth_identity_users",
-        "auth_identity_user_emails",
-        "auth_identity_user_phones"
-      ],
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["auth_identity_users", "auth_identity_user_emails", "auth_identity_user_phones"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "auth-identity-membership-projection",
-      "sourceContextNames": [
-        "identity"
-      ],
-      "ownedTables": [
-        "auth_identity_memberships",
-        "auth_identity_user_memberships"
-      ],
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["auth_identity_memberships", "auth_identity_user_memberships"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "auth-identity-invitation-projection",
-      "sourceContextNames": [
-        "identity"
-      ],
-      "ownedTables": [
-        "auth_identity_invitations"
-      ],
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["auth_identity_invitations"],
       "requiredDuringBootstrap": true
     }
   ],
@@ -142,10 +100,7 @@
       "purpose": "Durable notification outbox used for SMS sign-in codes and future Auth notification channels."
     }
   ],
-  "apiDeployables": [
-    "admin-support-api",
-    "platform-api"
-  ],
+  "apiDeployables": ["admin-support-api", "platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/auth",
@@ -323,42 +278,31 @@
       "classification": "slice",
       "purpose": "Own account-selection feature behavior, read models, and UI contracts for the auth context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal auth module composition"
-      ]
+      "expectedConsumers": ["Internal auth module composition"]
     },
     "registration": {
       "classification": "slice",
       "purpose": "Own registration feature behavior, read models, and UI contracts for the auth context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal auth module composition"
-      ]
+      "expectedConsumers": ["Internal auth module composition"]
     },
     "sessions": {
       "classification": "slice",
       "purpose": "Own sessions feature behavior, read models, and UI contracts for the auth context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal auth module composition"
-      ]
+      "expectedConsumers": ["Internal auth module composition"]
     },
     "sign-in": {
       "classification": "slice",
       "purpose": "Own sign-in feature behavior, read models, and UI contracts for the auth context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal auth module composition"
-      ]
+      "expectedConsumers": ["Internal auth module composition"]
     },
     "api-support": {
       "classification": "support",
       "purpose": "Provide reusable api-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Deployable composition for auth",
-        "sessions"
-      ],
+      "expectedConsumers": ["Deployable composition for auth", "sessions"],
       "justification": "api-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -367,9 +311,7 @@
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple auth slices"
-      ],
+      "expectedConsumers": ["Multiple auth slices"],
       "justification": "auth-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -378,10 +320,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "registration",
-        "sign-in"
-      ],
+      "expectedConsumers": ["registration", "sign-in"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -391,10 +330,7 @@
       "classification": "support",
       "purpose": "Provide reusable route-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "registration",
-        "sign-in"
-      ],
+      "expectedConsumers": ["registration", "sign-in"],
       "justification": "route-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -403,9 +339,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "sessions"
-      ],
+      "expectedConsumers": ["sessions"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -414,10 +348,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple auth slices",
-        "Deployable composition for auth"
-      ],
+      "expectedConsumers": ["Multiple auth slices", "Deployable composition for auth"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -427,11 +358,7 @@
       "classification": "support",
       "purpose": "Provide provider-neutral social-login adapter contracts and provider implementations for Auth-owned sign-in and registration journeys.",
       "allowedWhen": "Allowed because Google and Facebook provider behavior is shared by sign-in, registration, and API callback composition.",
-      "expectedConsumers": [
-        "sign-in",
-        "registration",
-        "Deployable composition for auth"
-      ],
+      "expectedConsumers": ["sign-in", "registration", "Deployable composition for auth"],
       "justification": "social-login-support keeps provider adapter details out of feature UI and session aggregates while still staying inside the Auth boundary.",
       "createdFor": "sign-in and registration Social Login journeys.",
       "sunsetWhen": "Remove when social login support is extracted to a dedicated provider contract or no longer spans multiple Auth slices."
@@ -440,9 +367,7 @@
       "classification": "support",
       "purpose": "Provide Auth-owned OAuth authorization, token, and revocation routes for UCP identity linking.",
       "allowedWhen": "Allowed because UCP OAuth spans the Auth authorization journey and deployable protocol composition.",
-      "expectedConsumers": [
-        "Deployable composition for UCP identity linking"
-      ],
+      "expectedConsumers": ["Deployable composition for UCP identity linking"],
       "justification": "Auth owns the OAuth journey while Identity owns durable linked platform authorization facts.",
       "createdFor": "authentication and account-selection for UCP identity linking.",
       "sunsetWhen": "Remove when UCP identity linking can move into a single Auth feature slice."
@@ -451,10 +376,7 @@
       "classification": "support",
       "purpose": "Provide reusable ui-support assets shared by auth-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "registration",
-        "sign-in"
-      ],
+      "expectedConsumers": ["registration", "sign-in"],
       "justification": "ui-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "auth workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -463,13 +385,8 @@
       "classification": "routes",
       "purpose": "Expose auth-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "admin-support-worker",
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["admin-support-worker", "platform-worker"]
 }

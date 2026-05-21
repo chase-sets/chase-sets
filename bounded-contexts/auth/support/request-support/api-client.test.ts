@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthApiError, createAuthApiClient } from "../../client";
 import { PLATFORM_INTERNAL_AUTH_HEADER } from "@chase-sets/platform-runtime/http";
-import {
-  createAuthRequestApiClient,
-  createInternalAuthRequestApiClient,
-} from "./api-client";
+import { createAuthRequestApiClient, createInternalAuthRequestApiClient } from "./api-client";
 
 function createRecordingFetch() {
   const calls: {
@@ -127,9 +124,9 @@ describe("auth api client authentication methods", () => {
   it("requires an explicit internal secret for internal server request clients in production", () => {
     process.env.NODE_ENV = "production";
 
-    expect(() =>
-      createInternalAuthRequestApiClient(new Request("https://app.test/")),
-    ).toThrow("PLATFORM_INTERNAL_AUTH_SECRET is required");
+    expect(() => createInternalAuthRequestApiClient(new Request("https://app.test/"))).toThrow(
+      "PLATFORM_INTERNAL_AUTH_SECRET is required",
+    );
   });
 
   it("uses structured API error messages instead of object stringification", async () => {

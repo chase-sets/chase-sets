@@ -3,15 +3,7 @@ import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
-import {
-  Button,
-  Dialog,
-  Select,
-  Stack,
-  StatusPill,
-  TextInput,
-  type DataColumn,
-} from "@chase-sets/design-system";
+import { Button, Dialog, Select, Stack, StatusPill, TextInput, type DataColumn } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityListPage } from "../../../support/shell-support/ui/entity-list-page";
 import { BulkLifecycleActionBar } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
@@ -25,7 +17,11 @@ import type { Blueprint } from "./contracts";
 const columns: DataColumn<Blueprint>[] = [
   { key: "key", header: t("catalog.features.blueprints.ui.blueprintListPage.key"), cell: (row) => row.key },
   { key: "name", header: t("catalog.features.blueprints.ui.blueprintListPage.name"), cell: (row) => row.name },
-  { key: "status", header: t("catalog.features.blueprints.ui.blueprintListPage.status"), cell: (row) => <StatusPill>{row.status}</StatusPill> },
+  {
+    key: "status",
+    header: t("catalog.features.blueprints.ui.blueprintListPage.status"),
+    cell: (row) => <StatusPill>{row.status}</StatusPill>,
+  },
 ];
 
 const statusOptions = [
@@ -130,7 +126,9 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}
         createButton={
-          <Button onClick={() => setShowCreate(true)}>{t("catalog.features.blueprints.ui.blueprintListPage.new.blueprint")}</Button>
+          <Button onClick={() => setShowCreate(true)}>
+            {t("catalog.features.blueprints.ui.blueprintListPage.new.blueprint")}
+          </Button>
         }
       />
       <Dialog
@@ -140,12 +138,23 @@ export function BlueprintListPage({ data, query }: CatalogListRouteData<Blueprin
         footer={<Button onClick={handleCreate}>{t("catalog.features.blueprints.ui.blueprintListPage.create")}</Button>}
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.blueprints.ui.blueprintListPage.key.2")} value={key} onChange={(e) => setKey(e.target.value)} />
-          <TextInput label={t("catalog.features.blueprints.ui.blueprintListPage.name.2")} value={name} onChange={(e) => setName(e.target.value)} />
-          <TextInput label={t("catalog.features.blueprints.ui.blueprintListPage.description")} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextInput
+            label={t("catalog.features.blueprints.ui.blueprintListPage.key.2")}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.blueprints.ui.blueprintListPage.name.2")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.blueprints.ui.blueprintListPage.description")}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
         </Stack>
       </Dialog>
     </>
   );
 }
-

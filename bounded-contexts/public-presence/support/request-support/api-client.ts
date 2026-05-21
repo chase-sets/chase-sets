@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createPublicPresenceApiClient,
-  PublicPresenceApiError,
-  publicPresenceApi,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createPublicPresenceApiClient, PublicPresenceApiError, publicPresenceApi } from "../../client";
 export type {
   PublicPresenceApiClientOptions,
   SubmitWaitlistSignupRequest,

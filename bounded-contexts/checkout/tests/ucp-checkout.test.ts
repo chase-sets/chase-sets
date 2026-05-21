@@ -59,9 +59,7 @@ function session(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRo
   };
 }
 
-function createSessions(
-  overrides: Partial<CheckoutSessionServices> = {},
-): CheckoutSessionServices {
+function createSessions(overrides: Partial<CheckoutSessionServices> = {}): CheckoutSessionServices {
   return {
     commandHandler: vi.fn() as never,
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
@@ -103,18 +101,20 @@ describe("checkout UCP handlers", () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
 
-    const response = await handlers.restHandlers.create_checkout(input({
-      source: {
-        type: "buy-now",
-        listing_id: "lst_1",
-        catalog_item_id: "cat_1",
-        product_id: "cat_1::form:raw",
-        title: "Charizard",
-        selected_options: [{ dimension_id: "form", option_id: "raw" }],
-        quantity: 2,
-      },
-      shipping_option: "priority",
-    }));
+    const response = await handlers.restHandlers.create_checkout(
+      input({
+        source: {
+          type: "buy-now",
+          listing_id: "lst_1",
+          catalog_item_id: "cat_1",
+          product_id: "cat_1::form:raw",
+          title: "Charizard",
+          selected_options: [{ dimension_id: "form", option_id: "raw" }],
+          quantity: 2,
+        },
+        shipping_option: "priority",
+      }),
+    );
 
     expect(response.ucp.status).toBe("ok");
     expect(sessions.createBuyNow).toHaveBeenCalledWith(
@@ -134,17 +134,22 @@ describe("checkout UCP handlers", () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
 
-    const response = await handlers.restHandlers.update_checkout(input({
-      shipping_option: "expedited",
-      shipping_address: {
-        name: "Jane Smith",
-        line1: "100 Market Street",
-        city: "Chicago",
-        state: "IL",
-        postal_code: "60601",
-        country: "US",
-      },
-    }, { id: "chk_1" }));
+    const response = await handlers.restHandlers.update_checkout(
+      input(
+        {
+          shipping_option: "expedited",
+          shipping_address: {
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            city: "Chicago",
+            state: "IL",
+            postal_code: "60601",
+            country: "US",
+          },
+        },
+        { id: "chk_1" },
+      ),
+    );
 
     expect(response.ucp.status).toBe("ok");
     expect(sessions.selectShippingOption).toHaveBeenCalledWith(
@@ -171,9 +176,7 @@ describe("checkout UCP handlers", () => {
     const response = await handlers.restHandlers.complete_checkout(input({}, { id: "chk_1" }));
 
     expect(response.ucp.status).toBe("requires_action");
-    expect(response.messages).toEqual([
-      expect.objectContaining({ code: "trusted_ui_required" }),
-    ]);
+    expect(response.messages).toEqual([expect.objectContaining({ code: "trusted_ui_required" })]);
   });
 
   it("requires a linked buyer account", async () => {
@@ -183,8 +186,6 @@ describe("checkout UCP handlers", () => {
     const response = await handlers.restHandlers.create_checkout(input({}, {}, null));
 
     expect(response.ucp.status).toBe("error");
-    expect(response.messages).toEqual([
-      expect.objectContaining({ code: "authentication_required" }),
-    ]);
+    expect(response.messages).toEqual([expect.objectContaining({ code: "authentication_required" })]);
   });
 });

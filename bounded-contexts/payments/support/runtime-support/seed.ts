@@ -37,10 +37,7 @@ type PaymentPageRow = Readonly<{
 
 class SeedOrderMissingError extends Error {}
 
-function createSeedContext(
-  accountId: string,
-  userId: string,
-): EventStoreContext {
+function createSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
     tenantId: "tnt_seed_development" as never,
     audit: {
@@ -62,11 +59,7 @@ async function drainProjectors(projectors: readonly Projector[]) {
   } while (processed > 0);
 }
 
-async function getSeedOrder(
-  pool: PgTransactionalPool,
-  orderId: string,
-  buyerAccountId: string,
-): Promise<OrderRow> {
+async function getSeedOrder(pool: PgTransactionalPool, orderId: string, buyerAccountId: string): Promise<OrderRow> {
   const result = await pool.query<OrderRow & Readonly<{ status: string }>>(
     `SELECT
        order_id,
@@ -89,22 +82,15 @@ async function getSeedOrder(
   const order = result.rows[0];
 
   if (!order) {
-    throw new SeedOrderMissingError(
-      `Payments seed requires order ${orderId} to exist.`,
-    );
+    throw new SeedOrderMissingError(`Payments seed requires order ${orderId} to exist.`);
   }
 
   return requirePendingPaymentOrder(order, `order ${orderId}`);
 }
 
-function requirePendingPaymentOrder(
-  order: OrderRow & Readonly<{ status: string }>,
-  description: string,
-): OrderRow {
+function requirePendingPaymentOrder(order: OrderRow & Readonly<{ status: string }>, description: string): OrderRow {
   if (order.status !== "pending-payment") {
-    throw new Error(
-      `Payments seed requires ${description} to be in pending-payment status.`,
-    );
+    throw new Error(`Payments seed requires ${description} to be in pending-payment status.`);
   }
 
   return {
@@ -152,14 +138,10 @@ async function getSeedOrderForSource(
   );
   const order = result.rows[0];
 
-  return order
-    ? requirePendingPaymentOrder(order, `${sourceType} ${sourceReferenceId}`)
-    : null;
+  return order ? requirePendingPaymentOrder(order, `${sourceType} ${sourceReferenceId}`) : null;
 }
 
-async function getAcceptedOfferSeedOrder(
-  pool: PgTransactionalPool,
-): Promise<OrderRow> {
+async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<OrderRow> {
   try {
     return await getSeedOrder(
       pool,
@@ -172,8 +154,7 @@ async function getAcceptedOfferSeedOrder(
     }
 
     const sourceType = "offer-acceptance";
-    const sourceReferenceId =
-      marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted;
+    const sourceReferenceId = marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted;
     const sourceOrder = await getSeedOrderForSource(
       pool,
       sourceType,
@@ -189,10 +170,7 @@ async function getAcceptedOfferSeedOrder(
   }
 }
 
-async function getPaymentPage(
-  pool: PgTransactionalPool,
-  paymentId: PaymentId,
-): Promise<PaymentPageRow> {
+async function getPaymentPage(pool: PgTransactionalPool, paymentId: PaymentId): Promise<PaymentPageRow> {
   const result = await pool.query<PaymentPageRow>(
     `SELECT
        payment_id,
@@ -222,9 +200,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   });
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM payments_payment_pages",
-    );
+    const existing = await services.db.query("SELECT COUNT(*) AS count FROM payments_payment_pages");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Payments already contain data. Skipping seed.");
       return;
@@ -239,20 +215,10 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     identitySeedIds.collector.accountId,
   );
   const acceptedOfferOrder = await getAcceptedOfferSeedOrder(pool);
-  const buyerContext = createSeedContext(
-    identitySeedIds.collector.accountId,
-    identitySeedIds.collector.userId,
-  );
-  const sellerContext = createSeedContext(
-    identitySeedIds.demo.accountId,
-    identitySeedIds.demo.userId,
-  );
+  const buyerContext = createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
+  const sellerContext = createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
-  const createPayment = async (
-    paymentId: PaymentId,
-    order: OrderRow,
-    createdAt: string,
-  ) => {
+  const createPayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string) => {
     const processorPayment = await processorGateway.createPaymentSession({
       paymentId,
       buyerAccountId: order.buyer_account_id as never,
@@ -271,18 +237,12 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         buyerAccountId: order.buyer_account_id as never,
         orderIds: [order.order_id as never],
         amount: normalizeMoneyAmount(order.total_amount, { allowZero: true }),
-        marketplaceSalesFeeAmount: normalizeMoneyAmount(
-          order.marketplace_sales_fee_amount,
-          {
-            allowZero: true,
-          },
-        ),
-        marketplaceCheckoutFeeAmount: normalizeMoneyAmount(
-          order.marketplace_checkout_fee_amount,
-          {
-            allowZero: true,
-          },
-        ),
+        marketplaceSalesFeeAmount: normalizeMoneyAmount(order.marketplace_sales_fee_amount, {
+          allowZero: true,
+        }),
+        marketplaceCheckoutFeeAmount: normalizeMoneyAmount(order.marketplace_checkout_fee_amount, {
+          allowZero: true,
+        }),
         marketplaceCheckoutFeePolicyVersion: "seed",
         marketplaceCheckoutFeeQuoteFingerprint: "seed",
         paymentMethodCategory: "card",
@@ -296,30 +256,18 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
           {
             orderId: order.order_id as never,
             sellerAccountId: order.seller_account_id as never,
-            sellerItemNetAmount: normalizeMoneyAmount(
-              order.seller_item_net_amount,
-              {
-                allowZero: true,
-              },
-            ),
-            shippingAllowanceAmount: normalizeMoneyAmount(
-              order.shipping_allowance_amount,
-              {
-                allowZero: true,
-              },
-            ),
-            sellerShippingPayoutAmount: normalizeMoneyAmount(
-              order.seller_shipping_payout_amount,
-              {
-                allowZero: true,
-              },
-            ),
-            sellerPayoutAmount: normalizeMoneyAmount(
-              order.seller_payout_amount,
-              {
-                allowZero: true,
-              },
-            ),
+            sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount, {
+              allowZero: true,
+            }),
+            shippingAllowanceAmount: normalizeMoneyAmount(order.shipping_allowance_amount, {
+              allowZero: true,
+            }),
+            sellerShippingPayoutAmount: normalizeMoneyAmount(order.seller_shipping_payout_amount, {
+              allowZero: true,
+            }),
+            sellerPayoutAmount: normalizeMoneyAmount(order.seller_payout_amount, {
+              allowZero: true,
+            }),
           },
         ],
         currencyCode: "usd",
@@ -348,10 +296,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     pendingCheckoutOrder,
     "2026-03-20T10:05:00.000Z",
   );
-  const failedPayment = await getPaymentPage(
-    pool,
-    paymentsReservedSeedIds.payments.failedModernCheckout,
-  );
+  const failedPayment = await getPaymentPage(pool, paymentsReservedSeedIds.payments.failedModernCheckout);
   await services.payments.processWebhook(
     {
       rawBody: JSON.stringify({
@@ -388,10 +333,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     acceptedOfferOrder,
     "2026-03-20T11:00:00.000Z",
   );
-  const capturedPayment = await getPaymentPage(
-    pool,
-    paymentsReservedSeedIds.payments.acceptedOfferCaptured,
-  );
+  const capturedPayment = await getPaymentPage(pool, paymentsReservedSeedIds.payments.acceptedOfferCaptured);
   await services.payments.processWebhook(
     {
       rawBody: JSON.stringify({
@@ -406,15 +348,8 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   );
   await drainProjectors(services.projectors);
 
-  const issueRefund = async (
-    refundId: RefundId,
-    reason: string,
-    requestedAt: string,
-  ) => {
-    const payment = await getPaymentPage(
-      pool,
-      paymentsReservedSeedIds.payments.acceptedOfferCaptured,
-    );
+  const issueRefund = async (refundId: RefundId, reason: string, requestedAt: string) => {
+    const payment = await getPaymentPage(pool, paymentsReservedSeedIds.payments.acceptedOfferCaptured);
 
     await services.refunds.commandHandler({
       streamId: `payments.refund-${refundId}`,
@@ -458,8 +393,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
           type: "RecordRefundFailure",
           processorStatus: "failed",
           failureCode: null,
-          failureMessage:
-            error instanceof Error ? error.message : "Refund failed.",
+          failureMessage: error instanceof Error ? error.message : "Refund failed.",
           failedAt: requestedAt,
         },
         context: sellerContext,

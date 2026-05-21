@@ -10,9 +10,7 @@ function extractIdFromStreamId(streamId: string, prefix: string): string {
   return streamId.slice(prefix.length);
 }
 
-export function buildFulfillmentAccountProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildFulfillmentAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -94,11 +92,7 @@ export function buildFulfillmentOrderProjectionHandlers(
       readyForFulfillmentAt: string;
       context: EventStoreContext;
     }) => Promise<void>;
-    onOrderCancelled?: (params: {
-      orderId: string;
-      cancelledAt: string;
-      context: EventStoreContext;
-    }) => Promise<void>;
+    onOrderCancelled?: (params: { orderId: string; cancelledAt: string; context: EventStoreContext }) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
   return {
@@ -159,10 +153,7 @@ export function buildFulfillmentOrderProjectionHandlers(
         ],
       );
 
-      await db.query(
-        `DELETE FROM fulfillment_order_source_lines WHERE order_id = $1`,
-        [data.orderId],
-      );
+      await db.query(`DELETE FROM fulfillment_order_source_lines WHERE order_id = $1`, [data.orderId]);
 
       for (const [index, line] of data.lines.entries()) {
         await db.query(

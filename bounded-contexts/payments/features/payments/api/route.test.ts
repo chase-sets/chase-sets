@@ -1,10 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { PaymentsApiEnv } from "./route";
-import {
-  createAccountPaymentRoutes,
-  createPaymentProcessorWebhookRoutes,
-} from "./route";
+import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes } from "./route";
 import type { PaymentServices } from "./runtime";
 
 const checkoutFeeQuote = {
@@ -19,10 +16,12 @@ const checkoutFeeQuote = {
   quoted_at: "2026-04-01T00:00:00.000Z",
 };
 
-function buildAccountApp(options: Readonly<{
-  actor: PaymentsApiEnv["Variables"]["actor"];
-  services: PaymentServices;
-}>) {
+function buildAccountApp(
+  options: Readonly<{
+    actor: PaymentsApiEnv["Variables"]["actor"];
+    services: PaymentServices;
+  }>,
+) {
   const app = new Hono<PaymentsApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -166,10 +165,10 @@ function createServices(): PaymentServices {
       checkout_status: {
         order_ids: ["ord_1"],
         currency_code: "usd",
-          amount: "24.99",
-          marketplace_checkout_fee: checkoutFeeQuote,
-          payment_method_quotes: [checkoutFeeQuote],
-          wallet_credit: {
+        amount: "24.99",
+        marketplace_checkout_fee: checkoutFeeQuote,
+        payment_method_quotes: [checkoutFeeQuote],
+        wallet_credit: {
           requested_amount: "0.00",
           applied_amount: "0.00",
           external_amount: "24.99",
@@ -402,9 +401,7 @@ describe("payments routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://payments.test/account/checkout/recovery?orderIds=ord_1"),
-    );
+    const response = await app.fetch(new Request("http://payments.test/account/checkout/recovery?orderIds=ord_1"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -480,9 +477,7 @@ describe("payments routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://payments.test/account/marketplace-checkout-fee-policy"),
-    );
+    const response = await app.fetch(new Request("http://payments.test/account/marketplace-checkout-fee-policy"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -523,9 +518,7 @@ describe("payments routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://payments.test/account/payments/pay_1/timeline"),
-    );
+    const response = await app.fetch(new Request("http://payments.test/account/payments/pay_1/timeline"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -549,9 +542,7 @@ describe("payments routes", () => {
       services,
     });
 
-    const response = await app.fetch(
-      new Request("http://payments.test/account/provider-health"),
-    );
+    const response = await app.fetch(new Request("http://payments.test/account/provider-health"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({

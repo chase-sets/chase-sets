@@ -4,10 +4,12 @@ import type { CheckoutApiEnv } from "../../../api";
 import { createAccountSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
 
-function buildApp(options: Readonly<{
-  actor: CheckoutApiEnv["Variables"]["actor"];
-  services: CheckoutSellListServices;
-}>) {
+function buildApp(
+  options: Readonly<{
+    actor: CheckoutApiEnv["Variables"]["actor"];
+    services: CheckoutSellListServices;
+  }>,
+) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.use("*", async (c, next) => {
@@ -74,9 +76,7 @@ describe("checkout sell list routes", () => {
     ] as never);
     const app = buildApp({ actor: sellerActor(), services });
 
-    const response = await app.fetch(
-      new Request("http://checkout.test/account/sell-list"),
-    );
+    const response = await app.fetch(new Request("http://checkout.test/account/sell-list"));
 
     await expect(response.json()).resolves.toMatchObject({
       count: 5,

@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -89,25 +85,13 @@ export type CategoryCreatedEvent = DomainEvent<
     CategorySnapshot
 >;
 
-export type CategoryRevisedEvent = DomainEvent<
-  "catalog.category.revised",
-  CategorySnapshot
->;
+export type CategoryRevisedEvent = DomainEvent<"catalog.category.revised", CategorySnapshot>;
 
-export type CategoryPublishedEvent = DomainEvent<
-  "catalog.category.published",
-  EmptyEventData
->;
+export type CategoryPublishedEvent = DomainEvent<"catalog.category.published", EmptyEventData>;
 
-export type CategoryDeprecatedEvent = DomainEvent<
-  "catalog.category.deprecated",
-  EmptyEventData
->;
+export type CategoryDeprecatedEvent = DomainEvent<"catalog.category.deprecated", EmptyEventData>;
 
-export type CategoryArchivedEvent = DomainEvent<
-  "catalog.category.archived",
-  EmptyEventData
->;
+export type CategoryArchivedEvent = DomainEvent<"catalog.category.archived", EmptyEventData>;
 
 export type CategoryEvent =
   | CategoryCreatedEvent
@@ -116,11 +100,7 @@ export type CategoryEvent =
   | CategoryDeprecatedEvent
   | CategoryArchivedEvent;
 
-export const decideCategory: AggregateDecider<
-  CategoryState,
-  CategoryCommand,
-  CategoryEvent
-> = (state, command) => {
+export const decideCategory: AggregateDecider<CategoryState, CategoryCommand, CategoryEvent> = (state, command) => {
   switch (command.type) {
     case "CreateCategory":
       assert(state.id === null, "Category has already been created.");
@@ -150,9 +130,7 @@ export const decideCategory: AggregateDecider<
           data: {
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
             parentCategoryId: command.parentCategoryId ?? null,
             displayOrder: command.displayOrder ?? state.displayOrder,
           },
@@ -170,10 +148,7 @@ export const decideCategory: AggregateDecider<
       ];
     case "DeprecateCategory":
       requireCreatedCategory(state);
-      assert(
-        state.status === "active",
-        "Only active categories can be deprecated.",
-      );
+      assert(state.status === "active", "Only active categories can be deprecated.");
 
       return [
         {
@@ -183,10 +158,7 @@ export const decideCategory: AggregateDecider<
       ];
     case "ArchiveCategory":
       requireCreatedCategory(state);
-      assert(
-        state.status === "deprecated",
-        "Only deprecated categories can be archived.",
-      );
+      assert(state.status === "deprecated", "Only deprecated categories can be archived.");
 
       return [
         {
@@ -199,10 +171,7 @@ export const decideCategory: AggregateDecider<
   }
 };
 
-export const evolveCategory: AggregateEvolver<CategoryState, CategoryEvent> = (
-  state,
-  event,
-) => {
+export const evolveCategory: AggregateEvolver<CategoryState, CategoryEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.category.created":
       return {
@@ -247,4 +216,3 @@ export const evolveCategory: AggregateEvolver<CategoryState, CategoryEvent> = (
 function requireCreatedCategory(state: CategoryState): void {
   assert(state.id !== null, "Category must be created first.");
 }
-

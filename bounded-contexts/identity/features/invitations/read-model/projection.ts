@@ -4,9 +4,7 @@ import { extractIdFromStreamId } from "../../../support/read-model-support/extra
 
 const STREAM_PREFIX = "identity.invitation-";
 
-export function buildInvitationProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildInvitationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.invitation.created": async (event) => {
       const { invitationId, accountId, email, roleKey, expiresAt } = event.data as {
@@ -46,11 +44,7 @@ export function buildInvitationProjectionHandlers(
          SET expires_at = $2,
              updated_at = $3
          WHERE invitation_id = $1`,
-        [
-          invitationId,
-          (event.data as { expiresAt: string }).expiresAt,
-          event.timing.recordedAt,
-        ],
+        [invitationId, (event.data as { expiresAt: string }).expiresAt, event.timing.recordedAt],
       );
     },
     "identity.invitation.cancelled": async (event) => {
@@ -71,11 +65,7 @@ export function buildInvitationProjectionHandlers(
              accepted_by_user_id = $2,
              updated_at = $3
          WHERE invitation_id = $1`,
-        [
-          invitationId,
-          (event.data as { userId: string }).userId,
-          event.timing.recordedAt,
-        ],
+        [invitationId, (event.data as { userId: string }).userId, event.timing.recordedAt],
       );
     },
     "identity.invitation.declined": async (event) => {

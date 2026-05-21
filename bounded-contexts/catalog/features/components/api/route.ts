@@ -5,7 +5,6 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { ComponentId, FieldId, DimensionId, OptionId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
-
 export function componentRoutes(services: ComponentServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -182,7 +181,14 @@ export function componentRoutes(services: ComponentServices) {
 
   app.get("/", async (c) => {
     const { search, status, limit, offset, hasFieldRules, hasDimensionRules } = c.req.query();
-    const result = await services.listComponents({ search, status, hasFieldRules, hasDimensionRules, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listComponents({
+      search,
+      status,
+      hasFieldRules,
+      hasDimensionRules,
+      limit: Number(limit) || undefined,
+      offset: Number(offset) || undefined,
+    });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -191,7 +197,10 @@ export function componentRoutes(services: ComponentServices) {
     const component = await services.getComponentDetail(c.req.param("id"));
 
     if (!component) {
-      return c.json({ error: { code: "not_found", message: t("catalog.features.components.api.route.component.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("catalog.features.components.api.route.component.not.found") } },
+        404,
+      );
     }
 
     return c.json(component);
@@ -208,8 +217,3 @@ function componentListQueryFromRecord(record: Record<string, unknown>) {
     hasDimensionRules: toOptionalString(record.hasDimensionRules),
   };
 }
-
-
-
-
-

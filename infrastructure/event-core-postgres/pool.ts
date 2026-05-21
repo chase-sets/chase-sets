@@ -22,10 +22,7 @@ export function resolvePgPoolSslConfig(
 export function normalizePgPoolConnectionString(connectionString: string): string {
   try {
     const url = new URL(connectionString);
-    if (
-      url.searchParams.get("sslmode") === "require" &&
-      !url.searchParams.has("uselibpqcompat")
-    ) {
+    if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
       url.searchParams.set("uselibpqcompat", "true");
       return url.toString();
     }
@@ -36,10 +33,7 @@ export function normalizePgPoolConnectionString(connectionString: string): strin
   return connectionString;
 }
 
-export function createPgPool(
-  connectionString: string,
-  options: PgPoolOptions = {},
-): PgTransactionalPool {
+export function createPgPool(connectionString: string, options: PgPoolOptions = {}): PgTransactionalPool {
   const normalizedConnectionString = normalizePgPoolConnectionString(connectionString);
 
   return new pg.Pool({

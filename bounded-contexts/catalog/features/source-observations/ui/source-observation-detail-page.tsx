@@ -3,11 +3,7 @@ import { useState } from "react";
 import { Button, Inline, KeyValueList, Stack, TextInput } from "@chase-sets/design-system";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
-import {
-  promoteSourceObservation,
-  rejectSourceObservation,
-  useSourceObservation,
-} from "./use-source-observations";
+import { promoteSourceObservation, rejectSourceObservation, useSourceObservation } from "./use-source-observations";
 
 export function SourceObservationDetailPage({
   id,
@@ -48,9 +44,13 @@ export function SourceObservationDetailPage({
       actions={
         data && (data.status === "observed" || data.status === "changed") ? (
           <Inline gap={2}>
-            <Button size="sm" onClick={handlePromote}>{t("catalog.features.sourceObservations.ui.detail.promote")}</Button>
+            <Button size="sm" onClick={handlePromote}>
+              {t("catalog.features.sourceObservations.ui.detail.promote")}
+            </Button>
             {data.status === "observed" ? (
-              <Button tone="danger" size="sm" onClick={handleReject}>{t("catalog.features.sourceObservations.ui.detail.reject")}</Button>
+              <Button tone="danger" size="sm" onClick={handleReject}>
+                {t("catalog.features.sourceObservations.ui.detail.reject")}
+              </Button>
             ) : null}
           </Inline>
         ) : undefined
@@ -74,16 +74,37 @@ export function SourceObservationDetailPage({
               { key: t("catalog.features.sourceObservations.ui.detail.provider"), value: data.provider_key },
               { key: t("catalog.features.sourceObservations.ui.detail.external.key"), value: data.external_key },
               { key: t("catalog.features.sourceObservations.ui.detail.language"), value: data.language_code },
-              { key: t("catalog.features.sourceObservations.ui.detail.expansion"), value: data.normalized.expansionName ?? data.normalized.setName },
-              { key: t("catalog.features.sourceObservations.ui.detail.card.number"), value: data.normalized.cardNumber },
-              { key: t("catalog.features.sourceObservations.ui.detail.card.variant"), value: data.normalized.cardVariantLabel ?? "Standard Set" },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.expansion"),
+                value: data.normalized.expansionName ?? data.normalized.setName,
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.card.number"),
+                value: data.normalized.cardNumber,
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.card.variant"),
+                value: data.normalized.cardVariantLabel ?? "Standard Set",
+              },
               { key: t("catalog.features.sourceObservations.ui.detail.rarity"), value: data.normalized.rarity ?? "—" },
-              { key: t("catalog.features.sourceObservations.ui.detail.image.note"), value: data.normalized.imageDisclaimer ?? "—" },
-              { key: t("catalog.features.sourceObservations.ui.detail.card.illustrator"), value: data.normalized.illustrator ?? "—" },
-              { key: t("catalog.features.sourceObservations.ui.detail.release.date"), value: data.normalized.releaseDate ?? "—" },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.image.note"),
+                value: data.normalized.imageDisclaimer ?? "—",
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.card.illustrator"),
+                value: data.normalized.illustrator ?? "—",
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.release.date"),
+                value: data.normalized.releaseDate ?? "—",
+              },
               { key: t("catalog.features.sourceObservations.ui.detail.hash"), value: data.source_record_hash },
               { key: t("catalog.features.sourceObservations.ui.detail.source.url"), value: data.source_url },
-              { key: t("catalog.features.sourceObservations.ui.detail.promoted.catalog.item"), value: data.promoted_catalog_item_id ?? "—" },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.promoted.catalog.item"),
+                value: data.promoted_catalog_item_id ?? "—",
+              },
             ]}
           />
           {data.status === "observed" && (

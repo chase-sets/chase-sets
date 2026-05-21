@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  decideComponent,
-  evolveComponent,
-  initialComponentState,
-  type ComponentEvent,
-} from "./domain";
+import { decideComponent, evolveComponent, initialComponentState, type ComponentEvent } from "./domain";
 import type { ComponentId, DimensionId, FieldId, OptionId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
@@ -17,13 +12,19 @@ const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialComponentState, evolveComponent, [
-    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: l10n("Base"), description: l10n("") } },
+    {
+      type: "catalog.component.created",
+      data: { componentId: compId, key: "base", name: l10n("Base"), description: l10n("") },
+    },
   ] as ComponentEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialComponentState, evolveComponent, [
-    { type: "catalog.component.created", data: { componentId: compId, key: "base", name: l10n("Base"), description: l10n("") } },
+    {
+      type: "catalog.component.created",
+      data: { componentId: compId, key: "base", name: l10n("Base"), description: l10n("") },
+    },
     { type: "catalog.component.activated", data: {} },
   ] as ComponentEvent[]);
 }
@@ -43,7 +44,13 @@ describe("Component aggregate", () => {
 
     it("rejects creating twice", () => {
       expectDomainError(
-        () => decide(decideComponent, createdState(), { type: "CreateComponent" as const, componentId: compId, key: "x", name: l10n("X") }),
+        () =>
+          decide(decideComponent, createdState(), {
+            type: "CreateComponent" as const,
+            componentId: compId,
+            key: "x",
+            name: l10n("X"),
+          }),
         "Component has already been created.",
       );
     });
@@ -64,7 +71,12 @@ describe("Component aggregate", () => {
       ] as ComponentEvent[]);
 
       expectDomainError(
-        () => decide(decideComponent, state, { type: "AddFieldRuleToComponent" as const, fieldId: fieldA, required: false }),
+        () =>
+          decide(decideComponent, state, {
+            type: "AddFieldRuleToComponent" as const,
+            fieldId: fieldA,
+            required: false,
+          }),
         "Component already contains that field rule.",
       );
     });
@@ -94,7 +106,12 @@ describe("Component aggregate", () => {
         type: "AddDimensionRuleToComponent" as const,
         dimensionId: dimA,
         required: true,
-        appliesWhen: [{ dimensionId: "dim_b" as DimensionId, optionIds: ["chc_b" as OptionId, "chc_a" as OptionId, "chc_b" as OptionId] }],
+        appliesWhen: [
+          {
+            dimensionId: "dim_b" as DimensionId,
+            optionIds: ["chc_b" as OptionId, "chc_a" as OptionId, "chc_b" as OptionId],
+          },
+        ],
       });
 
       expect(events[0]).toMatchObject({
@@ -108,12 +125,13 @@ describe("Component aggregate", () => {
 
     it("rejects self-referential applicability on dimension rules", () => {
       expectDomainError(
-        () => decide(decideComponent, createdState(), {
-          type: "AddDimensionRuleToComponent" as const,
-          dimensionId: dimA,
-          required: true,
-          appliesWhen: [{ dimensionId: dimA, optionIds: ["chc_a" as OptionId] }],
-        }),
+        () =>
+          decide(decideComponent, createdState(), {
+            type: "AddDimensionRuleToComponent" as const,
+            dimensionId: dimA,
+            required: true,
+            appliesWhen: [{ dimensionId: dimA, optionIds: ["chc_a" as OptionId] }],
+          }),
         "Dimension rules cannot depend on their own dimension.",
       );
     });
@@ -153,7 +171,12 @@ describe("Component aggregate", () => {
       ] as ComponentEvent[]);
 
       expectDomainError(
-        () => decide(decideComponent, archivedState, { type: "AddFieldRuleToComponent" as const, fieldId: fieldB, required: false }),
+        () =>
+          decide(decideComponent, archivedState, {
+            type: "AddFieldRuleToComponent" as const,
+            fieldId: fieldB,
+            required: false,
+          }),
         "Archived components cannot be changed.",
       );
     });
@@ -194,4 +217,3 @@ describe("Component aggregate", () => {
     });
   });
 });
-

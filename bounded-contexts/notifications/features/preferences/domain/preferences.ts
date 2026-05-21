@@ -1,9 +1,4 @@
-export type NotificationPreferenceKey =
-  | "web"
-  | "email"
-  | "sms"
-  | "rcs"
-  | "product-alerts";
+export type NotificationPreferenceKey = "web" | "email" | "sms" | "rcs" | "product-alerts";
 
 export type NotificationPreference = Readonly<{
   key: NotificationPreferenceKey;

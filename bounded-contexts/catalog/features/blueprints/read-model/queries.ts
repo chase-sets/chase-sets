@@ -37,11 +37,12 @@ export type BlueprintDetailRow = Readonly<{
   updated_at: string;
 }>;
 
-export type BlueprintListParams = ListParams & Readonly<{
-  hasComponents?: string;
-  hasFieldRules?: string;
-  hasDimensionRules?: string;
-}>;
+export type BlueprintListParams = ListParams &
+  Readonly<{
+    hasComponents?: string;
+    hasFieldRules?: string;
+    hasDimensionRules?: string;
+  }>;
 
 export async function listBlueprints(
   db: PgQueryable,
@@ -69,10 +70,7 @@ export async function listBlueprints(
   return executeListQuery<BlueprintRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function listBlueprintIds(
-  db: PgQueryable,
-  params: BlueprintListParams = {},
-): Promise<string[]> {
+export async function listBlueprintIds(db: PgQueryable, params: BlueprintListParams = {}): Promise<string[]> {
   const result = await listBlueprints(db, { ...params, limit: undefined, offset: undefined });
   return result.items.map((row) => row.blueprint_id);
 }
@@ -85,10 +83,9 @@ export async function listBlueprintBulkRows(
     return [];
   }
 
-  const result = await db.query<BlueprintRow>(
-    `SELECT * FROM catalog_blueprints WHERE blueprint_id = ANY($1::text[])`,
-    [[...blueprintIds]],
-  );
+  const result = await db.query<BlueprintRow>(`SELECT * FROM catalog_blueprints WHERE blueprint_id = ANY($1::text[])`, [
+    [...blueprintIds],
+  ]);
 
   return result.rows.map((row) => ({
     id: row.blueprint_id,

@@ -7,9 +7,7 @@ import { getSessionByTokenHash } from "../auth-support/store";
 import { resolveActorFromSessionId } from "./services";
 export { readAuthSessionToken } from "../auth-support/http";
 
-export function createAuthBootstrapContext(
-  _services: AuthServices,
-): EventStoreContext {
+export function createAuthBootstrapContext(_services: AuthServices): EventStoreContext {
   return createAuthBootstrapEventContext();
 }
 
@@ -17,10 +15,7 @@ export async function resolveActorFromSessionToken(
   services: AuthServices,
   sessionToken: string,
 ): Promise<ResolvedActor | null> {
-  const tokenRecord = await getSessionByTokenHash(
-    services.db,
-    services.auth.hashSecret(sessionToken),
-  );
+  const tokenRecord = await getSessionByTokenHash(services.db, services.auth.hashSecret(sessionToken));
 
   if (!tokenRecord || new Date(tokenRecord.expires_at).getTime() <= Date.now()) {
     return null;
@@ -29,10 +24,7 @@ export async function resolveActorFromSessionToken(
   return resolveActorFromSessionId(services, tokenRecord.session_id);
 }
 
-export async function resolveActorFromRequest(
-  services: AuthServices,
-  request: Request,
-): Promise<ResolvedActor | null> {
+export async function resolveActorFromRequest(services: AuthServices, request: Request): Promise<ResolvedActor | null> {
   const sessionToken = readAuthSessionToken(request);
   if (!sessionToken) {
     return null;

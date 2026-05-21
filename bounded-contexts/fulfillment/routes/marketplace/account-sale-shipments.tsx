@@ -4,9 +4,7 @@ import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  type FulfillmentShipmentListItem,
-} from "../../support/request-support/api-client";
+import { type FulfillmentShipmentListItem } from "../../support/request-support/api-client";
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentListPage } from "../../features/shipments/ui/shipment-list-page";
 

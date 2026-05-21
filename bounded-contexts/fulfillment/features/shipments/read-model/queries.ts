@@ -351,12 +351,8 @@ export async function listSellerPackingSlips(
   params: Readonly<{ sellerAccountId: string; shipmentIds: readonly string[] }>,
 ): Promise<FulfillmentShipmentDetailRow[]> {
   const shipments = await Promise.all(
-    params.shipmentIds.map((shipmentId) =>
-      getSellerShipment(db, shipmentId, params.sellerAccountId),
-    ),
+    params.shipmentIds.map((shipmentId) => getSellerShipment(db, shipmentId, params.sellerAccountId)),
   );
 
-  return shipments.filter((shipment): shipment is FulfillmentShipmentDetailRow =>
-    shipment !== null,
-  );
+  return shipments.filter((shipment): shipment is FulfillmentShipmentDetailRow => shipment !== null);
 }

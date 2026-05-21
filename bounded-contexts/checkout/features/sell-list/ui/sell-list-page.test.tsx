@@ -39,9 +39,7 @@ const productLine: CheckoutSellListLineRow = {
 
 describe("checkout sell list page", () => {
   it("presents sell list review as checkout-owned seller execution", () => {
-    const markup = renderToString(
-      <CheckoutSellListPage sellListLines={[selectedOfferLine, productLine]} />,
-    );
+    const markup = renderToString(<CheckoutSellListPage sellListLines={[selectedOfferLine, productLine]} />);
 
     expect(markup).toContain("Sell List");
     expect(markup).toContain("Buyer payment already authorized by offer");

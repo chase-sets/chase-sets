@@ -3,18 +3,10 @@ export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET"
 export const CHASE_SETS_INTERNAL_API_ORIGIN_ENV = "CHASE_SETS_INTERNAL_API_ORIGIN";
 const DEFAULT_DEV_INTERNAL_AUTH_SECRET = "dev-platform-internal-auth-secret";
 
-export function resolvePlatformInternalAuthSecret(
-  options: Readonly<{ requireExplicitInProduction?: boolean }> = {},
-) {
+export function resolvePlatformInternalAuthSecret(options: Readonly<{ requireExplicitInProduction?: boolean }> = {}) {
   const configured = process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV]?.trim();
-  if (
-    options.requireExplicitInProduction &&
-    process.env.NODE_ENV === "production" &&
-    !configured
-  ) {
-    throw new Error(
-      `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API calls in production.`,
-    );
+  if (options.requireExplicitInProduction && process.env.NODE_ENV === "production" && !configured) {
+    throw new Error(`${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API calls in production.`);
   }
 
   return configured || DEFAULT_DEV_INTERNAL_AUTH_SECRET;
@@ -29,10 +21,7 @@ export function createPlatformInternalAuthHeaders(
   return headers;
 }
 
-export function createForwardedAuthHeaders(
-  request: Request,
-  initHeaders?: HeadersInit,
-): Headers {
+export function createForwardedAuthHeaders(request: Request, initHeaders?: HeadersInit): Headers {
   const headers = new Headers(initHeaders);
   const cookie = request.headers.get("cookie");
   const authorization = request.headers.get("authorization");

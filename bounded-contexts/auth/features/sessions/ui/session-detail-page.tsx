@@ -10,8 +10,14 @@ export function SessionDetailPage({ data }: { data: Session }) {
       sections={[
         { label: t("auth.features.sessions.ui.sessionDetailPage.user.id"), value: data.user_id },
         { label: t("auth.features.sessions.ui.sessionDetailPage.active.account"), value: data.account_id },
-        { label: t("auth.features.sessions.ui.sessionDetailPage.available.accounts"), value: data.available_account_ids.join(", ") },
-        { label: t("auth.features.sessions.ui.sessionDetailPage.authentication.method"), value: data.authentication_method },
+        {
+          label: t("auth.features.sessions.ui.sessionDetailPage.available.accounts"),
+          value: data.available_account_ids.join(", "),
+        },
+        {
+          label: t("auth.features.sessions.ui.sessionDetailPage.authentication.method"),
+          value: data.authentication_method,
+        },
         { label: t("auth.features.sessions.ui.sessionDetailPage.expires.at"), value: data.expires_at },
       ]}
     />

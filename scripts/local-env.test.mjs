@@ -32,8 +32,10 @@ describe("local env sync", () => {
     write(rootDir, "deployables/platform-api/.env.example", "PORT=6182\n");
     write(rootDir, "deployables/marketplace/package.json", "{}\n");
 
-    expect(discoverEnvTargets({ envHome, rootDir }).map((target) => target.worktreeRelativePath))
-      .toEqual([".env.test.local", "deployables/platform-api/.env.local"]);
+    expect(discoverEnvTargets({ envHome, rootDir }).map((target) => target.worktreeRelativePath)).toEqual([
+      ".env.test.local",
+      "deployables/platform-api/.env.local",
+    ]);
   });
 
   it("seeds shared env from existing local env files", () => {
@@ -44,8 +46,9 @@ describe("local env sync", () => {
 
     const results = syncLocalEnvFiles({ command: "sync", envHome, rootDir });
 
-    expect(results.filter((result) => result.action === "push").map((result) => result.target.worktreeRelativePath))
-      .toEqual([".env.test.local", "deployables/platform-api/.env.local"]);
+    expect(
+      results.filter((result) => result.action === "push").map((result) => result.target.worktreeRelativePath),
+    ).toEqual([".env.test.local", "deployables/platform-api/.env.local"]);
   });
 
   it("hydrates a new worktree from shared env files", () => {
@@ -56,8 +59,9 @@ describe("local env sync", () => {
 
     const results = syncLocalEnvFiles({ command: "sync", envHome, rootDir });
 
-    expect(results.filter((result) => result.action === "pull").map((result) => result.target.worktreeRelativePath))
-      .toEqual([".env.test.local", "deployables/platform-api/.env.local"]);
+    expect(
+      results.filter((result) => result.action === "pull").map((result) => result.target.worktreeRelativePath),
+    ).toEqual([".env.test.local", "deployables/platform-api/.env.local"]);
   });
 
   it("reports drift without writing during check", () => {
@@ -68,9 +72,7 @@ describe("local env sync", () => {
 
     const results = syncLocalEnvFiles({ command: "check", envHome, rootDir });
 
-    const result = results.find((entry) =>
-      entry.target.worktreeRelativePath === "deployables/platform-api/.env.local"
-    );
+    const result = results.find((entry) => entry.target.worktreeRelativePath === "deployables/platform-api/.env.local");
 
     expect(result).toMatchObject({ status: "drifted" });
     expect(["pull", "push"]).toContain(result.action);

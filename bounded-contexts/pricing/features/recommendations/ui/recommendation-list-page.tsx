@@ -66,18 +66,9 @@ export function PricingRecommendationListPage({
   message?: string | null;
   errorMessage?: string | null;
 }) {
-  const stockOnHand = recommendations.reduce(
-    (sum, row) => sum + row.stock_on_hand_quantity,
-    0,
-  );
-  const activeOffers = recommendations.reduce(
-    (sum, row) => sum + row.active_offer_count,
-    0,
-  );
-  const activeListings = recommendations.reduce(
-    (sum, row) => sum + row.active_listing_count,
-    0,
-  );
+  const stockOnHand = recommendations.reduce((sum, row) => sum + row.stock_on_hand_quantity, 0);
+  const activeOffers = recommendations.reduce((sum, row) => sum + row.active_offer_count, 0);
+  const activeListings = recommendations.reduce((sum, row) => sum + row.active_listing_count, 0);
 
   return (
     <Page>
@@ -88,19 +79,16 @@ export function PricingRecommendationListPage({
         actions={
           <Inline>
             <form method="post">
-              <Button
-                type="submit"
-                name="intent"
-                value="refresh-recommendations"
-                tone="primary"
-              >
+              <Button type="submit" name="intent" value="refresh-recommendations" tone="primary">
                 {t("pricing.features.recommendations.ui.recommendationListPage.refresh")}
               </Button>
             </form>
             <LinkButton href="/account/listings" tone="secondary">
-              {t("pricing.features.recommendations.ui.recommendationListPage.listings")}</LinkButton>
+              {t("pricing.features.recommendations.ui.recommendationListPage.listings")}
+            </LinkButton>
             <LinkButton href="/account/inventory/imports" tone="ghost">
-              {t("pricing.features.recommendations.ui.recommendationListPage.import")}</LinkButton>
+              {t("pricing.features.recommendations.ui.recommendationListPage.import")}
+            </LinkButton>
           </Inline>
         }
       />
@@ -153,24 +141,12 @@ export function PricingRecommendationListPage({
           <Stack gap={4}>
             <Card>
               <Inline align="center">
-                <Text>
-                  {t("pricing.features.recommendations.ui.recommendationListPage.batch.notice")}
-                </Text>
+                <Text>{t("pricing.features.recommendations.ui.recommendationListPage.batch.notice")}</Text>
                 <Inline>
-                  <Button
-                    type="submit"
-                    name="intent"
-                    value="apply-recommendations"
-                    tone="primary"
-                  >
+                  <Button type="submit" name="intent" value="apply-recommendations" tone="primary">
                     {t("pricing.features.recommendations.ui.recommendationListPage.apply.selected")}
                   </Button>
-                  <Button
-                    type="submit"
-                    name="intent"
-                    value="dismiss-recommendations"
-                    tone="ghost"
-                  >
+                  <Button type="submit" name="intent" value="dismiss-recommendations" tone="ghost">
                     {t("pricing.features.recommendations.ui.recommendationListPage.dismiss.selected")}
                   </Button>
                 </Inline>
@@ -185,9 +161,12 @@ export function PricingRecommendationListPage({
                   header: t("pricing.features.recommendations.ui.recommendationListPage.select"),
                   cell: (row) => (
                     <input
-                      aria-label={t("pricing.features.recommendations.ui.recommendationListPage.select.recommendation", {
-                        item: title(row),
-                      })}
+                      aria-label={t(
+                        "pricing.features.recommendations.ui.recommendationListPage.select.recommendation",
+                        {
+                          item: title(row),
+                        },
+                      )}
                       type="checkbox"
                       name="recommendationId"
                       value={row.recommendation_id}
@@ -211,7 +190,8 @@ export function PricingRecommendationListPage({
                           <Badge tone="neutral">{formatLanguageCodeLabel(row.catalog_item_language_code)}</Badge>
                         ) : null}
                         <Badge tone={row.catalog_item_status === "active" ? "success" : "neutral"}>
-                          {row.catalog_item_status ?? t("pricing.features.recommendations.ui.recommendationListPage.unknown")}
+                          {row.catalog_item_status ??
+                            t("pricing.features.recommendations.ui.recommendationListPage.unknown")}
                         </Badge>
                         <Badge tone={statusTone(row)}>{row.status}</Badge>
                       </Inline>
@@ -258,7 +238,8 @@ export function PricingRecommendationListPage({
                         })}
                       </Text>
                       <Text size="sm" tone="secondary">
-                        {row.recommendation_reason ?? t("pricing.features.recommendations.ui.recommendationListPage.no.reason")}
+                        {row.recommendation_reason ??
+                          t("pricing.features.recommendations.ui.recommendationListPage.no.reason")}
                       </Text>
                     </Stack>
                   ),
@@ -281,7 +262,9 @@ export function PricingRecommendationListPage({
                         })}
                       </Text>
                       {row.last_error ? (
-                        <Text size="sm" tone="accent">{row.last_error}</Text>
+                        <Text size="sm" tone="accent">
+                          {row.last_error}
+                        </Text>
                       ) : null}
                     </Stack>
                   ),

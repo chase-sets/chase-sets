@@ -65,10 +65,11 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { blueprintId } = event.data as { blueprintId: string };
 
-      await db.query(
-        `UPDATE catalog_items SET blueprint_id = $2, updated_at = $3 WHERE catalog_item_id = $1`,
-        [itemId, blueprintId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET blueprint_id = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
+        itemId,
+        blueprintId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.field-value-set": async (event) => {
@@ -135,10 +136,10 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
     "catalog.catalog-item.published": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1`, [
+        itemId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.metadata-revised": async (event) => {
@@ -182,53 +183,53 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { tags } = event.data as { tags: string[] };
 
-      await db.query(
-        `UPDATE catalog_items SET tags = $2, updated_at = $3 WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(tags), event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET tags = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
+        itemId,
+        JSON.stringify(tags),
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.image-urls-set": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { imageUrls } = event.data as { imageUrls: string[] };
 
-      await db.query(
-        `UPDATE catalog_items SET image_urls = $2, updated_at = $3 WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET image_urls = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
+        itemId,
+        JSON.stringify(imageUrls),
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.product-asset-sets-set": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { productAssetSets } = event.data as { productAssetSets: unknown };
 
-      await db.query(
-        `UPDATE catalog_items SET product_asset_sets = $2, updated_at = $3 WHERE catalog_item_id = $1`,
-        [
-          itemId,
-          JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
-          event.timing.recordedAt,
-        ],
-      );
+      await db.query(`UPDATE catalog_items SET product_asset_sets = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
+        itemId,
+        JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.image-fallback-set": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { imageFallback } = event.data as { imageFallback: unknown };
 
-      await db.query(
-        `UPDATE catalog_items SET image_fallback = $2, updated_at = $3 WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(imageFallback), event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET image_fallback = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
+        itemId,
+        JSON.stringify(imageFallback),
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.image-fallback-cleared": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_items SET image_fallback = NULL, updated_at = $2 WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET image_fallback = NULL, updated_at = $2 WHERE catalog_item_id = $1`, [
+        itemId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.external-product-reference-linked": async (event) => {
@@ -278,28 +279,25 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
     "catalog.catalog-item.retired": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`, [
+        itemId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.archived": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`, [
+        itemId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.catalog-item.draft-removed": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `DELETE FROM catalog_items WHERE catalog_item_id = $1`,
-        [itemId],
-      );
+      await db.query(`DELETE FROM catalog_items WHERE catalog_item_id = $1`, [itemId]);
     },
   };
 }

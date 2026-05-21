@@ -46,13 +46,7 @@ export const accountCapabilityLanguageGuards = [
   { label: "account-buyer-offers route test", pattern: /\baccount-buyer-offers\b/i },
 ];
 
-const accountCapabilityLanguageGuardRoots = [
-  "bounded-contexts/",
-  "contracts/",
-  "deployables/",
-  "docs/",
-  "packages/",
-];
+const accountCapabilityLanguageGuardRoots = ["bounded-contexts/", "contracts/", "deployables/", "docs/", "packages/"];
 
 export function isAccountCapabilityLanguageGuardedFile(relativeFile, extension) {
   return (

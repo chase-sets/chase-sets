@@ -1,7 +1,4 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import type {
   SupportFlowSummary,
   SupportRequestDetail,
@@ -26,16 +23,14 @@ function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(body?.error?.message ?? `API error ${response.status}`);
   }
 
   return response.json() as Promise<T>;
 }
 
-export function createSupportRequestApiClient(
-  options: SupportRequestApiClientOptions = {},
-) {
+export function createSupportRequestApiClient(options: SupportRequestApiClientOptions = {}) {
   const clientFetch = options.fetch ?? fetch;
   const baseUrl = options.baseUrl ?? "/api/marketplace";
 
@@ -64,11 +59,13 @@ export function createSupportRequestApiClient(
           headers: resolveHeaders(options.headers),
         }),
       ),
-    openSupportRequest: async (body: Readonly<{
-      orderId: string;
-      flowType: string;
-      openedByRole: string;
-    }>) =>
+    openSupportRequest: async (
+      body: Readonly<{
+        orderId: string;
+        flowType: string;
+        openedByRole: string;
+      }>,
+    ) =>
       parseJsonResponse<{ id: string; version: number; status: string }>(
         await clientFetch(`${baseUrl}/support-requests`, {
           method: "POST",

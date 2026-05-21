@@ -15,8 +15,14 @@ export default function ContactRoute() {
         title: t("publicPresence.info.contact.title"),
         description: t("publicPresence.info.contact.description"),
         sections: [
-          { title: t("publicPresence.info.contact.support.title"), body: [t("publicPresence.info.contact.support.body")] },
-          { title: t("publicPresence.info.contact.status.title"), body: [t("publicPresence.info.contact.status.body")] },
+          {
+            title: t("publicPresence.info.contact.support.title"),
+            body: [t("publicPresence.info.contact.support.body")],
+          },
+          {
+            title: t("publicPresence.info.contact.status.title"),
+            body: [t("publicPresence.info.contact.status.body")],
+          },
         ],
       }}
     />

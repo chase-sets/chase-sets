@@ -14,19 +14,12 @@ import type { PublicPresenceServices } from "./support/runtime-support/services"
 import { createPublicPresenceServices } from "./support/runtime-support/services";
 import { publicPresenceSchemaSql } from "./support/runtime-support/schema";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -54,16 +47,10 @@ export const module: BcApiModule<
   >["apiMounts"],
   projectionGroups,
   createServices: (pool, ports) => createPublicPresenceServices(pool, ports),
-  buildApis: (services) => [
-    buildPublicPresencePublicApi(services),
-    buildPublicPresenceAdminApi(services),
-  ],
+  buildApis: (services) => [buildPublicPresencePublicApi(services), buildPublicPresenceAdminApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const waitlistSubscription = getEventSubscription(
-      "public-presence",
-      "public-presence-waitlist-projection",
-    );
+    const waitlistSubscription = getEventSubscription("public-presence", "public-presence-waitlist-projection");
     const waitlistEmailSubscription = getEventSubscription(
       "public-presence",
       "public-presence-waitlist-transactional-email-projection",

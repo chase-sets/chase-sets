@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -18,23 +15,13 @@ import { buildInventoryReservationProjectionHandlers } from "../read-model/proje
 import { getInventoryReservation } from "../read-model/queries";
 
 export type InventoryReservationServices = Readonly<{
-  commandHandler: CommandHandler<
-    InventoryReservationCommand,
-    InventoryReservationState,
-    InventoryReservationEvent
-  >;
-  getReservation: (
-    reservationRequestId: string,
-  ) => ReturnType<typeof getInventoryReservation>;
-  getReservationState: (
-    reservationRequestId: string,
-  ) => Promise<InventoryReservationState>;
+  commandHandler: CommandHandler<InventoryReservationCommand, InventoryReservationState, InventoryReservationEvent>;
+  getReservation: (reservationRequestId: string) => ReturnType<typeof getInventoryReservation>;
+  getReservationState: (reservationRequestId: string) => Promise<InventoryReservationState>;
   projectors: readonly Projector[];
 }>;
 
-export function createInventoryReservationRuntime(
-  deps: InventoryRuntimeDeps,
-): InventoryReservationServices {
+export function createInventoryReservationRuntime(deps: InventoryRuntimeDeps): InventoryReservationServices {
   const repository = createAggregateRepository({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<InventoryReservationEvent>(),
@@ -50,12 +37,9 @@ export function createInventoryReservationRuntime(
 
   return {
     commandHandler,
-    getReservation: (reservationRequestId) =>
-      getInventoryReservation(deps.db, reservationRequestId),
+    getReservation: (reservationRequestId) => getInventoryReservation(deps.db, reservationRequestId),
     getReservationState: async (reservationRequestId) => {
-      const aggregate = await repository.load(
-        `inventory.reservation-${reservationRequestId}`,
-      );
+      const aggregate = await repository.load(`inventory.reservation-${reservationRequestId}`);
       return aggregate.state;
     },
     projectors: [

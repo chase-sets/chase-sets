@@ -1,29 +1,27 @@
 import type { JsonObject } from "@chase-sets/primitives/json";
 
-export type ProductAssetRole =
-  | "source"
-  | "thumbnail"
-  | "search-card"
-  | "catalog-detail";
+export type ProductAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
-export type ProductAssetVariant = JsonObject & Readonly<{
-  role: ProductAssetRole;
-  width: number;
-  height: number;
-  density: 1 | 2 | null;
-  mediaType: "image/webp";
-  storageKey: string;
-  publicUrl: string;
-  byteSize: number;
-  generatedAt: string;
-}>;
+export type ProductAssetVariant = JsonObject &
+  Readonly<{
+    role: ProductAssetRole;
+    width: number;
+    height: number;
+    density: 1 | 2 | null;
+    mediaType: "image/webp";
+    storageKey: string;
+    publicUrl: string;
+    byteSize: number;
+    generatedAt: string;
+  }>;
 
-export type ProductAssetSet = JsonObject & Readonly<{
-  kind: "product-image";
-  sourceHash: string;
-  source: ProductAssetVariant;
-  variants: readonly ProductAssetVariant[];
-}>;
+export type ProductAssetSet = JsonObject &
+  Readonly<{
+    kind: "product-image";
+    sourceHash: string;
+    source: ProductAssetVariant;
+    variants: readonly ProductAssetVariant[];
+  }>;
 
 export type ProductAssetVariantSpec = Readonly<{
   role: Exclude<ProductAssetRole, "source">;
@@ -91,9 +89,7 @@ export function selectProductAssetUrl(
     return assetSet.source.publicUrl;
   }
 
-  const exact = assetSet.variants.find(
-    (variant) => variant.role === role && variant.density === density,
-  );
+  const exact = assetSet.variants.find((variant) => variant.role === role && variant.density === density);
   if (exact) {
     return exact.publicUrl;
   }
@@ -101,9 +97,7 @@ export function selectProductAssetUrl(
   return assetSet.variants.find((variant) => variant.role === role)?.publicUrl ?? null;
 }
 
-export function productAssetSetCompatibilityImageUrls(
-  assetSet: ProductAssetSet | null | undefined,
-): string[] {
+export function productAssetSetCompatibilityImageUrls(assetSet: ProductAssetSet | null | undefined): string[] {
   const detailUrl = selectProductAssetUrl(assetSet, "catalog-detail", 1);
   return detailUrl ? [detailUrl] : [];
 }

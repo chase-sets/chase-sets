@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -57,7 +53,9 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: t("settlement.routes.marketplace.accountPayoutOperations.payout.operations.marketplace") });
+  buildOpenGraphMeta({
+    title: t("settlement.routes.marketplace.accountPayoutOperations.payout.operations.marketplace"),
+  });
 
 export default function MarketplaceAccountPayoutOperationsRoute() {
   const data = useLoaderData<typeof loader>();
@@ -66,9 +64,7 @@ export default function MarketplaceAccountPayoutOperationsRoute() {
   return (
     <SettlementPayoutOperationsPage
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
-      idempotencyKeys={
-        (data.idempotencyKeys.items ?? []) as SettlementProviderIdempotencyKeyRow[]
-      }
+      idempotencyKeys={(data.idempotencyKeys.items ?? []) as SettlementProviderIdempotencyKeyRow[]}
       runResult={actionData}
       currentFilter={data.filter}
       lastCheckedAt={actionData ? new Date().toISOString() : null}

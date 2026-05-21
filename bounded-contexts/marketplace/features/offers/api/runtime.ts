@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -30,10 +27,7 @@ import {
   listOfferMatches,
   removeOfferMatchSellListItems,
 } from "../read-model/queries";
-import {
-  createMarketplaceProductDescriptor,
-  type MarketplaceVersionSchema,
-} from "../domain/versioning";
+import { createMarketplaceProductDescriptor, type MarketplaceVersionSchema } from "../domain/versioning";
 
 export class MarketplaceOfferFeeQuoteStaleError extends Error {
   public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
@@ -43,11 +37,7 @@ export class MarketplaceOfferFeeQuoteStaleError extends Error {
 }
 
 export type MarketplaceOfferServices = Readonly<{
-  commandHandler: CommandHandler<
-    MarketplaceOfferCommand,
-    MarketplaceOfferState,
-    MarketplaceOfferEvent
-  >;
+  commandHandler: CommandHandler<MarketplaceOfferCommand, MarketplaceOfferState, MarketplaceOfferEvent>;
   submitOffer: (
     params: Readonly<{
       offerId?: OfferId;
@@ -84,9 +74,7 @@ export type MarketplaceOfferServices = Readonly<{
       sellerAccountId: AccountId;
     }>,
   ) => Promise<void>;
-  listOfferMatchSellList: (
-    sellerAccountId: string,
-  ) => ReturnType<typeof listOfferMatchSellList>;
+  listOfferMatchSellList: (sellerAccountId: string) => ReturnType<typeof listOfferMatchSellList>;
   acceptOfferMatchSellList: (
     params: Readonly<{
       sellerAccountId: AccountId;
@@ -97,26 +85,14 @@ export type MarketplaceOfferServices = Readonly<{
     acceptedOfferIds: readonly OfferId[];
     skipped: readonly { offerId: string; reason: string }[];
   }>;
-  listSubmittedOffers: (
-    params: Parameters<typeof listSubmittedOffers>[1],
-  ) => ReturnType<typeof listSubmittedOffers>;
-  getSubmittedOffer: (
-    offerId: string,
-    buyerAccountId: string,
-  ) => ReturnType<typeof getSubmittedOffer>;
-  listOfferMatches: (
-    params: Parameters<typeof listOfferMatches>[1],
-  ) => ReturnType<typeof listOfferMatches>;
-  getOfferMatch: (
-    offerId: string,
-    sellerAccountId: string,
-  ) => ReturnType<typeof getOfferMatch>;
+  listSubmittedOffers: (params: Parameters<typeof listSubmittedOffers>[1]) => ReturnType<typeof listSubmittedOffers>;
+  getSubmittedOffer: (offerId: string, buyerAccountId: string) => ReturnType<typeof getSubmittedOffer>;
+  listOfferMatches: (params: Parameters<typeof listOfferMatches>[1]) => ReturnType<typeof listOfferMatches>;
+  getOfferMatch: (offerId: string, sellerAccountId: string) => ReturnType<typeof getOfferMatch>;
   projectors: readonly Projector[];
 }>;
 
-export function createMarketplaceOfferRuntime(
-  deps: MarketplaceRuntimeDeps,
-): MarketplaceOfferServices {
+export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): MarketplaceOfferServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -145,10 +121,7 @@ export function createMarketplaceOfferRuntime(
     return result.rows[0] ?? null;
   }
 
-  async function quoteOfferAcceptanceTerms(
-    offerId: OfferId,
-    sellerAccountId: AccountId,
-  ) {
+  async function quoteOfferAcceptanceTerms(offerId: OfferId, sellerAccountId: AccountId) {
     const offer = await getOfferMatch(deps.db, offerId, sellerAccountId);
     if (!offer) {
       throw new Error("Offer not found.");
@@ -184,8 +157,7 @@ export function createMarketplaceOfferRuntime(
       const catalogVersion = createMarketplaceProductDescriptor({
         catalogItemId: params.catalogItemId,
         productSchema:
-          typeof catalogItem.product_schema === "object" &&
-          catalogItem.product_schema !== null
+          typeof catalogItem.product_schema === "object" && catalogItem.product_schema !== null
             ? (catalogItem.product_schema as MarketplaceVersionSchema)
             : null,
         selection: params.selectedOptions,
@@ -217,14 +189,9 @@ export function createMarketplaceOfferRuntime(
 
       return { offerId, version: result.version };
     },
-    previewOfferAcceptanceTerms: async (params) =>
-      quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId),
+    previewOfferAcceptanceTerms: async (params) => quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId),
     acceptOffer: async (params, context) => {
-      const offer = await getOfferMatch(
-        deps.db,
-        params.offerId,
-        params.sellerAccountId,
-      );
+      const offer = await getOfferMatch(deps.db, params.offerId, params.sellerAccountId);
 
       if (!offer) {
         throw new Error("Offer not found.");
@@ -269,8 +236,7 @@ export function createMarketplaceOfferRuntime(
         addedAt: new Date().toISOString(),
       });
     },
-    listOfferMatchSellList: (sellerAccountId) =>
-      listOfferMatchSellList(deps.db, sellerAccountId),
+    listOfferMatchSellList: (sellerAccountId) => listOfferMatchSellList(deps.db, sellerAccountId),
     acceptOfferMatchSellList: async (params, context) => {
       const items = await listOfferMatchSellList(deps.db, params.sellerAccountId);
       const acceptedOfferIds: OfferId[] = [];
@@ -300,10 +266,7 @@ export function createMarketplaceOfferRuntime(
             accountId: params.sellerAccountId,
             priceAmount: item.price_amount,
           });
-          if (
-            params.feeQuoteFingerprintsByOfferId?.[item.offer_id] !==
-            quote.fee_quote_fingerprint
-          ) {
+          if (params.feeQuoteFingerprintsByOfferId?.[item.offer_id] !== quote.fee_quote_fingerprint) {
             skipped.push({
               offerId: item.offer_id,
               reason: "Fee quote is stale. Refresh the fee preview before continuing.",
@@ -350,11 +313,9 @@ export function createMarketplaceOfferRuntime(
       return { acceptedOfferIds, skipped };
     },
     listSubmittedOffers: (params) => listSubmittedOffers(deps.db, params),
-    getSubmittedOffer: (offerId, buyerAccountId) =>
-      getSubmittedOffer(deps.db, offerId, buyerAccountId),
+    getSubmittedOffer: (offerId, buyerAccountId) => getSubmittedOffer(deps.db, offerId, buyerAccountId),
     listOfferMatches: (params) => listOfferMatches(deps.db, params),
-    getOfferMatch: (offerId, sellerAccountId) =>
-      getOfferMatch(deps.db, offerId, sellerAccountId),
+    getOfferMatch: (offerId, sellerAccountId) => getOfferMatch(deps.db, offerId, sellerAccountId),
     projectors: [
       createProjector({
         projectorName: "marketplace-offer-projection",

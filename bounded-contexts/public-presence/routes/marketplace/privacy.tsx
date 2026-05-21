@@ -15,9 +15,15 @@ export default function PrivacyRoute() {
         title: t("publicPresence.info.privacy.title"),
         description: t("publicPresence.info.privacy.description"),
         sections: [
-          { title: t("publicPresence.info.privacy.collect.title"), body: [t("publicPresence.info.privacy.collect.body")] },
+          {
+            title: t("publicPresence.info.privacy.collect.title"),
+            body: [t("publicPresence.info.privacy.collect.body")],
+          },
           { title: t("publicPresence.info.privacy.use.title"), body: [t("publicPresence.info.privacy.use.body")] },
-          { title: t("publicPresence.info.privacy.control.title"), body: [t("publicPresence.info.privacy.control.body")] },
+          {
+            title: t("publicPresence.info.privacy.control.title"),
+            body: [t("publicPresence.info.privacy.control.body")],
+          },
         ],
       }}
     />

@@ -35,7 +35,8 @@ export default function IdentityAdminLayoutRoute() {
           </LinkButton>
           <form action="/identity/sign-out" method="post">
             <Button type="submit" tone="secondary">
-              {t("adminWeb.app.routes.identityLayout.sign.out")}</Button>
+              {t("adminWeb.app.routes.identityLayout.sign.out")}
+            </Button>
           </form>
         </Inline>
       }

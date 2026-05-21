@@ -154,10 +154,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "submit-offer");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("priceAmount", "350.00");
     form.set("quantityRequested", "1");
@@ -256,10 +253,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "buy-now");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
     form.set("listingId", "lst_charizard");
@@ -316,10 +310,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "add-to-cart");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
 
@@ -377,10 +368,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "add-product-to-sell-list");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "3");
 
@@ -437,10 +425,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "buy-now");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
     form.set("listingId", "lst_charizard");
@@ -486,10 +471,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "add-to-cart");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
 
@@ -518,10 +500,7 @@ describe("item detail buy now action", () => {
       lockedListingId: null,
       quantity: 2,
     });
-    expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(
-      response.headers,
-      "anon_cart_1",
-    );
+    expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(response.headers, "anon_cart_1");
     expect(mockAddCartLine).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -553,10 +532,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "add-to-cart");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "1");
 
@@ -570,11 +546,13 @@ describe("item detail buy now action", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockAddCartLine).toHaveBeenCalledWith(expect.objectContaining({
-      productId: "cat_charizard::form:raw",
-      fulfillmentMode: "optimize",
-      quantity: 1,
-    }));
+    expect(mockAddCartLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        productId: "cat_charizard::form:raw",
+        fulfillmentMode: "optimize",
+        quantity: 1,
+      }),
+    );
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
     expect(mockAppendAnonymousCartCookie).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
@@ -604,10 +582,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "buy-now");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "1");
 
@@ -658,10 +633,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "buy-this-listing");
     form.set("productId", "cat_charizard::form:raw");
-    form.set(
-      "selectedOptions",
-      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
-    );
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("quantity", "1");
     form.set("lockedListingId", "lst_charizard");

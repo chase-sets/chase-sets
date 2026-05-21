@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createSettlementApiClient,
-  settlementApi,
-  SettlementApiError,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createSettlementApiClient, settlementApi, SettlementApiError } from "../../client";
 export type {
   SettlementApiClientOptions,
   SettlementLedgerEntryRow,

@@ -1,10 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeEmail, normalizePhoneNumber } from "../../../support/runtime-support/common";
-import {
-  buildFilteredQuery,
-  executeListQuery,
-  type ListParams,
-} from "../../../support/read-model-support/list-query";
+import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type UserRow = Readonly<{
   user_id: string;
@@ -21,10 +17,7 @@ export type UserRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function listUsers(
-  db: PgQueryable,
-  params: ListParams = {},
-) {
+export async function listUsers(db: PgQueryable, params: ListParams = {}) {
   const query = buildFilteredQuery(
     "identity_users",
     params,
@@ -35,10 +28,7 @@ export async function listUsers(
 }
 
 export async function getUser(db: PgQueryable, userId: string) {
-  const result = await db.query<UserRow>(
-    `SELECT * FROM identity_users WHERE user_id = $1`,
-    [userId],
-  );
+  const result = await db.query<UserRow>(`SELECT * FROM identity_users WHERE user_id = $1`, [userId]);
   return result.rows[0] ?? null;
 }
 

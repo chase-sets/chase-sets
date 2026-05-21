@@ -35,7 +35,7 @@ export function NumberField({
   readOnly = false,
   placeholder,
   decrementLabel = "Decrease value",
-  incrementLabel = "Increase value"
+  incrementLabel = "Increase value",
 }: NumberFieldProps) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
@@ -65,7 +65,7 @@ export function NumberField({
           className={cx(
             controlClass,
             !!error && controlErrorClass,
-            "grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-1 p-1"
+            "grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-1 p-1",
           )}
         >
           <NumberFieldPrimitive.Decrement
@@ -76,7 +76,7 @@ export function NumberField({
           </NumberFieldPrimitive.Decrement>
           <NumberFieldPrimitive.Input
             placeholder={placeholder}
-            aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+            aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
             className="min-w-0 bg-transparent px-2 py-1.5 text-center outline-none"
           />

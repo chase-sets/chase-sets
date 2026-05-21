@@ -5,9 +5,7 @@ import { identityAdminAuthHostConfig } from "../../support/route-support/host-co
 import { identityAdminAuthHost } from "../../support/route-support/auth-host.server";
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
 
-export const meta: MetaFunction = () => [
-  { title: identityAdminAuthHostConfig.titles.signIn },
-];
+export const meta: MetaFunction = () => [{ title: identityAdminAuthHostConfig.titles.signIn }];
 
 export const action = identityAdminAuthHost.createSignInAction();
 
@@ -19,9 +17,7 @@ export default function IdentityAdminSignInRoute() {
         errorMessage={actionData && "error" in actionData ? actionData.error : null}
         notice={actionData && "status" in actionData ? actionData : null}
         signInMethods={identityAdminAuthHostConfig.signInMethods}
-        allowManualMagicLinkTokenEntry={
-          identityAdminAuthHostConfig.allowManualMagicLinkTokenEntry
-        }
+        allowManualMagicLinkTokenEntry={identityAdminAuthHostConfig.allowManualMagicLinkTokenEntry}
       />
     </Container>
   );

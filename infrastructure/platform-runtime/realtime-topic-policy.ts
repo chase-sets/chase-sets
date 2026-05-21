@@ -27,7 +27,7 @@ export const discoveryRealtimeTopicPolicyManifest = {
   policies: [
     {
       name: "public-market",
-      match: (topic) => topic === "public:market" ? { family: "public" } : null,
+      match: (topic) => (topic === "public:market" ? { family: "public" } : null),
       authorize: () => true,
     },
     {
@@ -56,11 +56,7 @@ export const marketplaceRealtimeTopicPolicyManifest = {
       name: "account-surface",
       match: (topic) => {
         const segments = topic.split(":");
-        if (
-          segments.length !== 3 ||
-          segments[0] !== "account" ||
-          !TOPIC_ID_PATTERN.test(segments[1] ?? "")
-        ) {
+        if (segments.length !== 3 || segments[0] !== "account" || !TOPIC_ID_PATTERN.test(segments[1] ?? "")) {
           return null;
         }
 
@@ -124,9 +120,7 @@ export function matchesRealtimeTopicPattern(topic: string, pattern: string): boo
   return topic === pattern;
 }
 
-export function inspectRealtimeTopicNormalization(
-  topics: readonly string[],
-): RealtimeTopicNormalizationDiagnostic {
+export function inspectRealtimeTopicNormalization(topics: readonly string[]): RealtimeTopicNormalizationDiagnostic {
   const trimmed = topics.map((topic) => topic.trim());
   const nonBlank = trimmed.filter(Boolean);
   const normalizedTopics = normalizeRealtimeTopics(topics);

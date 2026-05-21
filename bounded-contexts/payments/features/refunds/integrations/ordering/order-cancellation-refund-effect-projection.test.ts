@@ -60,10 +60,7 @@ describe("payments order cancellation refund effect projection", () => {
         return { rows: [] };
       }),
     };
-    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(
-      db as never,
-      { issueRefund } as never,
-    );
+    const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
 
     await handlers["ordering.order.cancelled"]?.({
       tenantId: "tnt_test",

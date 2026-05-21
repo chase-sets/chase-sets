@@ -8,39 +8,36 @@ import { softToneClasses, type Tone, toneToIconTone } from "./shared";
 
 const singleDisclosureValue = "content";
 
-const AnimatedDisclosureContent = forwardRef<
-  HTMLDivElement,
-  ComponentProps<"div"> & { open: boolean }
->(function AnimatedDisclosureContent({ children, open, ...rest }, ref) {
-  const motionSettings = useChaseMotion();
+const AnimatedDisclosureContent = forwardRef<HTMLDivElement, ComponentProps<"div"> & { open: boolean }>(
+  function AnimatedDisclosureContent({ children, open, ...rest }, ref) {
+    const motionSettings = useChaseMotion();
 
-  return (
-    <motion.div
-      {...(rest as ComponentProps<typeof motion.div>)}
-      ref={ref}
-      initial={false}
-      animate={
-        motionSettings.reducedMotion
-          ? undefined
-          : open
-            ? { height: "auto", opacity: 1 }
-            : { height: 0, opacity: 0 }
-      }
-      transition={
-        motionSettings.reducedMotion
-          ? undefined
-          : { duration: motionSettings.durations.base, ease: motionSettings.easing }
-      }
-    >
-      {children}
-    </motion.div>
-  );
-});
+    return (
+      <motion.div
+        {...(rest as ComponentProps<typeof motion.div>)}
+        ref={ref}
+        initial={false}
+        animate={
+          motionSettings.reducedMotion ? undefined : open ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }
+        }
+        transition={
+          motionSettings.reducedMotion
+            ? undefined
+            : { duration: motionSettings.durations.base, ease: motionSettings.easing }
+        }
+      >
+        {children}
+      </motion.div>
+    );
+  },
+);
 
 export type ProgressiveDisclosureTone = Extract<Tone, "neutral" | "accent" | "info" | "warning">;
 
-export interface ProgressiveDisclosureProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "defaultValue" | "style" | "title"> {
+export interface ProgressiveDisclosureProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "className" | "defaultValue" | "style" | "title"
+> {
   title: ReactNode;
   description?: ReactNode;
   summary?: ReactNode;
@@ -62,8 +59,10 @@ export interface ProgressiveDisclosureItem {
   icon?: IconName;
 }
 
-export interface ProgressiveDisclosureGroupProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "defaultValue" | "style" | "title"> {
+export interface ProgressiveDisclosureGroupProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "className" | "defaultValue" | "style" | "title"
+> {
   title?: ReactNode;
   description?: ReactNode;
   items: ProgressiveDisclosureItem[];
@@ -78,7 +77,7 @@ function DisclosureTriggerContent({
   description,
   summary,
   tone = "neutral",
-  icon
+  icon,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -95,12 +94,8 @@ function DisclosureTriggerContent({
       ) : null}
       <span className="min-w-0 flex-1 space-y-1">
         <span className="block text-sm font-semibold text-foreground">{title}</span>
-        {description ? (
-          <span className="block text-xs font-normal leading-5 text-secondary">{description}</span>
-        ) : null}
-        {summary ? (
-          <span className="block text-xs font-medium leading-5 text-tertiary">{summary}</span>
-        ) : null}
+        {description ? <span className="block text-xs font-normal leading-5 text-secondary">{description}</span> : null}
+        {summary ? <span className="block text-xs font-medium leading-5 text-tertiary">{summary}</span> : null}
       </span>
     </span>
   );
@@ -114,22 +109,13 @@ function DisclosureItem({
   content,
   tone,
   icon,
-  last
+  last,
 }: ProgressiveDisclosureItem & { last: boolean }) {
   return (
-    <AccordionPrimitive.Item
-      value={value}
-      className={cx("border-muted", !last && "border-b")}
-    >
+    <AccordionPrimitive.Item value={value} className={cx("border-muted", !last && "border-b")}>
       <AccordionPrimitive.Header>
         <AccordionPrimitive.Trigger className="focus-ring group flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition hover:bg-background">
-          <DisclosureTriggerContent
-            title={title}
-            description={description}
-            summary={summary}
-            tone={tone}
-            icon={icon}
-          />
+          <DisclosureTriggerContent title={title} description={description} summary={summary} tone={tone} icon={icon} />
           <span className="mt-0.5 inline-flex shrink-0 transition-transform duration-200 group-data-[panel-open]:rotate-180">
             <Icon name="chevronDown" size="sm" tone="secondary" />
           </span>
@@ -138,16 +124,10 @@ function DisclosureItem({
       <AccordionPrimitive.Panel
         keepMounted
         render={(props, state) => (
-          <AnimatedDisclosureContent
-            {...props}
-            open={state.open}
-            className={cx("overflow-hidden", props.className)}
-          />
+          <AnimatedDisclosureContent {...props} open={state.open} className={cx("overflow-hidden", props.className)} />
         )}
       >
-        <div className="px-4 pb-4 text-sm leading-6 text-secondary">
-          {content}
-        </div>
+        <div className="px-4 pb-4 text-sm leading-6 text-secondary">{content}</div>
       </AccordionPrimitive.Panel>
     </AccordionPrimitive.Item>
   );
@@ -216,11 +196,7 @@ export function ProgressiveDisclosureGroup({
         className="modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm"
       >
         {items.map((item, index) => (
-          <DisclosureItem
-            key={item.value}
-            {...item}
-            last={index === items.length - 1}
-          />
+          <DisclosureItem key={item.value} {...item} last={index === items.length - 1} />
         ))}
       </AccordionPrimitive.Root>
     </section>

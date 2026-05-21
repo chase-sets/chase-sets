@@ -5,7 +5,6 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { CategoryId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
-
 export function categoryRoutes(services: CategoryServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -114,7 +113,14 @@ export function categoryRoutes(services: CategoryServices) {
 
   app.get("/", async (c) => {
     const { search, status, limit, offset, parentCategoryId, hierarchy } = c.req.query();
-    const result = await services.listCategories({ search, status, hierarchy, limit: Number(limit) || undefined, offset: Number(offset) || undefined, parentCategoryId });
+    const result = await services.listCategories({
+      search,
+      status,
+      hierarchy,
+      limit: Number(limit) || undefined,
+      offset: Number(offset) || undefined,
+      parentCategoryId,
+    });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
 
@@ -122,7 +128,10 @@ export function categoryRoutes(services: CategoryServices) {
     const category = await services.getCategoryDetail(c.req.param("id"));
 
     if (!category) {
-      return c.json({ error: { code: "not_found", message: t("catalog.features.categories.api.route.category.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("catalog.features.categories.api.route.category.not.found") } },
+        404,
+      );
     }
 
     return c.json(category);
@@ -139,6 +148,3 @@ function categoryListQueryFromRecord(record: Record<string, unknown>) {
     hierarchy: toOptionalString(record.hierarchy),
   };
 }
-
-
-

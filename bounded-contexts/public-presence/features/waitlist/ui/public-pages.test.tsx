@@ -27,28 +27,22 @@ describe("public presence homepage", () => {
   it("renders the product promise and hides Discord when no invite is configured", () => {
     render(
       <MemoryRouter>
-        <PublicPresenceHomePage
-          actionData={null}
-          discordInviteUrl={null}
-          source={source}
-        />
+        <PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", {
-      name: "Sell cards without giving up margin.",
-    })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Sell cards without giving up margin.",
+      }),
+    ).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
   });
 
   it("renders an index-route-aware waitlist form target", () => {
     const { container } = render(
       <MemoryRouter>
-        <PublicPresenceHomePage
-          actionData={null}
-          discordInviteUrl={null}
-          source={source}
-        />
+        <PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />
       </MemoryRouter>,
     );
 
@@ -58,38 +52,62 @@ describe("public presence homepage", () => {
   it("sets beta notification expectations and sales fee lock terms", () => {
     const { container } = render(
       <MemoryRouter>
-        <PublicPresenceHomePage
-          actionData={null}
-          discordInviteUrl={null}
-          source={source}
-        />
+        <PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />
       </MemoryRouter>,
     );
 
     expect(container.querySelectorAll("form")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Join the beta waitlist" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Answer three quick questions so early invites reach the accounts most likely to use the beta.").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Get in before Founding Account badges are assigned" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "A visible reason to join before launch" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Pick the workflow you want prioritized" }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "Answer three quick questions so early invites reach the accounts most likely to use the beta.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("heading", { name: "Get in before Founding Account badges are assigned" }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "A visible reason to join before launch" }).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByRole("heading", { name: "Pick the workflow you want prioritized" }).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getAllByRole("heading", { name: "Make set completion feel predictable" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Trust and status before early access" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Prelaunch only. Joining does not require buying, listing, or payment.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("No live marketplace transactions are available during prelaunch.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Built for cards other marketplaces make hard to sell profitably: seller fee locks, no separate seller processing line, repeat listing work, and buyer-visible order costs.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("The first invited accounts can receive a Founding Account badge that stays visible beside their account.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("The first invited accounts can receive a Founding Account badge displayed beside their marketplace account.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("No separate 2.9% plus $0.30 payment-processing line for sellers").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Prelaunch only. Joining does not require buying, listing, or payment.").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("No live marketplace transactions are available during prelaunch.").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "Built for cards other marketplaces make hard to sell profitably: seller fee locks, no separate seller processing line, repeat listing work, and buyer-visible order costs.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "The first invited accounts can receive a Founding Account badge that stays visible beside their account.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "The first invited accounts can receive a Founding Account badge displayed beside their marketplace account.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("No separate 2.9% plus $0.30 payment-processing line for sellers").length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText("$13.20 plus quoted processing").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Quoted before payment").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$0.48 tracked shipping").length).toBeGreaterThan(0);
     expect(screen.getAllByText("-$4.17 applied").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$83.88").length).toBeGreaterThan(0);
     const priorities = [...container.querySelectorAll('form select[name="interests"]')] as HTMLSelectElement[];
-    expect(priorities.map((priority) => priority.value)).toEqual([
-      "low-sales-fees",
-    ]);
+    expect(priorities.map((priority) => priority.value)).toEqual(["low-sales-fees"]);
     expect(container.querySelector('[id="waitlist-form"]')).toBeTruthy();
   });
 
@@ -104,11 +122,7 @@ describe("public presence homepage", () => {
 
     const { container } = render(
       <MemoryRouter>
-        <PublicPresenceHomePage
-          actionData={null}
-          discordInviteUrl={null}
-          source={source}
-        />
+        <PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />
       </MemoryRouter>,
     );
 
@@ -118,43 +132,47 @@ describe("public presence homepage", () => {
     const finalForm = container.querySelector("#waitlist-form-final form");
     expect(finalForm).toBeTruthy();
     expect((finalForm as HTMLElement).querySelector<HTMLSelectElement>('select[name="role"]')?.value).toBe("buy");
-    expect((finalForm as HTMLElement).querySelector<HTMLSelectElement>('select[name="interests"]')?.value).toBe("set-completion");
+    expect((finalForm as HTMLElement).querySelector<HTMLSelectElement>('select[name="interests"]')?.value).toBe(
+      "set-completion",
+    );
     expect(scrollIntoView).toHaveBeenCalledOnce();
-    expect(events).toContainEqual(expect.objectContaining({
-      event: "cta_clicked",
-      role: "buy",
-      interest: "set-completion",
-      section: "audience_path_buyer",
-    }));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "cta_clicked",
+        role: "buy",
+        interest: "set-completion",
+        section: "audience_path_buyer",
+      }),
+    );
 
     const consent = within(finalForm as HTMLElement).getByRole("checkbox", {
       name: "Email me early access updates.",
     });
     await user.click(consent);
 
-    expect(events).toContainEqual(expect.objectContaining({
-      event: "cta_clicked",
-      section: "nav",
-      target: "waitlist_form",
-    }));
-    expect(events).toContainEqual(expect.objectContaining({
-      checked: true,
-      event: "waitlist_consent_checked",
-      interest: "set-completion",
-      role: "buy",
-      section: "final_cta",
-    }));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "cta_clicked",
+        section: "nav",
+        target: "waitlist_form",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        checked: true,
+        event: "waitlist_consent_checked",
+        interest: "set-completion",
+        role: "buy",
+        section: "final_cta",
+      }),
+    );
   });
 
   it("checks email consent and includes consent in the waitlist submission", async () => {
     const user = userEvent.setup();
     const { container } = render(
       <MemoryRouter>
-        <PublicPresenceHomePage
-          actionData={null}
-          discordInviteUrl={null}
-          source={source}
-        />
+        <PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />
       </MemoryRouter>,
     );
 
@@ -186,15 +204,9 @@ describe("public presence homepage", () => {
     );
 
     const discordLinks = screen.getAllByRole("link", { name: "Join Discord" });
-    expect(discordLinks.map((link) => link.getAttribute("href"))).toEqual([
-      "https://discord.example/invite",
-    ]);
-    expect(discordLinks.map((link) => link.getAttribute("target"))).toEqual([
-      "_blank",
-    ]);
-    expect(discordLinks.map((link) => link.getAttribute("rel"))).toEqual([
-      "noopener noreferrer",
-    ]);
+    expect(discordLinks.map((link) => link.getAttribute("href"))).toEqual(["https://discord.example/invite"]);
+    expect(discordLinks.map((link) => link.getAttribute("target"))).toEqual(["_blank"]);
+    expect(discordLinks.map((link) => link.getAttribute("rel"))).toEqual(["noopener noreferrer"]);
     expect(screen.getAllByText("You are on the list").length).toBeGreaterThan(0);
   });
 });

@@ -4,19 +4,14 @@ import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 
 describe("platform smoke CLI args", () => {
   it("uses positional URLs directly", () => {
-    expect(getPlatformSmokeCliArgs(["node", "platform-smoke.mjs", "https://landing.test"]))
-      .toEqual(["https://landing.test"]);
+    expect(getPlatformSmokeCliArgs(["node", "platform-smoke.mjs", "https://landing.test"])).toEqual([
+      "https://landing.test",
+    ]);
   });
 
   it("ignores a leading pnpm argument separator", () => {
     expect(
-      getPlatformSmokeCliArgs([
-        "node",
-        "platform-smoke.mjs",
-        "--",
-        "https://landing.test",
-        "https://admin.test",
-      ]),
+      getPlatformSmokeCliArgs(["node", "platform-smoke.mjs", "--", "https://landing.test", "https://admin.test"]),
     ).toEqual(["https://landing.test", "https://admin.test"]);
   });
 });
@@ -64,12 +59,7 @@ describe("platform smoke URL resolution", () => {
   it("uses the explicit marketplace root URL for staging root smoke", () => {
     expect(
       resolvePlatformSmokeUrls({
-        cliArgs: [
-          "https://landing.test",
-          "https://admin.test",
-          "https://marketplace.test",
-          "https://legacy.test",
-        ],
+        cliArgs: ["https://landing.test", "https://admin.test", "https://marketplace.test", "https://legacy.test"],
         env: {
           MARKETPLACE_ROOT_WEB_URL: "https://staging.test",
         },

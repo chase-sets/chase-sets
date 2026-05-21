@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  createOrderingApiClient,
-  orderingApi,
-  OrderingApiError,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { createOrderingApiClient, orderingApi, OrderingApiError } from "../../client";
 export type {
   CheckoutFulfillmentPreview,
   OrderingApiClientOptions,

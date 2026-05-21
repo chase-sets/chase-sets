@@ -10,9 +10,7 @@ export interface FieldChromeProps {
   hideLabel?: boolean;
 }
 
-interface FieldFrameProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style">,
-    FieldChromeProps {
+interface FieldFrameProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style">, FieldChromeProps {
   htmlFor?: string;
   children?: ReactNode;
 }
@@ -22,8 +20,7 @@ export { type FieldFrameProps };
 export const controlClass =
   "focus-ring touch-target w-full rounded-tokenMd border border-border bg-surface-2 px-4 py-2.5 text-sm text-foreground shadow-tokenSm placeholder:text-tertiary transition duration-150 hover:border-accent disabled:cursor-not-allowed disabled:opacity-60";
 
-export const controlErrorClass =
-  "border-danger focus-visible:ring-danger/30";
+export const controlErrorClass = "border-danger focus-visible:ring-danger/30";
 
 export function fieldHintId(inputId: string | undefined): string | undefined {
   return inputId ? `${inputId}-hint` : undefined;
@@ -46,10 +43,7 @@ export function FieldChrome({
       {label ? (
         <BaseField.Label
           htmlFor={htmlFor}
-          className={cx(
-            "block text-sm font-medium text-foreground",
-            hideLabel && "sr-only"
-          )}
+          className={cx("block text-sm font-medium text-foreground", hideLabel && "sr-only")}
         >
           {label}
           {required ? <span className="ml-1 text-accent">*</span> : null}

@@ -5,9 +5,7 @@ import type { InventoryImportBatchServices } from "./runtime";
 import type { ImportCsvRow } from "../domain/csv";
 
 function errorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : t("inventory.features.importBatches.api.route.request.failed");
+  return error instanceof Error ? error.message : t("inventory.features.importBatches.api.route.request.failed");
 }
 
 async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
@@ -16,9 +14,7 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
     const formData = await c.req.formData();
     const file = formData.get("file");
     const uploadedFile = file instanceof File ? file : null;
-    const csvText = uploadedFile
-      ? await uploadedFile.text()
-      : String(formData.get("csvText") ?? "");
+    const csvText = uploadedFile ? await uploadedFile.text() : String(formData.get("csvText") ?? "");
     const sourceFilename = uploadedFile
       ? uploadedFile.name
       : String(formData.get("sourceFilename") ?? "").trim() || null;
@@ -28,12 +24,11 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
       sourceFilename,
       sourceKey: String(formData.get("sourceKey") ?? "") || undefined,
       quantityMode: String(formData.get("quantityMode") ?? "") || undefined,
-      defaultStorageLocationId:
-        String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
+      defaultStorageLocationId: String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
     };
   }
 
-  const body = await c.req.json().catch(() => ({})) as Readonly<Record<string, unknown>>;
+  const body = (await c.req.json().catch(() => ({}))) as Readonly<Record<string, unknown>>;
   const parsedRows = Array.isArray(body.parsedRows)
     ? body.parsedRows
         .map((row): ImportCsvRow | null => {
@@ -43,15 +38,8 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
 
           const record = row as Readonly<Record<string, unknown>>;
           const values =
-            typeof record.values === "object" &&
-            record.values !== null &&
-            !Array.isArray(record.values)
-              ? Object.fromEntries(
-                  Object.entries(record.values).map(([key, value]) => [
-                    key,
-                    String(value ?? ""),
-                  ]),
-                )
+            typeof record.values === "object" && record.values !== null && !Array.isArray(record.values)
+              ? Object.fromEntries(Object.entries(record.values).map(([key, value]) => [key, String(value ?? "")]))
               : null;
 
           return values
@@ -70,20 +58,15 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
     sourceKey: typeof body.sourceKey === "string" ? body.sourceKey : undefined,
     quantityMode: typeof body.quantityMode === "string" ? body.quantityMode : undefined,
     defaultStorageLocationId:
-      typeof body.defaultStorageLocationId === "string" &&
-      body.defaultStorageLocationId.trim()
+      typeof body.defaultStorageLocationId === "string" && body.defaultStorageLocationId.trim()
         ? body.defaultStorageLocationId.trim()
         : null,
     sourceFilename:
-      typeof body.sourceFilename === "string" && body.sourceFilename.trim()
-        ? body.sourceFilename.trim()
-        : null,
+      typeof body.sourceFilename === "string" && body.sourceFilename.trim() ? body.sourceFilename.trim() : null,
   };
 }
 
-export function inventoryImportBatchRoutes(
-  services: InventoryImportBatchServices,
-) {
+export function inventoryImportBatchRoutes(services: InventoryImportBatchServices) {
   const app = new Hono<InventoryApiEnv>();
 
   app.get("/", async (c) => {

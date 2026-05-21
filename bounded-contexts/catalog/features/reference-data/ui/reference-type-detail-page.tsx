@@ -1,14 +1,6 @@
 import { localizedTextMapFromEnglish, t } from "@chase-sets/localization";
 import { useState } from "react";
-import {
-  Button,
-  Dialog,
-  Inline,
-  KeyValueList,
-  Stack,
-  TextInput,
-  Textarea,
-} from "@chase-sets/design-system";
+import { Button, Dialog, Inline, KeyValueList, Stack, TextInput, Textarea } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { LifecycleControls, type Transition } from "../../../support/shell-support/ui/lifecycle-controls";
@@ -24,11 +16,31 @@ import { formatKeyList, parseKeyList } from "./reference-data-form";
 function getTransitions(status: string): Transition[] {
   switch (status) {
     case "draft":
-      return [{ label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.publish"), action: "publish", tone: "primary" }];
+      return [
+        {
+          label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.publish"),
+          action: "publish",
+          tone: "primary",
+        },
+      ];
     case "active":
-      return [{ label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.deprecate"), action: "deprecate", confirm: true, tone: "danger" }];
+      return [
+        {
+          label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.deprecate"),
+          action: "deprecate",
+          confirm: true,
+          tone: "danger",
+        },
+      ];
     case "deprecated":
-      return [{ label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.archive"), action: "archive", confirm: true, tone: "danger" }];
+      return [
+        {
+          label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.archive"),
+          action: "archive",
+          confirm: true,
+          tone: "danger",
+        },
+      ];
     default:
       return [];
   }
@@ -69,9 +81,12 @@ export function ReferenceTypeDetailPage({
       archive: () => archiveReferenceType(id),
     };
     await actions[action]?.();
-    addToast(t("catalog.features.referenceData.ui.referenceTypeDetailPage.lifecycle.completed", {
-      action: lifecycleActionLabel(action),
-    }), "success");
+    addToast(
+      t("catalog.features.referenceData.ui.referenceTypeDetailPage.lifecycle.completed", {
+        action: lifecycleActionLabel(action),
+      }),
+      "success",
+    );
     refresh();
   }
 
@@ -104,7 +119,10 @@ export function ReferenceTypeDetailPage({
       <EntityDetailPage
         title={data?.name ?? t("catalog.features.referenceData.ui.referenceTypeDetailPage.reference.type")}
         breadcrumbs={[
-          { label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.reference.types"), href: "/reference-types" },
+          {
+            label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.reference.types"),
+            href: "/reference-types",
+          },
           { label: data?.name ?? id },
         ]}
         actions={
@@ -132,8 +150,14 @@ export function ReferenceTypeDetailPage({
             items={[
               { key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.key"), value: data.key },
               { key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.name"), value: data.name },
-              { key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.description"), value: data.description ?? "—" },
-              { key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.attribute.keys"), value: data.attribute_keys.length > 0 ? data.attribute_keys.join(", ") : "—" },
+              {
+                key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.description"),
+                value: data.description ?? "—",
+              },
+              {
+                key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.attribute.keys"),
+                value: data.attribute_keys.length > 0 ? data.attribute_keys.join(", ") : "—",
+              },
               { key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.status"), value: data.status },
               { key: t("catalog.features.referenceData.ui.referenceTypeDetailPage.updated"), value: data.updated_at },
             ]}
@@ -145,12 +169,26 @@ export function ReferenceTypeDetailPage({
         open={editing}
         onOpenChange={setEditing}
         title={t("catalog.features.referenceData.ui.referenceTypeDetailPage.edit.reference.type")}
-        footer={<Button onClick={handleRevise}>{t("catalog.features.referenceData.ui.referenceTypeDetailPage.save")}</Button>}
+        footer={
+          <Button onClick={handleRevise}>{t("catalog.features.referenceData.ui.referenceTypeDetailPage.save")}</Button>
+        }
       >
         <Stack gap={3}>
-          <TextInput label={t("catalog.features.referenceData.ui.referenceTypeDetailPage.key")} value={editKey} onChange={(event) => setEditKey(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceTypeDetailPage.name")} value={editName} onChange={(event) => setEditName(event.target.value)} />
-          <TextInput label={t("catalog.features.referenceData.ui.referenceTypeDetailPage.description")} value={editDescription} onChange={(event) => setEditDescription(event.target.value)} />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceTypeDetailPage.key")}
+            value={editKey}
+            onChange={(event) => setEditKey(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceTypeDetailPage.name")}
+            value={editName}
+            onChange={(event) => setEditName(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.referenceData.ui.referenceTypeDetailPage.description")}
+            value={editDescription}
+            onChange={(event) => setEditDescription(event.target.value)}
+          />
           <Textarea
             label={t("catalog.features.referenceData.ui.referenceTypeDetailPage.attribute.keys")}
             description={t("catalog.features.referenceData.ui.referenceTypeDetailPage.attribute.keys.description")}

@@ -27,9 +27,12 @@ export type WebContextRegistryEntry = Readonly<{
 
 export type WebContextRegistry = readonly WebContextRegistryEntry[];
 
-type ShellActor = Readonly<{
-  permissions?: readonly string[];
-}> | null | undefined;
+type ShellActor =
+  | Readonly<{
+      permissions?: readonly string[];
+    }>
+  | null
+  | undefined;
 
 export type WebHostRouteRecord = Readonly<
   BcRouteModule & {
@@ -48,10 +51,7 @@ type ShellContributionRecord = Readonly<
 const ADMIN_WEB_SECTIONS = ["catalog", "identity", "experience"] as const satisfies readonly WebHostSection[];
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
-function resolveAdminWebSection(
-  contextName: string,
-  fileExportOrKey?: string,
-): WebHostSection {
+function resolveAdminWebSection(contextName: string, fileExportOrKey?: string): WebHostSection {
   if (contextName === "catalog") {
     return "catalog";
   }
@@ -94,10 +94,7 @@ function resolveShellContributionPlacements(
   return [contribution.slot];
 }
 
-function hasRequiredPermissions(
-  actor: ShellActor,
-  requiredPermissions: readonly string[],
-) {
+function hasRequiredPermissions(actor: ShellActor, requiredPermissions: readonly string[]) {
   if (requiredPermissions.length === 0) {
     return true;
   }
@@ -195,16 +192,10 @@ export function resolveWebHostNavItems(
   });
 
   return contributions
-    .filter((contribution) =>
-      options.section ? contribution.section === options.section : true,
-    )
-    .filter((contribution) =>
-      isVisibleForActor(actor, contribution.visibility, contribution.requiredPermissions),
-    )
+    .filter((contribution) => (options.section ? contribution.section === options.section : true))
+    .filter((contribution) => isVisibleForActor(actor, contribution.visibility, contribution.requiredPermissions))
     .sort((left, right) =>
-      left.order === right.order
-        ? left.label.localeCompare(right.label)
-        : left.order - right.order,
+      left.order === right.order ? left.label.localeCompare(right.label) : left.order - right.order,
     )
     .map(({ key, label, icon, href }) => ({
       key,

@@ -6,18 +6,11 @@ import {
   type ContextProjectionGroup,
   type MountedContextRuntimeEntry,
 } from "@chase-sets/bounded-context-runtime";
-import type {
-  BcApiModule,
-  BcHostPort,
-  BcProjector,
-} from "@chase-sets/bounded-context-module";
+import type { BcApiModule, BcHostPort, BcProjector } from "@chase-sets/bounded-context-module";
 import type { ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type {
-  PlatformControlPlane,
-  PlatformLease,
-} from "./control-plane";
+import type { PlatformControlPlane, PlatformLease } from "./control-plane";
 
 export type WorkerHostName = "platform-worker" | "admin-support-worker";
 
@@ -77,18 +70,14 @@ export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,
   hostName: WorkerHostName,
 ): readonly WorkerContextRegistryEntry[] {
-  return registry.filter((entry) =>
-    entry.manifest.runtimeDeployables?.includes(hostName),
-  );
+  return registry.filter((entry) => entry.manifest.runtimeDeployables?.includes(hostName));
 }
 
 export function getWorkerHostContextNames<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,
   hostName: WorkerHostName,
 ): readonly WorkerHostContextName<TRegistry>[] {
-  return getWorkerHostEntries(registry, hostName).map(
-    (entry) => entry.contextName as WorkerHostContextName<TRegistry>,
-  );
+  return getWorkerHostEntries(registry, hostName).map((entry) => entry.contextName as WorkerHostContextName<TRegistry>);
 }
 
 export function createWorkerHost(
@@ -104,20 +93,12 @@ export function createWorkerHost(
     entries.map((entry) => {
       const pool = options.pools[entry.contextName];
       if (!pool) {
-        throw new Error(
-          `Worker host '${hostName}' is missing a pool for context '${entry.contextName}'.`,
-        );
+        throw new Error(`Worker host '${hostName}' is missing a pool for context '${entry.contextName}'.`);
       }
 
       return [
         entry.contextName,
-        entry.module.createServices(
-          pool,
-          getHostPortsForContext(
-            entry.manifest,
-            options.hostPorts ?? {},
-          ) as never,
-        ),
+        entry.module.createServices(pool, getHostPortsForContext(entry.manifest, options.hostPorts ?? {}) as never),
       ];
     }),
   );
@@ -136,10 +117,7 @@ export function createWorkerHost(
     };
   });
   const subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
-  const projectionGroups = resolveModuleProjectionGroups(
-    mountedContexts,
-    subscriptionRunners,
-  );
+  const projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
 
   return {
     mountedContexts,
@@ -154,14 +132,10 @@ export function createWorkerHost(
   };
 }
 
-export function collectWorkerRunners(
-  runtime: WorkerHostRuntime,
-): readonly WorkerRunner[] {
+export function collectWorkerRunners(runtime: WorkerHostRuntime): readonly WorkerRunner[] {
   return [
     ...runtime.mountedContexts.flatMap((entry) =>
-      entry.projectors.map((projector, index) =>
-        createProjectorRunner(entry.contextName, projector, index),
-      ),
+      entry.projectors.map((projector, index) => createProjectorRunner(entry.contextName, projector, index)),
     ),
     ...runtime.projectionGroups.map(createProjectionGroupWorkerRunner),
   ];
@@ -222,10 +196,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   };
 }
 
-async function runLeasedRunner(
-  options: WorkerRunnerLoopOptions,
-  runner: WorkerRunner,
-): Promise<void> {
+async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerRunner): Promise<void> {
   const leaseName = `${runner.kind}:${runner.name}`;
   const lease = await options.controlPlane.acquireLease({
     leaseName,
@@ -299,11 +270,7 @@ async function runLeasedRunner(
   }
 }
 
-function createProjectorRunner(
-  contextName: string,
-  projector: BcProjector,
-  index: number,
-): WorkerRunner {
+function createProjectorRunner(contextName: string, projector: BcProjector, index: number): WorkerRunner {
   return {
     name: `${contextName}.${projector.projectorName ?? `projector-${index + 1}`}`,
     kind: "projector",
@@ -311,9 +278,7 @@ function createProjectorRunner(
   };
 }
 
-function createProjectionGroupWorkerRunner(
-  group: ContextProjectionGroup,
-): WorkerRunner {
+function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): WorkerRunner {
   let rebuildingRevision: number | null = null;
 
   return {
@@ -322,10 +287,7 @@ function createProjectionGroupWorkerRunner(
     runOnce: async () => {
       try {
         const status = await group.refreshStatus();
-        if (
-          status.revisionStale &&
-          rebuildingRevision !== group.projectionRevision
-        ) {
+        if (status.revisionStale && rebuildingRevision !== group.projectionRevision) {
           await resetProjectionGroup(group);
           rebuildingRevision = group.projectionRevision;
         }
@@ -356,10 +318,7 @@ function createProjectionGroupWorkerRunner(
   };
 }
 
-function getHostPortsForContext(
-  manifest: WorkerContextManifest,
-  hostPorts: Readonly<Record<string, unknown>>,
-) {
+function getHostPortsForContext(manifest: WorkerContextManifest, hostPorts: Readonly<Record<string, unknown>>) {
   const entries = manifest.hostPorts ?? [];
   if (entries.length === 0) {
     return undefined;

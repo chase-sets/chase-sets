@@ -37,10 +37,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       providerKey: String(c.req.query("providerKey") ?? c.req.query("provider") ?? "tcgdex"),
       queryKind: String(c.req.query("queryKind") ?? c.req.query("kind") ?? ""),
       languageCode: c.req.query("languageCode") ?? c.req.query("language"),
-      parentValue:
-        c.req.query("parentValue") ??
-        c.req.query("seriesId") ??
-        c.req.query("series"),
+      parentValue: c.req.query("parentValue") ?? c.req.query("seriesId") ?? c.req.query("series"),
     });
 
     return c.json({ items, total: items.length, count: items.length });
@@ -178,12 +175,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       context: c.get("context"),
     });
 
-    return streamBulkJobNdjson(
-      services,
-      job.jobId,
-      "Bulk Source Observation promotion failed.",
-      c.req.raw.signal,
-    );
+    return streamBulkJobNdjson(services, job.jobId, "Bulk Source Observation promotion failed.", c.req.raw.signal);
   });
 
   app.post("/bulk-reject", async (c) => {
@@ -195,9 +187,12 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     const reason = String(body.reason ?? "").trim();
 
     if (!reason) {
-      return c.json({
-        error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
-      }, 400);
+      return c.json(
+        {
+          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+        },
+        400,
+      );
     }
 
     if (body.scope) {
@@ -231,9 +226,12 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     const reason = String(body.reason ?? "").trim();
 
     if (!reason) {
-      return c.json({
-        error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
-      }, 400);
+      return c.json(
+        {
+          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+        },
+        400,
+      );
     }
 
     const job = await services.enqueueBulkReviewJob({
@@ -256,9 +254,12 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     const reason = String(body.reason ?? "").trim();
 
     if (!reason) {
-      return c.json({
-        error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
-      }, 400);
+      return c.json(
+        {
+          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+        },
+        400,
+      );
     }
 
     const context = c.get("context");
@@ -270,12 +271,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       context,
     });
 
-    return streamBulkJobNdjson(
-      services,
-      job.jobId,
-      "Bulk Source Observation rejection failed.",
-      c.req.raw.signal,
-    );
+    return streamBulkJobNdjson(services, job.jobId, "Bulk Source Observation rejection failed.", c.req.raw.signal);
   });
 
   app.get("/bulk-jobs/active", async (c) => {
@@ -289,12 +285,15 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
   app.get("/bulk-jobs/:jobId", async (c) => {
     const job = await services.getBulkReviewJob(c.req.param("jobId"));
     if (!job) {
-      return c.json({
-        error: {
-          code: "not_found",
-          message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+          },
         },
-      }, 404);
+        404,
+      );
     }
 
     return c.json(job);
@@ -304,12 +303,15 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     const jobId = c.req.param("jobId");
     const job = await services.getBulkReviewJob(jobId);
     if (!job) {
-      return c.json({
-        error: {
-          code: "not_found",
-          message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+          },
         },
-      }, 404);
+        404,
+      );
     }
 
     return streamBulkJobEvents(services, jobId, c.req.raw.signal);
@@ -376,9 +378,7 @@ function stringField(value: unknown): string | undefined {
 }
 
 function parseObservationIds(input: unknown): string[] {
-  return Array.isArray(input)
-    ? input.map((observationId: unknown) => String(observationId))
-    : [];
+  return Array.isArray(input) ? input.map((observationId: unknown) => String(observationId)) : [];
 }
 
 function streamBulkJobNdjson(
@@ -452,20 +452,14 @@ function streamBulkJobNdjson(
   });
 }
 
-function streamBulkJobEvents(
-  services: SourceObservationServices,
-  jobId: string,
-  signal?: AbortSignal,
-) {
+function streamBulkJobEvents(services: SourceObservationServices, jobId: string, signal?: AbortSignal) {
   const encoder = new TextEncoder();
   let closed = false;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const write = (event: string, data: unknown) => {
-        controller.enqueue(
-          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
-        );
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
       let lastStatus = "";
 

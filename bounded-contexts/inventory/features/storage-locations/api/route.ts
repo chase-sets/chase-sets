@@ -3,9 +3,7 @@ import type { InventoryApiEnv } from "../../../api";
 import type { StorageLocationServices } from "./runtime";
 
 function parseShipFromAddress(value: unknown) {
-  const source = value && typeof value === "object"
-    ? value as Record<string, unknown>
-    : {};
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
   return {
     name: String(source.name ?? ""),
@@ -21,9 +19,7 @@ function parseShipFromAddress(value: unknown) {
   };
 }
 
-export function inventoryStorageLocationRoutes(
-  services: StorageLocationServices,
-) {
+export function inventoryStorageLocationRoutes(services: StorageLocationServices) {
   const app = new Hono<InventoryApiEnv>();
 
   app.get("/", async (c) => {
@@ -47,8 +43,7 @@ export function inventoryStorageLocationRoutes(
       {
         accountId: actor.accountId as never,
         name: String(body.name ?? ""),
-        description:
-          typeof body.description === "string" ? body.description : null,
+        description: typeof body.description === "string" ? body.description : null,
         shipFromCode: String(body.shipFromCode ?? ""),
         shipFromAddress: parseShipFromAddress(body.shipFromAddress),
       },
@@ -72,8 +67,7 @@ export function inventoryStorageLocationRoutes(
         storageLocationId: c.req.param("id"),
         accountId: actor.accountId,
         name: String(body.name ?? ""),
-        description:
-          typeof body.description === "string" ? body.description : null,
+        description: typeof body.description === "string" ? body.description : null,
         shipFromCode: String(body.shipFromCode ?? ""),
         shipFromAddress: parseShipFromAddress(body.shipFromAddress),
         isArchived: Boolean(body.isArchived),

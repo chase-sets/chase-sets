@@ -1,10 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type {
-  SupportChecklistItem,
-  SupportEvidence,
-  SupportResolution,
-  SupportResponse,
-} from "../domain/common";
+import type { SupportChecklistItem, SupportEvidence, SupportResolution, SupportResponse } from "../domain/common";
 
 export type SupportRequestListRow = Readonly<{
   support_request_id: string;
@@ -26,10 +21,11 @@ export type SupportRequestListRow = Readonly<{
   cancellation_reason: string | null;
 }>;
 
-export type SupportRequestDetailRow = SupportRequestListRow & Readonly<{
-  evidence: readonly SupportEvidence[];
-  responses: readonly SupportResponse[];
-}>;
+export type SupportRequestDetailRow = SupportRequestListRow &
+  Readonly<{
+    evidence: readonly SupportEvidence[];
+    responses: readonly SupportResponse[];
+  }>;
 
 const listSelect = `
   SELECT
@@ -149,8 +145,7 @@ export async function listSupportOperationsQueue(
 ): Promise<{ items: SupportRequestListRow[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
   const now = params.now ?? new Date().toISOString();
-  const accountFilter =
-    params.accountId ? "AND (buyer_account_id = $2 OR seller_account_id = $2)" : "";
+  const accountFilter = params.accountId ? "AND (buyer_account_id = $2 OR seller_account_id = $2)" : "";
   const values = params.accountId ? [now, params.accountId] : [now];
   const limitParam = values.length + 1;
   const offsetParam = values.length + 2;

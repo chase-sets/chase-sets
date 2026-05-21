@@ -7,9 +7,7 @@ describe("SQL identifier validation", () => {
     expect(assertSqlIdentifier("_projection_1")).toBe("_projection_1");
 
     expect(() => assertSqlIdentifier("1_table")).toThrow("Invalid SQL identifier");
-    expect(() => assertSqlIdentifier("events; DROP TABLE events")).toThrow(
-      "Invalid SQL identifier",
-    );
+    expect(() => assertSqlIdentifier("events; DROP TABLE events")).toThrow("Invalid SQL identifier");
     expect(() => assertSqlIdentifier("event-store")).toThrow("Invalid SQL identifier");
   });
 });

@@ -2,22 +2,24 @@ import { describe, expect, it } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createCommercialTermsResolver } from "./resolve";
 
-function createDb(options: Readonly<{
-  accountType?: "personal" | "business" | "enterprise";
-  accountStatus?: string;
-  schedule?: {
-    schedule_id: string;
-    marketplace_sales_fee_percentage_bps: number;
-    marketplace_sales_fee_fixed_amount: string;
-    shipping_allowance_percentage_bps?: number;
-  } | null;
-  agreement?: {
-    agreement_id: string;
-    marketplace_sales_fee_percentage_bps: number;
-    marketplace_sales_fee_fixed_amount: string;
-    shipping_allowance_percentage_bps?: number;
-  } | null;
-}>): PgQueryable {
+function createDb(
+  options: Readonly<{
+    accountType?: "personal" | "business" | "enterprise";
+    accountStatus?: string;
+    schedule?: {
+      schedule_id: string;
+      marketplace_sales_fee_percentage_bps: number;
+      marketplace_sales_fee_fixed_amount: string;
+      shipping_allowance_percentage_bps?: number;
+    } | null;
+    agreement?: {
+      agreement_id: string;
+      marketplace_sales_fee_percentage_bps: number;
+      marketplace_sales_fee_fixed_amount: string;
+      shipping_allowance_percentage_bps?: number;
+    } | null;
+  }>,
+): PgQueryable {
   return {
     query: async <TRow>(sql: string) => {
       if (sql.includes("FROM commercial_terms_account_pages")) {

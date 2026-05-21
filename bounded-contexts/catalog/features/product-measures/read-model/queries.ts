@@ -43,18 +43,13 @@ export async function listProductMeasureProfiles(db: PgQueryable) {
 
   return result.rows.map((row) => ({
     ...row,
-    match_category_ids: Array.isArray(row.match_category_ids)
-      ? row.match_category_ids.map(String)
-      : [],
+    match_category_ids: Array.isArray(row.match_category_ids) ? row.match_category_ids.map(String) : [],
     match_selected_options: selectedOptionsFromUnknown(row.match_selected_options),
     measure_snapshot: row.measure_snapshot as ProductMeasureSnapshot,
   }));
 }
 
-export async function listResolvedProductMeasures(
-  db: PgQueryable,
-  catalogItemId?: string | null,
-) {
+export async function listResolvedProductMeasures(db: PgQueryable, catalogItemId?: string | null) {
   const values: string[] = [];
   const where = catalogItemId ? "WHERE catalog_item_id = $1" : "";
   if (catalogItemId) {
@@ -93,8 +88,7 @@ function selectedOptionsFromUnknown(value: unknown) {
             return null;
           }
           const candidate = entry as { dimensionId?: unknown; optionId?: unknown };
-          return typeof candidate.dimensionId === "string" &&
-            typeof candidate.optionId === "string"
+          return typeof candidate.dimensionId === "string" && typeof candidate.optionId === "string"
             ? { dimensionId: candidate.dimensionId, optionId: candidate.optionId }
             : null;
         })

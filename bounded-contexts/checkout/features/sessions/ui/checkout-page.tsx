@@ -27,10 +27,7 @@ import {
   TextInput,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type {
-  CheckoutFulfillmentPreview,
-  CheckoutSessionRow,
-} from "../../../support/request-support/api-client";
+import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
 
 export type CheckoutSavedShippingAddress = Readonly<{
   shipping_address_id: string;
@@ -49,9 +46,7 @@ export type CheckoutSavedShippingAddress = Readonly<{
 }>;
 
 function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
-  return [line.itemTitle, line.itemSubtitle, line.productSummary]
-    .filter(Boolean)
-    .join(" | ");
+  return [line.itemTitle, line.itemSubtitle, line.productSummary].filter(Boolean).join(" | ");
 }
 
 function sellerGroupLabel(group: CheckoutFulfillmentPreview["sellerGroups"][number]) {
@@ -84,8 +79,8 @@ export function CheckoutSessionPage({
   const hasPayment = Boolean(session.payment_id);
   const isOfferIntent = session.source_type === "offer-intent";
   const preview = fulfillmentPreview ?? null;
-  const readyCount = isOfferIntent ? 0 : preview?.readyLineKeys.length ?? lines.length;
-  const unavailableCount = isOfferIntent ? lines.length : preview?.unavailableLineKeys.length ?? 0;
+  const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
+  const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const canConfirm = isOfferIntent ? lines.length > 0 : readyCount > 0;
   const previewAllocationLines = preview?.sellerGroups.flatMap((group) => group.lines) ?? [];
   const defaultSavedAddress =
@@ -135,8 +130,7 @@ export function CheckoutSessionPage({
           email: "",
         };
   const hasOnlyLockedAllocations =
-    previewAllocationLines.length > 0 &&
-    previewAllocationLines.every((line) => line.priceState === "locked");
+    previewAllocationLines.length > 0 && previewAllocationLines.every((line) => line.priceState === "locked");
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -158,8 +152,8 @@ export function CheckoutSessionPage({
             value: isOfferIntent
               ? t("checkout.features.sessions.ui.checkoutPage.offer.submitted.after.review")
               : session.order_ids.length > 0
-              ? t("checkout.features.sessions.ui.checkoutPage.order.totals.created")
-              : "Previewed now, committed on confirmation",
+                ? t("checkout.features.sessions.ui.checkoutPage.order.totals.created")
+                : "Previewed now, committed on confirmation",
           },
           ...(wallet
             ? [
@@ -170,13 +164,21 @@ export function CheckoutSessionPage({
               ]
             : []),
         ]}
-        total={hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
+        total={
+          hasPayment
+            ? t("checkout.features.sessions.ui.checkoutPage.payment.ready")
+            : isOfferIntent
+              ? t("checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent")
+              : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")
+        }
         totalLabel={t("checkout.features.sessions.ui.checkoutPage.checkout.status")}
         reassurance={
           <SecurePaymentIndicator
-            label={isOfferIntent
-              ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
-              : t("checkout.features.sessions.ui.checkoutPage.secure.payment")}
+            label={
+              isOfferIntent
+                ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
+                : t("checkout.features.sessions.ui.checkoutPage.secure.payment")
+            }
           />
         }
       />
@@ -189,7 +191,9 @@ export function CheckoutSessionPage({
           isOfferIntent
             ? {
                 title: t("checkout.features.sessions.ui.checkoutPage.no.payment.today"),
-                description: t("checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order"),
+                description: t(
+                  "checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order",
+                ),
               }
             : {
                 title: t("checkout.features.sessions.ui.checkoutPage.secure.payment"),
@@ -211,10 +215,15 @@ export function CheckoutSessionPage({
       <PageHeader
         eyebrow={t("checkout.features.sessions.ui.checkoutPage.secure.checkout")}
         title={t("checkout.features.sessions.ui.checkoutPage.checkout")}
-        description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.confirm.shipping.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.choose.shipping.create.purchases.grouped.by")}
+        description={
+          isOfferIntent
+            ? t("checkout.features.sessions.ui.checkoutPage.confirm.shipping.place.purchase.intent")
+            : t("checkout.features.sessions.ui.checkoutPage.choose.shipping.create.purchases.grouped.by")
+        }
         actions={
           <LinkButton href="/account/cart" tone="secondary">
-            {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}</LinkButton>
+            {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}
+          </LinkButton>
         }
       />
 
@@ -222,7 +231,9 @@ export function CheckoutSessionPage({
         <MarketplaceEmptyState
           title={t("checkout.features.sessions.ui.checkoutPage.your.cart.is.empty")}
           description={t("checkout.features.sessions.ui.checkoutPage.add.a.product.before.starting.checkout")}
-          recoveryActions={<LinkButton href="/search">{t("checkout.features.sessions.ui.checkoutPage.browse.marketplace")}</LinkButton>}
+          recoveryActions={
+            <LinkButton href="/search">{t("checkout.features.sessions.ui.checkoutPage.browse.marketplace")}</LinkButton>
+          }
         />
       ) : (
         <CheckoutLayout summary={summary} summaryLabel="Checkout summary">
@@ -237,154 +248,208 @@ export function CheckoutSessionPage({
             ) : null}
 
             <Banner
-              title={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review") : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview")}
-              description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review.description") : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description")}
+              title={
+                isOfferIntent
+                  ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review")
+                  : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview")
+              }
+              description={
+                isOfferIntent
+                  ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review.description")
+                  : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description")
+              }
             />
 
             {!isOfferIntent ? (
-            <PageSection
-              title={t("checkout.features.sessions.ui.checkoutPage.fulfillment")}
-              description={t("checkout.features.sessions.ui.checkoutPage.fulfillment.description")}
-            >
-              <Stack gap={3}>
-                <Surface elevated>
-                  {hasOnlyLockedAllocations ? (
-                    <Stack gap={2}>
-                      <Inline gap={2}>
-                        <Badge tone="success">{t("checkout.features.sessions.ui.checkoutPage.locked.seller")}</Badge>
-                        <Text weight="semibold">{t("checkout.features.sessions.ui.checkoutPage.optimization.locked")}</Text>
-                      </Inline>
-                      <Text size="sm" tone="secondary">
-                        {t("checkout.features.sessions.ui.checkoutPage.locked.optimization.description")}
-                      </Text>
-                    </Stack>
-                  ) : (
-                    <form method="post">
-                      <Stack gap={3}>
-                        <input type="hidden" name="intent" value="select-optimization-goal" />
-                        <NativeSelect
-                          label={t("checkout.features.sessions.ui.checkoutPage.optimization")}
-                          name="optimizationGoal"
-                          defaultValue={session.optimization_goal}
-                          items={[
-                            { value: "lowest-total", label: t("checkout.features.sessions.ui.checkoutPage.lowest.delivered.total") },
-                            { value: "fewest-shipments", label: t("checkout.features.sessions.ui.checkoutPage.fewest.shipments") },
-                          ]}
-                        />
-                        <Button type="submit" tone="secondary">
-                          {t("checkout.features.sessions.ui.checkoutPage.recalculate.fulfillment")}
-                        </Button>
+              <PageSection
+                title={t("checkout.features.sessions.ui.checkoutPage.fulfillment")}
+                description={t("checkout.features.sessions.ui.checkoutPage.fulfillment.description")}
+              >
+                <Stack gap={3}>
+                  <Surface elevated>
+                    {hasOnlyLockedAllocations ? (
+                      <Stack gap={2}>
+                        <Inline gap={2}>
+                          <Badge tone="success">{t("checkout.features.sessions.ui.checkoutPage.locked.seller")}</Badge>
+                          <Text weight="semibold">
+                            {t("checkout.features.sessions.ui.checkoutPage.optimization.locked")}
+                          </Text>
+                        </Inline>
+                        <Text size="sm" tone="secondary">
+                          {t("checkout.features.sessions.ui.checkoutPage.locked.optimization.description")}
+                        </Text>
                       </Stack>
-                    </form>
-                  )}
-                </Surface>
+                    ) : (
+                      <form method="post">
+                        <Stack gap={3}>
+                          <input type="hidden" name="intent" value="select-optimization-goal" />
+                          <NativeSelect
+                            label={t("checkout.features.sessions.ui.checkoutPage.optimization")}
+                            name="optimizationGoal"
+                            defaultValue={session.optimization_goal}
+                            items={[
+                              {
+                                value: "lowest-total",
+                                label: t("checkout.features.sessions.ui.checkoutPage.lowest.delivered.total"),
+                              },
+                              {
+                                value: "fewest-shipments",
+                                label: t("checkout.features.sessions.ui.checkoutPage.fewest.shipments"),
+                              },
+                            ]}
+                          />
+                          <Button type="submit" tone="secondary">
+                            {t("checkout.features.sessions.ui.checkoutPage.recalculate.fulfillment")}
+                          </Button>
+                        </Stack>
+                      </form>
+                    )}
+                  </Surface>
 
-                {preview ? (
-                  <>
-                    <PriceBreakdown
-                      lines={[
-                        { label: t("checkout.features.sessions.ui.checkoutPage.items.2"), value: `$${preview.totals.itemSubtotalAmount}` },
-                        { label: t("checkout.features.sessions.ui.checkoutPage.shipping.2"), value: `$${preview.totals.shippingAmount}` },
-                        { label: t("checkout.features.sessions.ui.checkoutPage.estimated.tax"), value: `$${preview.totals.salesTaxAmount}` },
-                        { label: t("checkout.features.sessions.ui.checkoutPage.packages"), value: preview.totals.packageCount },
-                      ]}
-                      total={`$${preview.totals.totalAmount}`}
-                      totalLabel={t("checkout.features.sessions.ui.checkoutPage.estimated.total")}
-                      reassurance={<SecurePaymentIndicator label={t("checkout.features.sessions.ui.checkoutPage.current.preview")} />}
-                    />
-                    {preview.sellerGroups.map((group) => (
-                      <Surface key={group.sellerAccountId} elevated>
-                        <Stack gap={3}>
-                          <Inline gap={2}>
-                            <Badge tone="accent">{t("checkout.features.sessions.ui.checkoutPage.seller.group")}</Badge>
-                            <AccountReputationSummary
-                              accountName={sellerGroupLabel(group)}
-                              averageRating={
-                                (group as typeof group & { sellerAverageRating?: string | null }).sellerAverageRating
-                              }
-                              reviewCount={
-                                (group as typeof group & { sellerReviewCount?: number }).sellerReviewCount ?? 0
-                              }
-                              ratingLabel={t("checkout.features.sessions.ui.checkoutPage.seller.reputation")}
-                            />
-                            <Text tone="secondary">${group.totalAmount}</Text>
-                          </Inline>
-                          {group.lines.map((line) => (
-                            <Grid key={`${group.sellerAccountId}:${line.lineKey}:${line.listingId}`} columns={{ base: 1, md: 4 }} gap={3}>
-                              <Stack gap={1}>
-                                <Text weight="semibold">{line.itemTitle}</Text>
-                                {line.productSummary ? (
-                                  <ProductOptions options={productOptionsFromSummary(line.productSummary)} variant="compact" />
-                                ) : (
-                                  <ProductOptions
-                                    options={[]}
-                                    emptyLabel={t("checkout.features.sessions.ui.checkoutPage.standard")}
-                                    variant="compact"
-                                  />
-                                )}
-                              </Stack>
-                              <Stack gap={1}>
-                                <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.allocation")}</Text>
-                                <Text>{line.priceState === "locked" ? t("checkout.features.sessions.ui.checkoutPage.selected.seller.listing") : t("checkout.features.sessions.ui.checkoutPage.optimized.seller.listing")}</Text>
-                              </Stack>
-                              <Stack gap={1}>
-                                <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.quantity.2")}</Text>
-                                <Text>{line.quantity}</Text>
-                              </Stack>
-                              <Stack gap={1}>
-                                <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.estimate")}</Text>
-                                <Text>${line.estimatedLineTotalAmount}</Text>
-                                <Badge tone={line.priceState === "locked" ? "success" : "neutral"}>
-                                  {line.priceState === "locked"
-                                    ? t("checkout.features.sessions.ui.checkoutPage.locked.listing")
-                                    : t("checkout.features.sessions.ui.checkoutPage.optimized")}
-                                </Badge>
-                              </Stack>
-                            </Grid>
-                          ))}
-                        </Stack>
-                      </Surface>
-                    ))}
-                    {preview.unavailableLines.length > 0 ? (
-                      <Surface tone="subtle" elevated>
-                        <Stack gap={3}>
-                          <Badge tone="warning">{t("checkout.features.sessions.ui.checkoutPage.needs.supply")}</Badge>
-                          {preview.unavailableLines.map((line) => (
-                            <Grid key={line.lineKey} columns={{ base: 1, md: 3 }} gap={3}>
-                              <Stack gap={1}>
-                                <Text weight="semibold">{line.itemTitle}</Text>
-                                {line.productSummary ? (
-                                  <ProductOptions options={productOptionsFromSummary(line.productSummary)} variant="compact" />
-                                ) : (
-                                  <ProductOptions
-                                    options={[]}
-                                    emptyLabel={t("checkout.features.sessions.ui.checkoutPage.standard")}
-                                    variant="compact"
-                                  />
-                                )}
-                              </Stack>
-                              <Text>{line.reason}</Text>
-                              <LinkButton
-                                href={marketRecoveryHref(line.itemTitle)}
-                                tone="secondary"
-                                size="sm"
+                  {preview ? (
+                    <>
+                      <PriceBreakdown
+                        lines={[
+                          {
+                            label: t("checkout.features.sessions.ui.checkoutPage.items.2"),
+                            value: `$${preview.totals.itemSubtotalAmount}`,
+                          },
+                          {
+                            label: t("checkout.features.sessions.ui.checkoutPage.shipping.2"),
+                            value: `$${preview.totals.shippingAmount}`,
+                          },
+                          {
+                            label: t("checkout.features.sessions.ui.checkoutPage.estimated.tax"),
+                            value: `$${preview.totals.salesTaxAmount}`,
+                          },
+                          {
+                            label: t("checkout.features.sessions.ui.checkoutPage.packages"),
+                            value: preview.totals.packageCount,
+                          },
+                        ]}
+                        total={`$${preview.totals.totalAmount}`}
+                        totalLabel={t("checkout.features.sessions.ui.checkoutPage.estimated.total")}
+                        reassurance={
+                          <SecurePaymentIndicator
+                            label={t("checkout.features.sessions.ui.checkoutPage.current.preview")}
+                          />
+                        }
+                      />
+                      {preview.sellerGroups.map((group) => (
+                        <Surface key={group.sellerAccountId} elevated>
+                          <Stack gap={3}>
+                            <Inline gap={2}>
+                              <Badge tone="accent">
+                                {t("checkout.features.sessions.ui.checkoutPage.seller.group")}
+                              </Badge>
+                              <AccountReputationSummary
+                                accountName={sellerGroupLabel(group)}
+                                averageRating={
+                                  (group as typeof group & { sellerAverageRating?: string | null }).sellerAverageRating
+                                }
+                                reviewCount={
+                                  (group as typeof group & { sellerReviewCount?: number }).sellerReviewCount ?? 0
+                                }
+                                ratingLabel={t("checkout.features.sessions.ui.checkoutPage.seller.reputation")}
+                              />
+                              <Text tone="secondary">${group.totalAmount}</Text>
+                            </Inline>
+                            {group.lines.map((line) => (
+                              <Grid
+                                key={`${group.sellerAccountId}:${line.lineKey}:${line.listingId}`}
+                                columns={{ base: 1, md: 4 }}
+                                gap={3}
                               >
-                                {t("checkout.features.sessions.ui.checkoutPage.make.offer")}
-                              </LinkButton>
-                            </Grid>
-                          ))}
-                        </Stack>
-                      </Surface>
-                    ) : null}
-                  </>
-                ) : null}
-              </Stack>
-            </PageSection>
+                                <Stack gap={1}>
+                                  <Text weight="semibold">{line.itemTitle}</Text>
+                                  {line.productSummary ? (
+                                    <ProductOptions
+                                      options={productOptionsFromSummary(line.productSummary)}
+                                      variant="compact"
+                                    />
+                                  ) : (
+                                    <ProductOptions
+                                      options={[]}
+                                      emptyLabel={t("checkout.features.sessions.ui.checkoutPage.standard")}
+                                      variant="compact"
+                                    />
+                                  )}
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    {t("checkout.features.sessions.ui.checkoutPage.allocation")}
+                                  </Text>
+                                  <Text>
+                                    {line.priceState === "locked"
+                                      ? t("checkout.features.sessions.ui.checkoutPage.selected.seller.listing")
+                                      : t("checkout.features.sessions.ui.checkoutPage.optimized.seller.listing")}
+                                  </Text>
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    {t("checkout.features.sessions.ui.checkoutPage.quantity.2")}
+                                  </Text>
+                                  <Text>{line.quantity}</Text>
+                                </Stack>
+                                <Stack gap={1}>
+                                  <Text size="sm" tone="secondary">
+                                    {t("checkout.features.sessions.ui.checkoutPage.estimate")}
+                                  </Text>
+                                  <Text>${line.estimatedLineTotalAmount}</Text>
+                                  <Badge tone={line.priceState === "locked" ? "success" : "neutral"}>
+                                    {line.priceState === "locked"
+                                      ? t("checkout.features.sessions.ui.checkoutPage.locked.listing")
+                                      : t("checkout.features.sessions.ui.checkoutPage.optimized")}
+                                  </Badge>
+                                </Stack>
+                              </Grid>
+                            ))}
+                          </Stack>
+                        </Surface>
+                      ))}
+                      {preview.unavailableLines.length > 0 ? (
+                        <Surface tone="subtle" elevated>
+                          <Stack gap={3}>
+                            <Badge tone="warning">{t("checkout.features.sessions.ui.checkoutPage.needs.supply")}</Badge>
+                            {preview.unavailableLines.map((line) => (
+                              <Grid key={line.lineKey} columns={{ base: 1, md: 3 }} gap={3}>
+                                <Stack gap={1}>
+                                  <Text weight="semibold">{line.itemTitle}</Text>
+                                  {line.productSummary ? (
+                                    <ProductOptions
+                                      options={productOptionsFromSummary(line.productSummary)}
+                                      variant="compact"
+                                    />
+                                  ) : (
+                                    <ProductOptions
+                                      options={[]}
+                                      emptyLabel={t("checkout.features.sessions.ui.checkoutPage.standard")}
+                                      variant="compact"
+                                    />
+                                  )}
+                                </Stack>
+                                <Text>{line.reason}</Text>
+                                <LinkButton href={marketRecoveryHref(line.itemTitle)} tone="secondary" size="sm">
+                                  {t("checkout.features.sessions.ui.checkoutPage.make.offer")}
+                                </LinkButton>
+                              </Grid>
+                            ))}
+                          </Stack>
+                        </Surface>
+                      ) : null}
+                    </>
+                  ) : null}
+                </Stack>
+              </PageSection>
             ) : null}
 
             <PageSection
               title={t("checkout.features.sessions.ui.checkoutPage.review.items")}
-              description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review.items.description") : t("checkout.features.sessions.ui.checkoutPage.checkout.creates.purchases.grouped.by.seller")}
+              description={
+                isOfferIntent
+                  ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.review.items.description")
+                  : t("checkout.features.sessions.ui.checkoutPage.checkout.creates.purchases.grouped.by.seller")
+              }
             >
               <Stack gap={3}>
                 {lines.map((line, index) => (
@@ -393,11 +458,15 @@ export function CheckoutSessionPage({
                       <Stack gap={1}>
                         <Text weight="semibold">{formatLineLabel(line)}</Text>
                         <Text size="sm" tone="secondary">
-                          {isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.saved") : t("checkout.features.sessions.ui.checkoutPage.product.intent.saved")}
+                          {isOfferIntent
+                            ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.saved")
+                            : t("checkout.features.sessions.ui.checkoutPage.product.intent.saved")}
                         </Text>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.product")}</Text>
+                        <Text size="sm" tone="secondary">
+                          {t("checkout.features.sessions.ui.checkoutPage.product")}
+                        </Text>
                         {line.productSummary ? (
                           <ProductOptions options={productOptionsFromSummary(line.productSummary)} />
                         ) : (
@@ -405,7 +474,9 @@ export function CheckoutSessionPage({
                         )}
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">{t("checkout.features.sessions.ui.checkoutPage.quantity")}</Text>
+                        <Text size="sm" tone="secondary">
+                          {t("checkout.features.sessions.ui.checkoutPage.quantity")}
+                        </Text>
                         <Text>{line.quantity}</Text>
                       </Stack>
                     </Grid>
@@ -420,26 +491,28 @@ export function CheckoutSessionPage({
                   <Stack gap={3}>
                     <Badge tone="success">{t("checkout.features.sessions.ui.checkoutPage.payment.ready.2")}</Badge>
                     <Text>
-                      {t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment")}</Text>
+                      {t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment")}
+                    </Text>
                     <LinkButton href={`/account/payments/${session.payment_id}`}>
-                      {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}</LinkButton>
+                      {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
+                    </LinkButton>
                   </Stack>
                 </Surface>
               </PageSection>
             ) : (
               <PageSection
                 title={t("checkout.features.sessions.ui.checkoutPage.shipping")}
-                description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")}
+                description={
+                  isOfferIntent
+                    ? t("checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent")
+                    : t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")
+                }
               >
                 <Surface elevated glow>
                   <form id="checkout-confirmation-form" method="post">
                     <Stack gap={3}>
                       <input type="hidden" name="intent" value="confirm-checkout" />
-                      <input
-                        type="hidden"
-                        name="fulfillmentPreviewRevision"
-                        value={preview?.revision ?? ""}
-                      />
+                      <input type="hidden" name="fulfillmentPreviewRevision" value={preview?.revision ?? ""} />
                       <input
                         type="hidden"
                         name="acknowledgedMaterialChanges"
@@ -447,8 +520,18 @@ export function CheckoutSessionPage({
                       />
                       <MarketplaceNotice
                         tone="info"
-                        title={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today") : t("checkout.features.sessions.ui.checkoutPage.transparent.totals")}
-                        description={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.purchase.intent.shipping.notice.description") : t("checkout.features.sessions.ui.checkoutPage.transparent.totals.description")}
+                        title={
+                          isOfferIntent
+                            ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
+                            : t("checkout.features.sessions.ui.checkoutPage.transparent.totals")
+                        }
+                        description={
+                          isOfferIntent
+                            ? t(
+                                "checkout.features.sessions.ui.checkoutPage.purchase.intent.shipping.notice.description",
+                              )
+                            : t("checkout.features.sessions.ui.checkoutPage.transparent.totals.description")
+                        }
                       />
                       {savedShippingAddresses.length > 0 ? (
                         <NativeSelect
@@ -456,11 +539,16 @@ export function CheckoutSessionPage({
                           name="shippingAddressId"
                           defaultValue={addressDefaults.shippingAddressId}
                           items={[
-                            { value: "__manual", label: t("checkout.features.sessions.ui.checkoutPage.enter.a.new.address") },
+                            {
+                              value: "__manual",
+                              label: t("checkout.features.sessions.ui.checkoutPage.enter.a.new.address"),
+                            },
                             ...savedShippingAddresses.map((address) => ({
                               value: address.shipping_address_id,
                               label: address.is_default
-                                ? t("checkout.features.sessions.ui.checkoutPage.default.address.option", { label: address.label })
+                                ? t("checkout.features.sessions.ui.checkoutPage.default.address.option", {
+                                    label: address.label,
+                                  })
                                 : address.label,
                             })),
                           ]}
@@ -550,9 +638,18 @@ export function CheckoutSessionPage({
                               name="addressBookAction"
                               defaultValue={savedShippingAddresses.length > 0 ? "checkout-only" : "save-new"}
                               items={[
-                                { value: "checkout-only", label: t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout") },
-                                { value: "save-new", label: t("checkout.features.sessions.ui.checkoutPage.save.as.new.address") },
-                                { value: "update-selected", label: t("checkout.features.sessions.ui.checkoutPage.update.selected.address") },
+                                {
+                                  value: "checkout-only",
+                                  label: t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout"),
+                                },
+                                {
+                                  value: "save-new",
+                                  label: t("checkout.features.sessions.ui.checkoutPage.save.as.new.address"),
+                                },
+                                {
+                                  value: "update-selected",
+                                  label: t("checkout.features.sessions.ui.checkoutPage.update.selected.address"),
+                                },
                               ]}
                             />
                             <NativeSelect
@@ -560,8 +657,14 @@ export function CheckoutSessionPage({
                               name="makeDefaultShippingAddress"
                               defaultValue="false"
                               items={[
-                                { value: "false", label: t("checkout.features.sessions.ui.checkoutPage.do.not.change.default") },
-                                { value: "true", label: t("checkout.features.sessions.ui.checkoutPage.make.this.default") },
+                                {
+                                  value: "false",
+                                  label: t("checkout.features.sessions.ui.checkoutPage.do.not.change.default"),
+                                },
+                                {
+                                  value: "true",
+                                  label: t("checkout.features.sessions.ui.checkoutPage.make.this.default"),
+                                },
                               ]}
                             />
                           </Grid>
@@ -572,9 +675,15 @@ export function CheckoutSessionPage({
                         name="shippingOption"
                         defaultValue={session.shipping_option}
                         items={[
-                          { value: "standard", label: t("checkout.features.sessions.ui.checkoutPage.standard.insured") },
+                          {
+                            value: "standard",
+                            label: t("checkout.features.sessions.ui.checkoutPage.standard.insured"),
+                          },
                           { value: "expedited", label: t("checkout.features.sessions.ui.checkoutPage.expedited") },
-                          { value: "priority", label: t("checkout.features.sessions.ui.checkoutPage.priority.signature") },
+                          {
+                            value: "priority",
+                            label: t("checkout.features.sessions.ui.checkoutPage.priority.signature"),
+                          },
                         ]}
                       />
                       {!isOfferIntent ? (
@@ -585,10 +694,18 @@ export function CheckoutSessionPage({
                             defaultValue="card"
                             items={[
                               { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
-                              { value: "bank-account", label: t("checkout.features.sessions.ui.checkoutPage.bank.account") },
-                              { value: "platform-credit", label: t("checkout.features.sessions.ui.checkoutPage.platform.credit.only") },
+                              {
+                                value: "bank-account",
+                                label: t("checkout.features.sessions.ui.checkoutPage.bank.account"),
+                              },
+                              {
+                                value: "platform-credit",
+                                label: t("checkout.features.sessions.ui.checkoutPage.platform.credit.only"),
+                              },
                             ]}
-                            description={t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description")}
+                            description={t(
+                              "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description",
+                            )}
                           />
                           <ProgressiveDisclosure
                             title={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
@@ -613,7 +730,9 @@ export function CheckoutSessionPage({
                                       amount: wallet.available_balance_amount,
                                       currency: wallet.currency_code.toUpperCase(),
                                     })
-                                  : t("checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this")
+                                  : t(
+                                      "checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this",
+                                    )
                               }
                             />
                           </ProgressiveDisclosure>
@@ -628,9 +747,13 @@ export function CheckoutSessionPage({
                         disabled={isSubmitting || !canConfirm}
                       >
                         {isSubmitting
-                          ? isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
+                          ? isOfferIntent
+                            ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent")
+                            : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
                           : canConfirm
-                            ? isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")
+                            ? isOfferIntent
+                              ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
+                              : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")
                             : "No available supply"}
                       </Button>
                     </Stack>
@@ -639,8 +762,18 @@ export function CheckoutSessionPage({
               </PageSection>
             )}
             <StickyCtaBar
-              price={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today") : hasPayment ? t("checkout.features.sessions.ui.checkoutPage.payment.ready") : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")}
-              context={isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.shipping.saved.for.seller.acceptance") : t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment")}
+              price={
+                isOfferIntent
+                  ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
+                  : hasPayment
+                    ? t("checkout.features.sessions.ui.checkoutPage.payment.ready")
+                    : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")
+              }
+              context={
+                isOfferIntent
+                  ? t("checkout.features.sessions.ui.checkoutPage.shipping.saved.for.seller.acceptance")
+                  : t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment")
+              }
               primaryAction={
                 hasPayment && session.payment_id ? (
                   <LinkButton href={`/account/payments/${session.payment_id}`}>
@@ -655,8 +788,12 @@ export function CheckoutSessionPage({
                     loading={isSubmitting}
                   >
                     {isSubmitting
-                      ? isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
-                      : isOfferIntent ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent") : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
+                      ? isOfferIntent
+                        ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent")
+                        : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
+                      : isOfferIntent
+                        ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
+                        : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
                   </Button>
                 )
               }

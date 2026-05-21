@@ -13,15 +13,8 @@ import {
   Text,
   Textarea,
 } from "@chase-sets/design-system";
-import {
-  createExperienceApiClient,
-  ExperienceApiError,
-} from "../../../support/request-support/api-client";
-import type {
-  PlatformFeedbackRelatedEntity,
-  PlatformFeedbackTopic,
-  PlatformFeedbackWorkflow,
-} from "../domain/common";
+import { createExperienceApiClient, ExperienceApiError } from "../../../support/request-support/api-client";
+import type { PlatformFeedbackRelatedEntity, PlatformFeedbackTopic, PlatformFeedbackWorkflow } from "../domain/common";
 
 const topicItems = [
   { value: "ease-of-use", label: t("experience.platformFeedback.topic.easeOfUse") },
@@ -44,9 +37,7 @@ function apiErrorMessage(error: unknown) {
     }
   }
 
-  return error instanceof Error
-    ? error.message
-    : t("experience.platformFeedbackPrompt.couldNotSubmit");
+  return error instanceof Error ? error.message : t("experience.platformFeedbackPrompt.couldNotSubmit");
 }
 
 export function PlatformFeedbackPrompt({
@@ -75,17 +66,17 @@ export function PlatformFeedbackPrompt({
   const [followUpConsent, setFollowUpConsent] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const api = useMemo(() => createExperienceApiClient(), []);
-  const resolvedSourceRoutePath =
-    sourceRoutePath ?? (typeof window === "undefined" ? "/" : window.location.pathname);
+  const resolvedSourceRoutePath = sourceRoutePath ?? (typeof window === "undefined" ? "/" : window.location.pathname);
   const primaryRelatedEntity = relatedEntities[0];
 
   useEffect(() => {
     let cancelled = false;
-    void api.getPromptEligibility({
-      workflow,
-      relatedEntityType: primaryRelatedEntity?.type,
-      relatedEntityId: primaryRelatedEntity?.id,
-    })
+    void api
+      .getPromptEligibility({
+        workflow,
+        relatedEntityType: primaryRelatedEntity?.type,
+        relatedEntityId: primaryRelatedEntity?.id,
+      })
       .then((result) => {
         if (!cancelled) {
           setShouldPrompt(result.shouldPrompt);
@@ -208,22 +199,14 @@ export function PlatformFeedbackPrompt({
               >
                 {t("experience.platformFeedbackPrompt.submit")}
               </Button>
-              <Button
-                type="button"
-                tone="secondary"
-                onClick={() => setIsOpen(false)}
-              >
+              <Button type="button" tone="secondary" onClick={() => setIsOpen(false)}>
                 {t("experience.platformFeedbackPrompt.cancel")}
               </Button>
             </Inline>
           </Stack>
         ) : (
           <Inline gap={2}>
-            <Button
-              type="button"
-              onClick={() => setIsOpen(true)}
-              leadingIcon="message"
-            >
+            <Button type="button" onClick={() => setIsOpen(true)} leadingIcon="message">
               {t("experience.platformFeedbackPrompt.leaveFeedback")}
             </Button>
             <Button

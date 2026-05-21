@@ -18,19 +18,12 @@ import { seedAuthDatabase } from "./support/runtime-support/seed";
 import type { AuthHostPorts, AuthServices } from "./support/runtime-support/services";
 import { createAuthServices } from "./support/runtime-support/services";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -53,18 +46,9 @@ export const module: BcApiModule<AuthServices, PgTransactionalPool, AuthHostPort
   buildApis: (services) => [buildAuthApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const userSubscription = getEventSubscription(
-      "identity",
-      "auth-identity-user-projection",
-    );
-    const membershipSubscription = getEventSubscription(
-      "identity",
-      "auth-identity-membership-projection",
-    );
-    const invitationSubscription = getEventSubscription(
-      "identity",
-      "auth-identity-invitation-projection",
-    );
+    const userSubscription = getEventSubscription("identity", "auth-identity-user-projection");
+    const membershipSubscription = getEventSubscription("identity", "auth-identity-membership-projection");
+    const invitationSubscription = getEventSubscription("identity", "auth-identity-invitation-projection");
 
     return [
       {

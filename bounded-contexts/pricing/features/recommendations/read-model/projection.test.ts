@@ -33,21 +33,9 @@ describe("pricing recommendation projection", () => {
     } as never);
 
     expect(calls[0]?.sql).toContain("INSERT INTO pricing_recommendation_pages");
-    expect(calls[0]?.params).toEqual([
-      "rec_1",
-      "cat_1",
-      "acc_1",
-      21.5,
-      "USD",
-      "2026-04-30T00:00:00.000Z",
-    ]);
+    expect(calls[0]?.params).toEqual(["rec_1", "cat_1", "acc_1", 21.5, "USD", "2026-04-30T00:00:00.000Z"]);
     expect(calls[1]?.sql).toContain("UPDATE pricing_recommendation_pages");
-    expect(calls[1]?.params).toEqual([
-      "rec_1",
-      24,
-      "Protect margin.",
-      "2026-04-30T01:00:00.000Z",
-    ]);
+    expect(calls[1]?.params).toEqual(["rec_1", 24, "Protect margin.", "2026-04-30T01:00:00.000Z"]);
   });
 
   it("upserts proposed recommendations with action, target, and status fields", async () => {
@@ -134,17 +122,9 @@ describe("pricing recommendation projection", () => {
     } as never);
 
     expect(calls[0]?.sql).toContain("status = 'applied'");
-    expect(calls[0]?.params).toEqual([
-      "rec_1",
-      "lst_1",
-      "2026-05-09T01:00:00.000Z",
-    ]);
+    expect(calls[0]?.params).toEqual(["rec_1", "lst_1", "2026-05-09T01:00:00.000Z"]);
     expect(calls[1]?.sql).toContain("status = 'failed'");
-    expect(calls[1]?.params).toEqual([
-      "rec_2",
-      "Fee quote changed.",
-      "2026-05-09T02:00:00.000Z",
-    ]);
+    expect(calls[1]?.params).toEqual(["rec_2", "Fee quote changed.", "2026-05-09T02:00:00.000Z"]);
     expect(calls[2]?.sql).toContain("status = 'dismissed'");
     expect(calls[2]?.params).toEqual(["rec_3", "2026-05-09T03:00:00.000Z"]);
   });

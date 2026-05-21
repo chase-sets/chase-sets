@@ -1,13 +1,5 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
-import type {
-  AccountId,
-  OrderId,
-  ReviewId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { AccountId, OrderId, ReviewId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
   assertNever,
@@ -72,10 +64,7 @@ export type WithdrawReviewCommand = Readonly<{
   withdrawnAt: string;
 }>;
 
-export type ReviewCommand =
-  | SubmitReviewCommand
-  | UpdateReviewCommand
-  | WithdrawReviewCommand;
+export type ReviewCommand = SubmitReviewCommand | UpdateReviewCommand | WithdrawReviewCommand;
 
 export type ReviewSubmittedEvent = DomainEvent<
   "reputation.review.submitted",
@@ -109,23 +98,13 @@ export type ReviewWithdrawnEvent = DomainEvent<
   }>
 >;
 
-export type ReviewEvent =
-  | ReviewSubmittedEvent
-  | ReviewUpdatedEvent
-  | ReviewWithdrawnEvent;
+export type ReviewEvent = ReviewSubmittedEvent | ReviewUpdatedEvent | ReviewWithdrawnEvent;
 
-export const decideReview: AggregateDecider<
-  ReviewState,
-  ReviewCommand,
-  ReviewEvent
-> = (state, command) => {
+export const decideReview: AggregateDecider<ReviewState, ReviewCommand, ReviewEvent> = (state, command) => {
   switch (command.type) {
     case "SubmitReview":
       assert(state.reviewId === null, "Review has already been submitted.");
-      assert(
-        command.authorAccountId !== command.subjectAccountId,
-        "Accounts cannot review themselves.",
-      );
+      assert(command.authorAccountId !== command.subjectAccountId, "Accounts cannot review themselves.");
 
       return [
         {
@@ -138,10 +117,7 @@ export const decideReview: AggregateDecider<
             authorRole: normalizeReviewRole(command.authorRole),
             rating: normalizeRating(command.rating),
             feedback: normalizeFeedback(command.feedback),
-            submittedAt: ensureIsoTimestamp(
-              command.submittedAt,
-              "Review submission must record a timestamp.",
-            ),
+            submittedAt: ensureIsoTimestamp(command.submittedAt, "Review submission must record a timestamp."),
           },
         },
       ];
@@ -156,10 +132,7 @@ export const decideReview: AggregateDecider<
             reviewId: state.reviewId,
             rating: normalizeRating(command.rating),
             feedback: normalizeFeedback(command.feedback),
-            updatedAt: ensureIsoTimestamp(
-              command.updatedAt,
-              "Review update must record a timestamp.",
-            ),
+            updatedAt: ensureIsoTimestamp(command.updatedAt, "Review update must record a timestamp."),
           },
         },
       ];
@@ -174,10 +147,7 @@ export const decideReview: AggregateDecider<
           type: "reputation.review.withdrawn",
           data: {
             reviewId: state.reviewId,
-            withdrawnAt: ensureIsoTimestamp(
-              command.withdrawnAt,
-              "Review withdrawal must record a timestamp.",
-            ),
+            withdrawnAt: ensureIsoTimestamp(command.withdrawnAt, "Review withdrawal must record a timestamp."),
           },
         },
       ];
@@ -186,10 +156,7 @@ export const decideReview: AggregateDecider<
   }
 };
 
-export const evolveReview: AggregateEvolver<
-  ReviewState,
-  ReviewEvent
-> = (state, event) => {
+export const evolveReview: AggregateEvolver<ReviewState, ReviewEvent> = (state, event) => {
   switch (event.type) {
     case "reputation.review.submitted":
       return {

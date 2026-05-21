@@ -245,26 +245,27 @@ describe("notification outbox", () => {
     const result = await dispatcher.runOnce();
 
     expect(result.processed).toBe(1);
-    expect(outbox.failed).toEqual([{
-      deliveryId: delivery.deliveryId,
-      error: "Twilio temporarily unavailable.",
-      retryAt: "2026-05-09T00:01:00.000Z",
-      now: "2026-05-09T00:00:00.000Z",
-    }]);
+    expect(outbox.failed).toEqual([
+      {
+        deliveryId: delivery.deliveryId,
+        error: "Twilio temporarily unavailable.",
+        retryAt: "2026-05-09T00:01:00.000Z",
+        now: "2026-05-09T00:00:00.000Z",
+      },
+    ]);
   });
 });
 
-function createMemoryOutbox(
-  claimed: readonly ClaimedNotificationDelivery[],
-): NotificationOutboxStore & Readonly<{
-  sent: readonly string[];
-  failed: readonly {
-    deliveryId: string;
-    error: string;
-    retryAt: string | null | undefined;
-    now: string | undefined;
-  }[];
-}> {
+function createMemoryOutbox(claimed: readonly ClaimedNotificationDelivery[]): NotificationOutboxStore &
+  Readonly<{
+    sent: readonly string[];
+    failed: readonly {
+      deliveryId: string;
+      error: string;
+      retryAt: string | null | undefined;
+      now: string | undefined;
+    }[];
+  }> {
   const sent: string[] = [];
   const failed: {
     deliveryId: string;

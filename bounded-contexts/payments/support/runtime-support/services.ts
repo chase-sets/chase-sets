@@ -7,10 +7,7 @@ import {
 import type { Projector } from "@chase-sets/event-core/projector";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
-import type {
-  PaymentProcessorGateway,
-  PaymentProcessorPublicConfig,
-} from "@chase-sets/payment-processing";
+import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
 
 export type PaymentsServiceOptions = Readonly<{
@@ -29,9 +26,7 @@ export type PaymentsServices = Readonly<{
 
 function createMissingProcessorGateway(): PaymentProcessorGateway {
   const fail = () => {
-    throw new Error(
-      "Payments requires a payment processor gateway for buyer payment and refund flows.",
-    );
+    throw new Error("Payments requires a payment processor gateway for buyer payment and refund flows.");
   };
 
   return {

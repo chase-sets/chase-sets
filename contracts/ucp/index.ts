@@ -132,11 +132,13 @@ function readAnnotations() {
   } as const;
 }
 
-function writeAnnotations(params: Readonly<{
-  destructive?: boolean;
-  openWorld?: boolean;
-  idempotent?: boolean;
-}> = {}) {
+function writeAnnotations(
+  params: Readonly<{
+    destructive?: boolean;
+    openWorld?: boolean;
+    idempotent?: boolean;
+  }> = {},
+) {
   return {
     readOnlyHint: false,
     destructiveHint: params.destructive ?? false,
@@ -146,8 +148,7 @@ function writeAnnotations(params: Readonly<{
 }
 
 export const UCP_MCP_APP_RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
-export const UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI =
-  "ui://chase-sets/marketplace-results/v1.html";
+export const UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI = "ui://chase-sets/marketplace-results/v1.html";
 
 export const UCP_MCP_RESOURCES = [
   {
@@ -164,7 +165,8 @@ export const UCP_MCP_TOOLS = [
     name: "search_catalog",
     title: "Search Catalog",
     capability: UCP_CAPABILITIES.catalogSearch,
-    description: "Use this when a ChatGPT user wants to find public Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
+    description:
+      "Use this when a ChatGPT user wants to find public Chase Sets marketplace products by query or simple filters. This only reads public marketplace discovery data.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
@@ -196,7 +198,8 @@ export const UCP_MCP_TOOLS = [
     name: "lookup_catalog",
     title: "Lookup Catalog",
     capability: UCP_CAPABILITIES.catalogLookup,
-    description: "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs public marketplace product details.",
+    description:
+      "Use this when a ChatGPT user already has one or more Chase Sets product or catalog item identifiers and needs public marketplace product details.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
@@ -222,7 +225,8 @@ export const UCP_MCP_TOOLS = [
     name: "get_product",
     title: "Get Product",
     capability: UCP_CAPABILITIES.catalogLookup,
-    description: "Use this when a ChatGPT user needs one public marketplace product detail, variants, account availability, and option-selection context.",
+    description:
+      "Use this when a ChatGPT user needs one public marketplace product detail, variants, account availability, and option-selection context.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
     inputSchema: {
@@ -243,7 +247,8 @@ export const UCP_MCP_TOOLS = [
     name: "create_checkout",
     title: "Create Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Use this after the user chooses marketplace items to create a Chase Sets checkout session. This requires a linked buyer account and does not move money.",
+    description:
+      "Use this after the user chooses marketplace items to create a Chase Sets checkout session. This requires a linked buyer account and does not move money.",
     idempotencyKeyRequired: false,
     inputSchema: {
       type: "object",
@@ -268,7 +273,8 @@ export const UCP_MCP_TOOLS = [
     name: "get_checkout",
     title: "Get Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Use this to read a checkout session for the linked buyer account. Do not use it for public product discovery.",
+    description:
+      "Use this to read a checkout session for the linked buyer account. Do not use it for public product discovery.",
     idempotencyKeyRequired: false,
     inputSchema: {
       type: "object",
@@ -288,7 +294,8 @@ export const UCP_MCP_TOOLS = [
     name: "update_checkout",
     title: "Update Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Use this to update shipping option, optimization goal, or shipping address on an existing Chase Sets checkout session. This requires a linked buyer account and does not move money.",
+    description:
+      "Use this to update shipping option, optimization goal, or shipping address on an existing Chase Sets checkout session. This requires a linked buyer account and does not move money.",
     idempotencyKeyRequired: false,
     inputSchema: {
       type: "object",
@@ -311,7 +318,8 @@ export const UCP_MCP_TOOLS = [
     name: "complete_checkout",
     title: "Complete Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP/AP2 agents may continue only when Payments verifies mandate support.",
+    description:
+      "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP/AP2 agents may continue only when Payments verifies mandate support.",
     idempotencyKeyRequired: true,
     inputSchema: {
       type: "object",
@@ -335,7 +343,8 @@ export const UCP_MCP_TOOLS = [
     name: "cancel_checkout",
     title: "Cancel Checkout",
     capability: UCP_CAPABILITIES.checkout,
-    description: "Use this only when the user asks to cancel or abandon checkout. Checkout cancellation currently returns a trusted UI handoff because Checkout does not own a cancel command yet.",
+    description:
+      "Use this only when the user asks to cancel or abandon checkout. Checkout cancellation currently returns a trusted UI handoff because Checkout does not own a cancel command yet.",
     idempotencyKeyRequired: true,
     inputSchema: {
       type: "object",
@@ -408,20 +417,14 @@ export function buildUcpBusinessProfile(
         ],
       },
       capabilities: {
-        [UCP_CAPABILITIES.catalogSearch]: [
-          capability("catalog/search", "shopping/catalog_search.json"),
-        ],
-        [UCP_CAPABILITIES.catalogLookup]: [
-          capability("catalog/lookup", "shopping/catalog_lookup.json"),
-        ],
+        [UCP_CAPABILITIES.catalogSearch]: [capability("catalog/search", "shopping/catalog_search.json")],
+        [UCP_CAPABILITIES.catalogLookup]: [capability("catalog/lookup", "shopping/catalog_lookup.json")],
         [UCP_CAPABILITIES.checkout]: [
           capability("checkout", "shopping/checkout.json", {
             completion_requires_trusted_ui_without_ap2_mandate: true,
           }),
         ],
-        [UCP_CAPABILITIES.order]: [
-          capability("order", "shopping/order.json"),
-        ],
+        [UCP_CAPABILITIES.order]: [capability("order", "shopping/order.json")],
         [UCP_CAPABILITIES.identityLinking]: [
           capability("identity-linking", "common/identity_linking.json", {
             oauth_authorization_server: `${baseUrl}/.well-known/oauth-authorization-server`,

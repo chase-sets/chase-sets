@@ -16,9 +16,7 @@ export function applyMarketplaceListPatch<T>(
       continue;
     }
 
-    const index = next.items.findIndex(
-      (item) => String(item[options.idField]) === change.id,
-    );
+    const index = next.items.findIndex((item) => String(item[options.idField]) === change.id);
 
     if (change.op === "remove") {
       if (index === -1) {

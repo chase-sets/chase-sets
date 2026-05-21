@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -15,7 +12,12 @@ import {
   type BulkLifecycleOperations,
   type BulkSelection,
 } from "../../../support/runtime-support/bulk-lifecycle";
-import { asArray, asStringArray, type FieldRule, type FieldValue } from "../../../support/projection-support/read-model-support";
+import {
+  asArray,
+  asStringArray,
+  type FieldRule,
+  type FieldValue,
+} from "../../../support/projection-support/read-model-support";
 import {
   type CatalogItemState,
   type CatalogItemCommand,
@@ -92,12 +94,7 @@ export type BulkEditCatalogItemOperation =
   | Readonly<{ action: "mergeTags"; tags: readonly string[] }>
   | Readonly<{ action: "clearTags" }>;
 
-export type BulkEditCatalogItemCandidateOutcome =
-  | "ready"
-  | "blocked"
-  | "succeeded"
-  | "skipped"
-  | "failed";
+export type BulkEditCatalogItemCandidateOutcome = "ready" | "blocked" | "succeeded" | "skipped" | "failed";
 
 export type BulkEditCatalogItemCandidate = Readonly<{
   catalog_item_id: string;
@@ -131,24 +128,11 @@ export type BulkEditCatalogItemResult = Readonly<{
 }>;
 
 export type CatalogItemServices = Readonly<{
-  commandHandler: CommandHandler<
-    CatalogItemCommand,
-    CatalogItemState,
-    CatalogItemEvent
-  >;
-  listCatalogItems: (
-    params?: Parameters<typeof listCatalogItems>[1],
-  ) => ReturnType<typeof listCatalogItems>;
-  getCatalogItemDetail: (
-    itemId: string,
-  ) => ReturnType<typeof getCatalogItemDetail>;
-  previewBulkPublish: (
-    selection: BulkPublishSelection,
-  ) => Promise<BulkPublishPreview>;
-  publishBulk: (
-    itemIds: readonly string[],
-    context: EventStoreContext,
-  ) => Promise<BulkPublishResult>;
+  commandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
+  listCatalogItems: (params?: Parameters<typeof listCatalogItems>[1]) => ReturnType<typeof listCatalogItems>;
+  getCatalogItemDetail: (itemId: string) => ReturnType<typeof getCatalogItemDetail>;
+  previewBulkPublish: (selection: BulkPublishSelection) => Promise<BulkPublishPreview>;
+  publishBulk: (itemIds: readonly string[], context: EventStoreContext) => Promise<BulkPublishResult>;
   previewBulkEdit: (
     selection: BulkSelection<CatalogItemListParams>,
     operation: BulkEditCatalogItemOperation,
@@ -162,9 +146,7 @@ export type CatalogItemServices = Readonly<{
   projectors: readonly Projector[];
 }>;
 
-export function createCatalogItemRuntime(
-  deps: CatalogRuntimeDeps,
-): CatalogItemServices {
+export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -187,14 +169,18 @@ export function createCatalogItemRuntime(
       projectorName: "catalog-admin-catalog-item-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: withCatalogAdminRealtimeInvalidation(
-        buildCatalogAdminCatalogItemProjectionHandlers(deps.db),
-        deps.db,
-        { projectionName: "catalog-admin-catalog-item-projection", surface: "catalog-items" },
-      ),
+      handlers: withCatalogAdminRealtimeInvalidation(buildCatalogAdminCatalogItemProjectionHandlers(deps.db), deps.db, {
+        projectionName: "catalog-admin-catalog-item-projection",
+        surface: "catalog-items",
+      }),
     }),
   ];
-  const bulkLifecycle = createBulkLifecycleOperations<CatalogItemListParams, CatalogItemCommand, CatalogItemState, CatalogItemEvent>({
+  const bulkLifecycle = createBulkLifecycleOperations<
+    CatalogItemListParams,
+    CatalogItemCommand,
+    CatalogItemState,
+    CatalogItemEvent
+  >({
     actions: [
       {
         action: "archive",
@@ -295,10 +281,7 @@ async function publishBulk(
   };
 }
 
-async function resolveBulkPublishItemIds(
-  deps: CatalogRuntimeDeps,
-  selection: BulkPublishSelection,
-): Promise<string[]> {
+async function resolveBulkPublishItemIds(deps: CatalogRuntimeDeps, selection: BulkPublishSelection): Promise<string[]> {
   if (selection.mode === "ids") {
     return normalizeRequestedItemIds(selection.ids);
   }
@@ -307,13 +290,7 @@ async function resolveBulkPublishItemIds(
 }
 
 function normalizeRequestedItemIds(itemIds: readonly string[]): string[] {
-  const normalized = Array.from(
-    new Set(
-      itemIds
-        .map((itemId) => itemId.trim())
-        .filter(Boolean),
-    ),
-  );
+  const normalized = Array.from(new Set(itemIds.map((itemId) => itemId.trim()).filter(Boolean)));
 
   if (normalized.length === 0) {
     throw new CatalogDomainError("Choose at least one draft Catalog Item to publish.");
@@ -473,9 +450,7 @@ async function resolveBulkEditItemIds(
   deps: CatalogRuntimeDeps,
   selection: BulkSelection<CatalogItemListParams>,
 ): Promise<string[]> {
-  const itemIds = selection.mode === "ids"
-    ? selection.ids
-    : await listCatalogItemIds(deps.db, selection.query);
+  const itemIds = selection.mode === "ids" ? selection.ids : await listCatalogItemIds(deps.db, selection.query);
 
   return normalizeRequestedBulkEditItemIds(itemIds);
 }
@@ -538,9 +513,7 @@ function bulkEditBlockedReason(
       return `Blueprint assignment only applies to draft Catalog Items. Current status: ${candidate.status}.`;
     }
 
-    return candidate.blueprint_id === operation.blueprintId
-      ? "Catalog Item already uses that blueprint."
-      : null;
+    return candidate.blueprint_id === operation.blueprintId ? "Catalog Item already uses that blueprint." : null;
   }
 
   if (candidate.status === "archived") {
@@ -564,9 +537,7 @@ function bulkEditBlockedReason(
   }
 
   const nextTags = tagsForBulkEdit(candidate.tags, operation);
-  return arraysEqual(candidate.tags, nextTags)
-    ? "Catalog Item already has those tags."
-    : null;
+  return arraysEqual(candidate.tags, nextTags) ? "Catalog Item already has those tags." : null;
 }
 
 function commandForBulkEdit(
@@ -601,9 +572,7 @@ function commandForBulkEdit(
   }
 }
 
-function normalizeBulkEditOperation(
-  operation: BulkEditCatalogItemOperation,
-): BulkEditCatalogItemOperation {
+function normalizeBulkEditOperation(operation: BulkEditCatalogItemOperation): BulkEditCatalogItemOperation {
   switch (operation.action) {
     case "assignBlueprint": {
       const blueprintId = operation.blueprintId.trim();
@@ -638,10 +607,7 @@ function normalizeBulkEditOperation(
   }
 }
 
-function tagsForBulkEdit(
-  currentTags: readonly string[],
-  operation: BulkEditCatalogItemOperation,
-): string[] {
+function tagsForBulkEdit(currentTags: readonly string[], operation: BulkEditCatalogItemOperation): string[] {
   if (operation.action === "clearTags") {
     return [];
   }
@@ -658,19 +624,11 @@ function tagsForBulkEdit(
 }
 
 function normalizeTags(tags: readonly string[]): string[] {
-  return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].sort((left, right) =>
-    left.localeCompare(right),
-  );
+  return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
 }
 
 function normalizeRequestedBulkEditItemIds(itemIds: readonly string[]): string[] {
-  const normalized = Array.from(
-    new Set(
-      itemIds
-        .map((itemId) => itemId.trim())
-        .filter(Boolean),
-    ),
-  );
+  const normalized = Array.from(new Set(itemIds.map((itemId) => itemId.trim()).filter(Boolean)));
 
   if (normalized.length === 0) {
     throw new CatalogDomainError("Choose at least one Catalog Item to edit.");

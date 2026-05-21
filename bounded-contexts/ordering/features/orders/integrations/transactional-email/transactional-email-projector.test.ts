@@ -20,7 +20,9 @@ describe("ordering transactional email projector", () => {
       },
     } as never);
     expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0].source)
-      .toMatchObject({ sourceEventId: "evt_2", sourceGlobalPosition: "2" });
+    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0].source).toMatchObject({
+      sourceEventId: "evt_2",
+      sourceGlobalPosition: "2",
+    });
   });
 });

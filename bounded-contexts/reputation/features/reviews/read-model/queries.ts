@@ -178,10 +178,7 @@ export async function getAccountReview(
   return result.rows[0] ?? null;
 }
 
-export async function getPublicAccountSummary(
-  db: PgQueryable,
-  accountId: string,
-): Promise<ReviewSummaryRow> {
+export async function getPublicAccountSummary(db: PgQueryable, accountId: string): Promise<ReviewSummaryRow> {
   const result = await db.query<ReviewSummaryRow>(
     `SELECT
        summary.account_id,

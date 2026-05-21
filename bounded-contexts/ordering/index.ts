@@ -7,10 +7,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import type {
-  OrderingServiceOptions,
-  OrderingServices,
-} from "./support/runtime-support/services";
+import type { OrderingServiceOptions, OrderingServices } from "./support/runtime-support/services";
 import { buildOrderingAccountProjectionHandlers } from "./support/account-support/projection";
 import { buildOrderingApi } from "./api";
 import { hasOrderForSource } from "./features/orders/read-model/queries";
@@ -24,19 +21,12 @@ import { createOrderingServices } from "./support/runtime-support/services";
 import { orderingSchemaSql } from "./support/runtime-support/schema";
 import { seedOrderingDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -48,11 +38,7 @@ function getEventSubscription(
   return declaration;
 }
 
-export const module: BcApiModule<
-  OrderingServices,
-  PgTransactionalPool,
-  OrderingServiceOptions
-> = {
+export const module: BcApiModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions> = {
   contextName: "ordering",
   routePrefix: "/api/marketplace",
   streamPrefix: "ordering.",
@@ -67,18 +53,12 @@ export const module: BcApiModule<
   buildApis: (services) => [buildOrderingApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const identitySubscription = getEventSubscription(
-      "identity",
-      "ordering-account-projection",
-    );
+    const identitySubscription = getEventSubscription("identity", "ordering-account-projection");
     const marketplaceSupplySubscription = getEventSubscription(
       "marketplace",
       "ordering-marketplace-supply-input-projection",
     );
-    const inventorySupplySubscription = getEventSubscription(
-      "inventory",
-      "ordering-inventory-supply-input-projection",
-    );
+    const inventorySupplySubscription = getEventSubscription("inventory", "ordering-inventory-supply-input-projection");
     const inventoryReservationOutcomeSubscription = getEventSubscription(
       "inventory",
       "ordering-inventory-reservation-outcomes",
@@ -87,10 +67,7 @@ export const module: BcApiModule<
       "marketplace",
       "ordering-marketplace-offer-acceptance",
     );
-    const paymentCaptureSubscription = getEventSubscription(
-      "payments",
-      "ordering-payment-capture",
-    );
+    const paymentCaptureSubscription = getEventSubscription("payments", "ordering-payment-capture");
     const fulfillmentCancellationSubscription = getEventSubscription(
       "fulfillment",
       "ordering-fulfillment-cancellation-inputs",
@@ -212,10 +189,7 @@ export const module: BcApiModule<
         handlers: buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
           onOfferAccepted: async (params) => {
             if (params.acceptanceBatchId) {
-              const batchRows = await listAcceptedOfferBatchInputs(
-                services.db,
-                params.acceptanceBatchId,
-              );
+              const batchRows = await listAcceptedOfferBatchInputs(services.db, params.acceptanceBatchId);
               const expectedSize = params.acceptanceBatchSize ?? batchRows.length;
               if (batchRows.length < expectedSize) {
                 return;

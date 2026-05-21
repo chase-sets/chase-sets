@@ -27,7 +27,7 @@ export function NavigationMenu({
   defaultValue,
   onValueChange,
   orientation = "horizontal",
-  label = "Primary navigation"
+  label = "Primary navigation",
 }: NavigationMenuProps) {
   const { overlayNode } = usePortalRoots();
 
@@ -43,7 +43,7 @@ export function NavigationMenu({
       <NavigationMenuPrimitive.List
         className={cx(
           "flex gap-1 rounded-tokenLg border border-muted bg-surface-2 p-1",
-          orientation === "vertical" && "flex-col"
+          orientation === "vertical" && "flex-col",
         )}
       >
         {items.map((item) => (
@@ -51,29 +51,31 @@ export function NavigationMenu({
             {item.content ? (
               <>
                 <NavigationMenuPrimitive.Trigger
-                  className={(state) => cx(
-                    "focus-ring inline-flex min-h-9 items-center gap-2 rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
-                    state.open && "bg-elevated text-accent"
-                  )}
+                  className={(state) =>
+                    cx(
+                      "focus-ring inline-flex min-h-9 items-center gap-2 rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
+                      state.open && "bg-elevated text-accent",
+                    )
+                  }
                 >
                   <span>{item.label}</span>
                   <NavigationMenuPrimitive.Icon>
                     <Icon name="chevronDown" size="sm" tone="secondary" />
                   </NavigationMenuPrimitive.Icon>
                 </NavigationMenuPrimitive.Trigger>
-                <NavigationMenuPrimitive.Content className="p-4">
-                  {item.content}
-                </NavigationMenuPrimitive.Content>
+                <NavigationMenuPrimitive.Content className="p-4">{item.content}</NavigationMenuPrimitive.Content>
               </>
             ) : (
               <NavigationMenuPrimitive.Link
                 href={item.href}
                 active={item.active}
                 closeOnClick
-                className={(state) => cx(
-                  "focus-ring inline-flex min-h-9 items-center rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
-                  state.active && "bg-elevated text-accent"
-                )}
+                className={(state) =>
+                  cx(
+                    "focus-ring inline-flex min-h-9 items-center rounded-tokenMd px-3 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground",
+                    state.active && "bg-elevated text-accent",
+                  )
+                }
               >
                 {item.label}
               </NavigationMenuPrimitive.Link>

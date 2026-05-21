@@ -79,9 +79,7 @@ function printDoctor() {
 
 function printEnv() {
   const env = buildSandboxEnv(sandbox);
-  for (const [key, value] of Object.entries(env).sort(([left], [right]) =>
-    left.localeCompare(right, "en"),
-  )) {
+  for (const [key, value] of Object.entries(env).sort(([left], [right]) => left.localeCompare(right, "en"))) {
     console.log(`${key}=${value}`);
   }
 }
@@ -104,9 +102,7 @@ function parseComposeProjects(output) {
   try {
     const parsed = JSON.parse(output);
     if (Array.isArray(parsed)) {
-      return parsed
-        .map((entry) => entry.Name ?? entry.name)
-        .filter((name) => typeof name === "string");
+      return parsed.map((entry) => entry.Name ?? entry.name).filter((name) => typeof name === "string");
     }
   } catch {
     // Fall back to tabular parsing below.
@@ -123,8 +119,7 @@ function cleanAllSandboxes() {
     encoding: "utf8",
     stdio: "pipe",
   });
-  const projectNames = parseComposeProjects(output)
-    .filter((name) => name.startsWith("chase-sets-"));
+  const projectNames = parseComposeProjects(output).filter((name) => name.startsWith("chase-sets-"));
 
   if (projectNames.length === 0) {
     console.log("No chase-sets-* Compose projects found.");

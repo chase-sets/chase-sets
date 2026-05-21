@@ -61,23 +61,16 @@ function mapError(error: unknown) {
     return error;
   }
 
-  const message = error instanceof Error
-    ? error.message
-    : "Twilio messaging request failed.";
+  const message = error instanceof Error ? error.message : "Twilio messaging request failed.";
 
   return new ProviderAdapterError(
-    providerFailureCategoryFromText(
-      message,
-      providerFailureCategoryFromHttpStatus(502),
-    ),
+    providerFailureCategoryFromText(message, providerFailureCategoryFromHttpStatus(502)),
     message,
     502,
   );
 }
 
-async function sendTwilioRequest(
-  input: TwilioSendMessageRequest,
-): Promise<TwilioMessageResponse> {
+async function sendTwilioRequest(input: TwilioSendMessageRequest): Promise<TwilioMessageResponse> {
   const response = await fetch(input.url, {
     method: "POST",
     headers: {
@@ -89,13 +82,10 @@ async function sendTwilioRequest(
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message = extractTwilioErrorMessage(body) ??
-      `Twilio messaging request failed with status ${response.status}.`;
+    const message =
+      extractTwilioErrorMessage(body) ?? `Twilio messaging request failed with status ${response.status}.`;
     throw new ProviderAdapterError(
-      providerFailureCategoryFromText(
-        message,
-        providerFailureCategoryFromHttpStatus(response.status),
-      ),
+      providerFailureCategoryFromText(message, providerFailureCategoryFromHttpStatus(response.status)),
       message,
       response.status,
     );
@@ -109,12 +99,7 @@ async function sendTwilioRequest(
 }
 
 function extractTwilioErrorMessage(body: unknown) {
-  if (
-    typeof body === "object" &&
-    body !== null &&
-    "message" in body &&
-    typeof body.message === "string"
-  ) {
+  if (typeof body === "object" && body !== null && "message" in body && typeof body.message === "string") {
     return body.message;
   }
 
@@ -122,12 +107,7 @@ function extractTwilioErrorMessage(body: unknown) {
 }
 
 function isTwilioMessageResponse(value: unknown): value is TwilioMessageResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "sid" in value &&
-    typeof value.sid === "string"
-  );
+  return typeof value === "object" && value !== null && "sid" in value && typeof value.sid === "string";
 }
 
 function assertTwilioMessageChannel(
@@ -157,15 +137,11 @@ function assertTwilioMessageChannel(
   throw new Error(`Twilio ${adapterChannel} adapter cannot send this channel.`);
 }
 
-function isSmsNotificationChannel(
-  channel: NotificationDelivery["channel"],
-): channel is SmsNotificationChannel {
+function isSmsNotificationChannel(channel: NotificationDelivery["channel"]): channel is SmsNotificationChannel {
   return channel.channel === "sms" && hasPhoneRecipient(channel);
 }
 
-function isRcsNotificationChannel(
-  channel: NotificationDelivery["channel"],
-): channel is RcsNotificationChannel {
+function isRcsNotificationChannel(channel: NotificationDelivery["channel"]): channel is RcsNotificationChannel {
   return channel.channel === "rcs" && hasPhoneRecipient(channel);
 }
 
@@ -191,29 +167,17 @@ function statusCallbackUrl(baseUrl: string | null, deliveryId: string) {
   return url.toString();
 }
 
-export function createTwilioMessagingAdapter(
-  options: TwilioMessagingAdapterOptions,
-): NotificationChannelAdapter {
+export function createTwilioMessagingAdapter(options: TwilioMessagingAdapterOptions): NotificationChannelAdapter {
   const now = options.now ?? (() => new Date());
-  const apiBaseUrl = (options.apiBaseUrl ?? DEFAULT_TWILIO_API_BASE_URL).replace(
-    /\/+$/,
-    "",
-  );
+  const apiBaseUrl = (options.apiBaseUrl ?? DEFAULT_TWILIO_API_BASE_URL).replace(/\/+$/, "");
   const sendRequest = options.sendRequest ?? sendTwilioRequest;
   const authorization = encodeBasicAuth(options.accountSid, options.authToken);
-  const messagesUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(
-    options.accountSid,
-  )}/Messages.json`;
+  const messagesUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(options.accountSid)}/Messages.json`;
 
   return {
     channel: options.channel,
-    async sendNotificationChannel(
-      delivery: NotificationDelivery,
-    ): Promise<SentNotificationReceipt> {
-      const channel = assertTwilioMessageChannel(
-        delivery.channel,
-        options.channel,
-      );
+    async sendNotificationChannel(delivery: NotificationDelivery): Promise<SentNotificationReceipt> {
+      const channel = assertTwilioMessageChannel(delivery.channel, options.channel);
       const body = new URLSearchParams();
       body.set("To", channel.to.e164.trim());
       body.set("MessagingServiceSid", options.messagingServiceSid);
@@ -227,10 +191,7 @@ export function createTwilioMessagingAdapter(
         body.append("MediaUrl", channel.mediaUrl.trim());
       }
 
-      const callbackUrl = statusCallbackUrl(
-        normalizeOptional(options.statusCallbackBaseUrl),
-        delivery.deliveryId,
-      );
+      const callbackUrl = statusCallbackUrl(normalizeOptional(options.statusCallbackBaseUrl), delivery.deliveryId);
       if (callbackUrl) {
         body.set("StatusCallback", callbackUrl);
       }
@@ -274,14 +235,16 @@ export function createTwilioMessagingWebhookGateway(
   };
 }
 
-export function parseTwilioMessagingWebhook(input: Readonly<{
-  rawBody: string;
-  url: string;
-  signatureHeader?: string | null;
-  authToken: string;
-  requireSignature?: boolean;
-  receivedAt?: string;
-}>): MobileMessageProviderWebhookEvent | null {
+export function parseTwilioMessagingWebhook(
+  input: Readonly<{
+    rawBody: string;
+    url: string;
+    signatureHeader?: string | null;
+    authToken: string;
+    requireSignature?: boolean;
+    receivedAt?: string;
+  }>,
+): MobileMessageProviderWebhookEvent | null {
   const form = parseFormBody(input.rawBody);
   if (input.requireSignature ?? true) {
     verifyTwilioSignature({
@@ -302,8 +265,7 @@ export function parseTwilioMessagingWebhook(input: Readonly<{
   const inboundBody = normalizeOptional(form.get("Body"));
   const eventKind = messageStatus ? "delivery-status" : "inbound-message";
   const eventStatus = messageStatus ?? (inboundBody ? "received" : null);
-  const occurredAt = normalizeOptional(form.get("Timestamp")) ?? input.receivedAt ??
-    new Date().toISOString();
+  const occurredAt = normalizeOptional(form.get("Timestamp")) ?? input.receivedAt ?? new Date().toISOString();
 
   return {
     providerEventId: buildProviderEventId(providerMessageId, eventKind, eventStatus),
@@ -341,12 +303,14 @@ function parseFormBody(rawBody: string): TwilioWebhookForm {
   return values;
 }
 
-function verifyTwilioSignature(input: Readonly<{
-  url: string;
-  form: TwilioWebhookForm;
-  signatureHeader: string | null;
-  authToken: string;
-}>) {
+function verifyTwilioSignature(
+  input: Readonly<{
+    url: string;
+    form: TwilioWebhookForm;
+    signatureHeader: string | null;
+    authToken: string;
+  }>,
+) {
   const signature = normalizeOptional(input.signatureHeader);
   if (!signature) {
     throw new Error("Twilio webhook signature is required.");
@@ -356,16 +320,11 @@ function verifyTwilioSignature(input: Readonly<{
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}${value}`)
     .join("")}`;
-  const expected = createHmac("sha1", input.authToken)
-    .update(signedPayload)
-    .digest("base64");
+  const expected = createHmac("sha1", input.authToken).update(signedPayload).digest("base64");
   const expectedBuffer = Buffer.from(expected);
   const receivedBuffer = Buffer.from(signature);
 
-  if (
-    expectedBuffer.length !== receivedBuffer.length ||
-    !timingSafeEqual(expectedBuffer, receivedBuffer)
-  ) {
+  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
     throw new Error("Twilio webhook signature verification failed.");
   }
 }

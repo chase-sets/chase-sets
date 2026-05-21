@@ -26,10 +26,7 @@ export async function upsertPasswordCredential(
   );
 }
 
-export async function getPasswordCredentialByUserId(
-  db: PgQueryable,
-  userId: string,
-) {
+export async function getPasswordCredentialByUserId(db: PgQueryable, userId: string) {
   const result = await db.query<{
     credential_id: string;
     user_id: string;
@@ -70,13 +67,7 @@ export async function upsertPasskeyCredential(
          label = $4,
          public_key = $5,
          updated_at = now()`,
-    [
-      params.credentialId,
-      params.userId,
-      params.externalCredentialId,
-      params.label,
-      params.publicKey,
-    ],
+    [params.credentialId, params.userId, params.externalCredentialId, params.label, params.publicKey],
   );
   await db.query(
     `INSERT INTO identity_passkey_lookup (
@@ -92,19 +83,11 @@ export async function upsertPasskeyCredential(
          user_id = $3,
          label = $4,
          updated_at = now()`,
-    [
-      params.externalCredentialId,
-      params.credentialId,
-      params.userId,
-      params.label,
-    ],
+    [params.externalCredentialId, params.credentialId, params.userId, params.label],
   );
 }
 
-export async function getPasskeyCredentialByExternalId(
-  db: PgQueryable,
-  externalCredentialId: string,
-) {
+export async function getPasskeyCredentialByExternalId(db: PgQueryable, externalCredentialId: string) {
   const result = await db.query<{
     credential_id: string;
     user_id: string;
@@ -143,21 +126,11 @@ export async function insertMagicLinkToken(
        created_at
      )
      VALUES ($1, $2, $3, $4, $5, $6, now())`,
-    [
-      params.tokenId,
-      params.userId,
-      params.email,
-      params.tokenHash,
-      params.deliveryToken,
-      params.expiresAt,
-    ],
+    [params.tokenId, params.userId, params.email, params.tokenHash, params.deliveryToken, params.expiresAt],
   );
 }
 
-export async function getMagicLinkDeliveryToken(
-  db: PgQueryable,
-  tokenId: string,
-) {
+export async function getMagicLinkDeliveryToken(db: PgQueryable, tokenId: string) {
   const result = await db.query<{ delivery_token: string | null }>(
     `SELECT delivery_token
      FROM identity_magic_link_tokens
@@ -170,10 +143,7 @@ export async function getMagicLinkDeliveryToken(
   return result.rows[0]?.delivery_token ?? null;
 }
 
-export async function clearMagicLinkDeliveryToken(
-  db: PgQueryable,
-  tokenId: string,
-) {
+export async function clearMagicLinkDeliveryToken(db: PgQueryable, tokenId: string) {
   await db.query(
     `UPDATE identity_magic_link_tokens
      SET delivery_token = NULL
@@ -182,10 +152,7 @@ export async function clearMagicLinkDeliveryToken(
   );
 }
 
-export async function consumeMagicLinkToken(
-  db: PgQueryable,
-  tokenHash: string,
-) {
+export async function consumeMagicLinkToken(db: PgQueryable, tokenHash: string) {
   const result = await db.query<{
     token_id: string;
     user_id: string | null;
@@ -228,14 +195,7 @@ export async function insertPhoneCodeToken(
        created_at
      )
      VALUES ($1, $2, $3, $4, $5, $6, now())`,
-    [
-      params.tokenId,
-      params.userId,
-      params.phone,
-      params.codeHash,
-      params.deliveryCode,
-      params.expiresAt,
-    ],
+    [params.tokenId, params.userId, params.phone, params.codeHash, params.deliveryCode, params.expiresAt],
   );
 }
 
@@ -290,14 +250,7 @@ export async function insertChallenge(
        created_at
      )
      VALUES ($1, $2, $3, $4, $5, $6, now())`,
-    [
-      params.challengeId,
-      params.purpose,
-      params.email,
-      params.userId,
-      params.challengeValue,
-      params.expiresAt,
-    ],
+    [params.challengeId, params.purpose, params.email, params.userId, params.challengeValue, params.expiresAt],
   );
 }
 
@@ -357,10 +310,7 @@ export async function upsertSessionToken(
   );
 }
 
-export async function getSessionByTokenHash(
-  db: PgQueryable,
-  tokenHash: string,
-) {
+export async function getSessionByTokenHash(db: PgQueryable, tokenHash: string) {
   const result = await db.query<{
     session_id: string;
     token_hash: string;
@@ -395,13 +345,7 @@ export async function insertAccountSelectionToken(
        created_at
      )
      VALUES ($1, $2, $3, $4, $5, now())`,
-    [
-      params.tokenId,
-      params.userId,
-      params.authenticationMethod,
-      params.tokenHash,
-      params.expiresAt,
-    ],
+    [params.tokenId, params.userId, params.authenticationMethod, params.tokenHash, params.expiresAt],
   );
 }
 
@@ -425,13 +369,7 @@ export async function insertSocialLoginState(
        created_at
      )
      VALUES ($1, $2, $3, $4, $5, now())`,
-    [
-      params.stateHash,
-      params.providerName,
-      params.journey,
-      params.returnTo,
-      params.expiresAt,
-    ],
+    [params.stateHash, params.providerName, params.journey, params.returnTo, params.expiresAt],
   );
 }
 
@@ -463,10 +401,7 @@ export async function consumeSocialLoginState(
   return result.rows[0] ?? null;
 }
 
-export async function getAccountSelectionTokenByHash(
-  db: PgQueryable,
-  tokenHash: string,
-) {
+export async function getAccountSelectionTokenByHash(db: PgQueryable, tokenHash: string) {
   const result = await db.query<{
     token_id: string;
     user_id: string;
@@ -486,10 +421,7 @@ export async function getAccountSelectionTokenByHash(
   return result.rows[0] ?? null;
 }
 
-export async function consumeAccountSelectionToken(
-  db: PgQueryable,
-  tokenHash: string,
-) {
+export async function consumeAccountSelectionToken(db: PgQueryable, tokenHash: string) {
   const result = await db.query<{
     token_id: string;
     user_id: string;
@@ -541,21 +473,11 @@ export async function upsertGuestCheckoutToken(
          expires_at = $6,
          revoked_at = NULL,
          updated_at = now()`,
-    [
-      params.tokenId,
-      params.accountId,
-      params.contactEmail,
-      params.contactName,
-      params.tokenHash,
-      params.expiresAt,
-    ],
+    [params.tokenId, params.accountId, params.contactEmail, params.contactName, params.tokenHash, params.expiresAt],
   );
 }
 
-export async function getGuestCheckoutTokenByHash(
-  db: PgQueryable,
-  tokenHash: string,
-) {
+export async function getGuestCheckoutTokenByHash(db: PgQueryable, tokenHash: string) {
   const result = await db.query<{
     token_id: string;
     account_id: string;
@@ -576,10 +498,7 @@ export async function getGuestCheckoutTokenByHash(
   return result.rows[0] ?? null;
 }
 
-export async function revokeGuestCheckoutTokenByHash(
-  db: PgQueryable,
-  tokenHash: string,
-) {
+export async function revokeGuestCheckoutTokenByHash(db: PgQueryable, tokenHash: string) {
   await db.query(
     `UPDATE identity_guest_checkout_tokens
      SET revoked_at = now(),
@@ -612,14 +531,7 @@ export async function insertGuestCheckoutClaimToken(
        created_at
      )
      VALUES ($1, $2, $3, $4, $5, $6, now())`,
-    [
-      params.tokenId,
-      params.accountId,
-      params.paymentId,
-      params.email,
-      params.tokenHash,
-      params.expiresAt,
-    ],
+    [params.tokenId, params.accountId, params.paymentId, params.email, params.tokenHash, params.expiresAt],
   );
 }
 

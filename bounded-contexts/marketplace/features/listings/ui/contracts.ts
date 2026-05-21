@@ -1,11 +1,7 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
-export type MarketplaceListingPhotoAssetRole =
-  | "source"
-  | "thumbnail"
-  | "search-card"
-  | "catalog-detail";
+export type MarketplaceListingPhotoAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
 export interface MarketplaceListingPhotoAssetVariant {
   role: MarketplaceListingPhotoAssetRole;

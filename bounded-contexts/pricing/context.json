@@ -1,44 +1,20 @@
 {
   "contextName": "pricing",
   "packageName": "@chase-sets/pricing",
-  "ownedNouns": [
-    "market-price-snapshot",
-    "price-recommendation"
-  ],
+  "ownedNouns": ["market-price-snapshot", "price-recommendation"],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "recommendations"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./server"
-  ],
-  "allowedContextDependencies": [
-    "@chase-sets/marketplace"
-  ],
-  "seedRequirements": [
-    "catalog",
-    "identity",
-    "inventory",
-    "marketplace",
-    "ordering",
-    "fulfillment"
-  ],
+  "slices": ["recommendations"],
+  "allowedSupportDirectories": ["request-support", "runtime-support"],
+  "publicExports": [".", "./context", "./routes/*", "./server"],
+  "allowedContextDependencies": ["@chase-sets/marketplace"],
+  "seedRequirements": ["catalog", "identity", "inventory", "marketplace", "ordering", "fulfillment"],
   "eventSubscriptions": [
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "pricing-catalog-input-projection"
-      ],
+      "projectorNames": ["pricing-catalog-input-projection"],
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.metadata-revised",
@@ -52,9 +28,7 @@
       "sourceContextName": "inventory",
       "projectionName": "pricing-inventory-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "pricing-inventory-input-projection"
-      ],
+      "projectorNames": ["pricing-inventory-input-projection"],
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
@@ -67,9 +41,7 @@
       "sourceContextName": "marketplace",
       "projectionName": "pricing-market-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "pricing-market-input-projection"
-      ],
+      "projectorNames": ["pricing-market-input-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -86,9 +58,7 @@
       "sourceContextName": "ordering",
       "projectionName": "pricing-order-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "pricing-order-input-projection"
-      ],
+      "projectorNames": ["pricing-order-input-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.cancelled",
@@ -100,75 +70,45 @@
       "sourceContextName": "fulfillment",
       "projectionName": "pricing-fulfillment-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "pricing-fulfillment-input-projection"
-      ],
-      "eventTypes": [
-        "fulfillment.shipment.created",
-        "fulfillment.shipment.delivered",
-        "fulfillment.shipment.returned"
-      ],
+      "projectorNames": ["pricing-fulfillment-input-projection"],
+      "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
       "order": 50
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "pricing-catalog-input-projection",
-      "sourceContextNames": [
-        "catalog"
-      ],
-      "ownedTables": [
-        "pricing_catalog_item_inputs"
-      ],
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["pricing_catalog_item_inputs"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "pricing-inventory-input-projection",
-      "sourceContextNames": [
-        "inventory"
-      ],
-      "ownedTables": [
-        "pricing_inventory_item_inputs",
-        "pricing_inventory_hold_inputs"
-      ],
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["pricing_inventory_item_inputs", "pricing_inventory_hold_inputs"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "pricing-market-input-projection",
-      "sourceContextNames": [
-        "marketplace"
-      ],
-      "ownedTables": [
-        "pricing_market_listing_inputs",
-        "pricing_buyer_offer_inputs"
-      ],
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["pricing_market_listing_inputs", "pricing_buyer_offer_inputs"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "pricing-order-input-projection",
-      "sourceContextNames": [
-        "ordering"
-      ],
-      "ownedTables": [
-        "pricing_order_signal_lines"
-      ],
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["pricing_order_signal_lines"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "pricing-fulfillment-input-projection",
-      "sourceContextNames": [
-        "fulfillment"
-      ],
-      "ownedTables": [
-        "pricing_fulfillment_signal_lines"
-      ],
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["pricing_fulfillment_signal_lines"],
       "requiredDuringBootstrap": true
     }
   ],
   "hostPorts": [],
-  "apiDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -201,9 +141,7 @@
       "href": "/account/repricing",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "pricing.view"
-      ]
+      "requiredPermissions": ["pricing.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -214,9 +152,7 @@
       "href": "/account/repricing",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "pricing.view"
-      ]
+      "requiredPermissions": ["pricing.view"]
     }
   ],
   "directoryIntent": {
@@ -224,17 +160,13 @@
       "classification": "slice",
       "purpose": "Own recommendations feature behavior, read models, and UI contracts for the pricing context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal pricing module composition"
-      ]
+      "expectedConsumers": ["Internal pricing module composition"]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Root pricing composition"
-      ],
+      "expectedConsumers": ["Root pricing composition"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "pricing workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -243,9 +175,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by pricing-owned routes and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "recommendations"
-      ],
+      "expectedConsumers": ["recommendations"],
       "justification": "request-support centralizes context-local HTTP client composition for route loaders.",
       "createdFor": "pricing workflows that span public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -255,12 +185,8 @@
       "classification": "routes",
       "purpose": "Expose pricing-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

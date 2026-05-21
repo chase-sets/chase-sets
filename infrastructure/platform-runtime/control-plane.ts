@@ -60,28 +60,34 @@ export type PlatformLease = Readonly<{
 
 export type PlatformControlPlane = Readonly<{
   bootstrap: () => Promise<void>;
-  acquireLease: (input: Readonly<{
-    leaseName: string;
-    ownerId: string;
-    ttlMs: number;
-    metadata?: Record<string, unknown>;
-  }>) => Promise<PlatformLease | null>;
+  acquireLease: (
+    input: Readonly<{
+      leaseName: string;
+      ownerId: string;
+      ttlMs: number;
+      metadata?: Record<string, unknown>;
+    }>,
+  ) => Promise<PlatformLease | null>;
   renewLease: (lease: PlatformLease, ttlMs: number) => Promise<boolean>;
   releaseLease: (lease: PlatformLease) => Promise<void>;
-  heartbeatWorker: (input: Readonly<{
-    workerId: string;
-    workerKind: string;
-    metadata?: Record<string, unknown>;
-  }>) => Promise<void>;
-  recordRunnerStatus: (input: Readonly<{
-    runnerName: string;
-    runnerKind: string;
-    state: "idle" | "running" | "caught-up" | "error" | "skipped";
-    ownerId?: string;
-    fencingToken?: string;
-    lastProcessed?: number;
-    lastError?: string | null;
-  }>) => Promise<void>;
+  heartbeatWorker: (
+    input: Readonly<{
+      workerId: string;
+      workerKind: string;
+      metadata?: Record<string, unknown>;
+    }>,
+  ) => Promise<void>;
+  recordRunnerStatus: (
+    input: Readonly<{
+      runnerName: string;
+      runnerKind: string;
+      state: "idle" | "running" | "caught-up" | "error" | "skipped";
+      ownerId?: string;
+      fencingToken?: string;
+      lastProcessed?: number;
+      lastError?: string | null;
+    }>,
+  ) => Promise<void>;
   listWorkerHeartbeats: () => Promise<readonly Record<string, unknown>[]>;
   listRunnerStatuses: () => Promise<readonly Record<string, unknown>[]>;
   listLeases: () => Promise<readonly Record<string, unknown>[]>;
@@ -94,15 +100,11 @@ type LeaseRow = Readonly<{
   expires_at: Date | string;
 }>;
 
-export async function bootstrapPlatformControlPlane(
-  db: PgQueryable,
-): Promise<void> {
+export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<void> {
   await db.query(platformControlPlaneSchemaSql);
 }
 
-export function createPostgresPlatformControlPlane(
-  db: PgTransactionalPool,
-): PlatformControlPlane {
+export function createPostgresPlatformControlPlane(db: PgTransactionalPool): PlatformControlPlane {
   return {
     bootstrap: () => bootstrapPlatformControlPlane(db),
     acquireLease: async (input) => {
@@ -135,12 +137,7 @@ export function createPostgresPlatformControlPlane(
          WHERE platform_control_leases.expires_at <= now()
             OR platform_control_leases.owner_id = EXCLUDED.owner_id
          RETURNING lease_name, owner_id, fencing_token, expires_at`,
-        [
-          input.leaseName,
-          input.ownerId,
-          input.ttlMs,
-          JSON.stringify(input.metadata ?? {}),
-        ],
+        [input.leaseName, input.ownerId, input.ttlMs, JSON.stringify(input.metadata ?? {})],
       );
 
       return result.rows[0] ? mapLeaseRow(result.rows[0]) : null;
@@ -181,11 +178,7 @@ export function createPostgresPlatformControlPlane(
            worker_kind = EXCLUDED.worker_kind,
            metadata = EXCLUDED.metadata,
            heartbeat_at = EXCLUDED.heartbeat_at`,
-        [
-          input.workerId,
-          input.workerKind,
-          JSON.stringify(input.metadata ?? {}),
-        ],
+        [input.workerId, input.workerKind, JSON.stringify(input.metadata ?? {})],
       );
     },
     recordRunnerStatus: async (input) => {
@@ -223,25 +216,31 @@ export function createPostgresPlatformControlPlane(
       );
     },
     listWorkerHeartbeats: async () =>
-      (await db.query(
-        `SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
+      (
+        await db.query(
+          `SELECT worker_id, worker_kind, metadata, started_at, heartbeat_at
          FROM platform_worker_heartbeats
          ORDER BY worker_id`,
-      )).rows,
+        )
+      ).rows,
     listRunnerStatuses: async () =>
-      (await db.query(
-        `SELECT runner_name, runner_kind, owner_id, fencing_token, state,
+      (
+        await db.query(
+          `SELECT runner_name, runner_kind, owner_id, fencing_token, state,
                 last_processed, last_error, last_ran_at, updated_at
          FROM platform_runner_statuses
          ORDER BY runner_name`,
-      )).rows,
+        )
+      ).rows,
     listLeases: async () =>
-      (await db.query(
-        `SELECT lease_name, owner_id, fencing_token, expires_at, metadata,
+      (
+        await db.query(
+          `SELECT lease_name, owner_id, fencing_token, expires_at, metadata,
                 acquired_at, renewed_at
          FROM platform_control_leases
          ORDER BY lease_name`,
-      )).rows,
+        )
+      ).rows,
   };
 }
 
@@ -250,8 +249,6 @@ function mapLeaseRow(row: LeaseRow): PlatformLease {
     leaseName: row.lease_name,
     ownerId: row.owner_id,
     fencingToken: String(row.fencing_token),
-    expiresAt: row.expires_at instanceof Date
-      ? row.expires_at.toISOString()
-      : String(row.expires_at),
+    expiresAt: row.expires_at instanceof Date ? row.expires_at.toISOString() : String(row.expires_at),
   };
 }

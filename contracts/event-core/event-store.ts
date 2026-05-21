@@ -1,16 +1,12 @@
 import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "./storage";
 
 export type EventStore = Readonly<{
-  appendToStream: (
-    input: AppendToStreamInput,
-  ) => Promise<readonly StoredEvent[]>;
+  appendToStream: (input: AppendToStreamInput) => Promise<readonly StoredEvent[]>;
   readStream: (input: ReadStreamInput) => Promise<readonly StoredEvent[]>;
   readAll: (input?: ReadAllInput) => Promise<readonly StoredEvent[]>;
 }>;
 
-export type EventStoreErrorCode =
-  | "concurrency_conflict"
-  | "infrastructure_failure";
+export type EventStoreErrorCode = "concurrency_conflict" | "infrastructure_failure";
 
 export type EventStoreError = Error &
   Readonly<{

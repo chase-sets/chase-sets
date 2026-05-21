@@ -2,14 +2,8 @@ import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed
 
 export type PaymentCurrencyCode = "usd";
 export type PaymentProcessorName = "stripe";
-export type ProcessorPaymentKind =
-  | "checkout-session"
-  | "payment-intent"
-  | "balance-credit";
-export type ProcessorPaymentMethodCategory =
-  | "card"
-  | "bank-account"
-  | "platform-credit";
+export type ProcessorPaymentKind = "checkout-session" | "payment-intent" | "balance-credit";
+export type ProcessorPaymentMethodCategory = "card" | "bank-account" | "platform-credit";
 
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
@@ -44,14 +38,15 @@ export type AgenticPaymentHandlerDeclaration = Readonly<{
   confirmationExperience: "server-confirmed-payment-intent";
 }>;
 
-export type AgenticProcessorPaymentInput = CreateProcessorPaymentInput & Readonly<{
-  agenticPayment: Readonly<{
-    kind: "stripe-shared-payment-token";
-    sharedPaymentGrantedToken: string;
-    ap2CheckoutMandateId?: string | null;
-    ap2PaymentMandateId?: string | null;
+export type AgenticProcessorPaymentInput = CreateProcessorPaymentInput &
+  Readonly<{
+    agenticPayment: Readonly<{
+      kind: "stripe-shared-payment-token";
+      sharedPaymentGrantedToken: string;
+      ap2CheckoutMandateId?: string | null;
+      ap2PaymentMandateId?: string | null;
+    }>;
   }>;
-}>;
 
 export type CreatedProcessorPayment = Readonly<{
   processorName: PaymentProcessorName;
@@ -107,15 +102,9 @@ export interface PaymentProcessorGateway {
    * provider-native primitive as long as sensitive payment details stay with the
    * processor and the returned reference is the stable webhook lookup key.
    */
-  createPaymentSession(
-    input: CreateProcessorPaymentInput,
-  ): Promise<CreatedProcessorPayment>;
-  createAgenticPaymentSession?(
-    input: AgenticProcessorPaymentInput,
-  ): Promise<CreatedProcessorPayment>;
-  createRefund(
-    input: CreateProcessorRefundInput,
-  ): Promise<CreatedProcessorRefund>;
+  createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment>;
+  createAgenticPaymentSession?(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment>;
+  createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund>;
   parseWebhook(
     input: Readonly<{ rawBody: string; signatureHeader: string | null }>,
   ): Promise<PaymentProcessorWebhookEvent | null>;

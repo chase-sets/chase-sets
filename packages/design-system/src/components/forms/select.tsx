@@ -13,8 +13,7 @@ export interface SelectItem {
 }
 
 export interface NativeSelectProps
-  extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "style" | "size">,
-    BaseInputProps {
+  extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "style" | "size">, BaseInputProps {
   items: SelectItem[];
   placeholder?: string;
 }
@@ -46,7 +45,7 @@ export function NativeSelect({
         {...rest}
         id={inputId}
         required={required}
-        aria-describedby={(error || description) ? fieldHintId(inputId) : undefined}
+        aria-describedby={error || description ? fieldHintId(inputId) : undefined}
         aria-invalid={!!error || undefined}
         className={cx(controlClass, !!error && controlErrorClass)}
       >
@@ -82,14 +81,11 @@ export function Select({
   defaultValue,
   onValueChange,
   placeholder = "Choose an option",
-  disabled = false
+  disabled = false,
 }: SelectProps) {
   const fallbackId = useId();
   const { overlayNode } = usePortalRoots();
-  const itemLabels = useMemo(
-    () => Object.fromEntries(items.map((item) => [item.value, item.label])),
-    [items]
-  );
+  const itemLabels = useMemo(() => Object.fromEntries(items.map((item) => [item.value, item.label])), [items]);
 
   return (
     <FieldChrome
@@ -113,12 +109,12 @@ export function Select({
       >
         <SelectPrimitive.Trigger
           id={fallbackId}
-          aria-describedby={(error || description) ? fieldHintId(fallbackId) : undefined}
+          aria-describedby={error || description ? fieldHintId(fallbackId) : undefined}
           aria-invalid={!!error || undefined}
           className={cx(
             controlClass,
             !!error && controlErrorClass,
-            "inline-flex items-center justify-between gap-2 text-left"
+            "inline-flex items-center justify-between gap-2 text-left",
           )}
         >
           <SelectPrimitive.Value placeholder={placeholder} />
@@ -129,34 +125,32 @@ export function Select({
         <SelectPrimitive.Portal container={overlayNode ?? undefined}>
           <SelectPrimitive.Positioner sideOffset={8} className="z-popover min-w-[var(--anchor-width)]">
             <SelectPrimitive.Popup className="modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-overlay">
-            <SelectPrimitive.List className="p-2">
-              {items.map((item) => (
-                <SelectPrimitive.Item
-                  key={item.value}
-                  value={item.value}
-                  disabled={item.disabled}
-                  className={(state) => cx(
-                    "focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none",
-                    state.disabled && "cursor-not-allowed opacity-50",
-                    state.highlighted && "bg-background"
-                  )}
-                >
-                  <SelectPrimitive.ItemText>
-                    <div className="space-y-0.5">
-                      <div>{item.label}</div>
-                      {item.description ? (
-                        <div className="text-xs text-secondary">
-                          {item.description}
-                        </div>
-                      ) : null}
-                    </div>
-                  </SelectPrimitive.ItemText>
-                  <SelectPrimitive.ItemIndicator className="ml-auto">
-                    <ChaseIcon name="check" size="sm" tone="accent" />
-                  </SelectPrimitive.ItemIndicator>
-                </SelectPrimitive.Item>
-              ))}
-            </SelectPrimitive.List>
+              <SelectPrimitive.List className="p-2">
+                {items.map((item) => (
+                  <SelectPrimitive.Item
+                    key={item.value}
+                    value={item.value}
+                    disabled={item.disabled}
+                    className={(state) =>
+                      cx(
+                        "focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none",
+                        state.disabled && "cursor-not-allowed opacity-50",
+                        state.highlighted && "bg-background",
+                      )
+                    }
+                  >
+                    <SelectPrimitive.ItemText>
+                      <div className="space-y-0.5">
+                        <div>{item.label}</div>
+                        {item.description ? <div className="text-xs text-secondary">{item.description}</div> : null}
+                      </div>
+                    </SelectPrimitive.ItemText>
+                    <SelectPrimitive.ItemIndicator className="ml-auto">
+                      <ChaseIcon name="check" size="sm" tone="accent" />
+                    </SelectPrimitive.ItemIndicator>
+                  </SelectPrimitive.Item>
+                ))}
+              </SelectPrimitive.List>
             </SelectPrimitive.Popup>
           </SelectPrimitive.Positioner>
         </SelectPrimitive.Portal>

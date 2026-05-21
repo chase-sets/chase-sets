@@ -1,14 +1,8 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import {
-  catalogSeedIds,
-  type SeedCatalogItemId,
-} from "@chase-sets/catalog/seed-support/ids";
+import { catalogSeedIds, type SeedCatalogItemId } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
-import {
-  demoIdentitySeedIds,
-  identitySeedIds,
-} from "@chase-sets/identity/seed-support/ids";
+import { demoIdentitySeedIds, identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   inventorySeedIds,
@@ -64,34 +58,33 @@ type InventoryHoldSeed = Readonly<{
   releasedAt?: string;
 }>;
 
-const rawCardSelection = (conditionOptionId: string) => [
-  {
-    dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-    optionId: catalogSeedIds.dimensions.form.optionIds.raw,
-  },
-  {
-    dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-    optionId: conditionOptionId,
-  },
-] as const;
+const rawCardSelection = (conditionOptionId: string) =>
+  [
+    {
+      dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+      optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+    },
+    {
+      dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+      optionId: conditionOptionId,
+    },
+  ] as const;
 
-const gradedCardSelection = (
-  gradingCompanyOptionId: string,
-  gradeOptionId: string,
-) => [
-  {
-    dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-    optionId: catalogSeedIds.dimensions.form.optionIds.graded,
-  },
-  {
-    dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId,
-    optionId: gradingCompanyOptionId,
-  },
-  {
-    dimensionId: catalogSeedIds.dimensions.grade.dimensionId,
-    optionId: gradeOptionId,
-  },
-] as const;
+const gradedCardSelection = (gradingCompanyOptionId: string, gradeOptionId: string) =>
+  [
+    {
+      dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+      optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+    },
+    {
+      dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId,
+      optionId: gradingCompanyOptionId,
+    },
+    {
+      dimensionId: catalogSeedIds.dimensions.grade.dimensionId,
+      optionId: gradeOptionId,
+    },
+  ] as const;
 
 const storageLocations: readonly StorageLocationSeed[] = [
   {
@@ -188,9 +181,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
   {
     itemId: inventorySeedIds.items.charizardBaseSetNearMint,
     catalogItemId: catalogScenarioItems.charizardBaseSet,
-    selectedOptions: rawCardSelection(
-      catalogSeedIds.dimensions.condition.optionIds.nearMint,
-    ),
+    selectedOptions: rawCardSelection(catalogSeedIds.dimensions.condition.optionIds.nearMint),
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 3,
     acquisitionCostAmount: "275.00",
@@ -212,11 +203,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
         source: "PSA population report",
         asOf: "2026-04-01",
       },
-      conditionDescriptors: [
-        "Encapsulated",
-        "Authentic label",
-        "Minor holo scratching visible under angled light",
-      ],
+      conditionDescriptors: ["Encapsulated", "Authentic label", "Minor holo scratching visible under angled light"],
     },
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 1,
@@ -268,11 +255,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
       grade: "Mint 9.5",
       certificationNumber: "0012345678",
       population: null,
-      conditionDescriptors: [
-        "Encapsulated",
-        "Strong centering",
-        "Subgrades available on label",
-      ],
+      conditionDescriptors: ["Encapsulated", "Strong centering", "Subgrades available on label"],
     },
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 1,
@@ -329,11 +312,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
         source: "PSA population report",
         asOf: "2026-04-01",
       },
-      conditionDescriptors: [
-        "Encapsulated",
-        "No visible whitening",
-        "Clean modern slab presentation",
-      ],
+      conditionDescriptors: ["Encapsulated", "No visible whitening", "Clean modern slab presentation"],
     },
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 2,
@@ -399,11 +378,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
         source: "PSA population report",
         asOf: "2026-04-01",
       },
-      conditionDescriptors: [
-        "Encapsulated",
-        "Eye appeal copy",
-        "Light edge whitening visible through slab",
-      ],
+      conditionDescriptors: ["Encapsulated", "Eye appeal copy", "Light edge whitening visible through slab"],
     },
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 1,
@@ -512,9 +487,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
   const services = createInventoryServices(pool);
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) FROM inventory_storage_locations",
-    );
+    const existing = await services.db.query("SELECT COUNT(*) FROM inventory_storage_locations");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Inventory already contains data. Skipping seed.");
       return;

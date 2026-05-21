@@ -19,10 +19,7 @@ function toCatalogAdminHref(href: string) {
     return href;
   }
 
-  if (
-    href === CATALOG_ADMIN_BASE_PATH ||
-    href.startsWith(`${CATALOG_ADMIN_BASE_PATH}/`)
-  ) {
+  if (href === CATALOG_ADMIN_BASE_PATH || href.startsWith(`${CATALOG_ADMIN_BASE_PATH}/`)) {
     return href;
   }
 
@@ -61,11 +58,21 @@ export function EntityDetailPage({
       <PageHeader title={title} />
       <Stack gap={4}>
         {actions ? <ActionBar>{actions}</ActionBar> : null}
-        {error && <Banner tone="danger" title={t("catalog.support.shellSupport.ui.entityDetailPage.error")} description={error} />}
+        {error && (
+          <Banner
+            tone="danger"
+            title={t("catalog.support.shellSupport.ui.entityDetailPage.error")}
+            description={error}
+          />
+        )}
         {loading ? (
           <LoadingSpinner label={t("catalog.support.shellSupport.ui.entityDetailPage.loading")} />
         ) : notFound ? (
-          <EmptyState title={t("catalog.support.shellSupport.ui.entityDetailPage.not.found")} description={t("catalog.support.shellSupport.ui.entityDetailPage.the.requested.item.does.not.exist")} icon="search" />
+          <EmptyState
+            title={t("catalog.support.shellSupport.ui.entityDetailPage.not.found")}
+            description={t("catalog.support.shellSupport.ui.entityDetailPage.the.requested.item.does.not.exist")}
+            icon="search"
+          />
         ) : (
           children
         )}

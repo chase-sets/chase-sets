@@ -19,7 +19,7 @@ export function Switch({
   checked,
   defaultChecked,
   onCheckedChange,
-  disabled = false
+  disabled = false,
 }: SwitchProps) {
   const inputId = useId();
 
@@ -50,17 +50,21 @@ export function Switch({
           defaultChecked={defaultChecked}
           onCheckedChange={(nextChecked) => onCheckedChange?.(nextChecked)}
           disabled={disabled}
-          className={(state) => cx(
-            "focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition",
-            state.checked && "bg-accent",
-            state.disabled && "opacity-60"
-          )}
+          className={(state) =>
+            cx(
+              "focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition",
+              state.checked && "bg-accent",
+              state.disabled && "opacity-60",
+            )
+          }
         >
           <SwitchPrimitive.Thumb
-            className={(state) => cx(
-              "block h-5 w-5 translate-x-1 rounded-full bg-elevated shadow-tokenSm transition",
-              state.checked && "translate-x-6"
-            )}
+            className={(state) =>
+              cx(
+                "block h-5 w-5 translate-x-1 rounded-full bg-elevated shadow-tokenSm transition",
+                state.checked && "translate-x-6",
+              )
+            }
           />
         </SwitchPrimitive.Root>
       </label>

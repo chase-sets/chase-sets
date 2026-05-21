@@ -6,10 +6,7 @@ import {
   resolveActorFromAuthApi,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import type { InteractiveAuthResult } from "../runtime-support/services";
 export type { InteractiveAuthResult } from "../runtime-support/services";
 import { AuthApiError } from "../../client";
@@ -22,14 +19,9 @@ import {
   getSafeReturnTo,
   readCookie,
 } from "../auth-support/http";
-import {
-  AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
-} from "../request-support/cookies";
+import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME } from "../request-support/cookies";
 import { createAuthApiClient } from "../request-support/api-client";
-export {
-  AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
-  AUTH_SESSION_COOKIE_NAME,
-} from "../request-support/cookies";
+export { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 
@@ -102,10 +94,7 @@ export type AuthHostConfig = Readonly<{
 export type AuthHost = Readonly<{
   getReturnTo: (request: Request, fallback?: string) => string;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
-  requireActor: (
-    request: Request,
-    permission?: string,
-  ) => Promise<ResolvedActor>;
+  requireActor: (request: Request, permission?: string) => Promise<ResolvedActor>;
   requireAccountSelectionToken: (request: Request) => string;
   completeAuthentication: (
     request: Request,
@@ -122,15 +111,9 @@ export type AuthHost = Readonly<{
     }>,
   ) => Promise<Response>;
   createSignInAction: () => (args: ActionFunctionArgs) => Promise<AuthActionResult>;
-  createRegisterAction: () => (
-    args: ActionFunctionArgs,
-  ) => Promise<AuthActionResult>;
-  createAccountSelectionLoader: () => (
-    args: LoaderFunctionArgs,
-  ) => Promise<AccountSelectionLoaderData>;
-  createAccountSelectionAction: () => (
-    args: ActionFunctionArgs,
-  ) => Promise<Response | AuthActionError>;
+  createRegisterAction: () => (args: ActionFunctionArgs) => Promise<AuthActionResult>;
+  createAccountSelectionLoader: () => (args: LoaderFunctionArgs) => Promise<AccountSelectionLoaderData>;
+  createAccountSelectionAction: () => (args: ActionFunctionArgs) => Promise<Response | AuthActionError>;
   createSignOutAction: (
     options?: Readonly<{
       returnTo?: string;
@@ -138,10 +121,7 @@ export type AuthHost = Readonly<{
   ) => (args: ActionFunctionArgs) => Promise<Response>;
 }>;
 
-export function hasPermission(
-  actor: ResolvedActor | null | undefined,
-  permission: string,
-) {
+export function hasPermission(actor: ResolvedActor | null | undefined, permission: string) {
   return hasActorPermission(actor, permission);
 }
 
@@ -156,37 +136,35 @@ function createAuthRequestApiClientInternal(request: Request) {
   });
 }
 
-export async function resolveActorFromAuthContext(options: Readonly<{
-  request: Request;
-  authApiBasePath?: string;
-  fetch?: typeof globalThis.fetch;
-}>) {
+export async function resolveActorFromAuthContext(
+  options: Readonly<{
+    request: Request;
+    authApiBasePath?: string;
+    fetch?: typeof globalThis.fetch;
+  }>,
+) {
   return resolveActorFromAuthApi({
     request: options.request,
-    authApiBaseUrl: resolveRequestApiBaseUrl(
-      options.request,
-      options.authApiBasePath ?? "/api/auth",
-    ),
+    authApiBaseUrl: resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth"),
     sessionPath: "session",
     fetch: options.fetch,
   });
 }
 
-export async function requireActorFromAuthContext(options: Readonly<{
-  request: Request;
-  permission?: string;
-  signInPath?: string;
-  authApiBasePath?: string;
-  fetch?: typeof globalThis.fetch;
-}>) {
+export async function requireActorFromAuthContext(
+  options: Readonly<{
+    request: Request;
+    permission?: string;
+    signInPath?: string;
+    authApiBasePath?: string;
+    fetch?: typeof globalThis.fetch;
+  }>,
+) {
   return requireActorFromAuthApi({
     request: options.request,
     permission: options.permission,
     signInPath: options.signInPath,
-    authApiBaseUrl: resolveRequestApiBaseUrl(
-      options.request,
-      options.authApiBasePath ?? "/api/auth",
-    ),
+    authApiBaseUrl: resolveRequestApiBaseUrl(options.request, options.authApiBasePath ?? "/api/auth"),
     sessionPath: "session",
     fetch: options.fetch,
   });
@@ -247,10 +225,7 @@ export function completeBrowserAuthentication(
   }
 
   appendSessionCookie(headers, result.sessionToken, request);
-  return createRedirectResponse(
-    getSafeReturnTo(request, options.defaultSuccessPath),
-    headers,
-  );
+  return createRedirectResponse(getSafeReturnTo(request, options.defaultSuccessPath), headers);
 }
 
 async function signOutActorViaAuthApi(
@@ -274,8 +249,7 @@ async function signOutActorViaAuthApi(
 }
 
 export function defineAuthHost(options: AuthHostConfig): AuthHost {
-  const allowManualMagicLinkTokenEntry =
-    options.allowManualMagicLinkTokenEntry ?? false;
+  const allowManualMagicLinkTokenEntry = options.allowManualMagicLinkTokenEntry ?? false;
 
   function buildCurrentPath(request: Request) {
     const url = new URL(request.url);
@@ -289,11 +263,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
   async function requireActor(request: Request, permission?: string) {
     const actor = await resolveActor(request);
     if (!actor) {
-      throw createRedirectResponse(
-        `${options.signInPath}?returnTo=${encodeURIComponent(
-          buildCurrentPath(request),
-        )}`,
-      );
+      throw createRedirectResponse(`${options.signInPath}?returnTo=${encodeURIComponent(buildCurrentPath(request))}`);
     }
 
     const requiredPermission = permission ?? options.requiredPermission;
@@ -313,10 +283,8 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
     }> = {},
   ) {
     return completeBrowserAuthentication(request, result, {
-      defaultSuccessPath:
-        overrides.defaultSuccessPath ?? options.defaultSuccessPath,
-      accountSelectionPath:
-        overrides.accountSelectionPath ?? options.accountSelectionPath,
+      defaultSuccessPath: overrides.defaultSuccessPath ?? options.defaultSuccessPath,
+      accountSelectionPath: overrides.accountSelectionPath ?? options.accountSelectionPath,
     });
   }
 
@@ -353,10 +321,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               status: "magic-link-sent",
               tokenId: result.tokenId,
               expiresAt: result.expiresAt,
-              email:
-                typeof formData.get("email") === "string"
-                  ? String(formData.get("email"))
-                  : undefined,
+              email: typeof formData.get("email") === "string" ? String(formData.get("email")) : undefined,
             };
           }
           if (intent === "phone-code-request") {
@@ -371,10 +336,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             };
           }
 
-          if (
-            intent === "magic-link-consume" &&
-            !allowManualMagicLinkTokenEntry
-          ) {
+          if (intent === "magic-link-consume" && !allowManualMagicLinkTokenEntry) {
             return {
               error: t("auth.support.routeSupport.authHost.magic.link.token.entry.is.not"),
             };
@@ -392,17 +354,17 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                     code: formData.get("code"),
                     accountId: formData.get("accountId"),
                   })
-              : intent === "passkey-sign-in"
-                ? await api.signInWithPasskey<InteractiveAuthResult>({
-                    challengeId: formData.get("challengeId"),
-                    challenge: formData.get("challenge"),
-                    externalCredentialId: formData.get("externalCredentialId"),
-                    accountId: formData.get("accountId"),
-                  })
-                : await api.signInWithPassword<InteractiveAuthResult>({
-                    email: formData.get("email"),
-                    password: formData.get("password"),
-                  });
+                : intent === "passkey-sign-in"
+                  ? await api.signInWithPasskey<InteractiveAuthResult>({
+                      challengeId: formData.get("challengeId"),
+                      challenge: formData.get("challenge"),
+                      externalCredentialId: formData.get("externalCredentialId"),
+                      accountId: formData.get("accountId"),
+                    })
+                  : await api.signInWithPassword<InteractiveAuthResult>({
+                      email: formData.get("email"),
+                      password: formData.get("password"),
+                    });
 
           return completeAuthentication(request, result);
         } catch (error) {
@@ -426,9 +388,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
               phone: result.phone,
               expiresAt: result.expiresAt,
               displayName:
-                typeof formData.get("displayName") === "string"
-                  ? String(formData.get("displayName"))
-                  : undefined,
+                typeof formData.get("displayName") === "string" ? String(formData.get("displayName")) : undefined,
             };
           }
 
@@ -451,11 +411,11 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                     phone: formData.get("phone"),
                     code: formData.get("code"),
                   })
-              : await api.register<InteractiveAuthResult>({
-                  displayName: formData.get("displayName"),
-                  email: formData.get("email"),
-                  password: formData.get("password"),
-                });
+                : await api.register<InteractiveAuthResult>({
+                    displayName: formData.get("displayName"),
+                    email: formData.get("email"),
+                    password: formData.get("password"),
+                  });
 
           if (!result) {
             return {
@@ -470,10 +430,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             intent === "passkey-register"
               ? undefined
               : {
-                  defaultSuccessPath: addReturnPrompt(
-                    options.defaultSuccessPath,
-                    "add-passkey",
-                  ),
+                  defaultSuccessPath: addReturnPrompt(options.defaultSuccessPath, "add-passkey"),
                 },
           );
         } catch (error) {

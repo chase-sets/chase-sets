@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 
 function extractIdFromStreamId(streamId: string, prefix: string): string {
   if (!streamId.startsWith(prefix)) {
@@ -14,9 +10,7 @@ function extractIdFromStreamId(streamId: string, prefix: string): string {
   return streamId.slice(prefix.length);
 }
 
-export function buildPricingCatalogInputProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
       const data = event.data as {
@@ -77,10 +71,7 @@ export function buildPricingCatalogInputProjectionHandlers(
          SET status = 'active',
              updated_at = $2
          WHERE catalog_item_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "catalog.item-"),
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "catalog.item-"), event.timing.recordedAt],
       );
     },
     "catalog.catalog-item.retired": async (event) => {
@@ -89,10 +80,7 @@ export function buildPricingCatalogInputProjectionHandlers(
          SET status = 'archived',
              updated_at = $2
          WHERE catalog_item_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "catalog.item-"),
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "catalog.item-"), event.timing.recordedAt],
       );
     },
     "catalog.catalog-item.archived": async (event) => {
@@ -101,18 +89,13 @@ export function buildPricingCatalogInputProjectionHandlers(
          SET status = 'archived',
              updated_at = $2
          WHERE catalog_item_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "catalog.item-"),
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "catalog.item-"), event.timing.recordedAt],
       );
     },
   };
 }
 
-export function buildPricingInventoryInputProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.item.created": async (event) => {
       const data = event.data as {
@@ -196,14 +179,7 @@ export function buildPricingInventoryInputProjectionHandlers(
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE pricing_inventory_hold_inputs.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.holdId,
-          data.itemId,
-          data.accountId,
-          data.quantity,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
+        [data.holdId, data.itemId, data.accountId, data.quantity, event.timing.recordedAt, event.streamVersion],
       );
     },
     "inventory.hold.released": async (event) => {
@@ -226,9 +202,7 @@ export function buildPricingInventoryInputProjectionHandlers(
   };
 }
 
-export function buildPricingMarketplaceInputProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
@@ -281,11 +255,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          SET price_amount = $2,
              updated_at = $3
          WHERE listing_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
-          data.priceAmount,
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), data.priceAmount, event.timing.recordedAt],
       );
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
@@ -296,11 +266,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          SET quantity_cap = $2,
              updated_at = $3
          WHERE listing_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
-          data.quantityCap,
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), data.quantityCap, event.timing.recordedAt],
       );
     },
     "marketplace.listing.published": async (event) => {
@@ -309,10 +275,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          SET status = 'active',
              updated_at = $2
          WHERE listing_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt],
       );
     },
     "marketplace.listing.paused": async (event) => {
@@ -321,10 +284,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          SET status = 'paused',
              updated_at = $2
          WHERE listing_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt],
       );
     },
     "marketplace.listing.withdrawn": async (event) => {
@@ -333,10 +293,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
          SET status = 'withdrawn',
              updated_at = $2
          WHERE listing_id = $1`,
-        [
-          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
-          event.timing.recordedAt,
-        ],
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt],
       );
     },
     "marketplace.offer.submitted": async (event) => {
@@ -432,9 +389,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(
   };
 }
 
-export function buildPricingOrderingInputProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPricingOrderingInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "ordering.order.created": async (event) => {
       const data = event.data as {
@@ -450,9 +405,7 @@ export function buildPricingOrderingInputProjectionHandlers(
         }>;
       };
 
-      await db.query(`DELETE FROM pricing_order_signal_lines WHERE order_id = $1`, [
-        data.orderId,
-      ]);
+      await db.query(`DELETE FROM pricing_order_signal_lines WHERE order_id = $1`, [data.orderId]);
 
       for (const line of data.lines) {
         await db.query(
@@ -530,9 +483,7 @@ export function buildPricingOrderingInputProjectionHandlers(
   };
 }
 
-export function buildPricingFulfillmentInputProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPricingFulfillmentInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "fulfillment.shipment.created": async (event) => {
       const data = event.data as {
@@ -547,10 +498,7 @@ export function buildPricingFulfillmentInputProjectionHandlers(
         createdAt: string;
       };
 
-      await db.query(
-        `DELETE FROM pricing_fulfillment_signal_lines WHERE shipment_id = $1`,
-        [data.shipmentId],
-      );
+      await db.query(`DELETE FROM pricing_fulfillment_signal_lines WHERE shipment_id = $1`, [data.shipmentId]);
 
       for (const line of data.lines) {
         await db.query(

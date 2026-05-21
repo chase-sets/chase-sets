@@ -13,10 +13,7 @@ export function sellerFundsAvailableAt(postedAt: string) {
   return availableAt.toISOString();
 }
 
-export function isSellerFundsHoldMatured(
-  postedAt: string,
-  now: string = new Date().toISOString(),
-) {
+export function isSellerFundsHoldMatured(postedAt: string, now: string = new Date().toISOString()) {
   const availableAt = sellerFundsAvailableAt(postedAt);
   return availableAt ? Date.parse(availableAt) <= Date.parse(now) : false;
 }

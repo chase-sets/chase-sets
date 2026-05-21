@@ -4,10 +4,7 @@ import { useLoaderData } from "react-router";
 import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  ReputationApiError,
-  type ReviewDetail,
-} from "../../support/request-support/api-client";
+import { ReputationApiError, type ReviewDetail } from "../../support/request-support/api-client";
 import { createReputationRequestApiClient } from "../../support/request-support/api-client";
 import { ReviewDetailPage } from "../../features/reviews/ui/review-detail-page";
 
@@ -21,8 +18,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     return await loadFreshlyWrittenResource({
       request,
-      isNotFound: (error) =>
-        error instanceof ReputationApiError && error.status === 404,
+      isNotFound: (error) => error instanceof ReputationApiError && error.status === 404,
       load: async () => ({
         review: await api.getAccountReview(params.reviewId!),
       }),
@@ -42,10 +38,5 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountReviewRoute() {
   const data = useLoaderData<typeof loader>();
 
-  return (
-    <ReviewDetailPage
-      backHref="/account/reviews/received"
-      review={data.review as ReviewDetail}
-    />
-  );
+  return <ReviewDetailPage backHref="/account/reviews/received" review={data.review as ReviewDetail} />;
 }

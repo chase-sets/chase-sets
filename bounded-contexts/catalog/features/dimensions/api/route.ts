@@ -5,7 +5,6 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { DimensionId, OptionId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
-
 export function dimensionRoutes(services: DimensionServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -201,7 +200,13 @@ export function dimensionRoutes(services: DimensionServices) {
 
   app.get("/", async (c) => {
     const { search, status, limit, offset, valueKind } = c.req.query();
-    const result = await services.listDimensions({ search, status, valueKind, limit: Number(limit) || undefined, offset: Number(offset) || undefined });
+    const result = await services.listDimensions({
+      search,
+      status,
+      valueKind,
+      limit: Number(limit) || undefined,
+      offset: Number(offset) || undefined,
+    });
 
     return c.json({ items: result.items, total: result.total, count: result.items.length });
   });
@@ -210,7 +215,10 @@ export function dimensionRoutes(services: DimensionServices) {
     const dimension = await services.getDimension(c.req.param("id"));
 
     if (!dimension) {
-      return c.json({ error: { code: "not_found", message: t("catalog.features.dimensions.api.route.dimension.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("catalog.features.dimensions.api.route.dimension.not.found") } },
+        404,
+      );
     }
 
     return c.json(dimension);

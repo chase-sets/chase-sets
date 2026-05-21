@@ -10,15 +10,7 @@ describe("notification preferences", () => {
       "rcs",
       "product-alerts",
     ]);
-    expect(
-      defaultNotificationPreferences.find(
-        (preference) => preference.key === "sms",
-      )?.enabled,
-    ).toBe(false);
-    expect(
-      defaultNotificationPreferences.find(
-        (preference) => preference.key === "rcs",
-      )?.enabled,
-    ).toBe(false);
+    expect(defaultNotificationPreferences.find((preference) => preference.key === "sms")?.enabled).toBe(false);
+    expect(defaultNotificationPreferences.find((preference) => preference.key === "rcs")?.enabled).toBe(false);
   });
 });

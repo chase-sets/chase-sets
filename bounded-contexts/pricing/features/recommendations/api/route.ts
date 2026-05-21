@@ -12,20 +12,36 @@ function requireRecommendationAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("pricing.features.recommendations.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("pricing.features.recommendations.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authorization_forbidden",
+            message: t("pricing.features.recommendations.api.route.forbidden"),
+          },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -38,13 +54,14 @@ function errorMessage(error: unknown) {
 
 function parseRecommendationIds(value: unknown) {
   return Array.isArray(value)
-    ? value.map(String).map((item) => item.trim()).filter(Boolean)
+    ? value
+        .map(String)
+        .map((item) => item.trim())
+        .filter(Boolean)
     : [];
 }
 
-export function createAccountRecommendationRoutes(
-  services: PricingRecommendationServices,
-) {
+export function createAccountRecommendationRoutes(services: PricingRecommendationServices) {
   const app = new Hono<PricingApiEnv>();
 
   app.get("/recommendations", async (c) => {
@@ -74,12 +91,17 @@ export function createAccountRecommendationRoutes(
       return access.response;
     }
 
-    const recommendation = await services.getAccountRecommendation(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const recommendation = await services.getAccountRecommendation(c.req.param("id"), access.actor.accountId);
     if (!recommendation) {
-      return c.json({ error: { code: "not_found", message: t("pricing.features.recommendations.api.route.recommendation.not.found") } }, 404);
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("pricing.features.recommendations.api.route.recommendation.not.found"),
+          },
+        },
+        404,
+      );
     }
 
     return c.json(recommendation);
@@ -93,7 +115,15 @@ export function createAccountRecommendationRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("pricing.features.recommendations.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -105,10 +135,7 @@ export function createAccountRecommendationRoutes(
           accountId: access.actor.accountId,
           recommendedListAmount: Number(body.recommendedListAmount),
           reason: String(body.reason ?? ""),
-          publishedAt:
-            typeof body.publishedAt === "string"
-              ? body.publishedAt
-              : undefined,
+          publishedAt: typeof body.publishedAt === "string" ? body.publishedAt : undefined,
         },
         context,
       );
@@ -126,14 +153,19 @@ export function createAccountRecommendationRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("pricing.features.recommendations.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     try {
-      const result = await services.refreshRecommendations(
-        { accountId: access.actor.accountId },
-        context,
-      );
+      const result = await services.refreshRecommendations({ accountId: access.actor.accountId }, context);
       return c.json({ status: "refreshed", ...result });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
@@ -148,7 +180,15 @@ export function createAccountRecommendationRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("pricing.features.recommendations.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -157,9 +197,7 @@ export function createAccountRecommendationRoutes(
       const result = await services.applyRecommendations(
         {
           accountId: access.actor.accountId,
-          recommendationIds: parseRecommendationIds(
-            (body as { recommendationIds?: unknown }).recommendationIds,
-          ),
+          recommendationIds: parseRecommendationIds((body as { recommendationIds?: unknown }).recommendationIds),
           marketplaceListings: createPricingMarketplaceListingGateway(c.req.raw),
         },
         context,
@@ -178,7 +216,15 @@ export function createAccountRecommendationRoutes(
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("pricing.features.recommendations.api.route.authentication.context.missing.4") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("pricing.features.recommendations.api.route.authentication.context.missing.4"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
@@ -187,9 +233,7 @@ export function createAccountRecommendationRoutes(
       const result = await services.dismissRecommendations(
         {
           accountId: access.actor.accountId,
-          recommendationIds: parseRecommendationIds(
-            (body as { recommendationIds?: unknown }).recommendationIds,
-          ),
+          recommendationIds: parseRecommendationIds((body as { recommendationIds?: unknown }).recommendationIds),
         },
         context,
       );

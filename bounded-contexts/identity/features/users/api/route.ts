@@ -125,12 +125,18 @@ export function userRoutes(services: UserServices) {
     const actor = c.var.actor;
     const userId = c.req.param("id");
     if (actor && !hasPermission(actor, "security.manage") && actor.userId !== userId) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("identity.features.users.api.route.forbidden") } }, 403);
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("identity.features.users.api.route.forbidden") } },
+        403,
+      );
     }
 
     const user = await services.getUser(userId);
     if (!user) {
-      return c.json({ error: { code: "not_found", message: t("identity.features.users.api.route.user.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.users.api.route.user.not.found") } },
+        404,
+      );
     }
     return c.json(user);
   });

@@ -51,9 +51,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 });
 
 vi.mock("@chase-sets/auth/server", async () => {
-  const actual = await vi.importActual<typeof import("@chase-sets/auth/server")>(
-    "@chase-sets/auth/server",
-  );
+  const actual = await vi.importActual<typeof import("@chase-sets/auth/server")>("@chase-sets/auth/server");
 
   return {
     ...actual,
@@ -80,10 +78,7 @@ import {
   checkoutStartHeaderCopy,
   loader as checkoutStartLoader,
 } from "./checkout-start";
-import {
-  action as checkoutSessionAction,
-  loader as checkoutSessionLoader,
-} from "./checkout-session";
+import { action as checkoutSessionAction, loader as checkoutSessionLoader } from "./checkout-session";
 import { loader as accountCartLoader } from "./account-cart";
 import { action as accountSellListAction } from "./account-sell-list";
 
@@ -135,9 +130,7 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_cart");
-    expect(response.headers.getSetCookie().join("; ")).toContain(
-      "chase_sets_anonymous_cart=",
-    );
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_cart=");
   });
 
   it("keeps signed-out buyers on the checkout start choice page with a checkout return target", async () => {
@@ -482,9 +475,7 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_guest");
-    expect(response.headers.getSetCookie().join("; ")).toContain(
-      "chase_sets_guest_checkout=guest_token",
-    );
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
   });
 
   it("returns a sign-in prompt when guest checkout uses an account email", async () => {
@@ -521,8 +512,7 @@ describe("checkout web routes", () => {
     } as never);
 
     expect(result).toEqual({
-      error:
-        "Sign in to continue checkout with this email. Your Buy Cart will stay ready.",
+      error: "Sign in to continue checkout with this email. Your Buy Cart will stay ready.",
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
@@ -564,12 +554,13 @@ describe("checkout web routes", () => {
     });
     expect(checkoutStartHeaderCopy({ isSignedIn: true, isOfferIntent: true })).toEqual({
       title: "Place purchase intent",
-      description:
-        "Confirm shipping so the seller can review your purchase intent. No payment today.",
+      description: "Confirm shipping so the seller can review your purchase intent. No payment today.",
     });
-    expect(checkoutStartBuyerProtectionItems(true).map((item) => item.description).join(" ")).not.toContain(
-      "Guest",
-    );
+    expect(
+      checkoutStartBuyerProtectionItems(true)
+        .map((item) => item.description)
+        .join(" "),
+    ).not.toContain("Guest");
   });
 
   it("confirms checkout and redirects to the payment detail", async () => {
@@ -692,17 +683,18 @@ describe("checkout web routes", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", expect.objectContaining({
-      paymentMethodCategory: "card",
-      shippingAddress: expect.objectContaining({
-        name: "Jane Smith",
-        postalCode: "60601",
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        paymentMethodCategory: "card",
+        shippingAddress: expect.objectContaining({
+          name: "Jane Smith",
+          postalCode: "60601",
+        }),
       }),
-    }));
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit",
     );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit");
   });
 
   it("redirects completed checkout sessions to payment detail", async () => {

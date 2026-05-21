@@ -3,37 +3,41 @@ import { Hono, type Context } from "hono";
 import type { DiscoveryApiEnv } from "../../../api";
 import type { ProductAlertServices } from "./runtime";
 
-function requireProductAlertAccess(c: {
-  get(key: "actor"): DiscoveryApiEnv["Variables"]["actor"];
-}) {
+function requireProductAlertAccess(c: { get(key: "actor"): DiscoveryApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({
-        error: {
-          code: "authentication_required",
-          message: t("discovery.features.productAlerts.api.route.sign.in.to.manage.product.alerts"),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("discovery.features.productAlerts.api.route.sign.in.to.manage.product.alerts"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
         },
-      }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      ),
     };
   }
 
   if (!actor.permissions.includes("accounts.view")) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({
-        error: {
-          code: "authorization_forbidden",
-          message: t("discovery.features.productAlerts.api.route.account.cannot.manage.product.alerts"),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authorization_forbidden",
+            message: t("discovery.features.productAlerts.api.route.account.cannot.manage.product.alerts"),
+          },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
         },
-      }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      ),
     };
   }
 
@@ -43,14 +47,8 @@ function requireProductAlertAccess(c: {
 function parseSelectedOptions(value: unknown) {
   return Array.isArray(value)
     ? value
-        .filter(
-          (selection): selection is { dimensionId: string; optionId: string } =>
-            Boolean(
-              selection &&
-                typeof selection === "object" &&
-                "dimensionId" in selection &&
-                "optionId" in selection,
-            ),
+        .filter((selection): selection is { dimensionId: string; optionId: string } =>
+          Boolean(selection && typeof selection === "object" && "dimensionId" in selection && "optionId" in selection),
         )
         .map((selection) => ({
           dimensionId: String(selection.dimensionId ?? ""),
@@ -89,38 +87,43 @@ export function createProductAlertRoutes(services: ProductAlertServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: t("discovery.features.productAlerts.api.route.authentication.context.missing"),
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("discovery.features.productAlerts.api.route.authentication.context.missing"),
+          },
         },
-      }, 401);
+        401,
+      );
     }
 
     const body = await c.req.json().catch(() => ({}));
 
     try {
-      const result = await services.createProductAlert({
-        accountId: access.actor.accountId,
-        marketSide: body.marketSide === "offer" ? "offer" : "listing",
-        catalogItemId: String(body.catalogItemId ?? ""),
-        productId: String(body.productId ?? ""),
-        selectedOptions: parseSelectedOptions(body.selectedOptions),
-        productSummary:
-          body.productSummary === null || body.productSummary === undefined
-            ? null
-            : String(body.productSummary),
-        thresholdAmount:
-          body.thresholdAmount === null || body.thresholdAmount === undefined
-            ? null
-            : String(body.thresholdAmount),
-      }, context);
+      const result = await services.createProductAlert(
+        {
+          accountId: access.actor.accountId,
+          marketSide: body.marketSide === "offer" ? "offer" : "listing",
+          catalogItemId: String(body.catalogItemId ?? ""),
+          productId: String(body.productId ?? ""),
+          selectedOptions: parseSelectedOptions(body.selectedOptions),
+          productSummary:
+            body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
+          thresholdAmount:
+            body.thresholdAmount === null || body.thresholdAmount === undefined ? null : String(body.thresholdAmount),
+        },
+        context,
+      );
 
       return c.json({ id: result.alertId, version: result.version, status: "active" }, 201);
     } catch (error) {
-      return c.json({
-        error: { code: "validation_failed", message: errorMessage(error) },
-      }, 400);
+      return c.json(
+        {
+          error: { code: "validation_failed", message: errorMessage(error) },
+        },
+        400,
+      );
     }
   });
 
@@ -149,12 +152,15 @@ async function updateAlert(
 
   const context = c.get("context");
   if (!context) {
-    return c.json({
-      error: {
-        code: "authentication_required",
-        message: t("discovery.features.productAlerts.api.route.authentication.context.missing"),
+    return c.json(
+      {
+        error: {
+          code: "authentication_required",
+          message: t("discovery.features.productAlerts.api.route.authentication.context.missing"),
+        },
       },
-    }, 401);
+      401,
+    );
   }
 
   try {
@@ -171,8 +177,11 @@ async function updateAlert(
 
     return c.json({ id: result.alertId, version: result.version, status: action });
   } catch (error) {
-    return c.json({
-      error: { code: "validation_failed", message: errorMessage(error) },
-    }, 400);
+    return c.json(
+      {
+        error: { code: "validation_failed", message: errorMessage(error) },
+      },
+      400,
+    );
   }
 }

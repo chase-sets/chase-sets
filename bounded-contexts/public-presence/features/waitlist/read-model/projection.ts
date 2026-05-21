@@ -13,11 +13,7 @@ type WaitlistEventData = Readonly<{
   updatedAt?: string;
 }>;
 
-async function upsertWaitlistSignup(
-  db: PgQueryable,
-  data: WaitlistEventData,
-  timestamp: string,
-) {
+async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, timestamp: string) {
   await db.query(
     `INSERT INTO public_presence_waitlist_signups (
        signup_id,

@@ -1,14 +1,8 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
-import {
-  attachResponseMetadata,
-  type ListResponse,
-} from "@chase-sets/http/responses";
+import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildSettlementApi } from "./api";
-import type {
-  SettlementLedgerEntryRow,
-  SettlementWalletRow,
-} from "./features/wallets/read-model/queries";
+import type { SettlementLedgerEntryRow, SettlementWalletRow } from "./features/wallets/read-model/queries";
 import type {
   SettlementPayoutRow,
   SettlementProviderIdempotencyKeyRow,
@@ -118,18 +112,12 @@ export function createSettlementApiClient({
 
   return {
     async getAccountStatus(): Promise<SettlementAccountStatus> {
-      return parseJsonResponse(
-        await client["account-status"].$get({ header: headers }),
-      );
+      return parseJsonResponse(await client["account-status"].$get({ header: headers }));
     },
     async getWallet(): Promise<SettlementWalletRow> {
-      return parseJsonResponse(
-        await client.wallet.$get({ header: headers }),
-      );
+      return parseJsonResponse(await client.wallet.$get({ header: headers }));
     },
-    async listWalletEntries(
-      query = "",
-    ): Promise<ListResponse<SettlementLedgerEntryRow>> {
+    async listWalletEntries(query = ""): Promise<ListResponse<SettlementLedgerEntryRow>> {
       return parseJsonResponse(
         await client.wallet.entries.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -138,14 +126,10 @@ export function createSettlementApiClient({
       );
     },
     async postRefundDebit(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.wallet["refund-debits"].$post({ json: body, header: headers }),
-      );
+      return parseJsonResponse(await client.wallet["refund-debits"].$post({ json: body, header: headers }));
     },
     async postDisputeHold(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.wallet["dispute-holds"].$post({ json: body, header: headers }),
-      );
+      return parseJsonResponse(await client.wallet["dispute-holds"].$post({ json: body, header: headers }));
     },
     async postDisputeRelease(body: Record<string, unknown>) {
       return parseJsonResponse(
@@ -164,14 +148,10 @@ export function createSettlementApiClient({
       );
     },
     async getPayoutReadiness(): Promise<SettlementPayoutReadinessRow> {
-      return parseJsonResponse(
-        await client["payout-readiness"].$get({ header: headers }),
-      );
+      return parseJsonResponse(await client["payout-readiness"].$get({ header: headers }));
     },
     async getPayoutSetupProgress(): Promise<PayoutSetupProgress> {
-      return parseJsonResponse(
-        await client["payout-setup"].progress.$get({ header: headers }),
-      );
+      return parseJsonResponse(await client["payout-setup"].progress.$get({ header: headers }));
     },
     async createPayoutSetupOnboardingSession(
       body: Record<string, unknown> = {},
@@ -217,9 +197,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async listPayoutsNeedingReconciliation(
-      query = "",
-    ): Promise<ListResponse<SettlementPayoutRow>> {
+    async listPayoutsNeedingReconciliation(query = ""): Promise<ListResponse<SettlementPayoutRow>> {
       return parseJsonResponse(
         await client.payouts.reconciliation.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -235,9 +213,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async listPayoutReconciliationRuns(
-      query = "",
-    ): Promise<ListResponse<SettlementReconciliationRunRow>> {
+    async listPayoutReconciliationRuns(query = ""): Promise<ListResponse<SettlementReconciliationRunRow>> {
       return parseJsonResponse(
         await client.payouts.reconciliation.runs.$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -245,9 +221,7 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async listPayoutProviderIdempotencyKeys(
-      query = "",
-    ): Promise<ListResponse<SettlementProviderIdempotencyKeyRow>> {
+    async listPayoutProviderIdempotencyKeys(query = ""): Promise<ListResponse<SettlementProviderIdempotencyKeyRow>> {
       return parseJsonResponse(
         await client.payouts["provider-idempotency"].$get({
           query: Object.fromEntries(new URLSearchParams(query)),
@@ -255,12 +229,14 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async getPlatformBalanceForecast(): Promise<Readonly<{
-      currency_code: string;
-      available_amount: string;
-      pending_payout_demand_amount: string;
-      forecast_after_pending_demand_amount: string;
-    }>> {
+    async getPlatformBalanceForecast(): Promise<
+      Readonly<{
+        currency_code: string;
+        available_amount: string;
+        pending_payout_demand_amount: string;
+        forecast_after_pending_demand_amount: string;
+      }>
+    > {
       return parseJsonResponse(
         await client.payouts["platform-balance-forecast"].$get({
           header: headers,
@@ -268,24 +244,16 @@ export function createSettlementApiClient({
       );
     },
     async previewPayout(body: Record<string, unknown>): Promise<SettlementPayoutPreview> {
-      return parseJsonResponse(
-        await client.payouts.preview.$post({ json: body, header: headers }),
-      );
+      return parseJsonResponse(await client.payouts.preview.$post({ json: body, header: headers }));
     },
     async getMoneyHealth() {
-      return parseJsonResponse(
-        await client["money-health"].$get({ header: headers }),
-      );
+      return parseJsonResponse(await client["money-health"].$get({ header: headers }));
     },
     async getProviderHealth() {
-      return parseJsonResponse(
-        await client["provider-health"].$get({ header: headers }),
-      );
+      return parseJsonResponse(await client["provider-health"].$get({ header: headers }));
     },
     async createPayout(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.payouts.$post({ json: body, header: headers }),
-      );
+      return parseJsonResponse(await client.payouts.$post({ json: body, header: headers }));
     },
   };
 }

@@ -120,9 +120,7 @@ function paymentMetadataEntries(
     "metadata[order_ids]": input.orderIds.join(","),
     "metadata[payment_method_category]": input.paymentMethodCategory,
     ...Object.fromEntries(
-      Object.entries(extra).flatMap(([key, value]) =>
-        value?.trim() ? [[`metadata[${key}]`, value.trim()]] : [],
-      ),
+      Object.entries(extra).flatMap(([key, value]) => (value?.trim() ? [[`metadata[${key}]`, value.trim()]] : [])),
     ),
   };
 }
@@ -148,10 +146,7 @@ async function parseStripeResponse<T>(response: Response): Promise<T> {
         : `Stripe request failed with status ${response.status}.`;
 
     throw new ProviderAdapterError(
-      providerFailureCategoryFromText(
-        message,
-        providerFailureCategoryFromHttpStatus(response.status),
-      ),
+      providerFailureCategoryFromText(message, providerFailureCategoryFromHttpStatus(response.status)),
       message,
       response.status,
     );
@@ -203,10 +198,7 @@ function verifyStripeSignature(
   const expectedBuffer = Buffer.from(expected, "hex");
   const receivedBuffer = Buffer.from(parsed.signature, "hex");
 
-  if (
-    expectedBuffer.length !== receivedBuffer.length ||
-    !timingSafeEqual(expectedBuffer, receivedBuffer)
-  ) {
+  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
     throw new Error("Stripe webhook signature verification failed.");
   }
 }
@@ -219,16 +211,10 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
     return null;
   }
 
-  const processorStatus =
-    paymentObject.payment_status?.trim() ??
-    paymentObject.status?.trim() ??
-    event.type;
-  const occurredAt = new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000)
-    .toISOString();
+  const processorStatus = paymentObject.payment_status?.trim() ?? paymentObject.status?.trim() ?? event.type;
+  const occurredAt = new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
   const failureCode = normalizeOptionalText(paymentObject.last_payment_error?.code ?? null);
-  const failureMessage = normalizeOptionalText(
-    paymentObject.last_payment_error?.message ?? null,
-  );
+  const failureMessage = normalizeOptionalText(paymentObject.last_payment_error?.message ?? null);
   const internalPaymentId = metadataPaymentId(paymentObject) as PaymentProcessorWebhookEvent["internalPaymentId"];
 
   switch (event.type) {
@@ -356,10 +342,7 @@ export function createStripePaymentProcessorGateway(
   const publicConfiguration: PaymentProcessorPublicConfig = {
     processorName: "stripe",
     publishableKey: options.publishableKey,
-    confirmationExperience:
-      checkoutUiMode === "hosted"
-        ? "processor-hosted-page"
-        : "processor-managed-form",
+    confirmationExperience: checkoutUiMode === "hosted" ? "processor-hosted-page" : "processor-managed-form",
     dynamicPaymentMethods: true,
     sensitivePaymentDetailsHandledByProcessor: true,
     agenticPaymentHandlers: [
@@ -397,14 +380,9 @@ export function createStripePaymentProcessorGateway(
     getPublicConfiguration() {
       return publicConfiguration;
     },
-    async createPaymentSession(
-      input: CreateProcessorPaymentInput,
-    ): Promise<CreatedProcessorPayment> {
-      const amount = moneyToMinorUnits(
-        normalizeMoneyAmount(input.amount, "Payment amount"),
-      );
-      const paymentReturnUrl =
-        normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payments";
+    async createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment> {
+      const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Payment amount"));
+      const paymentReturnUrl = normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payments";
       const sessionNavigation: Record<string, string> =
         checkoutUiMode === "hosted"
           ? {
@@ -416,8 +394,7 @@ export function createStripePaymentProcessorGateway(
               ui_mode: "elements",
               return_url: paymentReturnUrl,
             };
-      const paymentMethodType =
-        input.paymentMethodCategory === "bank-account" ? "us_bank_account" : "card";
+      const paymentMethodType = input.paymentMethodCategory === "bank-account" ? "us_bank_account" : "card";
       const body = await stripeRequest<StripeCheckoutSessionResponse>(
         "/v1/checkout/sessions",
         {
@@ -436,23 +413,17 @@ export function createStripePaymentProcessorGateway(
             "payment_intent_data[metadata][payment_id]": input.paymentId,
             "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
             "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
-            "payment_intent_data[metadata][payment_method_category]":
-              input.paymentMethodCategory,
+            "payment_intent_data[metadata][payment_method_category]": input.paymentMethodCategory,
             description: input.description,
             ...paymentMetadataEntries(input),
             "metadata[funds_strategy]": "platform-held",
             "metadata[transfer_group]": `payment:${input.paymentId}`,
-            "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress
-              ? "true"
-              : "false",
-            "metadata[user_agent_collected]": input.clientRiskContext?.userAgent
-              ? "true"
-              : "false",
+            "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress ? "true" : "false",
+            "metadata[user_agent_collected]": input.clientRiskContext?.userAgent ? "true" : "false",
           }),
         },
         {
-          idempotencyKey:
-            input.idempotencyKey ?? `payments:payment:${input.paymentId}:create`,
+          idempotencyKey: input.idempotencyKey ?? `payments:payment:${input.paymentId}:create`,
         },
       );
 
@@ -466,16 +437,11 @@ export function createStripePaymentProcessorGateway(
         processorPaymentReference: body.id,
         processorClientSecret: body.client_secret?.trim() ?? null,
         processorRedirectUrl: body.url?.trim() ?? null,
-        processorStatus:
-          body.payment_status?.trim() ?? body.status?.trim() ?? "open",
+        processorStatus: body.payment_status?.trim() ?? body.status?.trim() ?? "open",
       };
     },
-    async createAgenticPaymentSession(
-      input: AgenticProcessorPaymentInput,
-    ): Promise<CreatedProcessorPayment> {
-      const amount = moneyToMinorUnits(
-        normalizeMoneyAmount(input.amount, "Payment amount"),
-      );
+    async createAgenticPaymentSession(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment> {
+      const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Payment amount"));
       const body = await stripeRequest<StripePaymentIntentResponse>(
         "/v1/payment_intents",
         {
@@ -483,8 +449,7 @@ export function createStripePaymentProcessorGateway(
           body: toFormBody({
             amount: String(amount),
             currency: input.currencyCode,
-            shared_payment_granted_token:
-              input.agenticPayment.sharedPaymentGrantedToken,
+            shared_payment_granted_token: input.agenticPayment.sharedPaymentGrantedToken,
             confirm: "true",
             description: input.description,
             transfer_group: `payment:${input.paymentId}`,
@@ -498,8 +463,7 @@ export function createStripePaymentProcessorGateway(
           }),
         },
         {
-          idempotencyKey:
-            input.idempotencyKey ?? `payments:payment:${input.paymentId}:agentic:create`,
+          idempotencyKey: input.idempotencyKey ?? `payments:payment:${input.paymentId}:agentic:create`,
         },
       );
 
@@ -516,12 +480,8 @@ export function createStripePaymentProcessorGateway(
         processorStatus: body.status?.trim() ?? "requires_confirmation",
       };
     },
-    async createRefund(
-      input: CreateProcessorRefundInput,
-    ): Promise<CreatedProcessorRefund> {
-      const amount = moneyToMinorUnits(
-        normalizeMoneyAmount(input.amount, "Refund amount"),
-      );
+    async createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund> {
+      const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Refund amount"));
       const paymentIntentReference = input.processorPaymentReference.startsWith("cs_")
         ? paymentIntentReferenceFromSession(
             await stripeRequest<StripeCheckoutSessionResponse>(
@@ -535,19 +495,23 @@ export function createStripePaymentProcessorGateway(
         throw new Error("Stripe checkout session does not have a refundable payment intent.");
       }
 
-      const body = await stripeRequest<StripeRefundResponse>("/v1/refunds", {
-        method: "POST",
-        body: toFormBody({
-          payment_intent: paymentIntentReference,
-          amount: String(amount),
-          reason: "requested_by_customer",
-          "metadata[payment_id]": input.paymentId,
-          "metadata[order_ids]": input.orderIds.join(","),
-          "metadata[refund_reason]": input.reason,
-        }),
-      }, {
-        idempotencyKey: `payments:payment:${input.paymentId}:refund:${input.amount}`,
-      });
+      const body = await stripeRequest<StripeRefundResponse>(
+        "/v1/refunds",
+        {
+          method: "POST",
+          body: toFormBody({
+            payment_intent: paymentIntentReference,
+            amount: String(amount),
+            reason: "requested_by_customer",
+            "metadata[payment_id]": input.paymentId,
+            "metadata[order_ids]": input.orderIds.join(","),
+            "metadata[refund_reason]": input.reason,
+          }),
+        },
+        {
+          idempotencyKey: `payments:payment:${input.paymentId}:refund:${input.amount}`,
+        },
+      );
 
       if (!body.id?.trim()) {
         throw new Error("Stripe did not return a refund id.");
@@ -560,12 +524,7 @@ export function createStripePaymentProcessorGateway(
       };
     },
     async parseWebhook(input) {
-      verifyStripeSignature(
-        input.rawBody,
-        input.signatureHeader,
-        options.webhookSecret,
-        webhookToleranceSeconds,
-      );
+      verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret, webhookToleranceSeconds);
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
       return mapWebhookEvent(event);
     },

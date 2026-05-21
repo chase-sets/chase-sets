@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  decideCatalogItem,
-  evolveCatalogItem,
-  initialCatalogItemState,
-  type CatalogItemEvent,
-} from "./domain";
+import { decideCatalogItem, evolveCatalogItem, initialCatalogItemState, type CatalogItemEvent } from "./domain";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
 
@@ -27,13 +22,19 @@ function l10n(en: string, values: Record<string, string> = {}) {
 
 function createdState() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") } },
+    {
+      type: "catalog.catalog-item.created",
+      data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") },
+    },
   ] as CatalogItemEvent[]);
 }
 
 function draftWithBlueprint() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") } },
+    {
+      type: "catalog.catalog-item.created",
+      data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") },
+    },
     { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
     { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
   ] as CatalogItemEvent[]);
@@ -41,7 +42,10 @@ function draftWithBlueprint() {
 
 function activeState() {
   return givenEvents(initialCatalogItemState, evolveCatalogItem, [
-    { type: "catalog.catalog-item.created", data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") } },
+    {
+      type: "catalog.catalog-item.created",
+      data: { itemId, languageCode: "en", title: l10n("Test Card"), subtitle: null, description: l10n("") },
+    },
     { type: "catalog.catalog-item.blueprint-assigned", data: { blueprintId: bpId } },
     { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
     { type: "catalog.catalog-item.published", data: { blueprintId: bpId } },
@@ -67,30 +71,37 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects non-BCP Japanese language code", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, initialCatalogItemState, {
-          type: "CreateCatalogItem" as const,
-          itemId,
-          languageCode: "jp",
-          title: l10n("Test Card"),
-        }),
+        () =>
+          decide(decideCatalogItem, initialCatalogItemState, {
+            type: "CreateCatalogItem" as const,
+            itemId,
+            languageCode: "jp",
+            title: l10n("Test Card"),
+          }),
         'Use the BCP 47 language code "ja" for Japanese.',
       );
     });
 
     it("requires an English title", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, initialCatalogItemState, {
-          type: "CreateCatalogItem" as const,
-          itemId,
-          title: { defaultLocale: "en", values: { ja: "テストカード" } },
-        }),
+        () =>
+          decide(decideCatalogItem, initialCatalogItemState, {
+            type: "CreateCatalogItem" as const,
+            itemId,
+            title: { defaultLocale: "en", values: { ja: "テストカード" } },
+          }),
         "Catalog items require an English title.",
       );
     });
 
     it("rejects creating twice", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), { type: "CreateCatalogItem" as const, itemId: "other" as CatalogItemId, title: l10n("X") }),
+        () =>
+          decide(decideCatalogItem, createdState(), {
+            type: "CreateCatalogItem" as const,
+            itemId: "other" as CatalogItemId,
+            title: l10n("X"),
+          }),
         "Catalog item has already been created.",
       );
     });
@@ -106,7 +117,11 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects blueprint assignment after publish", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, activeState(), { type: "AssignBlueprintToCatalogItem" as const, blueprintId: "bpr_other" as BlueprintId }),
+        () =>
+          decide(decideCatalogItem, activeState(), {
+            type: "AssignBlueprintToCatalogItem" as const,
+            blueprintId: "bpr_other" as BlueprintId,
+          }),
         "Blueprint may only be assigned while draft.",
       );
     });
@@ -128,11 +143,7 @@ describe("CatalogItem aggregate", () => {
         externalKey: " SKU-1 ",
         selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
       });
-      const linkedState = givenEvents(
-        createdState(),
-        evolveCatalogItem,
-        linkedEvents as CatalogItemEvent[],
-      );
+      const linkedState = givenEvents(createdState(), evolveCatalogItem, linkedEvents as CatalogItemEvent[]);
       const unlinkedEvents = decide(decideCatalogItem, linkedState, {
         type: "UnlinkExternalProductReference" as const,
         providerKey: "tcgplayer",
@@ -180,11 +191,7 @@ describe("CatalogItem aggregate", () => {
           },
         },
       });
-      const withFallback = givenEvents(
-        createdState(),
-        evolveCatalogItem,
-        setEvents as CatalogItemEvent[],
-      );
+      const withFallback = givenEvents(createdState(), evolveCatalogItem, setEvents as CatalogItemEvent[]);
       const clearEvents = decide(decideCatalogItem, withFallback, {
         type: "ClearCatalogItemImageFallback" as const,
       });
@@ -204,22 +211,24 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects an item image fallback without alt text", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), {
-          type: "SetCatalogItemImageFallback" as const,
-          imageFallback: {
-            url: "https://assets.example/pokemon-back.webp",
-            alt: "",
-            usage: "loading-only",
-            variants: {},
-          },
-        }),
+        () =>
+          decide(decideCatalogItem, createdState(), {
+            type: "SetCatalogItemImageFallback" as const,
+            imageFallback: {
+              url: "https://assets.example/pokemon-back.webp",
+              alt: "",
+              usage: "loading-only",
+              variants: {},
+            },
+          }),
         "Catalog item image fallback requires alt text.",
       );
     });
 
     it("rejects clearing a non-existent field value", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), { type: "ClearCatalogItemFieldValue" as const, fieldId: fieldA }),
+        () =>
+          decide(decideCatalogItem, createdState(), { type: "ClearCatalogItemFieldValue" as const, fieldId: fieldA }),
         "The item does not contain that field value.",
       );
     });
@@ -256,7 +265,12 @@ describe("CatalogItem aggregate", () => {
 
     it("rejects publish without blueprint", () => {
       expectDomainError(
-        () => decide(decideCatalogItem, createdState(), { type: "PublishCatalogItem" as const, blueprintIsActive: true, requiredFieldIds: [] }),
+        () =>
+          decide(decideCatalogItem, createdState(), {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: true,
+            requiredFieldIds: [],
+          }),
         "Items require a blueprint before publish.",
       );
     });
@@ -267,7 +281,12 @@ describe("CatalogItem aggregate", () => {
       ] as CatalogItemEvent[]);
 
       expectDomainError(
-        () => decide(decideCatalogItem, state, { type: "PublishCatalogItem" as const, blueprintIsActive: false, requiredFieldIds: [] }),
+        () =>
+          decide(decideCatalogItem, state, {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: false,
+            requiredFieldIds: [],
+          }),
         "Items may only publish against active blueprints.",
       );
     });
@@ -278,7 +297,12 @@ describe("CatalogItem aggregate", () => {
       ] as CatalogItemEvent[]);
 
       expectDomainError(
-        () => decide(decideCatalogItem, state, { type: "PublishCatalogItem" as const, blueprintIsActive: true, requiredFieldIds: [fieldA] }),
+        () =>
+          decide(decideCatalogItem, state, {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: true,
+            requiredFieldIds: [fieldA],
+          }),
         "Items must satisfy all required field rules before publish.",
       );
     });
@@ -327,7 +351,12 @@ describe("CatalogItem aggregate", () => {
       ] as CatalogItemEvent[]);
 
       expectDomainError(
-        () => decide(decideCatalogItem, archivedState, { type: "SetCatalogItemFieldValue" as const, fieldId: fieldB, value: "x" }),
+        () =>
+          decide(decideCatalogItem, archivedState, {
+            type: "SetCatalogItemFieldValue" as const,
+            fieldId: fieldB,
+            value: "x",
+          }),
         "Archived items cannot be modified.",
       );
     });

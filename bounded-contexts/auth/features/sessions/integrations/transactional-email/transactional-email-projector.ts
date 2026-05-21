@@ -3,8 +3,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapMagicLinkRequestedToTransactionalEmail } from "./transactional-email-intents";
 
-export const AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION =
-  "auth-session-transactional-email-projection";
+export const AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION = "auth-session-transactional-email-projection";
 
 export type AuthMagicLinkRequestedEvent = Readonly<
   TransportEvent & {
@@ -67,11 +66,6 @@ export function buildAuthSessionTransactionalEmailProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "auth.magic-link.requested": (event) =>
-      projectAuthSessionEventToTransactionalEmail(
-        outbox,
-        deliveryTokens,
-        event,
-        projectionName,
-      ),
+      projectAuthSessionEventToTransactionalEmail(outbox, deliveryTokens, event, projectionName),
   };
 }

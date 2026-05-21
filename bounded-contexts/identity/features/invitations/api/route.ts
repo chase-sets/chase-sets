@@ -70,7 +70,10 @@ export function invitationRoutes(services: InvitationServices) {
   app.get("/:id", async (c) => {
     const invitation = await services.getInvitation(c.req.param("id"));
     if (!invitation) {
-      return c.json({ error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
+        404,
+      );
     }
     return c.json(invitation);
   });

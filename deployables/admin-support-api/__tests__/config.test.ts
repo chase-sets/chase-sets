@@ -3,13 +3,7 @@ import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { getContextDatabaseEnvName, loadConfig } from "../src/config";
 
-const adminSupportContextNames = [
-  "auth",
-  "catalog",
-  "experience",
-  "identity",
-  "public-presence",
-] as const;
+const adminSupportContextNames = ["auth", "catalog", "experience", "identity", "public-presence"] as const;
 
 describe("admin-support API configuration", () => {
   afterEach(() => {
@@ -17,9 +11,9 @@ describe("admin-support API configuration", () => {
   });
 
   it("selects only the landing/admin-support bounded contexts", () => {
-    expect(
-      [...getApiHostContextNames(apiContextRegistry, "admin-support-api")].sort(),
-    ).toEqual([...adminSupportContextNames].sort());
+    expect([...getApiHostContextNames(apiContextRegistry, "admin-support-api")].sort()).toEqual(
+      [...adminSupportContextNames].sort(),
+    );
   });
 
   it("loads production config without Stripe, EasyPost, payment, or marketplace requirements", () => {
@@ -44,10 +38,7 @@ describe("admin-support API configuration", () => {
       accountName: "Chase Sets Platform",
     });
     expect(config.deploymentEnvironment).toBe("production");
-    expect(config.dataProfiles).toEqual([
-      "critical-bootstrap",
-      "catalog-integration-bootstrap",
-    ]);
+    expect(config.dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
     expect(config.catalogAssetStorage).toMatchObject({
       kind: "s3",
       bucket: "catalog-assets",
@@ -73,11 +64,7 @@ describe("admin-support API configuration", () => {
     const config = loadConfig();
 
     expect(config.deploymentEnvironment).toBe("test");
-    expect(config.dataProfiles).toEqual([
-      "critical-bootstrap",
-      "catalog-integration-bootstrap",
-      "scenario-seed",
-    ]);
+    expect(config.dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]);
     expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",
       rootDir: "artifacts/catalog-assets",
@@ -92,18 +79,12 @@ describe("admin-support API configuration", () => {
     vi.stubEnv("CATALOG_ASSET_STORAGE_KIND", "s3");
     vi.stubEnv("CATALOG_ASSET_S3_BUCKET", "catalog-assets-staging");
     vi.stubEnv("CATALOG_ASSET_S3_REGION", "nyc3");
-    vi.stubEnv(
-      "CATALOG_ASSET_PUBLIC_BASE_URL",
-      "https://assets.staging.chasesets.com",
-    );
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.staging.chasesets.com");
 
     const config = loadConfig();
 
     expect(config.deploymentEnvironment).toBe("staging");
-    expect(config.dataProfiles).toEqual([
-      "critical-bootstrap",
-      "catalog-integration-bootstrap",
-    ]);
+    expect(config.dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
   });
 
   it("allows explicit admin-support bootstrap profile overrides", () => {
@@ -124,9 +105,7 @@ describe("admin-support API configuration", () => {
     vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "dev-internal-secret");
     vi.stubEnv("PLATFORM_DATA_PROFILES", "scenario-seed,unknown");
 
-    expect(() => loadConfig()).toThrow(
-      "PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.",
-    );
+    expect(() => loadConfig()).toThrow("PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.");
   });
 
   it("requires platform admin email and password to be configured together", () => {
@@ -134,8 +113,6 @@ describe("admin-support API configuration", () => {
     vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "production-internal-secret");
     vi.stubEnv("PLATFORM_ADMIN_EMAIL", "ops@chasesets.com");
 
-    expect(() => loadConfig()).toThrow(
-      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.",
-    );
+    expect(() => loadConfig()).toThrow("PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.");
   });
 });

@@ -8,10 +8,7 @@ import type {
   ProductMeasureConfidence,
 } from "@chase-sets/product-measures";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
-import {
-  listProductMeasureProfiles,
-  listResolvedProductMeasures,
-} from "../read-model/queries";
+import { listProductMeasureProfiles, listResolvedProductMeasures } from "../read-model/queries";
 
 type ProductMeasureProfileInput = Readonly<{
   profileId: string;
@@ -56,37 +53,25 @@ type ProductDimension = NonNullable<ProductSchema["dimensions"]>[number];
 
 export type ProductMeasureServices = Readonly<{
   upsertProfile: (profile: ProductMeasureProfileInput) => Promise<void>;
-  resolveCatalogItemMeasures: (
-    catalogItemId: string,
-    context?: EventStoreContext,
-  ) => Promise<void>;
+  resolveCatalogItemMeasures: (catalogItemId: string, context?: EventStoreContext) => Promise<void>;
   resolveAllCatalogItemMeasures: (context?: EventStoreContext) => Promise<void>;
   listProductMeasureProfiles: () => ReturnType<typeof listProductMeasureProfiles>;
-  listResolvedProductMeasures: (
-    catalogItemId?: string | null,
-  ) => ReturnType<typeof listResolvedProductMeasures>;
+  listResolvedProductMeasures: (catalogItemId?: string | null) => ReturnType<typeof listResolvedProductMeasures>;
   projectors: readonly [];
 }>;
 
-export function createProductMeasureRuntime(
-  deps: CatalogRuntimeDeps,
-): ProductMeasureServices {
+export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMeasureServices {
   return {
     upsertProfile: (profile) => upsertProfile(deps.db, profile),
-    resolveCatalogItemMeasures: (catalogItemId, context) =>
-      resolveCatalogItemMeasures(deps, catalogItemId, context),
+    resolveCatalogItemMeasures: (catalogItemId, context) => resolveCatalogItemMeasures(deps, catalogItemId, context),
     resolveAllCatalogItemMeasures: (context) => resolveAllCatalogItemMeasures(deps, context),
     listProductMeasureProfiles: () => listProductMeasureProfiles(deps.db),
-    listResolvedProductMeasures: (catalogItemId) =>
-      listResolvedProductMeasures(deps.db, catalogItemId),
+    listResolvedProductMeasures: (catalogItemId) => listResolvedProductMeasures(deps.db, catalogItemId),
     projectors: [],
   };
 }
 
-async function upsertProfile(
-  db: PgQueryable,
-  profile: ProductMeasureProfileInput,
-) {
+async function upsertProfile(db: PgQueryable, profile: ProductMeasureProfileInput) {
   const measure: Omit<ProductMeasureSnapshot, "catalogItemId" | "productId" | "selectedOptions"> = {
     measureVersion: `${profile.key}:v1`,
     unitLengthInches: profile.unitLengthInches,
@@ -135,10 +120,7 @@ async function upsertProfile(
   );
 }
 
-async function resolveAllCatalogItemMeasures(
-  deps: CatalogRuntimeDeps,
-  context?: EventStoreContext,
-) {
+async function resolveAllCatalogItemMeasures(deps: CatalogRuntimeDeps, context?: EventStoreContext) {
   const result = await deps.db.query<{ catalog_item_id: string }>(
     `SELECT catalog_item_id FROM catalog_items ORDER BY catalog_item_id ASC`,
   );
@@ -161,16 +143,11 @@ async function resolveCatalogItemMeasures(
 
   const profiles = await listProductMeasureProfiles(db);
   const products = enumerateProducts(item);
-  await db.query(
-    `DELETE FROM catalog_resolved_product_measures WHERE catalog_item_id = $1`,
-    [catalogItemId],
-  );
+  await db.query(`DELETE FROM catalog_resolved_product_measures WHERE catalog_item_id = $1`, [catalogItemId]);
 
   const resolvedProducts: ProductMeasureSnapshot[] = [];
   for (const product of products) {
-    const profile = profiles.find((candidate) =>
-      profileMatches(candidate, item, product.selectedOptions),
-    );
+    const profile = profiles.find((candidate) => profileMatches(candidate, item, product.selectedOptions));
     const measure = profile
       ? {
           ...profile.measure_snapshot,
@@ -213,21 +190,20 @@ async function resolveCatalogItemMeasures(
       streamId: `catalog.product-measures-${catalogItemId}`,
       expectedVersion: "any",
       context,
-      events: [{
-        eventType: "catalog.catalog-item.product-measures-resolved",
-        payload: {
-          catalogItemId,
-          products: resolvedProducts as unknown as JsonObject["products"],
-        } as JsonObject,
-      }],
+      events: [
+        {
+          eventType: "catalog.catalog-item.product-measures-resolved",
+          payload: {
+            catalogItemId,
+            products: resolvedProducts as unknown as JsonObject["products"],
+          } as JsonObject,
+        },
+      ],
     });
   }
 }
 
-async function loadCatalogProductRow(
-  db: PgQueryable,
-  catalogItemId: string,
-): Promise<CatalogProductRow | null> {
+async function loadCatalogProductRow(db: PgQueryable, catalogItemId: string): Promise<CatalogProductRow | null> {
   const result = await db.query<CatalogProductRow>(
     `SELECT item.catalog_item_id,
        item.blueprint_id,
@@ -246,10 +222,12 @@ async function loadCatalogProductRow(
 function enumerateProducts(item: CatalogProductRow) {
   const schema = productSchemaFromCatalogProduct(item);
   if (!schema?.dimensions || schema.dimensions.length === 0) {
-    return [{
-      productId: `${item.catalog_item_id}::`,
-      selectedOptions: [] as { dimensionId: string; optionId: string }[],
-    }];
+    return [
+      {
+        productId: `${item.catalog_item_id}::`,
+        selectedOptions: [] as { dimensionId: string; optionId: string }[],
+      },
+    ];
   }
 
   const dimensions = schema.dimensions
@@ -266,21 +244,15 @@ function enumerateProducts(item: CatalogProductRow) {
       })),
     }))
     .filter((dimension) => dimension.dimensionId.length > 0);
-  const order = (schema.canonicalDimensionOrder ?? dimensions.map((dimension) => dimension.dimensionId))
-    .map(String);
+  const order = (schema.canonicalDimensionOrder ?? dimensions.map((dimension) => dimension.dimensionId)).map(String);
   const products: Array<{
     productId: string;
     selectedOptions: { dimensionId: string; optionId: string }[];
   }> = [];
 
-  const visit = (
-    index: number,
-    selectedOptions: { dimensionId: string; optionId: string }[],
-  ) => {
+  const visit = (index: number, selectedOptions: { dimensionId: string; optionId: string }[]) => {
     if (index >= order.length) {
-      const selectedByDimension = new Map(
-        selectedOptions.map((entry) => [entry.dimensionId, entry.optionId]),
-      );
+      const selectedByDimension = new Map(selectedOptions.map((entry) => [entry.dimensionId, entry.optionId]));
       products.push({
         productId: `${item.catalog_item_id}::${order
           .map((dimensionId) => `${dimensionId}:${selectedByDimension.get(dimensionId) ?? "-"}`)
@@ -337,9 +309,7 @@ function dimensionActive(
   selectedOptions: readonly { dimensionId: string; optionId: string }[],
 ) {
   return dimension.appliesWhen.every((clause) => {
-    const selectedOptionId = selectedOptions.find(
-      (entry) => entry.dimensionId === clause.dimensionId,
-    )?.optionId;
+    const selectedOptionId = selectedOptions.find((entry) => entry.dimensionId === clause.dimensionId)?.optionId;
     return selectedOptionId ? clause.optionIds.includes(selectedOptionId) : false;
   });
 }
@@ -355,9 +325,7 @@ function profileMatches(
   if (profile.match_blueprint_id && profile.match_blueprint_id !== item.blueprint_id) {
     return false;
   }
-  const categoryIds = Array.isArray(item.category_ids)
-    ? item.category_ids.map(String)
-    : [];
+  const categoryIds = Array.isArray(item.category_ids) ? item.category_ids.map(String) : [];
   if (
     profile.match_category_ids.length > 0 &&
     !profile.match_category_ids.every((categoryId) => categoryIds.includes(categoryId))
@@ -366,9 +334,7 @@ function profileMatches(
   }
   return profile.match_selected_options.every((required) =>
     selectedOptions.some(
-      (selected) =>
-        selected.dimensionId === required.dimensionId &&
-        selected.optionId === required.optionId,
+      (selected) => selected.dimensionId === required.dimensionId && selected.optionId === required.optionId,
     ),
   );
 }

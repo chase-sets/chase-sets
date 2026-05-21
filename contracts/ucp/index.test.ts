@@ -26,22 +26,22 @@ describe("UCP contract profile", () => {
         endpoint: `https://marketplace.example${UCP_MCP_ENDPOINT_PATH}`,
       }),
     ]);
-    expect(profile.ucp.supported_versions[UCP_VERSION]).toBe(
-      "https://marketplace.example/.well-known/ucp",
-    );
+    expect(profile.ucp.supported_versions[UCP_VERSION]).toBe("https://marketplace.example/.well-known/ucp");
   });
 
   it("declares the v1 capability set used by the profile", () => {
     const profile = buildUcpBusinessProfile("https://marketplace.example");
 
-    expect(Object.keys(profile.ucp.capabilities).sort()).toEqual([
-      UCP_CAPABILITIES.ap2Mandate,
-      UCP_CAPABILITIES.catalogLookup,
-      UCP_CAPABILITIES.catalogSearch,
-      UCP_CAPABILITIES.checkout,
-      UCP_CAPABILITIES.identityLinking,
-      UCP_CAPABILITIES.order,
-    ].sort());
+    expect(Object.keys(profile.ucp.capabilities).sort()).toEqual(
+      [
+        UCP_CAPABILITIES.ap2Mandate,
+        UCP_CAPABILITIES.catalogLookup,
+        UCP_CAPABILITIES.catalogSearch,
+        UCP_CAPABILITIES.checkout,
+        UCP_CAPABILITIES.identityLinking,
+        UCP_CAPABILITIES.order,
+      ].sort(),
+    );
     expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]?.config).toEqual({
       completion_requires_trusted_ui_without_ap2_mandate: true,
     });
@@ -50,9 +50,10 @@ describe("UCP contract profile", () => {
 
 describe("UCP MCP tools", () => {
   it("keeps risky checkout completion and cancellation idempotency-keyed", () => {
-    expect(
-      UCP_MCP_TOOLS.filter((tool) => tool.idempotencyKeyRequired).map((tool) => tool.name),
-    ).toEqual(["complete_checkout", "cancel_checkout"]);
+    expect(UCP_MCP_TOOLS.filter((tool) => tool.idempotencyKeyRequired).map((tool) => tool.name)).toEqual([
+      "complete_checkout",
+      "cancel_checkout",
+    ]);
   });
 
   it("declares ChatGPT Apps-compatible schemas, auth, and annotations", () => {
@@ -85,9 +86,10 @@ describe("UCP MCP tools", () => {
       }),
     ]);
     expect(
-      UCP_MCP_TOOLS
-        .filter((tool) => tool.capability === UCP_CAPABILITIES.catalogSearch || tool.capability === UCP_CAPABILITIES.catalogLookup)
-        .map((tool) => [tool.name, tool.resultResourceUri]),
+      UCP_MCP_TOOLS.filter(
+        (tool) =>
+          tool.capability === UCP_CAPABILITIES.catalogSearch || tool.capability === UCP_CAPABILITIES.catalogLookup,
+      ).map((tool) => [tool.name, tool.resultResourceUri]),
     ).toEqual([
       ["search_catalog", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],
       ["lookup_catalog", UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI],

@@ -8,25 +8,16 @@ import {
   type DiscoverySearchParams,
   type ListResult,
 } from "../read-model/queries";
-import {
-  buildDiscoverySearchItemProjectionHandlers,
-  rebuildDiscoverySearchIndex,
-} from "../read-model/projection";
+import { buildDiscoverySearchItemProjectionHandlers, rebuildDiscoverySearchIndex } from "../read-model/projection";
 
 export type DiscoveryItemSearchServices = Readonly<{
-  searchItems: (
-    params?: DiscoverySearchParams,
-  ) => Promise<ListResult<DiscoverySearchItemRow>>;
-  previewBulkAdd: (
-    params?: DiscoverySearchParams,
-  ) => Promise<DiscoveryBulkCartPreview>;
+  searchItems: (params?: DiscoverySearchParams) => Promise<ListResult<DiscoverySearchItemRow>>;
+  previewBulkAdd: (params?: DiscoverySearchParams) => Promise<DiscoveryBulkCartPreview>;
   rebuildSearchIndex: () => Promise<void>;
   projectors: readonly Projector[];
 }>;
 
-export function createDiscoveryItemSearchRuntime(
-  deps: DiscoveryRuntimeDeps,
-): DiscoveryItemSearchServices {
+export function createDiscoveryItemSearchRuntime(deps: DiscoveryRuntimeDeps): DiscoveryItemSearchServices {
   return {
     searchItems: (params = {}) => searchDiscoveryItems(deps.db, params),
     previewBulkAdd: (params = {}) => previewBulkAddSearchResults(deps.db, params),

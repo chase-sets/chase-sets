@@ -21,10 +21,7 @@ function parseCookieHeader(cookieHeader: string | null) {
           return [part, ""];
         }
 
-        return [
-          part.slice(0, separatorIndex),
-          decodeURIComponent(part.slice(separatorIndex + 1)),
-        ];
+        return [part.slice(0, separatorIndex), decodeURIComponent(part.slice(separatorIndex + 1))];
       }),
   );
 }
@@ -40,10 +37,7 @@ function serializeCookie(name: string, value: string, maxAgeSeconds: number) {
 }
 
 export function readAnonymousCartId(request: Request) {
-  const value =
-    parseCookieHeader(request.headers.get("cookie")).get(
-      CHECKOUT_ANONYMOUS_CART_COOKIE_NAME,
-    ) ?? null;
+  const value = parseCookieHeader(request.headers.get("cookie")).get(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME) ?? null;
   return value?.startsWith("anon_") ? value : null;
 }
 
@@ -54,31 +48,18 @@ export function ensureAnonymousCartId(request: Request) {
 export function appendAnonymousCartCookie(headers: Headers, anonymousCartId: string) {
   headers.append(
     "Set-Cookie",
-    serializeCookie(
-      CHECKOUT_ANONYMOUS_CART_COOKIE_NAME,
-      anonymousCartId,
-      THIRTY_DAYS_SECONDS,
-    ),
+    serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, anonymousCartId, THIRTY_DAYS_SECONDS),
   );
 }
 
 export function appendGuestCheckoutCookie(headers: Headers, guestToken: string) {
-  headers.append(
-    "Set-Cookie",
-    serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, guestToken, ONE_DAY_SECONDS),
-  );
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, guestToken, ONE_DAY_SECONDS));
 }
 
 export function appendClearedAnonymousCartCookie(headers: Headers) {
-  headers.append(
-    "Set-Cookie",
-    serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, "", 0),
-  );
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, "", 0));
 }
 
 export function appendClearedGuestCheckoutCookie(headers: Headers) {
-  headers.append(
-    "Set-Cookie",
-    serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, "", 0),
-  );
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, "", 0));
 }

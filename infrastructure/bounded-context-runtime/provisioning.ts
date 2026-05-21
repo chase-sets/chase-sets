@@ -3,10 +3,7 @@ type PgAdminQueryResult<Row> = Readonly<{
 }>;
 
 type PgAdminPool = Readonly<{
-  query: <Row = Record<string, unknown>>(
-    sql: string,
-    params?: readonly unknown[],
-  ) => Promise<PgAdminQueryResult<Row>>;
+  query: <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => Promise<PgAdminQueryResult<Row>>;
 }>;
 
 export type OwnedPostgresDatabase = Readonly<{
@@ -63,10 +60,7 @@ export function parseOwnedDatabaseUrl(databaseUrl: string): OwnedPostgresDatabas
   };
 }
 
-async function ensureOwnedPostgresDatabase(
-  adminPool: PgAdminPool,
-  spec: OwnedPostgresDatabase,
-): Promise<void> {
+async function ensureOwnedPostgresDatabase(adminPool: PgAdminPool, spec: OwnedPostgresDatabase): Promise<void> {
   const roleExists = await adminPool.query<{ exists: boolean }>(
     "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
     [spec.roleName],
@@ -106,9 +100,7 @@ export async function ensureOwnedPostgresDatabases(
   adminPool: PgAdminPool,
   databaseUrls: readonly string[] | Readonly<Record<string, string>>,
 ): Promise<void> {
-  const urls = Array.isArray(databaseUrls)
-    ? databaseUrls
-    : Object.values(databaseUrls);
+  const urls = Array.isArray(databaseUrls) ? databaseUrls : Object.values(databaseUrls);
   const uniqueSpecs = new Map(
     urls
       .map((databaseUrl) => parseOwnedDatabaseUrl(databaseUrl))

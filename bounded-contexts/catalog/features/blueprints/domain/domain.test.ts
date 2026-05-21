@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  decideBlueprint,
-  evolveBlueprint,
-  initialBlueprintState,
-  type BlueprintEvent,
-} from "./domain";
+import { decideBlueprint, evolveBlueprint, initialBlueprintState, type BlueprintEvent } from "./domain";
 import type { BlueprintId, ComponentId, DimensionId, FieldId, OptionId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
@@ -18,27 +13,42 @@ const l10n = localizedTextMapFromEnglish;
 
 function createdState() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
+    {
+      type: "catalog.blueprint.created",
+      data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") },
+    },
   ] as BlueprintEvent[]);
 }
 
 function withDimensions() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
-    { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [
-      { dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] },
-      { dimensionId: dimB, required: true, allowedOptionIds: [], appliesWhen: [] },
-    ] } },
+    {
+      type: "catalog.blueprint.created",
+      data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") },
+    },
+    {
+      type: "catalog.blueprint.dimensions-set",
+      data: {
+        dimensionRules: [
+          { dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] },
+          { dimensionId: dimB, required: true, allowedOptionIds: [], appliesWhen: [] },
+        ],
+      },
+    },
     { type: "catalog.blueprint.product-resolution-rules-set", data: { canonicalDimensionOrder: [dimA, dimB] } },
   ] as BlueprintEvent[]);
 }
 
 function activeState() {
   return givenEvents(initialBlueprintState, evolveBlueprint, [
-    { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
-    { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [
-      { dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] },
-    ] } },
+    {
+      type: "catalog.blueprint.created",
+      data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") },
+    },
+    {
+      type: "catalog.blueprint.dimensions-set",
+      data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] },
+    },
     { type: "catalog.blueprint.product-resolution-rules-set", data: { canonicalDimensionOrder: [dimA] } },
     { type: "catalog.blueprint.published", data: {} },
   ] as BlueprintEvent[]);
@@ -87,43 +97,55 @@ describe("Blueprint aggregate", () => {
     it("normalizes conditional applicability on dimension rules", () => {
       const events = decide(decideBlueprint, createdState(), {
         type: "SetBlueprintDimensions" as const,
-        dimensionRules: [{
-          dimensionId: dimA,
-          required: true,
-          allowedOptionIds: [] as OptionId[],
-          appliesWhen: [{ dimensionId: dimB, optionIds: ["chc_b" as OptionId, "chc_a" as OptionId, "chc_b" as OptionId] }],
-        }],
+        dimensionRules: [
+          {
+            dimensionId: dimA,
+            required: true,
+            allowedOptionIds: [] as OptionId[],
+            appliesWhen: [
+              { dimensionId: dimB, optionIds: ["chc_b" as OptionId, "chc_a" as OptionId, "chc_b" as OptionId] },
+            ],
+          },
+        ],
       });
 
       expect(events[0]).toMatchObject({
         type: "catalog.blueprint.dimensions-set",
         data: {
-          dimensionRules: [{
-            dimensionId: dimA,
-            appliesWhen: [{ dimensionId: dimB, optionIds: ["chc_a", "chc_b"] }],
-          }],
+          dimensionRules: [
+            {
+              dimensionId: dimA,
+              appliesWhen: [{ dimensionId: dimB, optionIds: ["chc_a", "chc_b"] }],
+            },
+          ],
         },
       });
     });
 
     it("rejects self-referential applicability on dimension rules", () => {
       expectDomainError(
-        () => decide(decideBlueprint, createdState(), {
-          type: "SetBlueprintDimensions" as const,
-          dimensionRules: [{
-            dimensionId: dimA,
-            required: true,
-            allowedOptionIds: [] as OptionId[],
-            appliesWhen: [{ dimensionId: dimA, optionIds: ["chc_a" as OptionId] }],
-          }],
-        }),
+        () =>
+          decide(decideBlueprint, createdState(), {
+            type: "SetBlueprintDimensions" as const,
+            dimensionRules: [
+              {
+                dimensionId: dimA,
+                required: true,
+                allowedOptionIds: [] as OptionId[],
+                appliesWhen: [{ dimensionId: dimA, optionIds: ["chc_a" as OptionId] }],
+              },
+            ],
+          }),
         "Dimension rules cannot depend on their own dimension.",
       );
     });
 
     it("sets product resolution rules", () => {
       const state = givenEvents(createdState(), evolveBlueprint, [
-        { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] } },
+        {
+          type: "catalog.blueprint.dimensions-set",
+          data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] },
+        },
       ] as BlueprintEvent[]);
 
       const events = decide(decideBlueprint, state, {
@@ -136,7 +158,11 @@ describe("Blueprint aggregate", () => {
 
     it("rejects product resolution rules that do not match dimensions", () => {
       expectDomainError(
-        () => decide(decideBlueprint, createdState(), { type: "SetBlueprintProductResolutionRules" as const, canonicalDimensionOrder: [dimA] }),
+        () =>
+          decide(decideBlueprint, createdState(), {
+            type: "SetBlueprintProductResolutionRules" as const,
+            canonicalDimensionOrder: [dimA],
+          }),
         "Blueprint product resolution rules must include exactly the current dimensions.",
       );
     });
@@ -150,7 +176,10 @@ describe("Blueprint aggregate", () => {
 
     it("rejects publishing without canonical order for every dimension", () => {
       const state = givenEvents(createdState(), evolveBlueprint, [
-        { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] } },
+        {
+          type: "catalog.blueprint.dimensions-set",
+          data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] },
+        },
       ] as BlueprintEvent[]);
 
       expectDomainError(
@@ -194,10 +223,24 @@ describe("Blueprint aggregate", () => {
 
     it("evolves dimensions-set and prunes orphaned canonical order", () => {
       const state = givenEvents(initialBlueprintState, evolveBlueprint, [
-        { type: "catalog.blueprint.created", data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") } },
-        { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [] }, { dimensionId: dimB, required: true, allowedOptionIds: [] }] } },
+        {
+          type: "catalog.blueprint.created",
+          data: { blueprintId: bpId, key: "card", name: l10n("Card"), description: l10n("") },
+        },
+        {
+          type: "catalog.blueprint.dimensions-set",
+          data: {
+            dimensionRules: [
+              { dimensionId: dimA, required: true, allowedOptionIds: [] },
+              { dimensionId: dimB, required: true, allowedOptionIds: [] },
+            ],
+          },
+        },
         { type: "catalog.blueprint.product-resolution-rules-set", data: { canonicalDimensionOrder: [dimA, dimB] } },
-        { type: "catalog.blueprint.dimensions-set", data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] } },
+        {
+          type: "catalog.blueprint.dimensions-set",
+          data: { dimensionRules: [{ dimensionId: dimA, required: true, allowedOptionIds: [], appliesWhen: [] }] },
+        },
       ] as BlueprintEvent[]);
 
       expect(state.canonicalDimensionOrder).toEqual([dimA]);

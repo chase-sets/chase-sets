@@ -30,13 +30,7 @@ for (const filePath of await collectFiles(repoRoot, {
   skippedDirectories: defaultSkippedDirectories,
 })) {
   const sourceText = readFileSync(filePath, "utf8");
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    sourceText,
-    ts.ScriptTarget.Latest,
-    true,
-    sourceKindFor(filePath),
-  );
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, sourceKindFor(filePath));
   visitNode(sourceFile, sourceFile);
 }
 

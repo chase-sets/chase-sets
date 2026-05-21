@@ -4,12 +4,14 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CommercialTermsResolver } from "../../api";
 
 export type ListingPhotoStorage = Readonly<{
-  putObject(input: Readonly<{
-    key: string;
-    body: Uint8Array;
-    contentType: string;
-    cacheControl?: string;
-  }>): Promise<Readonly<{ key: string; publicUrl: string }>>;
+  putObject(
+    input: Readonly<{
+      key: string;
+      body: Uint8Array;
+      contentType: string;
+      cacheControl?: string;
+    }>,
+  ): Promise<Readonly<{ key: string; publicUrl: string }>>;
 }>;
 
 export type MarketplaceRuntimeDeps = Readonly<{

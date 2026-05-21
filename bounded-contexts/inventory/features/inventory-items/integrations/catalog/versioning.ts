@@ -35,9 +35,7 @@ export type InventoryProductDescriptor = Readonly<{
   selection: InventorySelectedOptionEntry[];
 }>;
 
-export function toInventoryItemProductSchema(
-  schema: InventoryProductSchema | null,
-): InventoryProductSchema | null {
+export function toInventoryItemProductSchema(schema: InventoryProductSchema | null): InventoryProductSchema | null {
   return schema;
 }
 
@@ -45,26 +43,16 @@ export function getOptionLabel(option: InventoryProductOption): string {
   return option.label || option.code;
 }
 
-export function isDimensionActive(
-  dimension: InventoryProductDimension,
-  selections: Record<string, string>,
-): boolean {
+export function isDimensionActive(dimension: InventoryProductDimension, selections: Record<string, string>): boolean {
   return dimension.appliesWhen.every((clause) => {
     const selectedOptionId = selections[clause.dimensionId];
-    return (
-      selectedOptionId !== undefined &&
-      clause.optionIds.includes(selectedOptionId)
-    );
+    return selectedOptionId !== undefined && clause.optionIds.includes(selectedOptionId);
   });
 }
 
-export function getOrderedDimensions(
-  schema: InventoryProductSchema,
-): InventoryProductDimension[] {
+export function getOrderedDimensions(schema: InventoryProductSchema): InventoryProductDimension[] {
   return schema.canonicalDimensionOrder
-    .map((order) =>
-      schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId),
-    )
+    .map((order) => schema.dimensions.find((dimension) => dimension.dimensionId === order.dimensionId))
     .filter((dimension): dimension is InventoryProductDimension => dimension !== undefined);
 }
 
@@ -100,12 +88,8 @@ export function normalizeSelectedOptionssForSchema(
   return nextSelections;
 }
 
-export function selectionEntriesToRecord(
-  selection: readonly InventorySelectedOptionEntry[],
-): Record<string, string> {
-  return Object.fromEntries(
-    selection.map((entry) => [entry.dimensionId, entry.optionId]),
-  );
+export function selectionEntriesToRecord(selection: readonly InventorySelectedOptionEntry[]): Record<string, string> {
+  return Object.fromEntries(selection.map((entry) => [entry.dimensionId, entry.optionId]));
 }
 
 export function recordToSelectionEntries(
@@ -124,14 +108,10 @@ export function recordToSelectionEntries(
         optionId,
       };
     })
-    .filter(
-      (entry): entry is InventorySelectedOptionEntry => entry !== null,
-    );
+    .filter((entry): entry is InventorySelectedOptionEntry => entry !== null);
 }
 
-export function parseSelectedOptionsInput(
-  value: unknown,
-): InventorySelectedOptionEntry[] {
+export function parseSelectedOptionsInput(value: unknown): InventorySelectedOptionEntry[] {
   if (Array.isArray(value)) {
     return value
       .map((entry) => {
@@ -149,9 +129,7 @@ export function parseSelectedOptionsInput(
 
         return null;
       })
-      .filter(
-        (entry): entry is InventorySelectedOptionEntry => entry !== null,
-      );
+      .filter((entry): entry is InventorySelectedOptionEntry => entry !== null);
   }
 
   if (typeof value === "string") {
@@ -166,11 +144,13 @@ export function parseSelectedOptionsInput(
   return [];
 }
 
-export function createInventoryProductDescriptor(input: Readonly<{
-  catalogItemId: string;
-  productSchema: InventoryProductSchema | null;
-  selection: readonly InventorySelectedOptionEntry[];
-}>): InventoryProductDescriptor {
+export function createInventoryProductDescriptor(
+  input: Readonly<{
+    catalogItemId: string;
+    productSchema: InventoryProductSchema | null;
+    selection: readonly InventorySelectedOptionEntry[];
+  }>,
+): InventoryProductDescriptor {
   const catalogItemId = input.catalogItemId.trim();
   assert(catalogItemId.length > 0, "Catalog item id is required.");
 
@@ -197,10 +177,7 @@ export function validateSelectedOptions(
   selection: readonly InventorySelectedOptionEntry[],
 ): InventorySelectedOptionEntry[] {
   if (!schema || schema.dimensions.length === 0) {
-    assert(
-      selection.length === 0,
-      "Selected options are not allowed for this catalog item.",
-    );
+    assert(selection.length === 0, "Selected options are not allowed for this catalog item.");
     return [];
   }
 
@@ -208,10 +185,7 @@ export function validateSelectedOptions(
   const seenDimensionIds = new Set<string>();
 
   for (const entry of selection) {
-    assert(
-      !seenDimensionIds.has(entry.dimensionId),
-      "Selected options may include each dimension at most once.",
-    );
+    assert(!seenDimensionIds.has(entry.dimensionId), "Selected options may include each dimension at most once.");
     seenDimensionIds.add(entry.dimensionId);
   }
 
@@ -220,18 +194,12 @@ export function validateSelectedOptions(
     const selectedOptionId = selections[dimension.dimensionId];
 
     if (!active) {
-      assert(
-        selectedOptionId === undefined,
-        "Selected options cannot include inactive dimensions.",
-      );
+      assert(selectedOptionId === undefined, "Selected options cannot include inactive dimensions.");
       continue;
     }
 
     if (selectedOptionId === undefined) {
-      assert(
-        !dimension.required,
-        `Selected options must include ${dimension.dimensionName}.`,
-      );
+      assert(!dimension.required, `Selected options must include ${dimension.dimensionName}.`);
       continue;
     }
 
@@ -242,9 +210,7 @@ export function validateSelectedOptions(
   }
 
   assert(
-    selection.every((entry) =>
-      schema.dimensions.some((dimension) => dimension.dimensionId === entry.dimensionId),
-    ),
+    selection.every((entry) => schema.dimensions.some((dimension) => dimension.dimensionId === entry.dimensionId)),
     "Selected options cannot include unknown dimensions.",
   );
 
@@ -268,9 +234,7 @@ export function summarizeSelectedOptions(
         return null;
       }
 
-      const option = dimension.allowedOptions.find(
-        (candidate) => candidate.optionId === optionId,
-      );
+      const option = dimension.allowedOptions.find((candidate) => candidate.optionId === optionId);
       if (!option) {
         return null;
       }

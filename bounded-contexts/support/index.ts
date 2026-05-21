@@ -17,19 +17,12 @@ import {
   buildSupportShipmentSourceProjectionHandlers,
 } from "./features/support-requests/integrations/source/source-projection";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -52,14 +45,8 @@ export const module: BcApiModule<SupportServices, PgTransactionalPool, void> = {
   buildApis: (services) => [buildSupportApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const orderSubscription = getEventSubscription(
-      "ordering",
-      "support-order-source-projection",
-    );
-    const shipmentSubscription = getEventSubscription(
-      "fulfillment",
-      "support-shipment-source-projection",
-    );
+    const orderSubscription = getEventSubscription("ordering", "support-order-source-projection");
+    const shipmentSubscription = getEventSubscription("fulfillment", "support-shipment-source-projection");
 
     return [
       {

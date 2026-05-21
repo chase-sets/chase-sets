@@ -50,9 +50,7 @@ export type HealthStatus = Readonly<{
 
 export function createHealthRoutes(
   options: Readonly<{
-    getProjectionReplay?: () =>
-      | HealthProjectionReplaySummary
-      | Promise<HealthProjectionReplaySummary>;
+    getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
     readinessChecks?: readonly ReadinessCheck[];
   }> = {},
 ): Hono {
@@ -101,9 +99,7 @@ async function resolveReadiness(
       }
     }),
   );
-  const status = checks.some((check) => check.status === "degraded")
-    ? "degraded"
-    : "ok";
+  const status = checks.some((check) => check.status === "degraded") ? "degraded" : "ok";
 
   return {
     status,
@@ -112,9 +108,7 @@ async function resolveReadiness(
 }
 
 async function resolveHealthStatus(
-  getProjectionReplay:
-    | (() => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>)
-    | undefined,
+  getProjectionReplay: (() => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>) | undefined,
 ): Promise<HealthStatus> {
   if (!getProjectionReplay) {
     return { status: "ok" };

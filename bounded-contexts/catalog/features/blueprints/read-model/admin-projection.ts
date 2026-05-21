@@ -30,14 +30,10 @@ type BaseBlueprintRow = Readonly<{
   updated_at: string;
 }>;
 
-export async function refreshCatalogAdminBlueprintDetailPage(
-  db: PgQueryable,
-  blueprintId: string,
-): Promise<void> {
-  const result = await db.query<BaseBlueprintRow>(
-    `SELECT * FROM catalog_blueprints WHERE blueprint_id = $1`,
-    [blueprintId],
-  );
+export async function refreshCatalogAdminBlueprintDetailPage(db: PgQueryable, blueprintId: string): Promise<void> {
+  const result = await db.query<BaseBlueprintRow>(`SELECT * FROM catalog_blueprints WHERE blueprint_id = $1`, [
+    blueprintId,
+  ]);
 
   const blueprint = result.rows[0];
 
@@ -51,11 +47,13 @@ export async function refreshCatalogAdminBlueprintDetailPage(
   const dimensionRules = asArray<DimensionRule>(blueprint.dimension_rules);
   const canonicalDimensionOrder = asStringArray(blueprint.canonical_dimension_order);
   const fieldIds = fieldRules.map((rule) => rule.fieldId);
-  const dimensionIds = [...new Set([
-    ...dimensionRules.map((rule) => rule.dimensionId),
-    ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
-    ...canonicalDimensionOrder,
-  ])];
+  const dimensionIds = [
+    ...new Set([
+      ...dimensionRules.map((rule) => rule.dimensionId),
+      ...dimensionRules.flatMap((rule) => (rule.appliesWhen ?? []).map((clause) => clause.dimensionId)),
+      ...canonicalDimensionOrder,
+    ]),
+  ];
   const optionIds = dimensionRules.flatMap((rule) => [
     ...(rule.allowedOptionIds ?? []),
     ...(rule.appliesWhen ?? []).flatMap((clause) => clause.optionIds ?? []),

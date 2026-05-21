@@ -2,10 +2,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
@@ -31,39 +28,29 @@ import {
   type InventoryItemState,
 } from "../domain/domain";
 import { buildInventoryItemProjectionHandlers } from "../read-model/projection";
-import {
-  getInventoryItem,
-  getInventoryItemForListingStock,
-  listInventoryItems,
-} from "../read-model/queries";
+import { getInventoryItem, getInventoryItemForListingStock, listInventoryItems } from "../read-model/queries";
 import type { InventoryEnsuredListingStock } from "./contracts";
 
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
-const LISTING_STOCK_LOCATION_DESCRIPTION =
-  "Auto-managed stock backing standard marketplace listings.";
+const LISTING_STOCK_LOCATION_DESCRIPTION = "Auto-managed stock backing standard marketplace listings.";
 
-function createListingStockInventoryItemId(input: Readonly<{
-  accountId: string;
-  catalogItemId: string;
-  productId: string;
-  selectedOptions: readonly InventorySelectedOptionEntry[];
-  gradedCard: GradedCardDetails | null;
-  storageLocationId: string;
-}>) {
-  const hash = createHash("sha256")
-    .update(JSON.stringify(input))
-    .digest("hex")
-    .slice(0, 24);
+function createListingStockInventoryItemId(
+  input: Readonly<{
+    accountId: string;
+    catalogItemId: string;
+    productId: string;
+    selectedOptions: readonly InventorySelectedOptionEntry[];
+    gradedCard: GradedCardDetails | null;
+    storageLocationId: string;
+  }>,
+) {
+  const hash = createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 24);
 
   return `inv_listing_stock_${hash}` as InventoryItemId;
 }
 
 export type InventoryItemServices = Readonly<{
-  commandHandler: CommandHandler<
-    InventoryItemCommand,
-    InventoryItemState,
-    InventoryItemEvent
-  >;
+  commandHandler: CommandHandler<InventoryItemCommand, InventoryItemState, InventoryItemEvent>;
   createItem: (
     params: Readonly<{
       accountId: AccountId;
@@ -86,13 +73,8 @@ export type InventoryItemServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ itemId: string; version: number }>;
-  listItems: (
-    params: Parameters<typeof listInventoryItems>[1],
-  ) => ReturnType<typeof listInventoryItems>;
-  getItem: (
-    itemId: string,
-    accountId: string,
-  ) => ReturnType<typeof getInventoryItem>;
+  listItems: (params: Parameters<typeof listInventoryItems>[1]) => ReturnType<typeof listInventoryItems>;
+  getItem: (itemId: string, accountId: string) => ReturnType<typeof getInventoryItem>;
   ensureListingStock: (
     params: Readonly<{
       accountId: AccountId;
@@ -131,18 +113,17 @@ export function createInventoryItemRuntime(
       includeArchived: false,
     });
 
-    return (
-      locations.find((location) => location.name === LISTING_STOCK_LOCATION_NAME) ??
-      null
-    );
+    return locations.find((location) => location.name === LISTING_STOCK_LOCATION_NAME) ?? null;
   }
 
-  async function upsertStorageLocationReadModel(params: Readonly<{
-    storageLocationId: string;
-    accountId: string;
-    shipFromCode: string;
-    shipFromAddress: AddressSnapshot;
-  }>) {
+  async function upsertStorageLocationReadModel(
+    params: Readonly<{
+      storageLocationId: string;
+      accountId: string;
+      shipFromCode: string;
+      shipFromAddress: AddressSnapshot;
+    }>,
+  ) {
     await deps.db.query(
       `INSERT INTO inventory_storage_locations (
          storage_location_id,
@@ -176,20 +157,14 @@ export function createInventoryItemRuntime(
   return {
     commandHandler,
     createItem: async (params, context) => {
-      const location = await getStorageLocation(
-        deps.db,
-        params.storageLocationId,
-        params.accountId,
-      );
+      const location = await getStorageLocation(deps.db, params.storageLocationId, params.accountId);
 
       if (!location) {
         throw new InventoryDomainError("Storage location not found.");
       }
 
       if (location.is_archived) {
-        throw new InventoryDomainError(
-          "Archived storage locations cannot receive new inventory items.",
-        );
+        throw new InventoryDomainError("Archived storage locations cannot receive new inventory items.");
       }
 
       const catalogItem = await catalogItems.getCatalogItem(params.catalogItemId);
@@ -198,9 +173,7 @@ export function createInventoryItemRuntime(
       }
 
       if (catalogItem.status !== "active") {
-        throw new InventoryDomainError(
-          "Inventory items may only reference active catalog items.",
-        );
+        throw new InventoryDomainError("Inventory items may only reference active catalog items.");
       }
 
       const catalogVersion = createInventoryProductDescriptor({
@@ -208,22 +181,15 @@ export function createInventoryItemRuntime(
         productSchema: catalogItem.product_schema,
         selection: parseSelectedOptionsInput(params.selectedOptions),
       });
-      const productSummary = summarizeSelectedOptions(
-        catalogItem.product_schema,
-        catalogVersion.selection,
-      );
+      const productSummary = summarizeSelectedOptions(catalogItem.product_schema, catalogVersion.selection);
       const isGradedCard = productSummary.includes("Form: Graded");
 
       if (isGradedCard && !params.gradedCard) {
-        throw new InventoryDomainError(
-          "Graded inventory items require graded card details.",
-        );
+        throw new InventoryDomainError("Graded inventory items require graded card details.");
       }
 
       if (!isGradedCard && params.gradedCard) {
-        throw new InventoryDomainError(
-          "Graded card details are only allowed for graded inventory items.",
-        );
+        throw new InventoryDomainError("Graded card details are only allowed for graded inventory items.");
       }
 
       const itemId = params.itemIdOverride ?? (createId("inv") as InventoryItemId);
@@ -266,9 +232,7 @@ export function createInventoryItemRuntime(
 
       const nextTotalQuantity = item.total_quantity + params.quantityDelta;
       if (nextTotalQuantity < item.held_quantity) {
-        throw new InventoryDomainError(
-          "Adjustments cannot reduce total quantity below active held quantity.",
-        );
+        throw new InventoryDomainError("Adjustments cannot reduce total quantity below active held quantity.");
       }
 
       const result = await commandHandler({
@@ -307,23 +271,16 @@ export function createInventoryItemRuntime(
         productSchema: catalogItem.product_schema,
         selection: parseSelectedOptionsInput(params.selectedOptions),
       });
-      const productSummary = summarizeSelectedOptions(
-        catalogItem.product_schema,
-        catalogVersion.selection,
-      );
+      const productSummary = summarizeSelectedOptions(catalogItem.product_schema, catalogVersion.selection);
       const gradedCard = params.gradedCard ?? null;
       const isGradedCard = productSummary.includes("Form: Graded");
 
       if (isGradedCard && !gradedCard) {
-        throw new InventoryDomainError(
-          "Graded listing stock requires graded card details.",
-        );
+        throw new InventoryDomainError("Graded listing stock requires graded card details.");
       }
 
       if (!isGradedCard && gradedCard) {
-        throw new InventoryDomainError(
-          "Graded card details are only allowed for graded listing stock.",
-        );
+        throw new InventoryDomainError("Graded card details are only allowed for graded listing stock.");
       }
 
       let location = await findDefaultListingStockLocation(params.accountId);
@@ -331,9 +288,7 @@ export function createInventoryItemRuntime(
 
       if (!location) {
         if (!params.shipFromAddress) {
-          throw new InventoryDomainError(
-            "Ship-from address is required before creating listing stock.",
-          );
+          throw new InventoryDomainError("Ship-from address is required before creating listing stock.");
         }
 
         const created = await storageLocations.createStorageLocation(
@@ -353,11 +308,7 @@ export function createInventoryItemRuntime(
           shipFromCode: params.shipFromCode?.trim() || "LISTING-STOCK",
           shipFromAddress: params.shipFromAddress,
         });
-        location = await getStorageLocation(
-          deps.db,
-          created.storageLocationId,
-          params.accountId,
-        );
+        location = await getStorageLocation(deps.db, created.storageLocationId, params.accountId);
       }
 
       if (!location) {

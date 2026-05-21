@@ -12,11 +12,7 @@ export {
 } from "./timeline";
 export { Card, type CardProps, DetailPanel, type DetailPanelProps } from "./card";
 export { ProductMediaImage, type ProductMediaImageProps } from "./product-media";
-export {
-  ActorIdentityCue,
-  type ActorIdentityCueProps,
-  type ActorIdentityCueVariant,
-} from "./actor-identity-cue";
+export { ActorIdentityCue, type ActorIdentityCueProps, type ActorIdentityCueVariant } from "./actor-identity-cue";
 export {
   ActionBar,
   type ActionBarProps,

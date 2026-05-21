@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   EMPTY_EVENT_DATA,
@@ -68,15 +64,9 @@ export type MembershipRoleChangedEvent = DomainEvent<
   }>
 >;
 
-export type MembershipRevokedEvent = DomainEvent<
-  "identity.membership.revoked",
-  EmptyEventData
->;
+export type MembershipRevokedEvent = DomainEvent<"identity.membership.revoked", EmptyEventData>;
 
-export type MembershipReinstatedEvent = DomainEvent<
-  "identity.membership.reinstated",
-  EmptyEventData
->;
+export type MembershipReinstatedEvent = DomainEvent<"identity.membership.reinstated", EmptyEventData>;
 
 export type MembershipEvent =
   | MembershipGrantedEvent
@@ -84,11 +74,10 @@ export type MembershipEvent =
   | MembershipRevokedEvent
   | MembershipReinstatedEvent;
 
-export const decideMembership: AggregateDecider<
-  MembershipState,
-  MembershipCommand,
-  MembershipEvent
-> = (state, command) => {
+export const decideMembership: AggregateDecider<MembershipState, MembershipCommand, MembershipEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "GrantMembership":
       assert(state.id === null, "Membership has already been created.");
@@ -119,20 +108,14 @@ export const decideMembership: AggregateDecider<
       return [{ type: "identity.membership.revoked", data: EMPTY_EVENT_DATA }];
     case "ReinstateMembership":
       requireCreatedMembership(state);
-      assert(
-        state.status === "revoked",
-        "Only revoked memberships can be reinstated.",
-      );
+      assert(state.status === "revoked", "Only revoked memberships can be reinstated.");
       return [{ type: "identity.membership.reinstated", data: EMPTY_EVENT_DATA }];
     default:
       return assertNever(command);
   }
 };
 
-export const evolveMembership: AggregateEvolver<
-  MembershipState,
-  MembershipEvent
-> = (state, event) => {
+export const evolveMembership: AggregateEvolver<MembershipState, MembershipEvent> = (state, event) => {
   switch (event.type) {
     case "identity.membership.granted":
       return {

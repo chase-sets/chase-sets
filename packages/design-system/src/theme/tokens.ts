@@ -116,25 +116,25 @@ export const chaseTheme: ThemeTokens = {
     info: "#2563eb",
     focusRing: "#38bdf8",
     glowAccent: "rgba(56, 130, 246, 0.34)",
-    glowBlue: "rgba(139, 92, 246, 0.26)"
+    glowBlue: "rgba(139, 92, 246, 0.26)",
   },
   typography: {
     display: "Space Grotesk",
     heading: "Space Grotesk",
     body: "Space Grotesk",
-    mono: "IBM Plex Mono"
+    mono: "IBM Plex Mono",
   },
   radius: {
     sm: "0.375rem",
     md: "0.75rem",
     lg: "1rem",
-    xl: "1.5rem"
+    xl: "1.5rem",
   },
   shadows: {
     sm: "0 10px 30px -20px rgba(15, 23, 42, 0.24)",
     md: "0 18px 50px -26px rgba(30, 64, 175, 0.3)",
     lg: "0 28px 74px -34px rgba(37, 99, 235, 0.38)",
-    overlay: "0 36px 104px -32px rgba(30, 64, 175, 0.44)"
+    overlay: "0 36px 104px -32px rgba(30, 64, 175, 0.44)",
   },
   zIndex: {
     sticky: "20",
@@ -142,13 +142,13 @@ export const chaseTheme: ThemeTokens = {
     popover: "70",
     drawer: "50",
     modal: "60",
-    toast: "80"
+    toast: "80",
   },
   motion: {
     fast: "120ms",
     base: "180ms",
     slow: "260ms",
-    ease: "cubic-bezier(0.16, 1, 0.3, 1)"
+    ease: "cubic-bezier(0.16, 1, 0.3, 1)",
   },
   breakpoints: {
     base: "0px",
@@ -156,8 +156,8 @@ export const chaseTheme: ThemeTokens = {
     md: "768px",
     lg: "1024px",
     xl: "1280px",
-    "2xl": "1536px"
-  }
+    "2xl": "1536px",
+  },
 };
 
 export const chaseDarkTheme: ThemeTokens = {
@@ -187,7 +187,7 @@ export const chaseDarkTheme: ThemeTokens = {
     info: "#38bdf8",
     focusRing: "#38bdf8",
     glowAccent: "rgba(59, 130, 246, 0.56)",
-    glowBlue: "rgba(139, 92, 246, 0.4)"
+    glowBlue: "rgba(139, 92, 246, 0.4)",
   },
   typography: chaseTheme.typography,
   radius: chaseTheme.radius,
@@ -195,17 +195,14 @@ export const chaseDarkTheme: ThemeTokens = {
     sm: "0 8px 28px -18px rgba(0, 0, 0, 0.88)",
     md: "0 16px 52px -26px rgba(0, 0, 0, 0.9)",
     lg: "0 28px 90px -34px rgba(56, 130, 246, 0.42)",
-    overlay: "0 42px 120px -28px rgba(0, 0, 0, 0.94)"
+    overlay: "0 42px 120px -28px rgba(0, 0, 0, 0.94)",
   },
   zIndex: chaseTheme.zIndex,
   motion: chaseTheme.motion,
-  breakpoints: chaseTheme.breakpoints
+  breakpoints: chaseTheme.breakpoints,
 };
 
-export function resolveTheme(
-  theme?: ThemeOverrides,
-  baseTheme: ThemeTokens = chaseTheme
-): ThemeTokens {
+export function resolveTheme(theme?: ThemeOverrides, baseTheme: ThemeTokens = chaseTheme): ThemeTokens {
   if (!theme) {
     return baseTheme;
   }
@@ -213,29 +210,29 @@ export function resolveTheme(
   return {
     colors: {
       ...baseTheme.colors,
-      ...theme.colors
+      ...theme.colors,
     },
     typography: {
       ...baseTheme.typography,
-      ...theme.typography
+      ...theme.typography,
     },
     radius: {
       ...baseTheme.radius,
-      ...theme.radius
+      ...theme.radius,
     },
     shadows: {
       ...baseTheme.shadows,
-      ...theme.shadows
+      ...theme.shadows,
     },
     zIndex: {
       ...baseTheme.zIndex,
-      ...theme.zIndex
+      ...theme.zIndex,
     },
     motion: {
       ...baseTheme.motion,
-      ...theme.motion
+      ...theme.motion,
     },
-    breakpoints: baseTheme.breakpoints
+    breakpoints: baseTheme.breakpoints,
   };
 }
 
@@ -290,10 +287,7 @@ const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undef
   ["--motion-ease", (t) => t.motion?.ease],
 ];
 
-function applyThemeStyle(
-  target: CSSProperties,
-  theme: ThemeTokens | ThemeOverrides
-): CSSProperties {
+function applyThemeStyle(target: CSSProperties, theme: ThemeTokens | ThemeOverrides): CSSProperties {
   const record = target as Record<string, string>;
   for (const [cssVar, accessor] of tokenMap) {
     const value = accessor(theme);
@@ -304,18 +298,13 @@ function applyThemeStyle(
   return target;
 }
 
-export function resolveThemeStyle(
-  theme?: ThemeOverrides,
-  baseTheme: ThemeTokens = chaseTheme
-): CSSProperties {
+export function resolveThemeStyle(theme?: ThemeOverrides, baseTheme: ThemeTokens = chaseTheme): CSSProperties {
   const resolved = resolveTheme(theme, baseTheme);
 
   return applyThemeStyle({}, resolved);
 }
 
-export function resolveThemeOverrideStyle(
-  theme?: ThemeOverrides
-): CSSProperties | undefined {
+export function resolveThemeOverrideStyle(theme?: ThemeOverrides): CSSProperties | undefined {
   if (!theme) {
     return undefined;
   }

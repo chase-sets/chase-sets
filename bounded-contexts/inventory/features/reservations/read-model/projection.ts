@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildInventoryReservationProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildInventoryReservationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.reservation.confirmed": async (event) => {
       const data = event.data as {

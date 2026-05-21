@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -11,10 +8,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildPackagePlan, type PackagePlan, type ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import {
-  normalizeAddressSnapshot,
-  type AddressSnapshot,
-} from "@chase-sets/primitives/address-snapshot";
+import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 import {
   OrderingDomainError,
@@ -34,13 +28,7 @@ import {
   type MarketplaceSupplyCandidate,
   type ShippingQuotePolicy,
 } from "../domain/policies";
-import {
-  getPurchase,
-  getSale,
-  listOrderIdsForSource,
-  listPurchases,
-  listSales,
-} from "../read-model/queries";
+import { getPurchase, getSale, listOrderIdsForSource, listPurchases, listSales } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { listOrderingSupplyCandidates } from "../integrations/supply/supply-queries";
 import { getOrderingSupplyCandidateByListingId } from "../integrations/supply/supply-queries";
@@ -70,15 +58,17 @@ export type TaxQuote = Readonly<{
 }>;
 
 export type TaxQuoteResolver = Readonly<{
-  quoteTax(input: Readonly<{
-    buyerAccountId: string;
-    sellerAccountId: string;
-    currencyCode: "usd";
-    destinationAddress: TaxDestinationAddress;
-    itemSubtotalAmount: string;
-    shippingAmount: string;
-    marketplaceCheckoutFeeAmount?: string | null;
-  }>): Promise<TaxQuote>;
+  quoteTax(
+    input: Readonly<{
+      buyerAccountId: string;
+      sellerAccountId: string;
+      currencyCode: "usd";
+      destinationAddress: TaxDestinationAddress;
+      itemSubtotalAmount: string;
+      shippingAmount: string;
+      marketplaceCheckoutFeeAmount?: string | null;
+    }>,
+  ): Promise<TaxQuote>;
 }>;
 
 const zeroTaxQuoteResolver: TaxQuoteResolver = {
@@ -236,11 +226,7 @@ export type CheckoutFulfillmentPreview = Readonly<{
 }>;
 
 export type OrderingOrderServices = Readonly<{
-  commandHandler: CommandHandler<
-    OrderingOrderCommand,
-    OrderingOrderState,
-    OrderingOrderEvent
-  >;
+  commandHandler: CommandHandler<OrderingOrderCommand, OrderingOrderState, OrderingOrderEvent>;
   createOrdersFromCheckout: (
     params: Readonly<{
       buyerAccountId: AccountId;
@@ -326,20 +312,10 @@ export type OrderingOrderServices = Readonly<{
     params: Readonly<{ orderId: string; sellerAccountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ orderId: string; version: number }>;
-  listPurchases: (
-    params: Parameters<typeof listPurchases>[1],
-  ) => ReturnType<typeof listPurchases>;
-  getPurchase: (
-    orderId: string,
-    buyerAccountId: string,
-  ) => ReturnType<typeof getPurchase>;
-  listSales: (
-    params: Parameters<typeof listSales>[1],
-  ) => ReturnType<typeof listSales>;
-  getSale: (
-    orderId: string,
-    sellerAccountId: string,
-  ) => ReturnType<typeof getSale>;
+  listPurchases: (params: Parameters<typeof listPurchases>[1]) => ReturnType<typeof listPurchases>;
+  getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchase>;
+  listSales: (params: Parameters<typeof listSales>[1]) => ReturnType<typeof listSales>;
+  getSale: (orderId: string, sellerAccountId: string) => ReturnType<typeof getSale>;
   projectors: readonly Projector[];
 }>;
 
@@ -374,10 +350,7 @@ function checkoutLineKey(line: CheckoutOrderLineSnapshot, index: number) {
 }
 
 function isLockedCheckoutLine(line: CheckoutOrderLineSnapshot) {
-  return (
-    line.fulfillmentMode === "locked-listing" ||
-    Boolean((line.lockedListingId ?? line.listingId)?.trim())
-  );
+  return line.fulfillmentMode === "locked-listing" || Boolean((line.lockedListingId ?? line.listingId)?.trim());
 }
 
 type ListingPurchaseLimitUsage = Readonly<{
@@ -385,15 +358,10 @@ type ListingPurchaseLimitUsage = Readonly<{
   customerAccountQuantity: number;
 }>;
 
-const listingPurchaseLimitReachedReason =
-  "Listing purchase limit reached for this customer account.";
+const listingPurchaseLimitReachedReason = "Listing purchase limit reached for this customer account.";
 
 function marketplaceDayStart(now = new Date()) {
-  return new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-  )).toISOString();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
 }
 
 function marketplaceDayKey(now = new Date()) {
@@ -410,10 +378,7 @@ function remainingForLimit(limit: number | null | undefined, used: number) {
 }
 
 function hasAccountScopedPurchaseLimit(candidate: MarketplaceSupplyCandidate) {
-  return (
-    finiteLimit(candidate.maxUnitsPerDay) !== null ||
-    finiteLimit(candidate.maxUnitsPerCustomerAccount) !== null
-  );
+  return finiteLimit(candidate.maxUnitsPerDay) !== null || finiteLimit(candidate.maxUnitsPerCustomerAccount) !== null;
 }
 
 async function loadPurchaseLimitUsage(
@@ -459,13 +424,7 @@ async function loadPurchaseLimitUsage(
        COALESCE(order_usage.day_quantity, 0) + COALESCE(active_claim_usage.day_quantity, 0) AS day_quantity,
        COALESCE(order_usage.customer_account_quantity, 0) + COALESCE(active_claim_usage.customer_account_quantity, 0) AS customer_account_quantity
      FROM order_usage, active_claim_usage`,
-    [
-      buyerAccountId,
-      listingId,
-      marketplaceDayStart(),
-      sourceType,
-      sourceReferenceId,
-    ],
+    [buyerAccountId, listingId, marketplaceDayStart(), sourceType, sourceReferenceId],
   );
   const row = result.rows[0];
   return {
@@ -474,18 +433,12 @@ async function loadPurchaseLimitUsage(
   };
 }
 
-function allowedCandidateQuantity(
-  candidate: MarketplaceSupplyCandidate,
-  usage: ListingPurchaseLimitUsage,
-) {
+function allowedCandidateQuantity(candidate: MarketplaceSupplyCandidate, usage: ListingPurchaseLimitUsage) {
   const remaining = Math.min(
     candidate.availableQuantity,
     remainingForLimit(candidate.maxUnitsPerOrder, 0),
     remainingForLimit(candidate.maxUnitsPerDay, usage.dayQuantity),
-    remainingForLimit(
-      candidate.maxUnitsPerCustomerAccount,
-      usage.customerAccountQuantity,
-    ),
+    remainingForLimit(candidate.maxUnitsPerCustomerAccount, usage.customerAccountQuantity),
   );
   return Number.isFinite(remaining) ? Math.max(0, Math.floor(remaining)) : candidate.availableQuantity;
 }
@@ -507,13 +460,7 @@ async function applyPurchaseLimitAvailability(
       limited.push(candidate);
       continue;
     }
-    const usage = await loadPurchaseLimitUsage(
-      db,
-      buyerAccountId,
-      candidate.listingId,
-      sourceType,
-      sourceReferenceId,
-    );
+    const usage = await loadPurchaseLimitUsage(db, buyerAccountId, candidate.listingId, sourceType, sourceReferenceId);
     limited.push({
       ...candidate,
       availableQuantity: allowedCandidateQuantity(candidate, usage),
@@ -549,13 +496,7 @@ async function assertPlanPurchaseLimits(
     if (!candidate) {
       continue;
     }
-    const usage = await loadPurchaseLimitUsage(
-      db,
-      buyerAccountId,
-      listingId,
-      sourceType,
-      sourceReferenceId,
-    );
+    const usage = await loadPurchaseLimitUsage(db, buyerAccountId, listingId, sourceType, sourceReferenceId);
     const allowed = allowedCandidateQuantity(candidate, usage);
     if (quantity > allowed) {
       throw new OrderingDomainError(listingPurchaseLimitReachedReason);
@@ -563,10 +504,7 @@ async function assertPlanPurchaseLimits(
   }
 }
 
-async function planHasAccountScopedPurchaseLimits(
-  db: PgQueryable,
-  plan: CheckoutPlan,
-) {
+async function planHasAccountScopedPurchaseLimits(db: PgQueryable, plan: CheckoutPlan) {
   const listingIds = new Set<string>();
   for (const draft of plan.orderDrafts) {
     for (const line of draft.lines) {
@@ -582,11 +520,7 @@ async function planHasAccountScopedPurchaseLimits(
   return false;
 }
 
-async function claimPlanPurchaseLimitUsage(
-  db: PgQueryable,
-  buyerAccountId: string,
-  plan: CheckoutPlan,
-) {
+async function claimPlanPurchaseLimitUsage(db: PgQueryable, buyerAccountId: string, plan: CheckoutPlan) {
   const quantities = new Map<string, number>();
   let sourceType: OrderSourceType | null = null;
   let sourceReferenceId: string | null = null;
@@ -607,11 +541,9 @@ async function claimPlanPurchaseLimitUsage(
     const candidate = await getOrderingSupplyCandidateByListingId(db, listingId);
     if (
       !candidate ||
-      (
-        finiteLimit(candidate.maxUnitsPerOrder) === null &&
+      (finiteLimit(candidate.maxUnitsPerOrder) === null &&
         finiteLimit(candidate.maxUnitsPerDay) === null &&
-        finiteLimit(candidate.maxUnitsPerCustomerAccount) === null
-      )
+        finiteLimit(candidate.maxUnitsPerCustomerAccount) === null)
     ) {
       continue;
     }
@@ -637,14 +569,7 @@ async function claimPlanPurchaseLimitUsage(
        ON CONFLICT (source_type, source_reference_id, buyer_account_id, listing_id)
        DO NOTHING
        RETURNING claim_id`,
-      [
-        createId("opl"),
-        sourceType,
-        sourceReferenceId,
-        buyerAccountId,
-        listingId,
-        quantity,
-      ],
+      [createId("opl"), sourceType, sourceReferenceId, buyerAccountId, listingId, quantity],
     );
 
     if (insertedClaim.rowCount === 0) {
@@ -661,24 +586,13 @@ async function claimPlanPurchaseLimitUsage(
         [sourceType, sourceReferenceId, buyerAccountId, listingId],
       );
       const existing = existingClaim.rows[0];
-      if (
-        existing?.status === "claimed" &&
-        Number(existing.quantity) === quantity
-      ) {
+      if (existing?.status === "claimed" && Number(existing.quantity) === quantity) {
         continue;
       }
-      throw new OrderingDomainError(
-        "Checkout confirmation for this listing is already in progress.",
-      );
+      throw new OrderingDomainError("Checkout confirmation for this listing is already in progress.");
     }
 
-    const usage = await loadPurchaseLimitUsage(
-      db,
-      buyerAccountId,
-      listingId,
-      sourceType,
-      sourceReferenceId,
-    );
+    const usage = await loadPurchaseLimitUsage(db, buyerAccountId, listingId, sourceType, sourceReferenceId);
     const dayKey = marketplaceDayKey();
     await db.query(
       `INSERT INTO ordering_listing_purchase_limit_usage (
@@ -691,13 +605,7 @@ async function claimPlanPurchaseLimitUsage(
        )
        VALUES ($1, $2, $3::date, $4, $5, now())
        ON CONFLICT (buyer_account_id, listing_id) DO NOTHING`,
-      [
-        buyerAccountId,
-        listingId,
-        dayKey,
-        usage.dayQuantity,
-        usage.customerAccountQuantity,
-      ],
+      [buyerAccountId, listingId, dayKey, usage.dayQuantity, usage.customerAccountQuantity],
     );
     await db.query(
       `UPDATE ordering_listing_purchase_limit_usage
@@ -790,12 +698,7 @@ async function releasePurchaseLimitClaimsForOrder(
        AND listing_id = ANY($4::text[])
        AND status = 'claimed'
      RETURNING listing_id, quantity, claimed_at`,
-    [
-      order.source_type,
-      order.source_reference_id,
-      order.buyer_account_id,
-      listingIds,
-    ],
+    [order.source_type, order.source_reference_id, order.buyer_account_id, listingIds],
   );
 
   for (const claim of releasedClaims.rows) {
@@ -809,25 +712,13 @@ async function releasePurchaseLimitClaimsForOrder(
            updated_at = now()
        WHERE buyer_account_id = $1
          AND listing_id = $2`,
-      [
-        order.buyer_account_id,
-        claim.listing_id,
-        String(claim.claimed_at).slice(0, 10),
-        Number(claim.quantity),
-      ],
+      [order.buyer_account_id, claim.listing_id, String(claim.claimed_at).slice(0, 10), Number(claim.quantity)],
     );
   }
 }
 
-function enumerateDemandAllocations(
-  demand: MarketplaceDemand,
-  candidates: readonly MarketplaceSupplyCandidate[],
-) {
-  assertSupplyAvailable(
-    candidates,
-    demand.quantity,
-    `Not enough active supply is available for ${demand.itemTitle}.`,
-  );
+function enumerateDemandAllocations(demand: MarketplaceDemand, candidates: readonly MarketplaceSupplyCandidate[]) {
+  assertSupplyAvailable(candidates, demand.quantity, `Not enough active supply is available for ${demand.itemTitle}.`);
 
   const results: DemandPlan[] = [];
   const search = (index: number, remaining: number, chosen: DemandAllocation[]) => {
@@ -856,9 +747,7 @@ function enumerateDemandAllocations(
   search(0, demand.quantity, []);
 
   if (results.length === 0) {
-    throw new OrderingDomainError(
-      `Not enough active supply is available for ${demand.itemTitle}.`,
-    );
+    throw new OrderingDomainError(`Not enough active supply is available for ${demand.itemTitle}.`);
   }
 
   return results;
@@ -870,15 +759,17 @@ function planShippingAllowanceBps(lines: SellerOrderDraft["lines"]) {
   if (values.length === 0) {
     return 500;
   }
-  return unique.length === 1 ? unique[0] ?? 500 : Math.min(...values);
+  return unique.length === 1 ? (unique[0] ?? 500) : Math.min(...values);
 }
 
-function calculateShippingIncentive(params: Readonly<{
-  sourceType: OrderSourceType;
-  itemSubtotalAmount: string;
-  shippingBaseAmount: string;
-  shippingAllowancePercentageBps: number;
-}>) {
+function calculateShippingIncentive(
+  params: Readonly<{
+    sourceType: OrderSourceType;
+    itemSubtotalAmount: string;
+    shippingBaseAmount: string;
+    shippingAllowancePercentageBps: number;
+  }>,
+) {
   const shippingBaseAmount = normalizeMoneyAmount(params.shippingBaseAmount, {
     fieldName: "Shipping base amount",
     allowZero: true,
@@ -888,8 +779,7 @@ function calculateShippingIncentive(params: Readonly<{
       moneyToNumber(shippingBaseAmount),
       moneyToNumber(
         numberToMoneyAmountRoundDown(
-          moneyToNumber(params.itemSubtotalAmount) *
-            (params.shippingAllowancePercentageBps / 10_000),
+          moneyToNumber(params.itemSubtotalAmount) * (params.shippingAllowancePercentageBps / 10_000),
         ),
       ),
     ),
@@ -953,43 +843,29 @@ function quotePlan(
 
   for (const demandPlan of demandPlans) {
     for (const allocation of demandPlan.allocations) {
-      const shippingOriginSnapshot = normalizeAddressSnapshot(
-        allocation.candidate.shipFromAddress,
-        "Shipping origin",
-      );
-      const sellerGroupKey = [
-        allocation.candidate.sellerAccountId,
-        JSON.stringify(shippingOriginSnapshot),
-      ].join("|");
-      const sellerDraft =
-        groupedBySellerAndOrigin.get(sellerGroupKey) ??
-        {
-          sellerAccountId: allocation.candidate.sellerAccountId,
-          lines: [],
-          reservations: [],
-          sellerDisplayName: allocation.candidate.sellerDisplayName,
-          shippingOriginSnapshot,
-          subtotal: 0,
-          listingIds: new Set<string>(),
-          quantity: 0,
-        };
+      const shippingOriginSnapshot = normalizeAddressSnapshot(allocation.candidate.shipFromAddress, "Shipping origin");
+      const sellerGroupKey = [allocation.candidate.sellerAccountId, JSON.stringify(shippingOriginSnapshot)].join("|");
+      const sellerDraft = groupedBySellerAndOrigin.get(sellerGroupKey) ?? {
+        sellerAccountId: allocation.candidate.sellerAccountId,
+        lines: [],
+        reservations: [],
+        sellerDisplayName: allocation.candidate.sellerDisplayName,
+        shippingOriginSnapshot,
+        subtotal: 0,
+        listingIds: new Set<string>(),
+        quantity: 0,
+      };
       const unitPriceAmount = priceOverrideAmount ?? allocation.candidate.priceAmount;
-      const lineTotalAmount = numberToMoneyAmount(
-        moneyToNumber(unitPriceAmount) * allocation.quantity,
-      );
+      const lineTotalAmount = numberToMoneyAmount(moneyToNumber(unitPriceAmount) * allocation.quantity);
       const marketplaceSalesFeeUnitAmount =
         feeOverride?.marketplaceSalesFeeUnitAmount ?? allocation.candidate.marketplaceSalesFeeUnitAmount;
-      const sellerNetUnitAmount =
-        feeOverride?.sellerNetUnitAmount ?? allocation.candidate.sellerNetUnitAmount;
+      const sellerNetUnitAmount = feeOverride?.sellerNetUnitAmount ?? allocation.candidate.sellerNetUnitAmount;
       const shippingAllowancePercentageBps =
-        feeOverride?.shippingAllowancePercentageBps ??
-        allocation.candidate.shippingAllowancePercentageBps;
+        feeOverride?.shippingAllowancePercentageBps ?? allocation.candidate.shippingAllowancePercentageBps;
       const marketplaceSalesFeeTotalAmount = numberToMoneyAmount(
         moneyToNumber(marketplaceSalesFeeUnitAmount) * allocation.quantity,
       );
-      const sellerNetTotalAmount = numberToMoneyAmount(
-        moneyToNumber(sellerNetUnitAmount) * allocation.quantity,
-      );
+      const sellerNetTotalAmount = numberToMoneyAmount(moneyToNumber(sellerNetUnitAmount) * allocation.quantity);
       sellerDraft.lines.push({
         lineId: createId("oli") as OrderLineId,
         listingId: allocation.candidate.listingId,
@@ -1018,8 +894,7 @@ function quotePlan(
         inventoryItemId: allocation.candidate.inventoryItemId,
         quantity: allocation.quantity,
       });
-      sellerDraft.sellerDisplayName =
-        sellerDraft.sellerDisplayName ?? allocation.candidate.sellerDisplayName;
+      sellerDraft.sellerDisplayName = sellerDraft.sellerDisplayName ?? allocation.candidate.sellerDisplayName;
       sellerDraft.subtotal += moneyToNumber(lineTotalAmount);
       sellerDraft.listingIds.add(allocation.candidate.listingId);
       sellerDraft.quantity += allocation.quantity;
@@ -1099,9 +974,7 @@ function quotePlan(
   }
 
   return {
-    orderDrafts: orderDrafts.sort((left, right) =>
-      left.sellerAccountId.localeCompare(right.sellerAccountId),
-    ),
+    orderDrafts: orderDrafts.sort((left, right) => left.sellerAccountId.localeCompare(right.sellerAccountId)),
     totalAmount,
     itemSubtotalAmount,
     orderCount: orderDrafts.length,
@@ -1184,12 +1057,10 @@ function chooseBestPlan(
         optimizationGoal === "fewest-shipments"
           ? !bestPlan ||
             plan.orderCount < bestPlan.orderCount ||
-            (plan.orderCount === bestPlan.orderCount &&
-              plan.totalAmount < bestPlan.totalAmount)
+            (plan.orderCount === bestPlan.orderCount && plan.totalAmount < bestPlan.totalAmount)
           : !bestPlan ||
             plan.totalAmount < bestPlan.totalAmount ||
-            (plan.totalAmount === bestPlan.totalAmount &&
-              plan.itemSubtotalAmount < bestPlan.itemSubtotalAmount) ||
+            (plan.totalAmount === bestPlan.totalAmount && plan.itemSubtotalAmount < bestPlan.itemSubtotalAmount) ||
             (plan.totalAmount === bestPlan.totalAmount &&
               plan.itemSubtotalAmount === bestPlan.itemSubtotalAmount &&
               plan.orderCount < bestPlan.orderCount);
@@ -1237,13 +1108,7 @@ async function buildDemandOptions(
       sellerAccountId,
     });
     const candidates = buyerAccountId
-      ? await applyPurchaseLimitAvailability(
-          db,
-          buyerAccountId,
-          rawCandidates,
-          sourceType,
-          sourceReferenceId,
-        )
+      ? await applyPurchaseLimitAvailability(db, buyerAccountId, rawCandidates, sourceType, sourceReferenceId)
       : rawCandidates;
     options.push(enumerateDemandAllocations(demand, candidates));
   }
@@ -1303,14 +1168,16 @@ async function buildCheckoutDemandOptions(
   }
 
   if (optimizedLines.length > 0) {
-    options.push(...await buildDemandOptions(
-      db,
-      buyerAccountId,
-      groupDemands(optimizedLines),
-      undefined,
-      sourceType,
-      sourceReferenceId,
-    ));
+    options.push(
+      ...(await buildDemandOptions(
+        db,
+        buyerAccountId,
+        groupDemands(optimizedLines),
+        undefined,
+        sourceType,
+        sourceReferenceId,
+      )),
+    );
   }
 
   return options;
@@ -1346,19 +1213,18 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
   ].join("#");
 }
 
-function planToPreview(params: Readonly<{
-  plan: CheckoutPlan;
-  sourceLines: readonly CheckoutOrderLineSnapshot[];
-  optimizationGoal: "lowest-total" | "fewest-shipments";
-  unavailableLines: CheckoutFulfillmentPreview["unavailableLines"];
-}>): CheckoutFulfillmentPreview {
+function planToPreview(
+  params: Readonly<{
+    plan: CheckoutPlan;
+    sourceLines: readonly CheckoutOrderLineSnapshot[];
+    optimizationGoal: "lowest-total" | "fewest-shipments";
+    unavailableLines: CheckoutFulfillmentPreview["unavailableLines"];
+  }>,
+): CheckoutFulfillmentPreview {
   const lineKeysByDemand = new Map<string, string[]>();
   params.sourceLines.forEach((line, index) => {
     const key = buildDemandSignature(line.productId);
-    lineKeysByDemand.set(key, [
-      ...(lineKeysByDemand.get(key) ?? []),
-      checkoutLineKey(line, index),
-    ]);
+    lineKeysByDemand.set(key, [...(lineKeysByDemand.get(key) ?? []), checkoutLineKey(line, index)]);
   });
 
   const readyLineKeys = params.sourceLines
@@ -1374,9 +1240,7 @@ function planToPreview(params: Readonly<{
     lines: draft.lines.map((line) => {
       const demandKey = buildDemandSignature(line.productId);
       const lineKey = lineKeysByDemand.get(demandKey)?.shift() ?? line.listingId;
-      const sourceLine = params.sourceLines.find((source, index) =>
-        checkoutLineKey(source, index) === lineKey,
-      );
+      const sourceLine = params.sourceLines.find((source, index) => checkoutLineKey(source, index) === lineKey);
       const locked = sourceLine ? isLockedCheckoutLine(sourceLine) : false;
       return {
         lineKey,
@@ -1388,7 +1252,7 @@ function planToPreview(params: Readonly<{
         quantity: line.quantity,
         estimatedUnitPriceAmount: line.unitPriceAmount,
         estimatedLineTotalAmount: line.lineTotalAmount,
-        priceState: locked ? "locked" as const : "available" as const,
+        priceState: locked ? ("locked" as const) : ("available" as const),
         materialChangeReasons: [] as string[],
       };
     }),
@@ -1397,10 +1261,7 @@ function planToPreview(params: Readonly<{
     (sum, draft) => sum + moneyToNumber(draft.shippingChargeAmount),
     0,
   );
-  const salesTaxAmount = params.plan.orderDrafts.reduce(
-    (sum, draft) => sum + moneyToNumber(draft.salesTaxAmount),
-    0,
-  );
+  const salesTaxAmount = params.plan.orderDrafts.reduce((sum, draft) => sum + moneyToNumber(draft.salesTaxAmount), 0);
   const materialChangeReasons = sellerGroups.flatMap((group) =>
     group.lines.flatMap((line) => line.materialChangeReasons),
   );
@@ -1426,9 +1287,7 @@ function planToPreview(params: Readonly<{
   };
 }
 
-export function createOrderingOrderRuntime(
-  deps: OrderRuntimeDeps,
-): OrderingOrderServices {
+export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -1448,13 +1307,8 @@ export function createOrderingOrderRuntime(
     context: EventStoreContext,
     orderIdsOverride?: readonly OrderId[],
   ) => {
-    if (
-      orderIdsOverride &&
-      orderIdsOverride.length !== plan.orderDrafts.length
-    ) {
-      throw new OrderingDomainError(
-        "Order seed overrides must match the number of generated seller orders.",
-      );
+    if (orderIdsOverride && orderIdsOverride.length !== plan.orderDrafts.length) {
+      throw new OrderingDomainError("Order seed overrides must match the number of generated seller orders.");
     }
 
     const orderIds: OrderId[] = [];
@@ -1471,17 +1325,12 @@ export function createOrderingOrderRuntime(
       );
       const shippingAllowancePercentageBps = planShippingAllowanceBps(draft.lines);
       const firstLine = draft.lines[0];
-      const termsScheduleId = firstLine
-        ? planTermsForLines(draft.lines, "termsScheduleId")
-        : null;
-      const termsAgreementId = firstLine
-        ? planTermsForLines(draft.lines, "termsAgreementId")
-        : null;
+      const termsScheduleId = firstLine ? planTermsForLines(draft.lines, "termsScheduleId") : null;
+      const termsAgreementId = firstLine ? planTermsForLines(draft.lines, "termsAgreementId") : null;
       const termsResolvedAt = firstLine
-        ? planTermsForLines(draft.lines, "termsResolvedAt") ?? new Date().toISOString()
+        ? (planTermsForLines(draft.lines, "termsResolvedAt") ?? new Date().toISOString())
         : new Date().toISOString();
-      const orderId =
-        orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
+      const orderId = orderIdsOverride?.[draftIndex] ?? (createId("ord") as OrderId);
       await commandHandler({
         streamId: `ordering.order-${orderId}`,
         command: {
@@ -1575,12 +1424,7 @@ export function createOrderingOrderRuntime(
         quantity: params.quantityRequested,
       },
     ];
-    const demandOptions = await buildDemandOptions(
-      deps.db,
-      null,
-      demandGroups,
-      params.sellerAccountId,
-    );
+    const demandOptions = await buildDemandOptions(deps.db, null, demandGroups, params.sellerAccountId);
     const acceptedOfferPriceAmount = normalizeMoneyAmount(params.priceAmount, {
       fieldName: "Accepted offer price",
     });
@@ -1609,10 +1453,7 @@ export function createOrderingOrderRuntime(
     const taxAdjustedPlan = await applyTaxToPlan(
       plan,
       params.buyerAccountId,
-      normalizeAddressSnapshot(
-        params.shippingDestinationSnapshot,
-        "Shipping destination",
-      ),
+      normalizeAddressSnapshot(params.shippingDestinationSnapshot, "Shipping destination"),
       taxQuoteResolver,
     );
     return taxAdjustedPlan;
@@ -1646,150 +1487,141 @@ export function createOrderingOrderRuntime(
     const orderIds = await createOrdersFromPlan(
       params.buyerAccountId,
       taxAdjustedPlan,
-      normalizeAddressSnapshot(
-        params.shippingDestinationSnapshot,
-        "Shipping destination",
-      ),
+      normalizeAddressSnapshot(params.shippingDestinationSnapshot, "Shipping destination"),
       context,
       params.orderIdsOverride,
     );
     return { orderIds };
   };
 
-  const createOrdersFromAcceptedOfferBatch: OrderingOrderServices["createOrdersFromAcceptedOfferBatch"] =
-    async (params, context) => {
-      const groupedByBuyerAndDestination = new Map<
-        string,
-        {
-          buyerAccountId: AccountId;
-          shippingDestinationSnapshot: AddressSnapshot;
-          drafts: SellerOrderDraft[];
-        }
-      >();
+  const createOrdersFromAcceptedOfferBatch: OrderingOrderServices["createOrdersFromAcceptedOfferBatch"] = async (
+    params,
+    context,
+  ) => {
+    const groupedByBuyerAndDestination = new Map<
+      string,
+      {
+        buyerAccountId: AccountId;
+        shippingDestinationSnapshot: AddressSnapshot;
+        drafts: SellerOrderDraft[];
+      }
+    >();
 
-      for (const offer of params.offers) {
-        const shippingDestinationSnapshot = normalizeAddressSnapshot(
-          offer.shippingDestinationSnapshot,
-          "Shipping destination",
-        );
-        const plan = await buildAcceptedOfferPlan({
-          ...offer,
-          offerId: params.acceptanceBatchId,
+    for (const offer of params.offers) {
+      const shippingDestinationSnapshot = normalizeAddressSnapshot(
+        offer.shippingDestinationSnapshot,
+        "Shipping destination",
+      );
+      const plan = await buildAcceptedOfferPlan({
+        ...offer,
+        offerId: params.acceptanceBatchId,
+      });
+      for (const draft of plan.orderDrafts) {
+        const groupKey = [offer.buyerAccountId, JSON.stringify(shippingDestinationSnapshot)].join("|");
+        const group = groupedByBuyerAndDestination.get(groupKey) ?? {
+          buyerAccountId: offer.buyerAccountId,
+          shippingDestinationSnapshot,
+          drafts: [],
+        };
+        const drafts = group.drafts;
+        drafts.push({
+          ...draft,
+          sourceReferenceId: params.acceptanceBatchId,
         });
-        for (const draft of plan.orderDrafts) {
-          const groupKey = [
-            offer.buyerAccountId,
-            JSON.stringify(shippingDestinationSnapshot),
-          ].join("|");
-          const group =
-            groupedByBuyerAndDestination.get(groupKey) ?? {
-              buyerAccountId: offer.buyerAccountId,
-              shippingDestinationSnapshot,
-              drafts: [],
-            };
-          const drafts = group.drafts;
-          drafts.push({
-            ...draft,
-            sourceReferenceId: params.acceptanceBatchId,
-          });
-          groupedByBuyerAndDestination.set(groupKey, {
-            ...group,
-            drafts,
-          });
-        }
+        groupedByBuyerAndDestination.set(groupKey, {
+          ...group,
+          drafts,
+        });
       }
+    }
 
-      const orderIds: OrderId[] = [];
-      for (const group of groupedByBuyerAndDestination.values()) {
-        const mergedBySeller = new Map<string, SellerOrderDraft>();
+    const orderIds: OrderId[] = [];
+    for (const group of groupedByBuyerAndDestination.values()) {
+      const mergedBySeller = new Map<string, SellerOrderDraft>();
 
-        for (const draft of group.drafts) {
-          const sellerOriginKey = [
-            draft.sellerAccountId,
-            JSON.stringify(draft.shippingOriginSnapshot),
-          ].join("|");
-          const existing = mergedBySeller.get(sellerOriginKey);
-          if (!existing) {
-            mergedBySeller.set(sellerOriginKey, draft);
-            continue;
-          }
-
-          const lines = [...existing.lines, ...draft.lines];
-          const reservations = [...existing.reservations, ...draft.reservations];
-          const itemSubtotalAmount = numberToMoneyAmount(
-            moneyToNumber(existing.itemSubtotalAmount) + moneyToNumber(draft.itemSubtotalAmount),
-          );
-          const listingIds = new Set(lines.map((line) => line.listingId));
-          const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
-          const packagePlan = buildPackagePlan({
-            shippingOption: draft.shippingOption,
-            itemSubtotalAmount,
-            lines: lines.map((line) => ({
-              productId: line.productId,
-              quantity: line.quantity,
-              measure: line.productMeasureSnapshot,
-            })),
-          });
-          if (packagePlan.missingProductIds.length > 0) {
-            throw new OrderingDomainError("Product measurements are required before checkout can be confirmed.");
-          }
-          const quote = deps.shippingQuotePolicy.quote({
-            sellerAccountId: draft.sellerAccountId,
-            shippingOption: draft.shippingOption,
-            itemSubtotalAmount,
-            quantity,
-            listingCount: listingIds.size,
-            packagePlan,
-          });
-          const shippingAllowancePercentageBps = planShippingAllowanceBps(lines);
-          const shippingEconomics = calculateShippingIncentive({
-            sourceType: "offer-acceptance",
-            itemSubtotalAmount,
-            shippingBaseAmount: quote.baseAmount,
-            shippingAllowancePercentageBps,
-          });
-          mergedBySeller.set(sellerOriginKey, {
-            ...existing,
-            itemSubtotalAmount,
-            shippingBaseAmount: shippingEconomics.shippingBaseAmount,
-            shippingDiscountAmount: shippingEconomics.shippingDiscountAmount,
-            shippingAllowanceAmount: shippingEconomics.shippingAllowanceAmount,
-            shippingOverageAmount: shippingEconomics.shippingOverageAmount,
-            sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
-            shippingChargeAmount: shippingEconomics.shippingChargeAmount,
-            shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
-            salesTaxAmount: "0.00",
-            totalAmount: numberToMoneyAmount(
-              moneyToNumber(itemSubtotalAmount) +
-                moneyToNumber(shippingEconomics.shippingChargeAmount),
-            ),
-            lines,
-            reservations,
-          });
+      for (const draft of group.drafts) {
+        const sellerOriginKey = [draft.sellerAccountId, JSON.stringify(draft.shippingOriginSnapshot)].join("|");
+        const existing = mergedBySeller.get(sellerOriginKey);
+        if (!existing) {
+          mergedBySeller.set(sellerOriginKey, draft);
+          continue;
         }
 
-        const taxAdjustedPlan = await applyTaxToPlan(
-          {
-            orderDrafts: [...mergedBySeller.values()],
-            totalAmount: 0,
-            itemSubtotalAmount: 0,
-            orderCount: mergedBySeller.size,
-          },
-          group.buyerAccountId,
-          group.shippingDestinationSnapshot,
-          taxQuoteResolver,
+        const lines = [...existing.lines, ...draft.lines];
+        const reservations = [...existing.reservations, ...draft.reservations];
+        const itemSubtotalAmount = numberToMoneyAmount(
+          moneyToNumber(existing.itemSubtotalAmount) + moneyToNumber(draft.itemSubtotalAmount),
         );
-        const buyerOrderIds = await createOrdersFromPlan(
-          group.buyerAccountId,
-          taxAdjustedPlan,
-          group.shippingDestinationSnapshot,
-          context,
-        );
-        orderIds.push(...buyerOrderIds);
+        const listingIds = new Set(lines.map((line) => line.listingId));
+        const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+        const packagePlan = buildPackagePlan({
+          shippingOption: draft.shippingOption,
+          itemSubtotalAmount,
+          lines: lines.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+            measure: line.productMeasureSnapshot,
+          })),
+        });
+        if (packagePlan.missingProductIds.length > 0) {
+          throw new OrderingDomainError("Product measurements are required before checkout can be confirmed.");
+        }
+        const quote = deps.shippingQuotePolicy.quote({
+          sellerAccountId: draft.sellerAccountId,
+          shippingOption: draft.shippingOption,
+          itemSubtotalAmount,
+          quantity,
+          listingCount: listingIds.size,
+          packagePlan,
+        });
+        const shippingAllowancePercentageBps = planShippingAllowanceBps(lines);
+        const shippingEconomics = calculateShippingIncentive({
+          sourceType: "offer-acceptance",
+          itemSubtotalAmount,
+          shippingBaseAmount: quote.baseAmount,
+          shippingAllowancePercentageBps,
+        });
+        mergedBySeller.set(sellerOriginKey, {
+          ...existing,
+          itemSubtotalAmount,
+          shippingBaseAmount: shippingEconomics.shippingBaseAmount,
+          shippingDiscountAmount: shippingEconomics.shippingDiscountAmount,
+          shippingAllowanceAmount: shippingEconomics.shippingAllowanceAmount,
+          shippingOverageAmount: shippingEconomics.shippingOverageAmount,
+          sellerShippingPayoutAmount: shippingEconomics.sellerShippingPayoutAmount,
+          shippingChargeAmount: shippingEconomics.shippingChargeAmount,
+          shippingPlanSnapshot: quote.packagePlan ?? packagePlan,
+          salesTaxAmount: "0.00",
+          totalAmount: numberToMoneyAmount(
+            moneyToNumber(itemSubtotalAmount) + moneyToNumber(shippingEconomics.shippingChargeAmount),
+          ),
+          lines,
+          reservations,
+        });
       }
 
-      return { orderIds };
-    };
+      const taxAdjustedPlan = await applyTaxToPlan(
+        {
+          orderDrafts: [...mergedBySeller.values()],
+          totalAmount: 0,
+          itemSubtotalAmount: 0,
+          orderCount: mergedBySeller.size,
+        },
+        group.buyerAccountId,
+        group.shippingDestinationSnapshot,
+        taxQuoteResolver,
+      );
+      const buyerOrderIds = await createOrdersFromPlan(
+        group.buyerAccountId,
+        taxAdjustedPlan,
+        group.shippingDestinationSnapshot,
+        context,
+      );
+      orderIds.push(...buyerOrderIds);
+    }
+
+    return { orderIds };
+  };
 
   return {
     commandHandler,
@@ -1878,10 +1710,7 @@ export function createOrderingOrderRuntime(
               params.sourceType,
               params.checkoutSessionId,
             );
-            const availableQuantity = candidates.reduce(
-              (sum, candidate) => sum + candidate.availableQuantity,
-              0,
-            );
+            const availableQuantity = candidates.reduce((sum, candidate) => sum + candidate.availableQuantity, 0);
             if (availableQuantity < line.quantity) {
               unavailableLines.push({
                 lineKey,
@@ -1948,13 +1777,7 @@ export function createOrderingOrderRuntime(
         params.checkoutSessionId,
         optimizationGoal,
       );
-      await assertPlanPurchaseLimits(
-        deps.db,
-        params.buyerAccountId,
-        plan,
-        params.sourceType,
-        params.checkoutSessionId,
-      );
+      await assertPlanPurchaseLimits(deps.db, params.buyerAccountId, plan, params.sourceType, params.checkoutSessionId);
       const taxAdjustedPlan = await applyTaxToPlan(
         plan,
         params.buyerAccountId,
@@ -1978,11 +1801,7 @@ export function createOrderingOrderRuntime(
       });
     },
     createOrdersFromCheckout: async (params, context) => {
-      const existingOrderIds = await listOrderIdsForSource(
-        deps.db,
-        params.sourceType,
-        params.checkoutSessionId,
-      );
+      const existingOrderIds = await listOrderIdsForSource(deps.db, params.sourceType, params.checkoutSessionId);
       if (existingOrderIds.length > 0) {
         return { orderIds: existingOrderIds as OrderId[] };
       }
@@ -2022,26 +1841,13 @@ export function createOrderingOrderRuntime(
         params.checkoutSessionId,
         params.optimizationGoal ?? "lowest-total",
       );
-      await assertPlanPurchaseLimits(
-        deps.db,
-        params.buyerAccountId,
-        plan,
-        params.sourceType,
-        params.checkoutSessionId,
-      );
-      if (
-        params.customerAccountIsGuest &&
-        await planHasAccountScopedPurchaseLimits(deps.db, plan)
-      ) {
+      await assertPlanPurchaseLimits(deps.db, params.buyerAccountId, plan, params.sourceType, params.checkoutSessionId);
+      if (params.customerAccountIsGuest && (await planHasAccountScopedPurchaseLimits(deps.db, plan))) {
         throw new OrderingDomainError(
           "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
         );
       }
-      await claimPlanPurchaseLimitUsage(
-        deps.db,
-        params.buyerAccountId,
-        plan,
-      );
+      await claimPlanPurchaseLimitUsage(deps.db, params.buyerAccountId, plan);
       const taxAdjustedPlan = await applyTaxToPlan(
         plan,
         params.buyerAccountId,
@@ -2109,11 +1915,9 @@ export function createOrderingOrderRuntime(
       return { orderId: params.orderId, version: result.version };
     },
     listPurchases: (params) => listPurchases(deps.db, params),
-    getPurchase: (orderId, buyerAccountId) =>
-      getPurchase(deps.db, orderId, buyerAccountId),
+    getPurchase: (orderId, buyerAccountId) => getPurchase(deps.db, orderId, buyerAccountId),
     listSales: (params) => listSales(deps.db, params),
-    getSale: (orderId, sellerAccountId) =>
-      getSale(deps.db, orderId, sellerAccountId),
+    getSale: (orderId, sellerAccountId) => getSale(deps.db, orderId, sellerAccountId),
     projectors: [
       createProjector({
         projectorName: "ordering-order-projection",

@@ -45,9 +45,7 @@ describe("marketplace root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain(
-      `href="${window.location.origin}/search?search=charizard"`,
-    );
+    expect(html).toContain(`href="${window.location.origin}/search?search=charizard"`);
     expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
     expect(html).toContain('rel="icon" href="/favicon.svg"');
     expect(html).toContain('rel="alternate icon" href="/favicon.ico"');
@@ -67,9 +65,7 @@ describe("marketplace root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain(
-      'href="https://marketplace.example/search?search=charizard"',
-    );
+    expect(html).toContain('href="https://marketplace.example/search?search=charizard"');
   });
 
   it("can noindex staging through environment configuration", () => {

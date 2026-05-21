@@ -83,9 +83,7 @@ describe("marketplace route layout", () => {
     const sellNav = topNav.find((item) => item.key === "selling-workspace");
     const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
 
-    expect(
-      resolveMarketplaceNavItems("top-nav", null).map((item) => item.href),
-    ).toEqual([
+    expect(resolveMarketplaceNavItems("top-nav", null).map((item) => item.href)).toEqual([
       "/search",
       "/sign-in",
       "/register",
@@ -99,12 +97,7 @@ describe("marketplace route layout", () => {
       "Sell",
       "Buy Cart",
     ]);
-    expect(sellNav?.children?.map((item) => item.label)).toEqual([
-      "Listings",
-      "Offer Matches",
-      "Sales",
-      "Shipping",
-    ]);
+    expect(sellNav?.children?.map((item) => item.label)).toEqual(["Listings", "Offer Matches", "Sales", "Shipping"]);
     expect(accountMenuItems.map((item) => item.label)).toEqual([
       "Account",
       "Wallet",
@@ -112,9 +105,7 @@ describe("marketplace route layout", () => {
       "Submitted Offers",
       "Reviews",
     ]);
-    expect(
-      resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
-    ).toEqual([
+    expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Buy Cart",
       "Notifications",
@@ -146,14 +137,7 @@ describe("marketplace route layout", () => {
   it("opens a combined account menu with user context, account links, and sign out", async () => {
     const user = userEvent.setup({ document });
     const actor = {
-      permissions: [
-        "accounts.view",
-        "offers.view",
-        "orders.view",
-        "orders.manage",
-        "payouts.view",
-        "reputation.view",
-      ],
+      permissions: ["accounts.view", "offers.view", "orders.view", "orders.manage", "payouts.view", "reputation.view"],
     };
     mockUseRouteLoaderData.mockReturnValue({
       actor,
@@ -168,39 +152,28 @@ describe("marketplace route layout", () => {
     expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/account");
     expect(screen.getByRole("link", { name: "Wallet" }).getAttribute("href")).toBe("/account/settlement");
     expect(screen.getByRole("link", { name: "Payouts" }).getAttribute("href")).toBe("/account/payouts");
-    expect(screen.getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe("marketplace-account-menu-sign-out");
+    expect(screen.getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
+      "marketplace-account-menu-sign-out",
+    );
     expect(screen.queryByText("Acting as")).toBeNull();
     expect(screen.queryByText("Signed in as")).toBeNull();
   });
 
   it("keeps account access for signed-in actors without selling workflow permissions", () => {
     const actor = {
-      permissions: [
-        "accounts.view",
-        "offers.view",
-        "orders.view",
-        "orders.manage",
-      ],
+      permissions: ["accounts.view", "offers.view", "orders.view", "orders.manage"],
     };
 
     const topNav = resolveMarketplaceNavItems("top-nav", actor);
     const accountNav = topNav.find((item) => item.key === "account");
 
-    expect(topNav.map((item) => item.label)).toEqual([
-      "Browse",
-      "Purchases",
-      "Notifications",
-      "Sell List",
-      "Buy Cart",
-    ]);
+    expect(topNav.map((item) => item.label)).toEqual(["Browse", "Purchases", "Notifications", "Sell List", "Buy Cart"]);
     expect(accountNav).toBeUndefined();
     expect(resolveMarketplaceAccountMenuItems(actor).map((item) => item.label)).toEqual([
       "Account",
       "Submitted Offers",
     ]);
-    expect(
-      resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
-    ).toEqual([
+    expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Buy Cart",
       "Purchases",
@@ -211,31 +184,16 @@ describe("marketplace route layout", () => {
 
   it("keeps wallet discoverable through account navigation without selling workflow permissions", () => {
     const actor = {
-      permissions: [
-        "accounts.view",
-        "orders.view",
-        "orders.manage",
-        "payouts.view",
-      ],
+      permissions: ["accounts.view", "orders.view", "orders.manage", "payouts.view"],
     };
 
     const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
-    const bottomAccountNav = resolveMarketplaceNavItems("bottom-nav", actor)
-      .find((item) => item.key === "account");
-    const bottomWalletNav = resolveMarketplaceNavItems("bottom-nav", actor)
-      .find((item) => item.key === "wallet");
+    const bottomAccountNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "account");
+    const bottomWalletNav = resolveMarketplaceNavItems("bottom-nav", actor).find((item) => item.key === "wallet");
 
-    expect(accountMenuItems.map((item) => item.label)).toEqual([
-      "Account",
-      "Wallet",
-      "Payouts",
-    ]);
+    expect(accountMenuItems.map((item) => item.label)).toEqual(["Account", "Wallet", "Payouts"]);
     expect(bottomWalletNav?.href).toBe("/account/settlement");
-    expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual([
-      "Account",
-      "Wallet",
-      "Payouts",
-    ]);
+    expect(bottomAccountNav?.children?.map((item) => item.label)).toEqual(["Account", "Wallet", "Payouts"]);
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Buy Cart",
@@ -247,17 +205,11 @@ describe("marketplace route layout", () => {
 
   it("keeps cart access for signed-in buyers without order-management permissions", () => {
     const actor = {
-      permissions: [
-        "accounts.view",
-      ],
+      permissions: ["accounts.view"],
     };
 
-    expect(
-      resolveMarketplaceNavItems("top-nav", actor).map((item) => item.label),
-    ).toContain("Buy Cart");
-    expect(
-      resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label),
-    ).toContain("Buy Cart");
+    expect(resolveMarketplaceNavItems("top-nav", actor).map((item) => item.label)).toContain("Buy Cart");
+    expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toContain("Buy Cart");
   });
 
   it("keeps sign-in and registration entry points for signed-out actors", () => {
@@ -268,9 +220,7 @@ describe("marketplace route layout", () => {
 
     const html = renderToString(<MarketplaceLayoutRoute />);
 
-    expect(
-      resolveMarketplaceNavItems("bottom-nav", null).map((item) => item.href),
-    ).toEqual([
+    expect(resolveMarketplaceNavItems("bottom-nav", null).map((item) => item.href)).toEqual([
       "/search",
       "/sign-in",
       "/register",
@@ -290,9 +240,7 @@ describe("marketplace route layout", () => {
 
     const html = renderToString(<MarketplaceLayoutRoute />);
 
-    expect(
-      resolveMarketplaceNavItems("top-nav", null, { cartCount: 2 }).map((item) => item.href),
-    ).toEqual([
+    expect(resolveMarketplaceNavItems("top-nav", null, { cartCount: 2 }).map((item) => item.href)).toEqual([
       "/search",
       "/sign-in",
       "/register",
@@ -304,9 +252,7 @@ describe("marketplace route layout", () => {
     expect(html).toContain('href="/account/cart"');
     expect(html).toContain("Buy Cart");
     expect(html).toContain("2");
-    expect(html.indexOf('href="/register"')).toBeLessThan(
-      html.indexOf('href="/account/cart"'),
-    );
+    expect(html.indexOf('href="/register"')).toBeLessThan(html.indexOf('href="/account/cart"'));
   });
 
   it("prompts signed-in users to add a passkey after fallback registration", () => {

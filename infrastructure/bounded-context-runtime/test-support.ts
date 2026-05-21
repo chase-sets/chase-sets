@@ -12,27 +12,17 @@ import {
   type ContextSubscriptionRunner,
   type MountedContextRuntimeEntry,
 } from "./index";
-import {
-  createOwnedDatabaseUrl,
-  ensureOwnedPostgresDatabases,
-  parseOwnedDatabaseUrl,
-} from "./provisioning";
+import { createOwnedDatabaseUrl, ensureOwnedPostgresDatabases, parseOwnedDatabaseUrl } from "./provisioning";
 
 type QueryablePool = PgTransactionalPool & {
-  query: <TRow = unknown>(
-    sql: string,
-    params?: readonly unknown[],
-  ) => Promise<{ rows: TRow[] }>;
+  query: <TRow = unknown>(sql: string, params?: readonly unknown[]) => Promise<{ rows: TRow[] }>;
 };
 
 const testDatabaseExtensions: Readonly<Record<string, readonly string[]>> = {
   discovery: ["vector"],
 };
 
-export function createMultiContextTestDatabaseName(
-  scope: string,
-  contextName: string,
-): string {
+export function createMultiContextTestDatabaseName(scope: string, contextName: string): string {
   const normalizedScope = scope
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
@@ -47,9 +37,7 @@ export function createMultiContextTestDatabaseName(
   return `${normalizedScope}_${normalizedContext}_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
 }
 
-export function createMultiContextTestDatabaseUrls<
-  TContextName extends string,
->(
+export function createMultiContextTestDatabaseUrls<TContextName extends string>(
   adminDatabaseUrl: string,
   contextNames: readonly TContextName[],
   scope: string,
@@ -57,14 +45,7 @@ export function createMultiContextTestDatabaseUrls<
   return Object.fromEntries(
     contextNames.map((contextName) => {
       const databaseName = createMultiContextTestDatabaseName(scope, contextName);
-      return [
-        contextName,
-        createOwnedDatabaseUrl(
-          adminDatabaseUrl,
-          databaseName,
-          databaseName,
-        ),
-      ];
+      return [contextName, createOwnedDatabaseUrl(adminDatabaseUrl, databaseName, databaseName)];
     }),
   ) as Readonly<Record<TContextName, string>>;
 }
@@ -83,10 +64,7 @@ export async function ensureMultiContextTestDatabases(
 
   for (const [contextName, databaseUrl] of Object.entries(databaseUrls)) {
     const spec = parseOwnedDatabaseUrl(databaseUrl);
-    const extensions =
-      testDatabaseExtensions[contextName] ??
-      testDatabaseExtensions[spec.roleName] ??
-      [];
+    const extensions = testDatabaseExtensions[contextName] ?? testDatabaseExtensions[spec.roleName] ?? [];
 
     if (extensions.length === 0) {
       continue;
@@ -132,14 +110,8 @@ export async function resetMultiContextTestSchemas(
   );
 }
 
-export async function closeMultiContextTestPools(
-  pools: Readonly<Record<string, PgTransactionalPool>>,
-): Promise<void> {
-  await Promise.all(
-    Object.values(pools).map((pool) =>
-      (pool as unknown as { end: () => Promise<void> }).end(),
-    ),
-  );
+export async function closeMultiContextTestPools(pools: Readonly<Record<string, PgTransactionalPool>>): Promise<void> {
+  await Promise.all(Object.values(pools).map((pool) => (pool as unknown as { end: () => Promise<void> }).end()));
 }
 
 export type MountedContextTestDefinition<
@@ -152,9 +124,7 @@ export type MountedContextTestDefinition<
   mountRole?: "active" | "source-only";
   module: BcApiModule<TServices, TPool, TPorts>;
   pool: TPool;
-  ports:
-    | TPorts
-    | ((services: Readonly<Record<string, unknown>>) => TPorts);
+  ports: TPorts | ((services: Readonly<Record<string, unknown>>) => TPorts);
 }>;
 
 export type MountedContextTestRuntime<
@@ -167,19 +137,14 @@ export type MountedContextTestRuntime<
   subscriptionRunners: readonly ContextSubscriptionRunner[];
 }>;
 
-export function createMountedContextTestRuntime<
-  const TDefinitions extends readonly MountedContextTestDefinition[],
->(
+export function createMountedContextTestRuntime<const TDefinitions extends readonly MountedContextTestDefinition[]>(
   definitions: TDefinitions,
 ): MountedContextTestRuntime<TDefinitions> {
   const resolvedServices: Record<string, unknown> = {};
   const mountedContexts: MountedContextRuntimeEntry[] = [];
 
   for (const definition of definitions) {
-    const ports =
-      typeof definition.ports === "function"
-        ? definition.ports(resolvedServices)
-        : definition.ports;
+    const ports = typeof definition.ports === "function" ? definition.ports(resolvedServices) : definition.ports;
     const services = definition.module.createServices(definition.pool, ports);
     const mountRole = definition.mountRole ?? "active";
 
@@ -190,18 +155,12 @@ export function createMountedContextTestRuntime<
       module: definition.module,
       services,
       pool: definition.pool,
-      projectors:
-        mountRole === "source-only"
-          ? []
-          : definition.module.projectors(services),
+      projectors: mountRole === "source-only" ? [] : definition.module.projectors(services),
     } satisfies MountedContextRuntimeEntry);
   }
 
   const subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
-  const projectionGroups = resolveModuleProjectionGroups(
-    mountedContexts,
-    subscriptionRunners,
-  );
+  const projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
 
   return {
     mountedContexts,
@@ -218,9 +177,7 @@ export async function seedMountedContextTestRuntimeIfEmpty(
   runtime: MountedContextTestRuntime,
   lifecycleContextOrder: readonly string[],
 ): Promise<void> {
-  const mountedContextsByName = new Map(
-    runtime.mountedContexts.map((entry) => [entry.contextName, entry]),
-  );
+  const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
 
   for (const context of runtime.mountedContexts) {
     await bootstrapContextDatabase(context.module, context.pool);
@@ -229,9 +186,7 @@ export async function seedMountedContextTestRuntimeIfEmpty(
   for (const contextName of lifecycleContextOrder) {
     const context = mountedContextsByName.get(contextName);
     if (!context) {
-      throw new Error(
-        `Runtime is missing mounted context '${contextName}' required by the test lifecycle order.`,
-      );
+      throw new Error(`Runtime is missing mounted context '${contextName}' required by the test lifecycle order.`);
     }
 
     await syncContextProjectionGroups(runtime, context.contextName, {

@@ -67,12 +67,8 @@ export function AccountMenu({
     <>
       <Icon name="user" size="sm" tone="secondary" />
       <span className="min-w-0 flex-1 leading-tight">
-        <span className="block truncate text-xs font-semibold text-foreground">
-          {accountName}
-        </span>
-        <span className="block truncate text-[0.72rem] text-secondary">
-          {roleName}
-        </span>
+        <span className="block truncate text-xs font-semibold text-foreground">{accountName}</span>
+        <span className="block truncate text-[0.72rem] text-secondary">{roleName}</span>
       </span>
       <Icon name="chevronDown" size="sm" tone="secondary" />
     </>
@@ -85,19 +81,13 @@ export function AccountMenu({
     <div className="px-3 py-3">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase text-secondary">
-            {accountLabel}
-          </div>
-          <div className="mt-1 truncate text-sm font-semibold text-foreground">
-            {accountName}
-          </div>
+          <div className="text-xs font-semibold uppercase text-secondary">{accountLabel}</div>
+          <div className="mt-1 truncate text-sm font-semibold text-foreground">{accountName}</div>
         </div>
         <Badge tone="neutral">{roleName}</Badge>
       </div>
       <div className="mt-3 min-w-0">
-        <div className="text-xs font-semibold uppercase text-secondary">
-          {userLabel}
-        </div>
+        <div className="text-xs font-semibold uppercase text-secondary">{userLabel}</div>
         <div className="mt-1 truncate text-sm text-foreground">{userName}</div>
       </div>
       <div className="sr-only">
@@ -114,11 +104,7 @@ export function AccountMenu({
         title={menuLabel}
         height="medium"
         trigger={
-          <button
-            type="button"
-            aria-label={menuLabel}
-            className={triggerClassName}
-          >
+          <button type="button" aria-label={menuLabel} className={triggerClassName}>
             {triggerContent}
           </button>
         }
@@ -128,23 +114,14 @@ export function AccountMenu({
           <div className="h-px bg-muted" />
           <nav aria-label={menuLabel} className="grid gap-1">
             {items.map((item) => (
-              <a
-                key={item.key}
-                href={item.href}
-                className={menuItemClassName(false)}
-                onClick={() => setOpen(false)}
-              >
+              <a key={item.key} href={item.href} className={menuItemClassName(false)} onClick={() => setOpen(false)}>
                 {item.icon ? <Icon name={item.icon} size="sm" tone="secondary" /> : null}
                 <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
               </a>
             ))}
           </nav>
           <div className="h-px bg-muted" />
-          <button
-            type="submit"
-            form={signOutFormId}
-            className={menuItemClassName(false, true)}
-          >
+          <button type="submit" form={signOutFormId} className={menuItemClassName(false, true)}>
             <Icon name="logOut" size="sm" tone="danger" />
             <span className="min-w-0 flex-1 truncate font-medium">{signOutLabel}</span>
           </button>
@@ -155,10 +132,7 @@ export function AccountMenu({
 
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen}>
-      <MenuPrimitive.Trigger
-        aria-label={menuLabel}
-        className={triggerClassName}
-      >
+      <MenuPrimitive.Trigger aria-label={menuLabel} className={triggerClassName}>
         {triggerContent}
       </MenuPrimitive.Trigger>
       <MenuPrimitive.Portal container={overlayNode ?? undefined}>
@@ -168,7 +142,8 @@ export function AccountMenu({
               initial: motionProps.initial,
               animate: motionProps.animate,
               transition: motionProps.transition,
-              className: "modern-surface w-[min(20rem,calc(100vw-2rem))] rounded-tokenLg border border-muted p-2 shadow-overlay",
+              className:
+                "modern-surface w-[min(20rem,calc(100vw-2rem))] rounded-tokenLg border border-muted p-2 shadow-overlay",
             })}
           >
             {accountSummary}

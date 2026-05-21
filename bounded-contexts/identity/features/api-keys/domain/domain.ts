@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { ApiKeyId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   EMPTY_EVENT_DATA,
@@ -50,11 +46,7 @@ export type RecordApiKeyUseCommand = Readonly<{
   usedAt: string;
 }>;
 
-export type ApiKeyCommand =
-  | CreateApiKeyCommand
-  | RotateApiKeyCommand
-  | RevokeApiKeyCommand
-  | RecordApiKeyUseCommand;
+export type ApiKeyCommand = CreateApiKeyCommand | RotateApiKeyCommand | RevokeApiKeyCommand | RecordApiKeyUseCommand;
 
 export type ApiKeyCreatedEvent = DomainEvent<
   "identity.api-key.created",
@@ -66,31 +58,15 @@ export type ApiKeyCreatedEvent = DomainEvent<
   }>
 >;
 
-export type ApiKeyRotatedEvent = DomainEvent<
-  "identity.api-key.rotated",
-  Readonly<{ keyPrefix: string }>
->;
+export type ApiKeyRotatedEvent = DomainEvent<"identity.api-key.rotated", Readonly<{ keyPrefix: string }>>;
 
-export type ApiKeyRevokedEvent = DomainEvent<
-  "identity.api-key.revoked",
-  EmptyEventData
->;
+export type ApiKeyRevokedEvent = DomainEvent<"identity.api-key.revoked", EmptyEventData>;
 
-export type ApiKeyUsedEvent = DomainEvent<
-  "identity.api-key.used",
-  Readonly<{ usedAt: string }>
->;
+export type ApiKeyUsedEvent = DomainEvent<"identity.api-key.used", Readonly<{ usedAt: string }>>;
 
-export type ApiKeyEvent =
-  | ApiKeyCreatedEvent
-  | ApiKeyRotatedEvent
-  | ApiKeyRevokedEvent
-  | ApiKeyUsedEvent;
+export type ApiKeyEvent = ApiKeyCreatedEvent | ApiKeyRotatedEvent | ApiKeyRevokedEvent | ApiKeyUsedEvent;
 
-export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEvent> = (
-  state,
-  command,
-) => {
+export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEvent> = (state, command) => {
   switch (command.type) {
     case "CreateApiKey":
       assert(state.id === null, "API key has already been created.");
@@ -129,10 +105,7 @@ export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEv
   }
 };
 
-export const evolveApiKey: AggregateEvolver<ApiKeyState, ApiKeyEvent> = (
-  state,
-  event,
-) => {
+export const evolveApiKey: AggregateEvolver<ApiKeyState, ApiKeyEvent> = (state, event) => {
   switch (event.type) {
     case "identity.api-key.created":
       return {

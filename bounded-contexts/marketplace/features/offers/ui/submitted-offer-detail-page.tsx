@@ -41,8 +41,7 @@ export function MarketplaceSubmittedOfferDetailPage({
   errorMessage?: string | null;
   feedbackPrompt?: ReactNode;
 }) {
-  const showAcceptedSellerReputation =
-    offer.accepted_seller_account_id !== null && offer.status === "accepted";
+  const showAcceptedSellerReputation = offer.accepted_seller_account_id !== null && offer.status === "accepted";
 
   return (
     <Page>
@@ -52,12 +51,17 @@ export function MarketplaceSubmittedOfferDetailPage({
         description={t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted")}
         actions={
           <LinkButton href="/account/offers/submitted" tone="secondary">
-            {t("marketplace.features.offers.ui.submittedOfferDetailPage.back.to.submitted.offers")}</LinkButton>
+            {t("marketplace.features.offers.ui.submittedOfferDetailPage.back.to.submitted.offers")}
+          </LinkButton>
         }
       />
 
       {errorMessage ? (
-        <MarketplaceNotice tone="error" title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")} description={errorMessage} />
+        <MarketplaceNotice
+          tone="error"
+          title={t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview")}
+          description={errorMessage}
+        />
       ) : null}
 
       {feedbackPrompt}
@@ -74,8 +78,15 @@ export function MarketplaceSubmittedOfferDetailPage({
                 {offer.product_summary ? (
                   <ProductOptions options={productOptionsFromSummary(offer.product_summary)} variant="chips" />
                 ) : null}
-                <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}{offer.quantity_requested}</Text>
-                <Text>{t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide")}</Text>
+                <Text>
+                  {t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested")}
+                  {offer.quantity_requested}
+                </Text>
+                <Text>
+                  {t(
+                    "marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide",
+                  )}
+                </Text>
                 {showAcceptedSellerReputation ? (
                   <AccountReputationSummary
                     accountName={offer.accepted_seller_account_id}
@@ -107,8 +118,12 @@ export function MarketplaceSubmittedOfferDetailPage({
             title={t("marketplace.features.offers.ui.submittedOfferDetailPage.offers")}
             items={[
               {
-                title: t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide"),
-                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted"),
+                title: t(
+                  "marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide",
+                ),
+                description: t(
+                  "marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted",
+                ),
               },
               {
                 title: t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested"),
@@ -116,7 +131,9 @@ export function MarketplaceSubmittedOfferDetailPage({
               },
               {
                 title: t("marketplace.features.offers.ui.submittedOfferDetailPage.back.to.submitted.offers"),
-                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted"),
+                description: t(
+                  "marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted",
+                ),
               },
             ]}
           />
@@ -125,12 +142,16 @@ export function MarketplaceSubmittedOfferDetailPage({
             steps={[
               {
                 label: offer.status,
-                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide"),
+                description: t(
+                  "marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide",
+                ),
                 status: offer.status === "submitted" ? "current" : "complete",
               },
               {
                 label: t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview"),
-                description: t("marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted"),
+                description: t(
+                  "marketplace.features.offers.ui.submittedOfferDetailPage.review.the.details.of.your.submitted",
+                ),
                 status: "upcoming",
               },
             ]}

@@ -21,10 +21,6 @@ describe("platform admin password bootstrap", () => {
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0]?.[0]).toContain("identity_password_credentials");
     expect(query.mock.calls[0]?.[0]).not.toContain("identity_session_tokens");
-    expect(query.mock.calls[0]?.[1]).toEqual([
-      "crd_platform_admin_password",
-      "usr_platform_admin",
-      "hashed:rotate-me",
-    ]);
+    expect(query.mock.calls[0]?.[1]).toEqual(["crd_platform_admin_password", "usr_platform_admin", "hashed:rotate-me"]);
   });
 });

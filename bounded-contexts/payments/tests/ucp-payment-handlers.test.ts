@@ -17,34 +17,40 @@ describe("Payments UCP handoff", () => {
   };
 
   it("rejects AP2 completion attempts without checkout mandate details", async () => {
-    const decision = await handoff.evaluateCompleteRequest({
-      ap2: {
-        payment_mandate: "payment_mandate",
+    const decision = await handoff.evaluateCompleteRequest(
+      {
+        ap2: {
+          payment_mandate: "payment_mandate",
+        },
       },
-    }, checkout);
+      checkout,
+    );
 
     expect(decision).toMatchObject({
       kind: "respond",
       response: {
-      ucp: { status: "error" },
-      messages: [{ code: "invalid_ap2_mandate" }],
+        ucp: { status: "error" },
+        messages: [{ code: "invalid_ap2_mandate" }],
       },
     });
   });
 
   it("keeps AP2 mandates on trusted checkout handoff until mandate verification is enabled", async () => {
-    const decision = await handoff.evaluateCompleteRequest({
-      ap2: {
-        checkout_mandate: "checkout_mandate",
+    const decision = await handoff.evaluateCompleteRequest(
+      {
+        ap2: {
+          checkout_mandate: "checkout_mandate",
+        },
       },
-    }, checkout);
+      checkout,
+    );
 
     expect(decision).toMatchObject({
       kind: "respond",
       response: {
-      ucp: { status: "requires_action" },
-      action: { type: "trusted_checkout_handoff" },
-      messages: [{ code: "mandate_verification_unavailable" }],
+        ucp: { status: "requires_action" },
+        action: { type: "trusted_checkout_handoff" },
+        messages: [{ code: "mandate_verification_unavailable" }],
       },
     });
   });
@@ -56,32 +62,38 @@ describe("Payments UCP handoff", () => {
         evidence: { verifier: "test" },
       }),
     };
-    const enabled = createPaymentsUcpHandoff({
-      processorName: "stripe",
-      publishableKey: "pk_test_123",
-      confirmationExperience: "processor-managed-form",
-      dynamicPaymentMethods: true,
-      sensitivePaymentDetailsHandledByProcessor: true,
-      agenticPaymentHandlers: [
-        {
-          id: "stripe-shared-payment-token",
-          provider: "stripe",
-          type: "shared_payment_token",
-          requiresAp2Mandate: true,
-          confirmationExperience: "server-confirmed-payment-intent",
-        },
-      ],
-    }, { ap2Verifier: verifier });
+    const enabled = createPaymentsUcpHandoff(
+      {
+        processorName: "stripe",
+        publishableKey: "pk_test_123",
+        confirmationExperience: "processor-managed-form",
+        dynamicPaymentMethods: true,
+        sensitivePaymentDetailsHandledByProcessor: true,
+        agenticPaymentHandlers: [
+          {
+            id: "stripe-shared-payment-token",
+            provider: "stripe",
+            type: "shared_payment_token",
+            requiresAp2Mandate: true,
+            confirmationExperience: "server-confirmed-payment-intent",
+          },
+        ],
+      },
+      { ap2Verifier: verifier },
+    );
 
-    const decision = await enabled.evaluateCompleteRequest({
-      ap2: {
-        checkout_mandate: "checkout_mandate",
+    const decision = await enabled.evaluateCompleteRequest(
+      {
+        ap2: {
+          checkout_mandate: "checkout_mandate",
+        },
+        payment_data: {
+          provider: "stripe",
+          token: "spt_123",
+        },
       },
-      payment_data: {
-        provider: "stripe",
-        token: "spt_123",
-      },
-    }, checkout);
+      checkout,
+    );
 
     expect(decision).toMatchObject({
       kind: "headless-agentic-payment",

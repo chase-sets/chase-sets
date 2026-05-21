@@ -1,16 +1,8 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import {
-  hasPermission as hasActorPermission,
-  type ResolvedActor,
-} from "@chase-sets/platform-runtime/auth";
+import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type {
-  AccountId,
-  ApiKeyId,
-  MembershipId,
-  UserId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, ApiKeyId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { getApiKeySecretByPrefix, upsertApiKeySecret } from "./features/api-keys/api/secret-store";
 import type { PermissionKey, RoleKey } from "./support/runtime-support/common";
@@ -32,10 +24,7 @@ export type IdentityApiEnv = {
   };
 };
 
-function hasPermission(
-  actor: ResolvedActor | null | undefined,
-  permission: PermissionKey,
-) {
+function hasPermission(actor: ResolvedActor | null | undefined, permission: PermissionKey) {
   return hasActorPermission(actor, permission);
 }
 
@@ -107,17 +96,17 @@ async function createPersonalIdentityForAuth(
 
   await services.users.commandHandler({
     streamId: `identity.user-${userId}`,
-      command: {
-        type: "CreateUser",
-        userId,
-        displayName,
-        givenName: params.givenName,
-        familyName: params.familyName,
-        primaryEmail: email || null,
-        ...(primaryContactMethod ? { primaryContactMethod } : {}),
-      },
-      context: params.context,
-    });
+    command: {
+      type: "CreateUser",
+      userId,
+      displayName,
+      givenName: params.givenName,
+      familyName: params.familyName,
+      primaryEmail: email || null,
+      ...(primaryContactMethod ? { primaryContactMethod } : {}),
+    },
+    context: params.context,
+  });
 
   await services.memberships.commandHandler({
     streamId: `identity.membership-${membershipId}`,
@@ -351,10 +340,7 @@ async function linkSocialLoginForAuth(
       return false;
     }
     const record = link as { providerName?: unknown; providerSubject?: unknown };
-    return (
-      record.providerName === params.providerName &&
-      record.providerSubject === params.providerSubject
-    );
+    return record.providerName === params.providerName && record.providerSubject === params.providerSubject;
   });
 
   if (!alreadyLinked) {
@@ -408,33 +394,33 @@ async function acceptInvitationForUserFromAuth(
   return membershipId;
 }
 
-function requirePermission(
-  readPermission: PermissionKey,
-  writePermission = readPermission,
-) {
+function requirePermission(readPermission: PermissionKey, writePermission = readPermission) {
   return async (c: Context<IdentityApiEnv>, next: () => Promise<void>) => {
     const actor = c.var.actor;
     if (!actor) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: "Authentication required.",
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: "Authentication required.",
+          },
         },
-      }, 401);
+        401,
+      );
     }
 
-    const requiredPermission =
-      c.req.method === "GET" || c.req.method === "HEAD"
-        ? readPermission
-        : writePermission;
+    const requiredPermission = c.req.method === "GET" || c.req.method === "HEAD" ? readPermission : writePermission;
 
     if (!hasPermission(actor, requiredPermission)) {
-      return c.json({
-        error: {
-          code: "authorization_forbidden",
-          message: "Forbidden.",
+      return c.json(
+        {
+          error: {
+            code: "authorization_forbidden",
+            message: "Forbidden.",
+          },
         },
-      }, 403);
+        403,
+      );
     }
 
     await next();
@@ -481,19 +467,11 @@ export function buildIdentityApi(services: IdentityServices) {
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();
     const identity = await createPersonalIdentityForAuth(services, {
-      email:
-        typeof body.email === "string" && body.email.trim()
-          ? body.email
-          : null,
-      phone:
-        typeof body.phone === "string" && body.phone.trim()
-          ? body.phone
-          : null,
+      email: typeof body.email === "string" && body.email.trim() ? body.email : null,
+      phone: typeof body.phone === "string" && body.phone.trim() ? body.phone : null,
       displayName: String(body.displayName ?? ""),
-      givenName:
-        typeof body.givenName === "string" ? body.givenName : undefined,
-      familyName:
-        typeof body.familyName === "string" ? body.familyName : undefined,
+      givenName: typeof body.givenName === "string" ? body.givenName : undefined,
+      familyName: typeof body.familyName === "string" ? body.familyName : undefined,
       consents: Array.isArray(body.consents) ? body.consents : undefined,
       context: getBootstrapContext(c),
     });
@@ -533,12 +511,15 @@ export function buildIdentityApi(services: IdentityServices) {
     const body = await c.req.json();
     const providerName = String(body.providerName ?? "");
     if (providerName !== "google" && providerName !== "facebook") {
-      return c.json({
-        error: {
-          code: "validation_failed",
-          message: "Social login provider is unsupported.",
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: "Social login provider is unsupported.",
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
     try {
@@ -551,12 +532,15 @@ export function buildIdentityApi(services: IdentityServices) {
       });
     } catch (error) {
       if (error instanceof SocialLoginLinkConflictError) {
-        return c.json({
-          error: {
-            code: "social_login_already_linked",
-            message: "Social login is already linked to another user.",
+        return c.json(
+          {
+            error: {
+              code: "social_login_already_linked",
+              message: "Social login is already linked to another user.",
+            },
           },
-        }, 409);
+          409,
+        );
       }
 
       throw error;
@@ -579,28 +563,30 @@ export function buildIdentityApi(services: IdentityServices) {
   app.get("/current-actor-display", async (c) => {
     const actor = c.var.actor;
     if (!actor) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: "Authentication required.",
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: "Authentication required.",
+          },
         },
-      }, 401);
+        401,
+      );
     }
 
     const [account, membership, user] = await Promise.all([
       services.accounts.getAccount(actor.accountId),
-      services.memberships.getActiveMembershipForUserAccount(
-        actor.userId,
-        actor.accountId,
-      ),
+      services.memberships.getActiveMembershipForUserAccount(actor.userId, actor.accountId),
       services.users.getUser(actor.userId),
     ]);
 
-    return c.json(buildCurrentActorDisplay(actor, {
-      account,
-      membership,
-      user,
-    }));
+    return c.json(
+      buildCurrentActorDisplay(actor, {
+        account,
+        membership,
+        user,
+      }),
+    );
   });
 
   app.use("/accounts", requirePermission("accounts.view", "accounts.manage"));
@@ -615,10 +601,7 @@ export function buildIdentityApi(services: IdentityServices) {
   app.use("/api-keys/*", requirePermission("security.manage"));
 
   app.route("/accounts", accountRoutes(services.accounts));
-  app.route(
-    "/accounts/:accountId/shipping-addresses",
-    shippingAddressRoutes(services.shippingAddresses),
-  );
+  app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services.shippingAddresses));
   app.route("/users", userRoutes(services.users));
   app.route("/memberships", membershipRoutes(services.memberships));
   app.route("/invitations", invitationRoutes(services.invitations));
@@ -649,25 +632,31 @@ export function buildIdentityApi(services: IdentityServices) {
       secretHash: services.auth.hashSecret(secret),
     });
     await drainProjectors(services);
-    return c.json({
-      id: apiKeyId,
-      version: result.version,
-      status: result.state.status,
-      secret,
-      keyPrefix,
-    }, 201);
+    return c.json(
+      {
+        id: apiKeyId,
+        version: result.version,
+        status: result.state.status,
+        secret,
+        keyPrefix,
+      },
+      201,
+    );
   });
 
   app.post("/api-keys/:id/rotate", async (c) => {
     const apiKeyId = c.req.param("id");
     const apiKey = await services.apiKeys.getApiKey(apiKeyId);
     if (!apiKey) {
-      return c.json({
-        error: {
-          code: "not_found",
-          message: "API key not found.",
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: "API key not found.",
+          },
         },
-      }, 404);
+        404,
+      );
     }
     const context = getRequiredContext(c);
     const secret = services.auth.issueOpaqueToken("key");
@@ -701,16 +690,16 @@ export function buildIdentityApi(services: IdentityServices) {
     const secret = String(body.secret ?? "");
     const keyPrefix = secret.slice(0, 12);
     const apiKeySecret = await getApiKeySecretByPrefix(services.db, keyPrefix);
-    if (
-      !apiKeySecret ||
-      !services.auth.verifySecret(secret, apiKeySecret.secret_hash)
-    ) {
-      return c.json({
-        error: {
-          code: "authentication_required",
-          message: "Invalid API key.",
+    if (!apiKeySecret || !services.auth.verifySecret(secret, apiKeySecret.secret_hash)) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: "Invalid API key.",
+          },
         },
-      }, 401);
+        401,
+      );
     }
     await services.apiKeys.commandHandler({
       streamId: `identity.api-key-${apiKeySecret.api_key_id}`,

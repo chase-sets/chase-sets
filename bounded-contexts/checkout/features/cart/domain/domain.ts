@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -176,14 +172,10 @@ function normalizeFulfillmentMode(
   value: "optimize" | "locked-listing" | undefined,
   lockedListingId: string | null | undefined,
 ) {
-  return value === "locked-listing" || normalizeOptionalText(lockedListingId)
-    ? "locked-listing"
-    : "optimize";
+  return value === "locked-listing" || normalizeOptionalText(lockedListingId) ? "locked-listing" : "optimize";
 }
 
-function normalizeAvailabilityState(
-  value: "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined,
-) {
+function normalizeAvailabilityState(value: "available" | "unavailable" | "changed" | "waiting-for-supply" | undefined) {
   switch (value) {
     case "unavailable":
     case "changed":
@@ -194,40 +186,27 @@ function normalizeAvailabilityState(
   }
 }
 
-export const decideCheckoutCart: AggregateDecider<
-  CheckoutCartState,
-  CheckoutCartCommand,
-  CheckoutCartEvent
-> = (state, command) => {
+export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCartCommand, CheckoutCartEvent> = (
+  state,
+  command,
+) => {
   switch (command.type) {
     case "AddCartLine":
       assert(
         state.buyerAccountId === null || state.buyerAccountId === command.buyerAccountId,
         "Cart is owned by a different account.",
       );
-      assert(
-        !state.lines.some((line) => line.lineId === command.lineId),
-        "Cart line has already been added.",
-      );
+      assert(!state.lines.some((line) => line.lineId === command.lineId), "Cart line has already been added.");
       return [
         {
           type: "checkout.cart.line-added",
           data: {
             buyerAccountId: command.buyerAccountId,
             lineId: command.lineId,
-            catalogItemId: normalizeRequiredText(
-              command.catalogItemId,
-              "Cart lines must reference a catalog item.",
-            ),
-            productId: normalizeRequiredText(
-              String(command.productId),
-              "Cart lines must reference a product id.",
-            ),
+            catalogItemId: normalizeRequiredText(command.catalogItemId, "Cart lines must reference a catalog item."),
+            productId: normalizeRequiredText(String(command.productId), "Cart lines must reference a product id."),
             itemLanguageCode: normalizeOptionalText(command.itemLanguageCode ?? null),
-            itemTitle: normalizeRequiredText(
-              command.itemTitle,
-              "Cart lines must include an item title snapshot.",
-            ),
+            itemTitle: normalizeRequiredText(command.itemTitle, "Cart lines must include an item title snapshot."),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
             itemImageUrl: normalizeOptionalText(command.itemImageUrl),
             itemImageLoadingUrl: normalizeOptionalText(command.itemImageLoadingUrl),
@@ -235,14 +214,8 @@ export const decideCheckoutCart: AggregateDecider<
             itemImageLoadingSrcSet: normalizeOptionalText(command.itemImageLoadingSrcSet),
             selectedOptions: normalizeVersionSelection(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
-            quantity: ensurePositiveInteger(
-              command.quantity,
-              "Cart quantity must be a positive whole number.",
-            ),
-            fulfillmentMode: normalizeFulfillmentMode(
-              command.fulfillmentMode,
-              command.lockedListingId,
-            ),
+            quantity: ensurePositiveInteger(command.quantity, "Cart quantity must be a positive whole number."),
+            fulfillmentMode: normalizeFulfillmentMode(command.fulfillmentMode, command.lockedListingId),
             lockedListingId: normalizeOptionalText(command.lockedListingId),
             sellerPreferenceId: normalizeOptionalText(command.sellerPreferenceId),
             availabilityState: normalizeAvailabilityState(command.availabilityState),
@@ -256,24 +229,15 @@ export const decideCheckoutCart: AggregateDecider<
           type: "checkout.cart.line-quantity-set",
           data: {
             lineId: command.lineId,
-            quantity: ensurePositiveInteger(
-              command.quantity,
-              "Cart quantity must be a positive whole number.",
-            ),
+            quantity: ensurePositiveInteger(command.quantity, "Cart quantity must be a positive whole number."),
           },
         },
       ];
     case "SetCartLineFulfillment": {
       requireCartLine(state, command.lineId);
       const lockedListingId = normalizeOptionalText(command.lockedListingId);
-      const fulfillmentMode = normalizeFulfillmentMode(
-        command.fulfillmentMode,
-        lockedListingId,
-      );
-      assert(
-        fulfillmentMode === "optimize" || Boolean(lockedListingId),
-        "Locked cart lines must reference a listing.",
-      );
+      const fulfillmentMode = normalizeFulfillmentMode(command.fulfillmentMode, lockedListingId);
+      assert(fulfillmentMode === "optimize" || Boolean(lockedListingId), "Locked cart lines must reference a listing.");
       return [
         {
           type: "checkout.cart.line-fulfillment-set",
@@ -305,10 +269,7 @@ export const decideCheckoutCart: AggregateDecider<
           type: "checkout.cart.checked-out",
           data: {
             buyerAccountId: state.buyerAccountId,
-            checkedOutAt: normalizeRequiredText(
-              command.checkedOutAt,
-              "Checkout must record a timestamp.",
-            ),
+            checkedOutAt: normalizeRequiredText(command.checkedOutAt, "Checkout must record a timestamp."),
           },
         },
       ];
@@ -317,10 +278,7 @@ export const decideCheckoutCart: AggregateDecider<
   }
 };
 
-export const evolveCheckoutCart: AggregateEvolver<
-  CheckoutCartState,
-  CheckoutCartEvent
-> = (state, event) => {
+export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCartEvent> = (state, event) => {
   switch (event.type) {
     case "checkout.cart.line-added":
       return {
@@ -341,10 +299,7 @@ export const evolveCheckoutCart: AggregateEvolver<
             selectedOptions: event.data.selectedOptions,
             productSummary: event.data.productSummary,
             quantity: event.data.quantity,
-            fulfillmentMode: normalizeFulfillmentMode(
-              event.data.fulfillmentMode,
-              event.data.lockedListingId,
-            ),
+            fulfillmentMode: normalizeFulfillmentMode(event.data.fulfillmentMode, event.data.lockedListingId),
             lockedListingId: normalizeOptionalText(event.data.lockedListingId),
             sellerPreferenceId: normalizeOptionalText(event.data.sellerPreferenceId),
             availabilityState: normalizeAvailabilityState(event.data.availabilityState),
@@ -356,9 +311,7 @@ export const evolveCheckoutCart: AggregateEvolver<
       return {
         ...state,
         lines: state.lines.map((line) =>
-          line.lineId === event.data.lineId
-            ? { ...line, quantity: event.data.quantity }
-            : line,
+          line.lineId === event.data.lineId ? { ...line, quantity: event.data.quantity } : line,
         ),
       };
     case "checkout.cart.line-fulfillment-set":

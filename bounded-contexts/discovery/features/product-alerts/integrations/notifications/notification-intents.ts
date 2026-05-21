@@ -1,7 +1,4 @@
-import type {
-  NotificationMessage,
-  WebNotificationChannel,
-} from "@chase-sets/notifications";
+import type { NotificationMessage, WebNotificationChannel } from "@chase-sets/notifications";
 
 export type ProductAlertNotificationInput = Readonly<{
   accountId: string;
@@ -15,18 +12,13 @@ export type ProductAlertNotificationInput = Readonly<{
   correlationId: string;
 }>;
 
-export function mapProductAlertMatchToNotification(
-  input: ProductAlertNotificationInput,
-): NotificationMessage {
+export function mapProductAlertMatchToNotification(input: ProductAlertNotificationInput): NotificationMessage {
   const itemTitle = input.itemTitle?.trim() || "A watched product";
   const actionHref =
     input.marketSide === "offer"
       ? `/items/${encodeURIComponent(input.catalogItemId)}?market=sell`
       : `/items/${encodeURIComponent(input.catalogItemId)}`;
-  const title =
-    input.marketSide === "offer"
-      ? `Product Alert: demand for ${itemTitle}`
-      : `Product Alert: ${itemTitle}`;
+  const title = input.marketSide === "offer" ? `Product Alert: demand for ${itemTitle}` : `Product Alert: ${itemTitle}`;
   const body =
     input.marketSide === "offer"
       ? `${input.productSummary ?? "The selected product"} has matching demand at $${input.priceAmount}.`

@@ -22,10 +22,7 @@ export function facetGroupDecisionPriority(input: {
     return 100;
   }
 
-  if (
-    includesFacetTerm(normalized, "condition") ||
-    includesFacetTerm(normalized, "grade")
-  ) {
+  if (includesFacetTerm(normalized, "condition") || includesFacetTerm(normalized, "grade")) {
     return 90;
   }
 

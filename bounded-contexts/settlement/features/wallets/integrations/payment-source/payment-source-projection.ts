@@ -3,11 +3,7 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { WalletServices } from "../../api/runtime";
-import {
-  compareMoney,
-  normalizeCurrencyCode,
-  SettlementDomainError,
-} from "../../../../support/runtime-support/common";
+import { compareMoney, normalizeCurrencyCode, SettlementDomainError } from "../../../../support/runtime-support/common";
 
 async function debitAppliedBalanceCredit(
   wallets: WalletServices | undefined,
@@ -45,10 +41,7 @@ async function debitAppliedBalanceCredit(
       },
     );
   } catch (error) {
-    if (
-      error instanceof SettlementDomainError &&
-      error.message === "Ledger entry has already been posted."
-    ) {
+    if (error instanceof SettlementDomainError && error.message === "Ledger entry has already been posted.") {
       return;
     }
     throw error;
@@ -74,21 +67,19 @@ function normalizeSellerPayoutComponents(value: unknown): SellerPayoutComponent[
       return [];
     }
     const candidate = component as Partial<SellerPayoutComponent>;
-    if (
-      typeof candidate.orderId !== "string" ||
-      typeof candidate.sellerAccountId !== "string"
-    ) {
+    if (typeof candidate.orderId !== "string" || typeof candidate.sellerAccountId !== "string") {
       return [];
     }
-    return [{
-      orderId: candidate.orderId,
-      sellerAccountId: candidate.sellerAccountId,
-      sellerItemNetAmount: candidate.sellerItemNetAmount ?? "0.00",
-      shippingAllowanceAmount: candidate.shippingAllowanceAmount ?? "0.00",
-      sellerShippingPayoutAmount:
-        candidate.sellerShippingPayoutAmount ?? candidate.shippingAllowanceAmount ?? "0.00",
-      sellerPayoutAmount: candidate.sellerPayoutAmount ?? "0.00",
-    }];
+    return [
+      {
+        orderId: candidate.orderId,
+        sellerAccountId: candidate.sellerAccountId,
+        sellerItemNetAmount: candidate.sellerItemNetAmount ?? "0.00",
+        shippingAllowanceAmount: candidate.shippingAllowanceAmount ?? "0.00",
+        sellerShippingPayoutAmount: candidate.sellerShippingPayoutAmount ?? candidate.shippingAllowanceAmount ?? "0.00",
+        sellerPayoutAmount: candidate.sellerPayoutAmount ?? "0.00",
+      },
+    ];
   });
 }
 
@@ -100,10 +91,7 @@ async function postWalletEntryIdempotently(
   try {
     await wallets.postEntry(params, context);
   } catch (error) {
-    if (
-      error instanceof SettlementDomainError &&
-      error.message === "Ledger entry has already been posted."
-    ) {
+    if (error instanceof SettlementDomainError && error.message === "Ledger entry has already been posted.") {
       return;
     }
     throw error;
@@ -444,13 +432,7 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $5
          WHERE refund_id = $1
            AND last_stream_version < $5`,
-        [
-          data.refundId,
-          data.processorStatus,
-          data.processorRefundReference,
-          data.issuedAt,
-          event.streamVersion,
-        ],
+        [data.refundId, data.processorStatus, data.processorRefundReference, data.issuedAt, event.streamVersion],
       );
     },
     "payments.refund-failed": async (event) => {

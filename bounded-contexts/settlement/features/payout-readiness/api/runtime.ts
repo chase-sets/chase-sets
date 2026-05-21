@@ -1,9 +1,6 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -16,10 +13,7 @@ import {
   SettlementDomainError,
   type PayoutReadinessStatus,
 } from "../../../support/runtime-support/common";
-import type {
-  MoneyMovementGateway,
-  ProviderPayoutReadiness,
-} from "@chase-sets/money-movement";
+import type { MoneyMovementGateway, ProviderPayoutReadiness } from "@chase-sets/money-movement";
 import {
   decidePayoutReadiness,
   evolvePayoutReadiness,
@@ -34,10 +28,7 @@ import {
   getPayoutReadinessByProviderReference,
   type SettlementPayoutReadinessRow,
 } from "../read-model/queries";
-import {
-  buildPayoutSetupProgress,
-  type PayoutSetupProgress,
-} from "../domain/setup-progress";
+import { buildPayoutSetupProgress, type PayoutSetupProgress } from "../domain/setup-progress";
 
 type PayoutReadinessRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -47,11 +38,7 @@ type PayoutReadinessRuntimeDeps = Readonly<{
 }>;
 
 export type PayoutReadinessServices = Readonly<{
-  commandHandler: CommandHandler<
-    PayoutReadinessCommand,
-    PayoutReadinessState,
-    PayoutReadinessEvent
-  >;
+  commandHandler: CommandHandler<PayoutReadinessCommand, PayoutReadinessState, PayoutReadinessEvent>;
   getPayoutReadiness: (accountId: string) => Promise<SettlementPayoutReadinessRow>;
   getPayoutSetupProgress: (accountId: string) => Promise<PayoutSetupProgress>;
   createOnboardingSession: (
@@ -110,19 +97,14 @@ function readinessStatus(readiness: ProviderPayoutReadiness): PayoutReadinessSta
     return "ready";
   }
 
-  if (
-    readiness.transferCapabilityStatus === "inactive" ||
-    readiness.payoutCapabilityStatus === "inactive"
-  ) {
+  if (readiness.transferCapabilityStatus === "inactive" || readiness.payoutCapabilityStatus === "inactive") {
     return "restricted";
   }
 
   return "pending";
 }
 
-export function createPayoutReadinessRuntime(
-  deps: PayoutReadinessRuntimeDeps,
-): PayoutReadinessServices {
+export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): PayoutReadinessServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -240,18 +222,15 @@ export function createPayoutReadinessRuntime(
     async createAccountManagementSession(params, _context) {
       const existing = await getPayoutReadiness(deps.db, params.accountId);
       if (!existing.provider_reference) {
-        throw new SettlementDomainError(
-          "Payout setup must be started before managing payout account details.",
-        );
+        throw new SettlementDomainError("Payout setup must be started before managing payout account details.");
       }
 
-      const session =
-        await deps.moneyMovementGateway.createAccountManagementSession({
-          accountId: params.accountId,
-          providerReference: existing.provider_reference,
-          returnUrl: params.returnUrl,
-          idempotencyKey: `settlement:payout-account:${params.accountId}:manage`,
-        });
+      const session = await deps.moneyMovementGateway.createAccountManagementSession({
+        accountId: params.accountId,
+        providerReference: existing.provider_reference,
+        returnUrl: params.returnUrl,
+        idempotencyKey: `settlement:payout-account:${params.accountId}:manage`,
+      });
 
       return {
         url: session.url,
@@ -291,10 +270,7 @@ export function createPayoutReadinessRuntime(
       return getPayoutReadiness(deps.db, params.accountId);
     },
     async recordProviderReadinessFromWebhook(params, context) {
-      const existing = await getPayoutReadinessByProviderReference(
-        deps.db,
-        params.providerReference,
-      );
+      const existing = await getPayoutReadinessByProviderReference(deps.db, params.providerReference);
       if (!existing) {
         return null;
       }

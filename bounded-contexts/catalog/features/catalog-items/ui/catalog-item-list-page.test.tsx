@@ -154,7 +154,18 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "tcgplayer", blueprintId: "", tag: "", setId: "", typeKey: "", page: 0, pageSize: 50 }}
+        query={{
+          search: "",
+          status: "draft",
+          language: "",
+          source: "tcgplayer",
+          blueprintId: "",
+          tag: "",
+          setId: "",
+          typeKey: "",
+          page: 0,
+          pageSize: 50,
+        }}
       />,
     );
 
@@ -347,7 +358,10 @@ describe("CatalogItemListPage", () => {
     await waitFor(() => {
       expect(mockPreviewBulkCatalogItemEdit).toHaveBeenCalledWith(
         { action: "assignBlueprint", blueprintId: "bpr_card" },
-        { mode: "filter", query: { search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 } },
+        {
+          mode: "filter",
+          query: { search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 },
+        },
       );
     });
     expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();

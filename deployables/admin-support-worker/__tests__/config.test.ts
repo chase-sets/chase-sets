@@ -3,13 +3,7 @@ import { getWorkerHostContextNames } from "@chase-sets/platform-runtime/worker";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { getContextDatabaseEnvName, loadConfig } from "../src/config";
 
-const adminSupportContextNames = [
-  "auth",
-  "catalog",
-  "experience",
-  "identity",
-  "public-presence",
-] as const;
+const adminSupportContextNames = ["auth", "catalog", "experience", "identity", "public-presence"] as const;
 
 describe("admin-support worker configuration", () => {
   afterEach(() => {
@@ -17,9 +11,9 @@ describe("admin-support worker configuration", () => {
   });
 
   it("selects only the landing/admin-support bounded contexts", () => {
-    expect(
-      [...getWorkerHostContextNames(workerContextRegistry, "admin-support-worker")].sort(),
-    ).toEqual([...adminSupportContextNames].sort());
+    expect([...getWorkerHostContextNames(workerContextRegistry, "admin-support-worker")].sort()).toEqual(
+      [...adminSupportContextNames].sort(),
+    );
   });
 
   it("loads per-context database configuration", () => {

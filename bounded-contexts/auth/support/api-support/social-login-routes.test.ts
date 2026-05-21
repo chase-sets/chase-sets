@@ -4,15 +4,13 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
 import type { AuthApiEnv } from "./support";
 
-const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoisted(
-  () => ({
-    mockCreateIdentityAuthRequestClient: vi.fn(),
-    mockIdentityMutations: {
-      createPersonalIdentity: vi.fn(),
-      linkSocialLogin: vi.fn(),
-    },
-  }),
-);
+const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoisted(() => ({
+  mockCreateIdentityAuthRequestClient: vi.fn(),
+  mockIdentityMutations: {
+    createPersonalIdentity: vi.fn(),
+    linkSocialLogin: vi.fn(),
+  },
+}));
 
 vi.mock("@chase-sets/identity/server", () => ({
   createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
@@ -36,30 +34,35 @@ function buildApp(services: AuthServices) {
   return app;
 }
 
-function createServices(options: Readonly<{
-  profile?: {
-    email: string | null;
-    emailVerified: boolean;
-  };
-  providerFails?: boolean;
-  existingUser?: { user_id: string; status: string } | null;
-  socialLoginUser?: { user_id: string; status: string } | null;
-  memberships?: readonly {
-    membershipId: string;
-    accountId: string;
-    roleKey: string;
-    status: string;
-    rolePermissions: readonly string[];
-  }[];
-}>) {
-  const states = new Map<string, {
-    state_hash: string;
-    provider_name: string;
-    journey: string;
-    return_to: string;
-    expires_at: string;
-    consumed_at: string | null;
-  }>();
+function createServices(
+  options: Readonly<{
+    profile?: {
+      email: string | null;
+      emailVerified: boolean;
+    };
+    providerFails?: boolean;
+    existingUser?: { user_id: string; status: string } | null;
+    socialLoginUser?: { user_id: string; status: string } | null;
+    memberships?: readonly {
+      membershipId: string;
+      accountId: string;
+      roleKey: string;
+      status: string;
+      rolePermissions: readonly string[];
+    }[];
+  }>,
+) {
+  const states = new Map<
+    string,
+    {
+      state_hash: string;
+      provider_name: string;
+      journey: string;
+      return_to: string;
+      expires_at: string;
+      consumed_at: string | null;
+    }
+  >();
   const db = {
     query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
       if (sql.includes("INSERT INTO identity_social_login_states")) {
@@ -108,15 +111,18 @@ function createServices(options: Readonly<{
         user_id: userId,
         status: "active",
       })),
-      listActiveMembershipsForUser: vi.fn(async () => options.memberships ?? [
-        {
-          membershipId: "mbr_existing",
-          accountId: "acc_existing",
-          roleKey: "owner",
-          status: "active",
-          rolePermissions: [],
-        },
-      ]),
+      listActiveMembershipsForUser: vi.fn(
+        async () =>
+          options.memberships ?? [
+            {
+              membershipId: "mbr_existing",
+              accountId: "acc_existing",
+              roleKey: "owner",
+              status: "active",
+              rolePermissions: [],
+            },
+          ],
+      ),
     },
     sessions: {
       commandHandler: vi.fn(async () => ({
@@ -131,9 +137,7 @@ function createServices(options: Readonly<{
     socialLoginProviders: [
       {
         providerName: "google",
-        createAuthorizationUrl: vi.fn(({ state }) =>
-          `https://provider.test/auth?state=${encodeURIComponent(state)}`,
-        ),
+        createAuthorizationUrl: vi.fn(({ state }) => `https://provider.test/auth?state=${encodeURIComponent(state)}`),
         exchangeCallback: vi.fn(async () => {
           if (options.providerFails) {
             throw new Error("provider failed");
@@ -164,22 +168,13 @@ describe("social login routes", () => {
     const services = createServices({ existingUser: null });
     const app = buildApp(services);
 
-    const response = await app.request(
-      "/social/google/start?journey=registration&returnTo=/account/orders",
-    );
+    const response = await app.request("/social/google/start?journey=registration&returnTo=/account/orders");
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "https://provider.test/auth?state=social_token",
-    );
+    expect(response.headers.get("Location")).toBe("https://provider.test/auth?state=social_token");
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_social_login_states"),
-      expect.arrayContaining([
-        "hashed:social_token",
-        "google",
-        "registration",
-        "/account/orders",
-      ]),
+      expect.arrayContaining(["hashed:social_token", "google", "registration", "/account/orders"]),
     );
   });
 
@@ -191,9 +186,7 @@ describe("social login routes", () => {
     const app = buildApp(services);
 
     await app.request("/social/google/start?returnTo=/account");
-    const response = await app.request(
-      "/social/google/callback?state=social_token&code=provider-code",
-    );
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account");
@@ -219,9 +212,7 @@ describe("social login routes", () => {
     const app = buildApp(services);
 
     await app.request("/social/google/start");
-    const response = await app.request(
-      "/social/google/callback?state=social_token&code=provider-code",
-    );
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");
@@ -250,9 +241,7 @@ describe("social login routes", () => {
     const app = buildApp(services);
 
     await app.request("/social/google/start?journey=registration&returnTo=/account");
-    const response = await app.request(
-      "/social/google/callback?state=social_token&code=provider-code",
-    );
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account");
@@ -294,17 +283,11 @@ describe("social login routes", () => {
     const app = buildApp(services);
 
     await app.request("/social/google/start?returnTo=/account/orders");
-    const response = await app.request(
-      "/social/google/callback?state=social_token&code=provider-code",
-    );
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "/account/select?returnTo=%2Faccount%2Forders",
-    );
-    expect(response.headers.getSetCookie().join(";")).toContain(
-      "chase_sets_account_selection=acct_token",
-    );
+    expect(response.headers.get("Location")).toBe("/account/select?returnTo=%2Faccount%2Forders");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_account_selection=acct_token");
   });
 
   it("returns to the registration fallback when provider exchange fails during registration", async () => {
@@ -316,9 +299,7 @@ describe("social login routes", () => {
     const app = buildApp(services);
 
     await app.request("/social/google/start?journey=registration");
-    const response = await app.request(
-      "/social/google/callback?state=social_token&code=provider-code",
-    );
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/register?socialLoginError=");
@@ -337,9 +318,7 @@ describe("social login routes", () => {
     const app = buildApp(services);
 
     await app.request("/social/google/start");
-    const response = await app.request(
-      "/social/google/callback?state=social_token&code=provider-code",
-    );
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");

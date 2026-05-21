@@ -17,11 +17,7 @@ import {
   TextInput,
   Textarea,
 } from "@chase-sets/design-system";
-import type {
-  InventoryImportBatch,
-  InventoryImportBatchDetail,
-  InventoryImportBatchRow,
-} from "../read-model/queries";
+import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 
 function statusTone(status: string) {
@@ -82,11 +78,14 @@ export function InventoryImportBatchPage({
         actions={
           <Inline>
             <LinkButton href="/account/inventory" tone="secondary">
-              {t("inventory.features.importBatches.ui.importBatchPage.inventory")}</LinkButton>
+              {t("inventory.features.importBatches.ui.importBatchPage.inventory")}
+            </LinkButton>
             <LinkButton href="/account/listings" tone="secondary">
-              {t("inventory.features.importBatches.ui.importBatchPage.listings")}</LinkButton>
+              {t("inventory.features.importBatches.ui.importBatchPage.listings")}
+            </LinkButton>
             <LinkButton href="/account/repricing" tone="ghost">
-              {t("inventory.features.importBatches.ui.importBatchPage.pricing")}</LinkButton>
+              {t("inventory.features.importBatches.ui.importBatchPage.pricing")}
+            </LinkButton>
           </Inline>
         }
       />
@@ -125,9 +124,10 @@ export function InventoryImportBatchPage({
           },
           {
             label: t("inventory.features.importBatches.ui.importBatchPage.source"),
-            value: detail?.source_key === "tcgplayer-csv"
-              ? t("inventory.features.importBatches.ui.importBatchPage.tcgplayer")
-              : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
+            value:
+              detail?.source_key === "tcgplayer-csv"
+                ? t("inventory.features.importBatches.ui.importBatchPage.tcgplayer")
+                : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
             detail: detail
               ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
                   version: detail.adapter_version,
@@ -137,7 +137,9 @@ export function InventoryImportBatchPage({
           {
             label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
             value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
-            detail: detail?.default_storage_location_id ?? t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
+            detail:
+              detail?.default_storage_location_id ??
+              t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
           },
         ]}
       />
@@ -207,10 +209,12 @@ export function InventoryImportBatchPage({
               />
               <Inline>
                 <Button type="submit">
-                  {t("inventory.features.importBatches.ui.importBatchPage.validate.import")}</Button>
+                  {t("inventory.features.importBatches.ui.importBatchPage.validate.import")}
+                </Button>
                 {latestBatchId ? (
                   <LinkButton href={`/account/inventory/imports/${latestBatchId}`} tone="ghost">
-                    {t("inventory.features.importBatches.ui.importBatchPage.latest.batch")}</LinkButton>
+                    {t("inventory.features.importBatches.ui.importBatchPage.latest.batch")}
+                  </LinkButton>
                 ) : null}
               </Inline>
             </Stack>
@@ -233,7 +237,8 @@ export function InventoryImportBatchPage({
                       })}
                     </Text>
                     <Button type="submit">
-                      {t("inventory.features.importBatches.ui.importBatchPage.commit.accepted.rows")}</Button>
+                      {t("inventory.features.importBatches.ui.importBatchPage.commit.accepted.rows")}
+                    </Button>
                   </Inline>
                 </form>
               </Card>
@@ -253,7 +258,9 @@ export function InventoryImportBatchPage({
                   cell: (row) => (
                     <Stack gap={1}>
                       <Badge tone={statusTone(row.status)}>{row.status}</Badge>
-                      <Text size="sm" tone="secondary">{row.resolution_status}</Text>
+                      <Text size="sm" tone="secondary">
+                        {row.resolution_status}
+                      </Text>
                     </Stack>
                   ),
                 },
@@ -283,7 +290,9 @@ export function InventoryImportBatchPage({
                   header: t("inventory.features.importBatches.ui.importBatchPage.catalog.item"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      <Text weight="semibold">{row.catalog_item_id ?? t("inventory.features.importBatches.ui.importBatchPage.not.set")}</Text>
+                      <Text weight="semibold">
+                        {row.catalog_item_id ?? t("inventory.features.importBatches.ui.importBatchPage.not.set")}
+                      </Text>
                       <Text size="sm" tone="secondary">
                         {row.product_id ?? t("inventory.features.importBatches.ui.importBatchPage.product.unresolved")}
                       </Text>
@@ -296,8 +305,15 @@ export function InventoryImportBatchPage({
                   align: "right",
                   cell: (row) => (
                     <Stack gap={1}>
-                      <Text>{row.set_quantity ?? row.quantity_delta ?? row.total_quantity ?? t("inventory.features.importBatches.ui.importBatchPage.not.set")}</Text>
-                      <Text size="sm" tone="secondary">{row.quantity_mode}</Text>
+                      <Text>
+                        {row.set_quantity ??
+                          row.quantity_delta ??
+                          row.total_quantity ??
+                          t("inventory.features.importBatches.ui.importBatchPage.not.set")}
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        {row.quantity_mode}
+                      </Text>
                     </Stack>
                   ),
                 },
@@ -329,7 +345,9 @@ export function InventoryImportBatchPage({
                           </Text>
                         ))
                       ) : (
-                        <Text size="sm" tone="secondary">{rowOutcome(row)}</Text>
+                        <Text size="sm" tone="secondary">
+                          {rowOutcome(row)}
+                        </Text>
                       )}
                     </Stack>
                   ),
@@ -380,7 +398,8 @@ export function InventoryImportBatchPage({
                 header: t("inventory.features.importBatches.ui.importBatchPage.actions"),
                 cell: (row) => (
                   <LinkButton href={`/account/inventory/imports/${row.batch_id}`} tone="secondary" size="sm">
-                    {t("inventory.features.importBatches.ui.importBatchPage.open")}</LinkButton>
+                    {t("inventory.features.importBatches.ui.importBatchPage.open")}
+                  </LinkButton>
                 ),
               },
             ]}

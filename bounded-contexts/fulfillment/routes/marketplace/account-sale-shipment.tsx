@@ -1,16 +1,9 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  FulfillmentApiError,
-  type FulfillmentShipmentDetail,
-} from "../../support/request-support/api-client";
+import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../support/request-support/api-client";
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentDetailPage } from "../../features/shipments/ui/shipment-detail-page";
 
@@ -105,7 +98,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return redirect(`/account/sales/shipments/${shipmentId}`);
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : t("fulfillment.routes.marketplace.accountSaleShipment.request.failed"),
+      error:
+        error instanceof Error ? error.message : t("fulfillment.routes.marketplace.accountSaleShipment.request.failed"),
     };
   }
 }

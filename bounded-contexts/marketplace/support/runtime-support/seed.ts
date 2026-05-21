@@ -5,22 +5,14 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type {
-  AccountId,
-  ListingId,
-  OfferId,
-  UserId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, ListingId, OfferId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
 import { requiresListingPhotoEvidence } from "../../features/listings/domain/domain";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
-import {
-  createMarketplaceServices,
-  type MarketplaceServices,
-} from "./services";
+import { createMarketplaceServices, type MarketplaceServices } from "./services";
 import sharp from "sharp";
 
 type ListingSeed = Readonly<{
@@ -259,24 +251,20 @@ const listings: readonly ListingSeed[] = [
     finalStatus: "active",
   },
   {
-    listingId:
-      marketplaceReservedSeedIds.listings.cardVaultTwilightMasqueradeEliteTrainer,
+    listingId: marketplaceReservedSeedIds.listings.cardVaultTwilightMasqueradeEliteTrainer,
     accountId: identitySeedIds.cardVault.accountId,
     userId: identitySeedIds.cardVault.userId,
-    inventoryItemId:
-      inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
+    inventoryItemId: inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     priceAmount: "44.75",
     quantityCap: 2,
     finalStatus: "active",
   },
   {
-    listingId:
-      marketplaceReservedSeedIds.listings.sealedStockroomTwilightMasqueradeEliteTrainer,
+    listingId: marketplaceReservedSeedIds.listings.sealedStockroomTwilightMasqueradeEliteTrainer,
     accountId: identitySeedIds.sealedStockroom.accountId,
     userId: identitySeedIds.sealedStockroom.userId,
-    inventoryItemId:
-      inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
+    inventoryItemId: inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     priceAmount: "43.25",
     quantityCap: 4,
@@ -595,9 +583,7 @@ async function getSeedListingPhotoBody() {
   return seedListingPhotoBodyPromise;
 }
 
-async function buildSeedListingPhotoUpload(
-  listing: ListingSeed,
-): Promise<readonly MarketplaceListingPhotoUpload[]> {
+async function buildSeedListingPhotoUpload(listing: ListingSeed): Promise<readonly MarketplaceListingPhotoUpload[]> {
   return [
     {
       body: await getSeedListingPhotoBody(),
@@ -637,9 +623,7 @@ async function getProductId(
   return createMarketplaceProductDescriptor({
     catalogItemId,
     productSchema:
-      typeof productSchema === "object" && productSchema !== null
-        ? (productSchema as MarketplaceVersionSchema)
-        : null,
+      typeof productSchema === "object" && productSchema !== null ? (productSchema as MarketplaceVersionSchema) : null,
     selection,
   }).productId;
 }
@@ -662,7 +646,6 @@ export async function seedMarketplaceDatabase(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
-
   try {
     const existing = await services.db.query(`
       SELECT
@@ -684,14 +667,8 @@ export async function seedMarketplaceDatabase(
 
   for (const listing of listings) {
     const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
-    const listingContext = createSeedContextFor(
-      accountId,
-      listing.userId ?? identitySeedIds.demo.userId,
-    );
-    const supply = await services.listings.getInventoryItemSupply(
-      listing.inventoryItemId,
-      accountId,
-    );
+    const listingContext = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
+    const supply = await services.listings.getInventoryItemSupply(listing.inventoryItemId, accountId);
 
     if (!supply) {
       continue;
@@ -756,24 +733,16 @@ export async function seedMarketplaceDatabase(
         offerId: offer.offerId,
         buyerAccountId,
         catalogItemId: offer.catalogItemId,
-        productId: await getProductId(
-          services,
-          offer.catalogItemId,
-          offer.selectedOptions,
-        ),
+        productId: await getProductId(services, offer.catalogItemId, offer.selectedOptions),
         itemTitle: offer.itemTitle,
         itemSubtitle: offer.itemSubtitle,
         selectedOptions: offer.selectedOptions,
         productSummary: offer.productSummary,
-        shippingDestinationSnapshot:
-          offer.shippingDestinationSnapshot ?? defaultOfferDestination,
+        shippingDestinationSnapshot: offer.shippingDestinationSnapshot ?? defaultOfferDestination,
         priceAmount: offer.priceAmount,
         quantityRequested: offer.quantityRequested,
       },
-      context: createSeedContextFor(
-        buyerAccountId,
-        offer.buyerUserId ?? identitySeedIds.collector.userId,
-      ),
+      context: createSeedContextFor(buyerAccountId, offer.buyerUserId ?? identitySeedIds.collector.userId),
     });
   }
 

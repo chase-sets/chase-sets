@@ -62,8 +62,7 @@ describe("platform worker config", () => {
       authToken: "secret",
       messagingServiceSid: "MG123",
       apiBaseUrl: "https://twilio.test",
-      statusCallbackBaseUrl:
-        "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks",
+      statusCallbackBaseUrl: "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks",
     });
   });
 
@@ -121,10 +120,8 @@ describe("platform worker config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
-    process.env.STRIPE_CONNECT_RETURN_URL =
-      "https://marketplace.staging.chasesets.com/account/payouts";
-    process.env.STRIPE_CONNECT_REFRESH_URL =
-      "https://marketplace.staging.chasesets.com/account/payouts/setup";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.staging.chasesets.com/account/payouts";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.EASYPOST_MODE = "test";
 
@@ -134,8 +131,7 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toMatchObject({
       kind: "stripe",
       onboardingReturnUrl: "https://marketplace.staging.chasesets.com/account/payouts",
-      onboardingRefreshUrl:
-        "https://marketplace.staging.chasesets.com/account/payouts/setup",
+      onboardingRefreshUrl: "https://marketplace.staging.chasesets.com/account/payouts/setup",
     });
     expect(config.postage).toEqual({
       kind: "easypost",
@@ -162,8 +158,7 @@ describe("platform worker config", () => {
     process.env.SES_AWS_REGION = "us-east-2";
     process.env.SES_FROM_EMAIL = "notifications@preview.chasesets.com";
     process.env.SES_CONFIGURATION_SET_NAME = "transactional-preview";
-    process.env.SES_SOURCE_ARN =
-      "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com";
+    process.env.SES_SOURCE_ARN = "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com";
 
     const config = loadConfig();
 
@@ -173,8 +168,7 @@ describe("platform worker config", () => {
         region: "us-east-2",
         fromEmail: "notifications@preview.chasesets.com",
         configurationSetName: "transactional-preview",
-        sourceArn:
-          "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com",
+        sourceArn: "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com",
       },
     });
   });

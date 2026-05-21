@@ -14,9 +14,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "memberships.view",
   });
   const api = createIdentityRequestApiClient(request);
-  const response = await api.listMemberships<ListResponse<Membership>>(
-    `search=${encodeURIComponent(actor.userId)}`,
-  );
+  const response = await api.listMemberships<ListResponse<Membership>>(`search=${encodeURIComponent(actor.userId)}`);
 
   return { memberships: response.items };
 }

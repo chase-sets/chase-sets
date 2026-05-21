@@ -25,9 +25,7 @@ export async function seedExperienceDatabase(pool: PgTransactionalPool) {
   const services = createExperienceServices(pool);
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM experience_platform_feedback_pages",
-    );
+    const existing = await services.db.query("SELECT COUNT(*) AS count FROM experience_platform_feedback_pages");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Experience already contains data. Skipping seed.");
       return;

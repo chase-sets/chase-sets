@@ -1,9 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import {
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Banner,
   Badge,
@@ -56,11 +52,7 @@ import {
   normalizeProductSearchOptionsForSchema,
   summarizeSelections,
 } from "../domain/product-resolution";
-import {
-  buildReferenceDetailRows,
-  formatReferenceTypeLabel,
-  type ReferenceDetailRow,
-} from "./reference-detail-rows";
+import { buildReferenceDetailRows, formatReferenceTypeLabel, type ReferenceDetailRow } from "./reference-detail-rows";
 
 export type ItemDetailMarketplaceSectionContext = Readonly<{
   itemId: string;
@@ -101,9 +93,7 @@ export type ItemDetailCommerceSections = Readonly<{
 type MarketIntent = "buy" | "sell" | "watch";
 type MarketBookTab = "listings" | "offers" | "sales" | "details";
 
-function productOptionsFromSelectionDetails(
-  selections: readonly { label: ReactNode; value: ReactNode }[],
-) {
+function productOptionsFromSelectionDetails(selections: readonly { label: ReactNode; value: ReactNode }[]) {
   return selections.map((selection) => ({
     dimensionLabel: selection.label,
     optionLabel: selection.value,
@@ -115,11 +105,7 @@ function formatFieldValue(value: unknown): string {
     return "-";
   }
 
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
 
@@ -136,8 +122,7 @@ function formatReferenceAttributes(attributes: unknown): Array<{ key: string; va
     return [];
   }
 
-  return Object.entries(attributes)
-    .map(([key, value]) => ({ key, value: formatFieldValue(value) }));
+  return Object.entries(attributes).map(([key, value]) => ({ key, value: formatFieldValue(value) }));
 }
 
 function formatRelationshipType(value: string): string {
@@ -220,15 +205,9 @@ function ReferenceDetailDialog({
           ]}
         />
         <Stack gap={2}>
-          <Text weight="semibold">
-            {t("discovery.features.itemDetail.ui.itemDetailPage.reference.attributes")}
-          </Text>
+          <Text weight="semibold">{t("discovery.features.itemDetail.ui.itemDetailPage.reference.attributes")}</Text>
           {attributes.length > 0 ? (
-            <KeyValueList
-              density="compact"
-              variant="plain"
-              items={attributes}
-            />
+            <KeyValueList density="compact" variant="plain" items={attributes} />
           ) : (
             <Text size="sm" tone="secondary">
               {t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.attributes")}
@@ -236,15 +215,9 @@ function ReferenceDetailDialog({
           )}
         </Stack>
         <Stack gap={2}>
-          <Text weight="semibold">
-            {t("discovery.features.itemDetail.ui.itemDetailPage.reference.relationships")}
-          </Text>
+          <Text weight="semibold">{t("discovery.features.itemDetail.ui.itemDetailPage.reference.relationships")}</Text>
           {relationships.length > 0 ? (
-            <KeyValueList
-              density="compact"
-              variant="plain"
-              items={relationships}
-            />
+            <KeyValueList density="compact" variant="plain" items={relationships} />
           ) : (
             <Text size="sm" tone="secondary">
               {t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.relationships")}
@@ -257,28 +230,24 @@ function ReferenceDetailDialog({
 }
 
 function buildItemDetailImages(data: DiscoveryItemDetail) {
-  const detailSrc = selectDiscoveryProductAssetUrl(
-    data.product_asset_sets,
-    "catalog-detail",
-  );
+  const detailSrc = selectDiscoveryProductAssetUrl(data.product_asset_sets, "catalog-detail");
 
   if (detailSrc) {
-    const thumbnailSrc = selectDiscoveryProductAssetUrl(
-      data.product_asset_sets,
-      "thumbnail",
-    );
+    const thumbnailSrc = selectDiscoveryProductAssetUrl(data.product_asset_sets, "thumbnail");
 
-    return [{
-      src: detailSrc,
-      srcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "catalog-detail"),
-      sizes: "(min-width: 768px) 308px, min(100vw, 276px)",
-      thumbnailSrc: thumbnailSrc ?? detailSrc,
-      thumbnailSrcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "thumbnail"),
-      alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
-        title: data.title,
-        index: 1,
-      }),
-    }];
+    return [
+      {
+        src: detailSrc,
+        srcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "catalog-detail"),
+        sizes: "(min-width: 768px) 308px, min(100vw, 276px)",
+        thumbnailSrc: thumbnailSrc ?? detailSrc,
+        thumbnailSrcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "thumbnail"),
+        alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
+          title: data.title,
+          index: 1,
+        }),
+      },
+    ];
   }
 
   return data.image_urls.map((url, index) => ({
@@ -325,14 +294,10 @@ function toFiniteNumber(value: unknown): number | null {
 function getListingAvailableQuantity(
   listing: Pick<DiscoveryMarketListing, "visible_quantity" | "quantity_cap">,
 ): number {
-  return toFiniteNumber(listing.visible_quantity) ??
-    toFiniteNumber(listing.quantity_cap) ??
-    0;
+  return toFiniteNumber(listing.visible_quantity) ?? toFiniteNumber(listing.quantity_cap) ?? 0;
 }
 
-function formatListingAvailability(
-  listing: Pick<DiscoveryMarketListing, "visible_quantity" | "quantity_cap">,
-): string {
+function formatListingAvailability(listing: Pick<DiscoveryMarketListing, "visible_quantity" | "quantity_cap">): string {
   const availableQuantity = getListingAvailableQuantity(listing);
 
   return availableQuantity > 0
@@ -342,19 +307,14 @@ function formatListingAvailability(
     : t("discovery.features.itemDetail.ui.itemDetailPage.unavailable");
 }
 
-function formatOfferRequestedQuantity(
-  offer: Pick<DiscoveryOffer, "quantity_requested">,
-): string {
+function formatOfferRequestedQuantity(offer: Pick<DiscoveryOffer, "quantity_requested">): string {
   return t("discovery.features.itemDetail.ui.itemDetailPage.offer.requested.count", {
     count: offer.quantity_requested,
   });
 }
 
 function formatListingPurchaseLimit(
-  listing: Pick<
-    DiscoveryMarketListing,
-    "max_units_per_order" | "max_units_per_day" | "max_units_per_customer_account"
-  >,
+  listing: Pick<DiscoveryMarketListing, "max_units_per_order" | "max_units_per_day" | "max_units_per_customer_account">,
 ): string | null {
   if (listing.max_units_per_customer_account) {
     return `Limit ${listing.max_units_per_customer_account} per customer`;
@@ -417,20 +377,14 @@ function ListingTrustSignal({
   );
 }
 
-function isLowestPriceListing(
-  listing: DiscoveryMarketListing,
-  listings: readonly DiscoveryMarketListing[],
-): boolean {
+function isLowestPriceListing(listing: DiscoveryMarketListing, listings: readonly DiscoveryMarketListing[]): boolean {
   const listingPrice = toPriceNumber(listing.price_amount);
   const lowestPrice = toPriceNumber(getLowestPrice(listings) ?? "");
 
   return listingPrice !== null && lowestPrice !== null && listingPrice === lowestPrice;
 }
 
-function isBestOffer(
-  offer: DiscoveryOffer,
-  offers: readonly DiscoveryOffer[],
-): boolean {
+function isBestOffer(offer: DiscoveryOffer, offers: readonly DiscoveryOffer[]): boolean {
   const offerPrice = toPriceNumber(offer.price_amount);
   const highestPrice = toPriceNumber(getHighestOfferPrice(offers) ?? "");
 
@@ -450,17 +404,11 @@ function matchesSelectedOptions(
   }
 
   return selectedEntries.every(([dimensionId, optionId]) =>
-    listing.selected_options.some(
-      (entry) => entry.dimensionId === dimensionId && entry.optionId === optionId,
-    ),
+    listing.selected_options.some((entry) => entry.dimensionId === dimensionId && entry.optionId === optionId),
   );
 }
 
-function applyOptionFilter(
-  selections: Record<string, string>,
-  dimensionId: string,
-  optionId: string,
-) {
+function applyOptionFilter(selections: Record<string, string>, dimensionId: string, optionId: string) {
   const nextSelections = { ...selections };
 
   if (optionId) {
@@ -483,9 +431,7 @@ function selectionsFromListing(
     return {};
   }
 
-  return Object.fromEntries(
-    listing.selected_options.map((entry) => [entry.dimensionId, entry.optionId]),
-  );
+  return Object.fromEntries(listing.selected_options.map((entry) => [entry.dimensionId, entry.optionId]));
 }
 
 function getInitialSelections(
@@ -501,16 +447,12 @@ function getInitialSelections(
   if (hasInitialSelectedOptionFilters || initialSelectedOptions.length > 0) {
     return normalizeProductSearchOptionsForSchema(
       data.product_schema,
-      Object.fromEntries(
-        initialSelectedOptions.map((entry) => [entry.dimensionId, entry.optionId]),
-      ),
+      Object.fromEntries(initialSelectedOptions.map((entry) => [entry.dimensionId, entry.optionId])),
     );
   }
 
-  const sourceEntries =
-    marketIntent === "sell" ? data.offer_demand_matches : data.market_listings;
-  const selections =
-    sourceEntries.length === 1 ? selectionsFromListing(sourceEntries[0]) : {};
+  const sourceEntries = marketIntent === "sell" ? data.offer_demand_matches : data.market_listings;
+  const selections = sourceEntries.length === 1 ? selectionsFromListing(sourceEntries[0]) : {};
 
   return normalizeProductSearchOptionsForSchema(data.product_schema, selections);
 }
@@ -567,9 +509,7 @@ function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | n
       return listing.price_amount;
     }
 
-    return Number.parseFloat(listing.price_amount) < Number.parseFloat(lowest)
-      ? listing.price_amount
-      : lowest;
+    return Number.parseFloat(listing.price_amount) < Number.parseFloat(lowest) ? listing.price_amount : lowest;
   }, null);
 }
 
@@ -579,9 +519,7 @@ function getHighestOfferPrice(offers: readonly DiscoveryOffer[]): string | null 
       return offer.price_amount;
     }
 
-    return Number.parseFloat(offer.price_amount) > Number.parseFloat(highest)
-      ? offer.price_amount
-      : highest;
+    return Number.parseFloat(offer.price_amount) > Number.parseFloat(highest) ? offer.price_amount : highest;
   }, null);
 }
 
@@ -610,9 +548,7 @@ function comparePriceValues(left: string, right: string, direction: "asc" | "des
   return direction === "asc" ? leftPrice - rightPrice : rightPrice - leftPrice;
 }
 
-function sortListingsByBuyerPrice(
-  listings: readonly DiscoveryMarketListing[],
-): DiscoveryMarketListing[] {
+function sortListingsByBuyerPrice(listings: readonly DiscoveryMarketListing[]): DiscoveryMarketListing[] {
   return [...listings].sort((left, right) => {
     const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "asc");
     if (priceDelta !== 0) {
@@ -626,9 +562,7 @@ function sortListingsByBuyerPrice(
   });
 }
 
-function sortOffersBySellerPrice(
-  offers: readonly DiscoveryOffer[],
-): DiscoveryOffer[] {
+function sortOffersBySellerPrice(offers: readonly DiscoveryOffer[]): DiscoveryOffer[] {
   return [...offers].sort((left, right) => {
     const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "desc");
     if (priceDelta !== 0) {
@@ -647,31 +581,25 @@ function sortOffersBySellerPrice(
   });
 }
 
-function getBestOffer(
-  offers: readonly DiscoveryOffer[],
-): DiscoveryOffer | null {
+function getBestOffer(offers: readonly DiscoveryOffer[]): DiscoveryOffer | null {
   return offers.find((offer) => offer.status === "submitted") ?? offers[0] ?? null;
 }
 
-function getBestAccountOfferMatch(
-  offers: readonly DiscoveryAccountOfferMatch[],
-): DiscoveryAccountOfferMatch | null {
-  return sortAccountOfferMatchesForReview(
-    offers.filter((offer) => offer.status === "submitted" && offer.can_fulfill),
-  )[0] ?? null;
+function getBestAccountOfferMatch(offers: readonly DiscoveryAccountOfferMatch[]): DiscoveryAccountOfferMatch | null {
+  return (
+    sortAccountOfferMatchesForReview(offers.filter((offer) => offer.status === "submitted" && offer.can_fulfill))[0] ??
+    null
+  );
 }
 
-function sortAccountOfferMatchesForReview(
-  offers: readonly DiscoveryAccountOfferMatch[],
-): DiscoveryAccountOfferMatch[] {
+function sortAccountOfferMatchesForReview(offers: readonly DiscoveryAccountOfferMatch[]): DiscoveryAccountOfferMatch[] {
   return [...offers].sort((left, right) => {
     const fulfillableDelta = Number(right.can_fulfill) - Number(left.can_fulfill);
     if (fulfillableDelta !== 0) {
       return fulfillableDelta;
     }
 
-    const priceDelta =
-      Number.parseFloat(right.price_amount) - Number.parseFloat(left.price_amount);
+    const priceDelta = Number.parseFloat(right.price_amount) - Number.parseFloat(left.price_amount);
     if (priceDelta !== 0) {
       return priceDelta;
     }
@@ -714,9 +642,7 @@ function buildProductOptionSummaries({
           dimension.allowedOptions.map((option) => {
             const matchingOption = matchingOtherSelections.filter((listing) =>
               listing.selected_options.some(
-                (entry) =>
-                  entry.dimensionId === dimension.dimensionId &&
-                  entry.optionId === option.optionId,
+                (entry) => entry.dimensionId === dimension.dimensionId && entry.optionId === option.optionId,
               ),
             );
 
@@ -727,18 +653,12 @@ function buildProductOptionSummaries({
                   ? t("discovery.features.itemDetail.ui.itemDetailPage.offer.option.summary", {
                       count: matchingOption.reduce(
                         (sum, offer) =>
-                          sum +
-                          ("quantity_requested" in offer
-                            ? toSafeNumber(offer.quantity_requested)
-                            : 0),
+                          sum + ("quantity_requested" in offer ? toSafeNumber(offer.quantity_requested) : 0),
                         0,
                       ),
                       price: formatMoney(
                         getHighestOfferPrice(
-                          matchingOption.filter(
-                            (entry): entry is DiscoveryOffer =>
-                              "quantity_requested" in entry,
-                          ),
+                          matchingOption.filter((entry): entry is DiscoveryOffer => "quantity_requested" in entry),
                         ),
                       ),
                     })
@@ -746,10 +666,7 @@ function buildProductOptionSummaries({
                       count: matchingOption.length,
                       price: formatMoney(
                         getLowestPrice(
-                          matchingOption.filter(
-                            (entry): entry is DiscoveryMarketListing =>
-                              "listing_id" in entry,
-                          ),
+                          matchingOption.filter((entry): entry is DiscoveryMarketListing => "listing_id" in entry),
                         ),
                       ),
                     })
@@ -781,19 +698,23 @@ export function ItemDetailPage({
   initialMarketIntent?: MarketIntent;
   initialSelectedOptions?: readonly { dimensionId: string; optionId: string }[];
   hasInitialSelectedOptionFilters?: boolean;
-  renderCommerce?: (
-    context: ItemDetailMarketplaceSectionContext,
-  ) => ItemDetailCommerceSections | null;
+  renderCommerce?: (context: ItemDetailMarketplaceSectionContext) => ItemDetailCommerceSections | null;
 }) {
   if (error) {
-    return <Banner tone="danger" title={t("discovery.features.itemDetail.ui.itemDetailPage.error")} description={error} />;
+    return (
+      <Banner tone="danger" title={t("discovery.features.itemDetail.ui.itemDetailPage.error")} description={error} />
+    );
   }
 
   if (!data) {
     return (
       <Banner
         tone="danger"
-        title={notFound ? t("discovery.features.itemDetail.ui.itemDetailPage.not.found") : t("discovery.features.itemDetail.ui.itemDetailPage.error.2")}
+        title={
+          notFound
+            ? t("discovery.features.itemDetail.ui.itemDetailPage.not.found")
+            : t("discovery.features.itemDetail.ui.itemDetailPage.error.2")
+        }
         description={
           notFound
             ? t("discovery.features.itemDetail.ui.itemDetailPage.this.item.could.not.be.found")
@@ -832,51 +753,31 @@ function LoadedItemDetailPage({
   initialMarketIntent: MarketIntent;
   initialSelectedOptions: readonly { dimensionId: string; optionId: string }[];
   hasInitialSelectedOptionFilters: boolean;
-  renderCommerce?: (
-    context: ItemDetailMarketplaceSectionContext,
-  ) => ItemDetailCommerceSections | null;
+  renderCommerce?: (context: ItemDetailMarketplaceSectionContext) => ItemDetailCommerceSections | null;
 }) {
   const initialSelectedOptionsKey = JSON.stringify(initialSelectedOptions);
-  const [selectedReference, setSelectedReference] =
-    useState<DiscoveryReferenceRecordRef | null>(null);
+  const [selectedReference, setSelectedReference] = useState<DiscoveryReferenceRecordRef | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>(() =>
-    getInitialSelections(
-      data,
-      initialMarketIntent,
-      initialSelectedOptions,
-      hasInitialSelectedOptionFilters,
-    ),
+    getInitialSelections(data, initialMarketIntent, initialSelectedOptions, hasInitialSelectedOptionFilters),
   );
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
-  const [marketIntent, setMarketIntent] = useState<MarketIntent>(
-    initialMarketIntent,
-  );
-  const [activeMobileCommerce, setActiveMobileCommerce] = useState<
-    "buy" | "sell" | "watch" | null
-  >(null);
+  const [marketIntent, setMarketIntent] = useState<MarketIntent>(initialMarketIntent);
+  const [activeMobileCommerce, setActiveMobileCommerce] = useState<"buy" | "sell" | "watch" | null>(null);
   const [marketBookTab, setMarketBookTab] = useState<MarketBookTab>(
     initialMarketIntent === "sell" ? "offers" : "listings",
   );
 
   useEffect(() => {
-    setSelections(getInitialSelections(
-      data,
-      initialMarketIntent,
-      initialSelectedOptions,
-      hasInitialSelectedOptionFilters,
-    ));
+    setSelections(
+      getInitialSelections(data, initialMarketIntent, initialSelectedOptions, hasInitialSelectedOptionFilters),
+    );
     setSelectedListingId(null);
     setSelectedOfferId(null);
     setMarketIntent(initialMarketIntent);
     setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
     setActiveMobileCommerce(null);
-  }, [
-    data.catalog_item_id,
-    initialMarketIntent,
-    initialSelectedOptionsKey,
-    hasInitialSelectedOptionFilters,
-  ]);
+  }, [data.catalog_item_id, initialMarketIntent, initialSelectedOptionsKey, hasInitialSelectedOptionFilters]);
 
   const images = buildItemDetailImages(data);
   const imageFallback = data.image_fallback ?? {
@@ -885,9 +786,7 @@ function LoadedItemDetailPage({
     usage: "permanent" as const,
     variants: {},
   };
-  const explicitSelectedOptions = data.product_schema
-    ? summarizeSelections(data.product_schema, selections)
-    : [];
+  const explicitSelectedOptions = data.product_schema ? summarizeSelections(data.product_schema, selections) : [];
   const explicitSelectedProductOptions = data.product_schema
     ? getOrderedActiveDimensions(data.product_schema, selections)
         .map((dimension) => {
@@ -902,18 +801,13 @@ function LoadedItemDetailPage({
             optionId,
           };
         })
-        .filter(
-          (
-            selection,
-          ): selection is { dimensionId: string; optionId: string } => selection !== null,
-        )
+        .filter((selection): selection is { dimensionId: string; optionId: string } => selection !== null)
     : [];
   const explicitSelectedProductSummary =
     explicitSelectedOptions.length > 0
       ? explicitSelectedOptions.map((selection) => selection.optionLabel).join(" / ")
       : null;
-  const suppressImplicitProductSelection =
-    hasInitialSelectedOptionFilters && initialSelectedOptions.length === 0;
+  const suppressImplicitProductSelection = hasInitialSelectedOptionFilters && initialSelectedOptions.length === 0;
   const hasActiveFilters = Object.keys(selections).length > 0;
   const hasCompleteProductSelection = data.product_schema
     ? isProductSelectionComplete(data.product_schema, selections)
@@ -924,28 +818,18 @@ function LoadedItemDetailPage({
   const itemOfferDemandMatches = (data.offer_demand_matches ?? []).filter(
     (offer) => offer.catalog_catalog_item_id === data.catalog_item_id,
   );
-  const categories = [
-    ...new Map(
-      data.categories.map((category) => [category.categoryId, category] as const),
-    ).values(),
-  ];
+  const categories = [...new Map(data.categories.map((category) => [category.categoryId, category] as const)).values()];
   const tags = uniqueDisplayValues(data.tags);
-  const buyableMarketListings = itemMarketListings.filter(
-    (listing) => getListingAvailableQuantity(listing) > 0,
-  );
+  const buyableMarketListings = itemMarketListings.filter((listing) => getListingAvailableQuantity(listing) > 0);
   const visibleListings = sortListingsByBuyerPrice(
     buyableMarketListings.filter((listing) =>
       data.product_schema ? matchesSelectedOptions(listing, selections) : true,
     ),
   );
   const selectedListing =
-    visibleListings.find((listing) => listing.listing_id === selectedListingId) ??
-    visibleListings[0] ??
-    null;
+    visibleListings.find((listing) => listing.listing_id === selectedListingId) ?? visibleListings[0] ?? null;
   const singleMatchingListing =
-    !hasCompleteProductSelection && visibleListings.length === 1
-      ? visibleListings[0]
-      : null;
+    !hasCompleteProductSelection && visibleListings.length === 1 ? visibleListings[0] : null;
   const explicitSelectedProductId = hasCompleteProductSelection
     ? createDiscoveryProductDescriptor({
         catalogItemId: data.catalog_item_id,
@@ -954,7 +838,17 @@ function LoadedItemDetailPage({
       }).productId
     : null;
   const matchingOffers = sortOffersBySellerPrice(
-    itemOfferDemandMatches
+    itemOfferDemandMatches.filter((offer) =>
+      explicitSelectedProductId
+        ? offer.product_id === explicitSelectedProductId
+        : data.product_schema
+          ? matchesSelectedOptions(offer, selections)
+          : true,
+    ),
+  );
+  const matchingAccountOfferMatches = sortAccountOfferMatchesForReview(
+    accountOfferMatches
+      .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
       .filter((offer) =>
         explicitSelectedProductId
           ? offer.product_id === explicitSelectedProductId
@@ -963,85 +857,55 @@ function LoadedItemDetailPage({
             : true,
       ),
   );
-  const matchingAccountOfferMatches = sortAccountOfferMatchesForReview(accountOfferMatches
-    .filter((offer) => offer.catalog_catalog_item_id === data.catalog_item_id)
-    .filter((offer) =>
-      explicitSelectedProductId
-        ? offer.product_id === explicitSelectedProductId
-        : data.product_schema
-          ? matchesSelectedOptions(offer, selections)
-          : true,
-    )
-  );
   const bestOffer = getBestOffer(matchingOffers);
   const bestAccountOfferMatch = getBestAccountOfferMatch(matchingAccountOfferMatches);
   const defaultSellerOffer =
     marketIntent === "sell" && bestAccountOfferMatch
-      ? matchingOffers.find(
-          (offer) => offer.offer_id === bestAccountOfferMatch.offer_id,
-        ) ?? null
+      ? (matchingOffers.find((offer) => offer.offer_id === bestAccountOfferMatch.offer_id) ?? null)
       : null;
   const selectedOffer =
-    matchingOffers.find((offer) => offer.offer_id === selectedOfferId) ??
-    defaultSellerOffer ??
-    bestOffer ??
-    null;
+    matchingOffers.find((offer) => offer.offer_id === selectedOfferId) ?? defaultSellerOffer ?? bestOffer ?? null;
   const selectedAccountOfferMatch = selectedOffer
-    ? matchingAccountOfferMatches.find(
-        (offer) => offer.offer_id === selectedOffer.offer_id,
-      ) ??
+    ? (matchingAccountOfferMatches.find((offer) => offer.offer_id === selectedOffer.offer_id) ??
       bestAccountOfferMatch ??
-      null
-    : bestAccountOfferMatch ?? null;
+      null)
+    : (bestAccountOfferMatch ?? null);
   const selectedProductId =
     explicitSelectedProductId ??
     (suppressImplicitProductSelection
       ? null
       : marketIntent === "sell"
-      ? selectedOffer?.product_id ?? null
-      : selectedListing?.product_id ?? singleMatchingListing?.product_id ?? null);
-  const selectedOfferForProduct =
-    !suppressImplicitProductSelection && marketIntent === "sell" ? selectedOffer : null;
+        ? (selectedOffer?.product_id ?? null)
+        : (selectedListing?.product_id ?? singleMatchingListing?.product_id ?? null));
+  const selectedOfferForProduct = !suppressImplicitProductSelection && marketIntent === "sell" ? selectedOffer : null;
   const selectedListingForProduct =
     !suppressImplicitProductSelection && marketIntent !== "sell" ? selectedListing : null;
   const selectedProductOptions =
-    hasCompleteProductSelection ||
-    (!selectedListingForProduct && !selectedOfferForProduct && !singleMatchingListing)
+    hasCompleteProductSelection || (!selectedListingForProduct && !selectedOfferForProduct && !singleMatchingListing)
       ? explicitSelectedProductOptions
-      : selectedOfferForProduct?.selected_options ??
+      : (selectedOfferForProduct?.selected_options ??
         selectedListingForProduct?.selected_options ??
         (suppressImplicitProductSelection ? null : singleMatchingListing?.selected_options) ??
-        explicitSelectedProductOptions;
+        explicitSelectedProductOptions);
   const selectedProductSummary =
     explicitSelectedProductSummary ??
     selectedOfferForProduct?.product_summary ??
     selectedListingForProduct?.product_summary ??
     (suppressImplicitProductSelection ? null : singleMatchingListing?.product_summary) ??
     null;
-  const bestListing =
-    selectedProductId
-      ? visibleListings.find((listing) => listing.product_id === selectedProductId) ?? null
-      : null;
-  const sellerCount = new Set(
-    visibleListings.map((listing) => listing.account_id),
-  ).size;
-  const buyerCount = new Set(
-    matchingOffers.map((offer) => offer.buyer_account_id),
-  ).size;
+  const bestListing = selectedProductId
+    ? (visibleListings.find((listing) => listing.product_id === selectedProductId) ?? null)
+    : null;
+  const sellerCount = new Set(visibleListings.map((listing) => listing.account_id)).size;
+  const buyerCount = new Set(matchingOffers.map((offer) => offer.buyer_account_id)).size;
   const selectedMarketSummary = {
     lowest_price_amount: getLowestPrice(visibleListings),
     active_listing_count: visibleListings.length,
-    total_visible_quantity: visibleListings.reduce(
-      (sum, listing) => sum + getListingAvailableQuantity(listing),
-      0,
-    ),
+    total_visible_quantity: visibleListings.reduce((sum, listing) => sum + getListingAvailableQuantity(listing), 0),
   };
   const optionSummaries = data.product_schema
-      ? buildProductOptionSummaries({
-        entries:
-          marketIntent === "sell"
-            ? itemOfferDemandMatches
-            : buyableMarketListings,
+    ? buildProductOptionSummaries({
+        entries: marketIntent === "sell" ? itemOfferDemandMatches : buyableMarketListings,
         mode: marketIntent === "sell" ? "sell" : "buy",
         productSchema: data.product_schema,
         selections,
@@ -1085,49 +949,35 @@ function LoadedItemDetailPage({
   const detailItems = [
     ...referenceDetailRows.map((row) => ({
       key: row.label,
-      value: (
-        <ReferenceValueButton
-          row={row}
-          onSelectReference={setSelectedReference}
-        />
-      ),
+      value: <ReferenceValueButton row={row} onSelectReference={setSelectedReference} />,
     })),
     ...metadataItems,
   ];
   const productSummary =
     selectedProductSummary ??
-    (singleMatchingListing ? t("discovery.features.itemDetail.ui.itemDetailPage.1.matching.listing") : t("discovery.features.itemDetail.ui.itemDetailPage.all.listings"));
-  const getProductSelectionDetails = (
-    options: readonly { dimensionId: string; optionId: string }[],
-  ) =>
+    (singleMatchingListing
+      ? t("discovery.features.itemDetail.ui.itemDetailPage.1.matching.listing")
+      : t("discovery.features.itemDetail.ui.itemDetailPage.all.listings"));
+  const getProductSelectionDetails = (options: readonly { dimensionId: string; optionId: string }[]) =>
     data.product_schema && options.length > 0
       ? summarizeSelections(
           data.product_schema,
-          Object.fromEntries(
-            options.map((selection) => [
-              selection.dimensionId,
-              selection.optionId,
-            ]),
-          ),
+          Object.fromEntries(options.map((selection) => [selection.dimensionId, selection.optionId])),
         ).map((selection) => ({
           label: selection.dimensionName,
           value: selection.optionLabel,
         }))
       : [];
-  const selectedProductSelectionDetails =
-    getProductSelectionDetails(selectedProductOptions);
-  const explicitSelectedProductSelectionDetails =
-    getProductSelectionDetails(explicitSelectedProductOptions);
-  const selectedListingAvailability =
-    selectedListing ? formatListingAvailability(selectedListing) : null;
-  const selectedListingProductSummary =
-    selectedListing
-      ? formatCompactProductSummary(
-          selectedListing.product_summary,
-          getProductSelectionDetails(selectedListing.selected_options),
-          t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
-        )
-      : null;
+  const selectedProductSelectionDetails = getProductSelectionDetails(selectedProductOptions);
+  const explicitSelectedProductSelectionDetails = getProductSelectionDetails(explicitSelectedProductOptions);
+  const selectedListingAvailability = selectedListing ? formatListingAvailability(selectedListing) : null;
+  const selectedListingProductSummary = selectedListing
+    ? formatCompactProductSummary(
+        selectedListing.product_summary,
+        getProductSelectionDetails(selectedListing.selected_options),
+        t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
+      )
+    : null;
   const currentOptionSummary =
     explicitSelectedProductSummary ??
     (hasActiveFilters
@@ -1152,20 +1002,20 @@ function LoadedItemDetailPage({
     bestAccountOfferMatch,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
-  const commerceContent = commerceSections
-    ? marketIntent === "watch" && commerceSections.watch
-      ? commerceSections.watch
-      : marketIntent === "sell" && commerceSections.sell
-      ? commerceSections.sell
-      : commerceSections.offer
-        ? (
-        <Stack gap={4}>
-          {commerceSections.buy}
-          {commerceSections.offer}
-        </Stack>
-        )
-        : commerceSections.buy
-    : null;
+  const commerceContent = commerceSections ? (
+    marketIntent === "watch" && commerceSections.watch ? (
+      commerceSections.watch
+    ) : marketIntent === "sell" && commerceSections.sell ? (
+      commerceSections.sell
+    ) : commerceSections.offer ? (
+      <Stack gap={4}>
+        {commerceSections.buy}
+        {commerceSections.offer}
+      </Stack>
+    ) : (
+      commerceSections.buy
+    )
+  ) : null;
   const renderMarketIntentControl = (ariaLabel: string, fullWidth = false) => (
     <SegmentedControl
       aria-label={ariaLabel}
@@ -1177,8 +1027,7 @@ function LoadedItemDetailPage({
       ]}
       value={marketIntent}
       onValueChange={(value) => {
-        const nextMarketIntent: MarketIntent =
-          value === "sell" ? "sell" : value === "watch" ? "watch" : "buy";
+        const nextMarketIntent: MarketIntent = value === "sell" ? "sell" : value === "watch" ? "watch" : "buy";
         setMarketIntent(nextMarketIntent);
         setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
         updateMarketIntentUrl(nextMarketIntent);
@@ -1197,11 +1046,17 @@ function LoadedItemDetailPage({
         options={productOptionsFromSelectionDetails(explicitSelectedProductSelectionDetails)}
         emptyLabel={explicitSelectedProductSummary ?? undefined}
       />
-    ) : marketIntent === "sell"
-        ? explicitSelectedProductSummary ??
-          (hasActiveFilters ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.offers") : t("discovery.features.itemDetail.ui.itemDetailPage.all.offers"))
-        : explicitSelectedProductSummary ??
-          (hasActiveFilters ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.active.listings") : t("discovery.features.itemDetail.ui.itemDetailPage.all.active.listings"));
+    ) : marketIntent === "sell" ? (
+      (explicitSelectedProductSummary ??
+      (hasActiveFilters
+        ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.offers")
+        : t("discovery.features.itemDetail.ui.itemDetailPage.all.offers")))
+    ) : (
+      (explicitSelectedProductSummary ??
+      (hasActiveFilters
+        ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.active.listings")
+        : t("discovery.features.itemDetail.ui.itemDetailPage.all.active.listings")))
+    );
   const marketSummaryPrice =
     marketIntent === "sell"
       ? formatMoney(getHighestOfferPrice(matchingOffers))
@@ -1209,23 +1064,18 @@ function LoadedItemDetailPage({
   const mobileCommerceSummary = (
     <div className="min-w-0 space-y-1">
       <div className="font-heading text-base font-semibold leading-tight text-foreground">
-        {marketIntent === "buy" && selectedListing
-          ? formatMoney(selectedListing.price_amount)
-          : marketSummaryPrice}
+        {marketIntent === "buy" && selectedListing ? formatMoney(selectedListing.price_amount) : marketSummaryPrice}
       </div>
       <div className="truncate text-xs font-medium text-secondary">
-        {marketIntent === "buy" && selectedListing
-          ? [
-              selectedListingAvailability,
-              selectedListingProductSummary,
-            ].filter(Boolean).join(" · ")
-          : (
-              <>
-                {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
-                {": "}
-                {currentOptionSummary}
-              </>
-            )}
+        {marketIntent === "buy" && selectedListing ? (
+          [selectedListingAvailability, selectedListingProductSummary].filter(Boolean).join(" · ")
+        ) : (
+          <>
+            {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
+            {": "}
+            {currentOptionSummary}
+          </>
+        )}
       </div>
     </div>
   );
@@ -1234,10 +1084,7 @@ function LoadedItemDetailPage({
       ? [
           {
             label: t("discovery.features.itemDetail.ui.itemDetailPage.requested"),
-            value: matchingOffers.reduce(
-              (sum, offer) => sum + offer.quantity_requested,
-              0,
-            ),
+            value: matchingOffers.reduce((sum, offer) => sum + offer.quantity_requested, 0),
           },
           {
             label: t("discovery.features.itemDetail.ui.itemDetailPage.offers"),
@@ -1265,9 +1112,7 @@ function LoadedItemDetailPage({
             value: formatSellerCount(sellerCount),
           },
         ];
-  const activeMobileCommerceSection = activeMobileCommerce
-    ? commerceSections?.mobile?.[activeMobileCommerce]
-    : null;
+  const activeMobileCommerceSection = activeMobileCommerce ? commerceSections?.mobile?.[activeMobileCommerce] : null;
   const activeMobileCommerceContent =
     activeMobileCommerceSection?.content ??
     (activeMobileCommerce === "buy"
@@ -1282,56 +1127,45 @@ function LoadedItemDetailPage({
     (activeMobileCommerce === "buy"
       ? t("discovery.features.itemDetail.ui.itemDetailPage.buy.selected.product")
       : activeMobileCommerce === "watch"
-        ? commerceSections?.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch")
-        : commerceSections?.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell"));
+        ? (commerceSections?.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch"))
+        : (commerceSections?.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell")));
   const activeMobileCommerceDescription = activeMobileCommerceSection?.description;
-  const openMobileCommerce = (
-    action: "buy" | "sell" | "watch",
-    nextMarketIntent: MarketIntent,
-  ) => {
+  const openMobileCommerce = (action: "buy" | "sell" | "watch", nextMarketIntent: MarketIntent) => {
     setMarketIntent(nextMarketIntent);
     setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
     updateMarketIntentUrl(nextMarketIntent);
     setActiveMobileCommerce(action);
   };
   const mobileBuyAction = selectedProductId ? (
-    <Button
-      type="button"
-      size="lg"
-      onClick={() => openMobileCommerce("buy", "buy")}
-    >
-      {t("discovery.features.itemDetail.ui.itemDetailPage.buy.2")}</Button>
+    <Button type="button" size="lg" onClick={() => openMobileCommerce("buy", "buy")}>
+      {t("discovery.features.itemDetail.ui.itemDetailPage.buy.2")}
+    </Button>
   ) : (
     <LinkButton href="#select-options" size="lg">
-      {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}</LinkButton>
+      {t("discovery.features.itemDetail.ui.itemDetailPage.select.options")}
+    </LinkButton>
   );
-  const mobileSellAction = (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
-    selectedProductId ? (
-      <Button
-        type="button"
-        size="lg"
-        onClick={() => openMobileCommerce("sell", "sell")}
-      >
-        {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
-      </Button>
-    ) : (
-      <LinkButton href="#select-options" size="sm">
-        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.sell")}</LinkButton>
-    )
-  ) : null;
+  const mobileSellAction =
+    (commerceSections?.mobile?.sell ?? commerceSections?.sell) ? (
+      selectedProductId ? (
+        <Button type="button" size="lg" onClick={() => openMobileCommerce("sell", "sell")}>
+          {commerceSections.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell.2")}
+        </Button>
+      ) : (
+        <LinkButton href="#select-options" size="sm">
+          {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.sell")}
+        </LinkButton>
+      )
+    ) : null;
   const mobileWatchAction = commerceSections?.mobile?.watch ? (
     selectedProductId ? (
-      <Button
-        type="button"
-        tone="secondary"
-        size="lg"
-        onClick={() => openMobileCommerce("watch", "watch")}
-      >
+      <Button type="button" tone="secondary" size="lg" onClick={() => openMobileCommerce("watch", "watch")}>
         {commerceSections.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch")}
       </Button>
     ) : (
       <LinkButton href="#select-options" tone="secondary" size="sm">
-        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.watch")}</LinkButton>
+        {t("discovery.features.itemDetail.ui.itemDetailPage.choose.to.watch")}
+      </LinkButton>
     )
   ) : null;
   const mobileCommerceActionBar = commerce ? (
@@ -1363,7 +1197,8 @@ function LoadedItemDetailPage({
         <Stack gap={3} id="select-options">
           <Stack gap={1}>
             <Text size="sm" weight="semibold">
-              {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options")}</Text>
+              {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options")}
+            </Text>
           </Stack>
           <ProductSelector
             schema={data.product_schema}
@@ -1380,7 +1215,8 @@ function LoadedItemDetailPage({
           />
           <Stack gap={1}>
             <Text size="sm" weight="semibold">
-              {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}</Text>
+              {t("discovery.features.itemDetail.ui.itemDetailPage.chosen.options")}
+            </Text>
             <ProductOptions
               options={productOptionsFromSelectionDetails(explicitSelectedProductSelectionDetails)}
               emptyLabel={currentOptionSummary}
@@ -1402,455 +1238,451 @@ function LoadedItemDetailPage({
 
       <Container width="expanded" paddingX={0}>
         <MarketplaceProductDetailLayout
-            summary={
-              <Stack gap={4}>
-                <Stack gap={3}>
-                  {data.blueprint ? (
-                    <Text size="sm" weight="semibold" tone="accent">
-                      {data.blueprint.name}
+          summary={
+            <Stack gap={4}>
+              <Stack gap={3}>
+                {data.blueprint ? (
+                  <Text size="sm" weight="semibold" tone="accent">
+                    {data.blueprint.name}
+                  </Text>
+                ) : null}
+
+                <Stack gap={2}>
+                  <Heading level={1}>{data.title}</Heading>
+                  {data.subtitle ? (
+                    <Text size="lg" tone="secondary">
+                      {data.subtitle}
                     </Text>
                   ) : null}
-
-                  <Stack gap={2}>
-                    <Heading level={1}>{data.title}</Heading>
-                    {data.subtitle ? (
-                      <Text size="lg" tone="secondary">
-                        {data.subtitle}
-                      </Text>
-                    ) : null}
-                  </Stack>
-
                 </Stack>
-
               </Stack>
-            }
-            media={
-              <Stack gap={5}>
-                <ImageGallery
-                  images={images}
-                  aspectRatio="5/7"
-                  maxHeightClassName="max-w-[min(100%,17.25rem)] md:max-w-[min(100%,19.25rem)] [--gallery-max-height:27rem]"
-                  thumbnailPlacement="left"
-                  fallbackImage={{
-                    src: imageFallback.url,
-                    alt: imageFallback.alt,
-                    srcSet: imageVariantSrcSet(imageFallback, "detail"),
-                    sizes: "(min-width: 768px) 19.25rem, min(100vw, 17.25rem)",
-                  }}
-                  fallbackImageMode={imageFallback.usage}
-                  emptyState={
-                    <Stack gap={3} align="center">
-                      <Surface tone="muted" padding={4}>
-                        <Icon name="image" size="lg" tone="secondary" />
-                      </Surface>
-                      <Stack gap={1} align="center">
-                        <Text weight="semibold">{t("discovery.features.itemDetail.ui.itemDetailPage.image.coming.soon")}</Text>
-                        <Text size="sm" tone="secondary">
-                          {t("discovery.features.itemDetail.ui.itemDetailPage.catalog.imagery.has.not.been.added")}</Text>
-                      </Stack>
+            </Stack>
+          }
+          media={
+            <Stack gap={5}>
+              <ImageGallery
+                images={images}
+                aspectRatio="5/7"
+                maxHeightClassName="max-w-[min(100%,17.25rem)] md:max-w-[min(100%,19.25rem)] [--gallery-max-height:27rem]"
+                thumbnailPlacement="left"
+                fallbackImage={{
+                  src: imageFallback.url,
+                  alt: imageFallback.alt,
+                  srcSet: imageVariantSrcSet(imageFallback, "detail"),
+                  sizes: "(min-width: 768px) 19.25rem, min(100vw, 17.25rem)",
+                }}
+                fallbackImageMode={imageFallback.usage}
+                emptyState={
+                  <Stack gap={3} align="center">
+                    <Surface tone="muted" padding={4}>
+                      <Icon name="image" size="lg" tone="secondary" />
+                    </Surface>
+                    <Stack gap={1} align="center">
+                      <Text weight="semibold">
+                        {t("discovery.features.itemDetail.ui.itemDetailPage.image.coming.soon")}
+                      </Text>
+                      <Text size="sm" tone="secondary">
+                        {t("discovery.features.itemDetail.ui.itemDetailPage.catalog.imagery.has.not.been.added")}
+                      </Text>
                     </Stack>
-                  }
-                />
-              </Stack>
-            }
-            market={
-              <Stack gap={4}>
-                {productOptionSelector}
-                <MarketplaceMarketSummary
-                  priceLabel={
-                    marketIntent === "sell"
-                      ? t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")
-                      : t("discovery.features.itemDetail.ui.itemDetailPage.lowest.ask")
-                  }
-                  price={marketSummaryPrice}
-                  note={marketNote}
-                  facts={marketSummaryFacts}
-                />
-              </Stack>
-            }
-            commerce={commerce}
-            mobileActionBar={mobileCommerceActionBar}
-          >
-            <Stack gap={6}>
-              <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.market.book")}>
-                <Tabs
-                  value={marketBookTab}
-                  onValueChange={(value) =>
-                    setMarketBookTab(
-                      value === "offers" || value === "sales" || value === "details"
-                        ? value
-                        : "listings",
-                    )
-                  }
-                  items={[
-                    {
-                      value: "listings",
-                      label: t("discovery.features.itemDetail.ui.itemDetailPage.listings.2"),
-                      content: (
-                    <Stack gap={3}>
-                      <Inline gap={2}>
-                        <Text size="sm" tone="secondary">
-                          {hasActiveFilters
-                            ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.listing.count", {
-                                visibleCount: visibleListings.length,
-                                totalCount: itemMarketListings.length,
-                                listingLabel: t(
-                                  itemMarketListings.length === 1
-                                    ? "discovery.features.itemDetail.ui.itemDetailPage.listing.singular"
-                                    : "discovery.features.itemDetail.ui.itemDetailPage.listing.plural",
-                                ),
-                              })
-                            : t("discovery.features.itemDetail.ui.itemDetailPage.active.listing.count", {
-                                count: visibleListings.length,
-                                listingLabel: t(
-                                  visibleListings.length === 1
-                                    ? "discovery.features.itemDetail.ui.itemDetailPage.listing.singular"
-                                    : "discovery.features.itemDetail.ui.itemDetailPage.listing.plural",
-                                ),
-                              })}
-                        </Text>
-                        {hasActiveFilters ? (
-                          <Button
-                            type="button"
-                            tone="ghost"
-                            size="sm"
-                            onClick={() => setSelections({})}
-                          >
-                            {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters")}</Button>
-                        ) : null}
-                      </Inline>
-                      {visibleListings.length > 0 ? (
-                        <div className="grid gap-3">
-                          <div
-                            className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
-                            aria-hidden="true"
-                          >
-                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
-                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.seller")}</span>
-                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
-                            <span className="text-right">{t("discovery.features.itemDetail.ui.itemDetailPage.action")}</span>
-                          </div>
-                          {visibleListings.map((listing) => {
-                            const isSelected =
-                              selectedListing?.listing_id === listing.listing_id;
-                            const purchaseLimit = formatListingPurchaseLimit(listing);
-                            const isLowestPrice = isLowestPriceListing(
-                              listing,
-                              visibleListings,
-                            );
-                            const selectListing = () => {
-                              setSelectedListingId(listing.listing_id);
-                              if (data.product_schema) {
-                                setSelections(
-                                  normalizeProductSearchOptionsForSchema(
-                                    data.product_schema,
-                                    selectionsFromListing(listing),
+                  </Stack>
+                }
+              />
+            </Stack>
+          }
+          market={
+            <Stack gap={4}>
+              {productOptionSelector}
+              <MarketplaceMarketSummary
+                priceLabel={
+                  marketIntent === "sell"
+                    ? t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")
+                    : t("discovery.features.itemDetail.ui.itemDetailPage.lowest.ask")
+                }
+                price={marketSummaryPrice}
+                note={marketNote}
+                facts={marketSummaryFacts}
+              />
+            </Stack>
+          }
+          commerce={commerce}
+          mobileActionBar={mobileCommerceActionBar}
+        >
+          <Stack gap={6}>
+            <PageSection title={t("discovery.features.itemDetail.ui.itemDetailPage.market.book")}>
+              <Tabs
+                value={marketBookTab}
+                onValueChange={(value) =>
+                  setMarketBookTab(value === "offers" || value === "sales" || value === "details" ? value : "listings")
+                }
+                items={[
+                  {
+                    value: "listings",
+                    label: t("discovery.features.itemDetail.ui.itemDetailPage.listings.2"),
+                    content: (
+                      <Stack gap={3}>
+                        <Inline gap={2}>
+                          <Text size="sm" tone="secondary">
+                            {hasActiveFilters
+                              ? t("discovery.features.itemDetail.ui.itemDetailPage.filtered.listing.count", {
+                                  visibleCount: visibleListings.length,
+                                  totalCount: itemMarketListings.length,
+                                  listingLabel: t(
+                                    itemMarketListings.length === 1
+                                      ? "discovery.features.itemDetail.ui.itemDetailPage.listing.singular"
+                                      : "discovery.features.itemDetail.ui.itemDetailPage.listing.plural",
                                   ),
-                                );
-                              }
-                            };
-                            const sellerName =
-                              listing.seller_display_name ??
-                              t("discovery.features.itemDetail.ui.itemDetailPage.seller");
-                            const sellerFeedbackHref = listing.seller_slug
-                              ? `/accounts/${listing.seller_slug}#feedback`
-                              : null;
-                            const compactProductSummary = formatCompactProductSummary(
-                              listing.product_summary,
-                              getProductSelectionDetails(listing.selected_options),
-                              t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
-                            );
-
-                            return (
-                              <article
-                                key={listing.listing_id}
-                                className={cx(
-                                  "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
-                                  isSelected
-                                    ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
-                                    : "border-muted",
-                                )}
-                                aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.listing.row.label", {
-                                  price: formatMoney(listing.price_amount),
-                                  seller: sellerName,
+                                })
+                              : t("discovery.features.itemDetail.ui.itemDetailPage.active.listing.count", {
+                                  count: visibleListings.length,
+                                  listingLabel: t(
+                                    visibleListings.length === 1
+                                      ? "discovery.features.itemDetail.ui.itemDetailPage.listing.singular"
+                                      : "discovery.features.itemDetail.ui.itemDetailPage.listing.plural",
+                                  ),
                                 })}
-                              >
-                                {isSelected ? (
-                                  <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
-                                ) : null}
-                                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
-                                  <div className="min-w-0">
-                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                      <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
-                                        {formatMoney(listing.price_amount)}
-                                      </span>
-                                      {isLowestPrice ? (
-                                        <Badge tone="success">
-                                          {t("discovery.features.itemDetail.ui.itemDetailPage.lowest.price")}
-                                        </Badge>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                  <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
-                                    <ListingTrustSignal
-                                      accountName={sellerName}
-                                      feedbackHref={sellerFeedbackHref}
-                                      rating={listing.seller_average_rating}
-                                      reviewCount={listing.seller_review_count ?? 0}
-                                    />
-                                  </div>
-                                  <div className="col-span-2 col-start-1 row-start-3 min-w-0 lg:col-span-1 lg:col-start-auto lg:row-start-auto">
-                                    <ProductOptions
-                                      options={productOptionsFromSelectionDetails(getProductSelectionDetails(listing.selected_options))}
-                                      emptyLabel={compactProductSummary}
-                                      variant="compact"
-                                      className="block max-w-full truncate text-sm font-semibold leading-5"
-                                    />
-                                    <span className="mt-0.5 block text-xs font-medium text-secondary">
-                                      {formatListingAvailability(listing)}
-                                    </span>
-                                    {purchaseLimit ? (
-                                      <div className="mt-1">
-                                        <Badge tone="neutral">{purchaseLimit}</Badge>
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
-                                    <Button
-                                      type="button"
-                                      tone={isSelected ? "primary" : "secondary"}
-                                      size="sm"
-                                      aria-pressed={isSelected}
-                                      aria-label={t(
-                                        isSelected
-                                          ? "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.action"
-                                          : "discovery.features.itemDetail.ui.itemDetailPage.select.listing.action",
-                                        { seller: sellerName, price: formatMoney(listing.price_amount) },
-                                      )}
-                                      leadingIcon={isSelected ? "check" : undefined}
-                                      onClick={selectListing}
-                                    >
-                                      {isSelected
-                                        ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
-                                        : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
-                                    </Button>
-                                  </div>
-                                </div>
-                              </article>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <MarketplaceEmptyState
-                          title={t("discovery.features.itemDetail.ui.itemDetailPage.no.active.listings")}
-                          description={
-                            itemMarketListings.length > 0
-                              ? t("discovery.features.itemDetail.ui.itemDetailPage.no.active.listings.match.these.filters")
-                              : t("discovery.features.itemDetail.ui.itemDetailPage.sellers.have.not.published.inventory.for")
-                          }
-                          recoveryActions={
-                            <>
-                              {selectedProductId ? (
-                                <LinkButton href="#make-offer" size="sm">
-                                  {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.3")}</LinkButton>
-                              ) : (
-                                <LinkButton href="#select-options" size="sm">
-                                  {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options.2")}</LinkButton>
-                              )}
-                              {hasActiveFilters ? (
-                                <Button
-                                  type="button"
-                                  tone="secondary"
-                                  size="sm"
-                                  onClick={() => setSelections({})}
+                          </Text>
+                          {hasActiveFilters ? (
+                            <Button type="button" tone="ghost" size="sm" onClick={() => setSelections({})}>
+                              {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters")}
+                            </Button>
+                          ) : null}
+                        </Inline>
+                        {visibleListings.length > 0 ? (
+                          <div className="grid gap-3">
+                            <div
+                              className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
+                              aria-hidden="true"
+                            >
+                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
+                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.seller")}</span>
+                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
+                              <span className="text-right">
+                                {t("discovery.features.itemDetail.ui.itemDetailPage.action")}
+                              </span>
+                            </div>
+                            {visibleListings.map((listing) => {
+                              const isSelected = selectedListing?.listing_id === listing.listing_id;
+                              const purchaseLimit = formatListingPurchaseLimit(listing);
+                              const isLowestPrice = isLowestPriceListing(listing, visibleListings);
+                              const selectListing = () => {
+                                setSelectedListingId(listing.listing_id);
+                                if (data.product_schema) {
+                                  setSelections(
+                                    normalizeProductSearchOptionsForSchema(
+                                      data.product_schema,
+                                      selectionsFromListing(listing),
+                                    ),
+                                  );
+                                }
+                              };
+                              const sellerName =
+                                listing.seller_display_name ??
+                                t("discovery.features.itemDetail.ui.itemDetailPage.seller");
+                              const sellerFeedbackHref = listing.seller_slug
+                                ? `/accounts/${listing.seller_slug}#feedback`
+                                : null;
+                              const compactProductSummary = formatCompactProductSummary(
+                                listing.product_summary,
+                                getProductSelectionDetails(listing.selected_options),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
+                              );
+
+                              return (
+                                <article
+                                  key={listing.listing_id}
+                                  className={cx(
+                                    "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
+                                    isSelected
+                                      ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
+                                      : "border-muted",
+                                  )}
+                                  aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.listing.row.label", {
+                                    price: formatMoney(listing.price_amount),
+                                    seller: sellerName,
+                                  })}
                                 >
-                                  {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.2")}</Button>
-                              ) : null}
-                            </>
-                          }
-                        />
-                      )}
-                    </Stack>
-                      ),
-                    },
-                    {
-                      value: "offers",
-                      label: t("discovery.features.itemDetail.ui.itemDetailPage.offers.2"),
-                      content: (
-                    <Stack gap={3}>
-                      <Inline gap={2}>
-                        <Text size="sm" tone="secondary">
-                          {t("discovery.features.itemDetail.ui.itemDetailPage.matching.offer.count", {
-                            count: matchingOffers.length,
-                            offerLabel: t(
-                              matchingOffers.length === 1
-                                ? "discovery.features.itemDetail.ui.itemDetailPage.offer.singular"
-                                : "discovery.features.itemDetail.ui.itemDetailPage.offer.plural",
-                            ),
-                          })}
-                        </Text>
-                        {hasActiveFilters ? (
-                          <Button
-                            type="button"
-                            tone="ghost"
-                            size="sm"
-                            onClick={() => setSelections({})}
-                          >
-                            {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.3")}</Button>
-                        ) : null}
-                      </Inline>
-                      {matchingOffers.length > 0 ? (
-                        <div className="grid gap-3">
-                          <div
-                            className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
-                            aria-hidden="true"
-                          >
-                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
-                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.buyer")}</span>
-                            <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
-                            <span className="text-right">{t("discovery.features.itemDetail.ui.itemDetailPage.action")}</span>
-                          </div>
-                          {matchingOffers.map((offer) => {
-                            const isViewerOffer =
-                              viewerAccountId !== null &&
-                              offer.buyer_account_id === viewerAccountId;
-                            const isSelected =
-                              selectedOffer?.offer_id === offer.offer_id;
-                            const isBestOfferPrice = isBestOffer(offer, matchingOffers);
-                            const buyerName = offer.buyer_display_name ?? offer.buyer_account_id;
-                            const buyerFeedbackHref = offer.buyer_slug
-                              ? `/accounts/${offer.buyer_slug}#feedback`
-                              : null;
-                            const compactProductSummary = formatCompactProductSummary(
-                              offer.product_summary,
-                              getProductSelectionDetails(offer.selected_options),
-                              t("discovery.features.itemDetail.ui.itemDetailPage.standard.2"),
-                            );
-                            const selectOffer = () => {
-                              setSelectedOfferId(offer.offer_id);
-                              if (data.product_schema) {
-                                setSelections(
-                                  normalizeProductSearchOptionsForSchema(
-                                    data.product_schema,
-                                    selectionsFromListing(offer),
-                                  ),
-                                );
-                              }
-                            };
-
-                            return (
-                              <article
-                                key={offer.offer_id}
-                                className={cx(
-                                  "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
-                                  isSelected
-                                    ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
-                                    : "border-muted",
-                                )}
-                                aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.offer.row.label", {
-                                  price: formatMoney(offer.price_amount),
-                                  buyer: buyerName,
-                                })}
-                              >
-                                {isSelected ? (
-                                  <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
-                                ) : null}
-                                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
-                                  <div className="min-w-0">
-                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                      <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
-                                        {formatMoney(offer.price_amount)}
+                                  {isSelected ? (
+                                    <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
+                                  ) : null}
+                                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
+                                    <div className="min-w-0">
+                                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                        <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
+                                          {formatMoney(listing.price_amount)}
+                                        </span>
+                                        {isLowestPrice ? (
+                                          <Badge tone="success">
+                                            {t("discovery.features.itemDetail.ui.itemDetailPage.lowest.price")}
+                                          </Badge>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
+                                      <ListingTrustSignal
+                                        accountName={sellerName}
+                                        feedbackHref={sellerFeedbackHref}
+                                        rating={listing.seller_average_rating}
+                                        reviewCount={listing.seller_review_count ?? 0}
+                                      />
+                                    </div>
+                                    <div className="col-span-2 col-start-1 row-start-3 min-w-0 lg:col-span-1 lg:col-start-auto lg:row-start-auto">
+                                      <ProductOptions
+                                        options={productOptionsFromSelectionDetails(
+                                          getProductSelectionDetails(listing.selected_options),
+                                        )}
+                                        emptyLabel={compactProductSummary}
+                                        variant="compact"
+                                        className="block max-w-full truncate text-sm font-semibold leading-5"
+                                      />
+                                      <span className="mt-0.5 block text-xs font-medium text-secondary">
+                                        {formatListingAvailability(listing)}
                                       </span>
-                                      {isBestOfferPrice ? (
-                                        <Badge tone="success">
-                                          {t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")}
-                                        </Badge>
-                                      ) : null}
-                                      {isViewerOffer ? (
-                                        <Badge tone="accent">
-                                          {t("discovery.features.itemDetail.ui.itemDetailPage.your.offer")}
-                                        </Badge>
+                                      {purchaseLimit ? (
+                                        <div className="mt-1">
+                                          <Badge tone="neutral">{purchaseLimit}</Badge>
+                                        </div>
                                       ) : null}
                                     </div>
+                                    <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
+                                      <Button
+                                        type="button"
+                                        tone={isSelected ? "primary" : "secondary"}
+                                        size="sm"
+                                        aria-pressed={isSelected}
+                                        aria-label={t(
+                                          isSelected
+                                            ? "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.action"
+                                            : "discovery.features.itemDetail.ui.itemDetailPage.select.listing.action",
+                                          { seller: sellerName, price: formatMoney(listing.price_amount) },
+                                        )}
+                                        leadingIcon={isSelected ? "check" : undefined}
+                                        onClick={selectListing}
+                                      >
+                                        {isSelected
+                                          ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
+                                          : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
+                                      </Button>
+                                    </div>
                                   </div>
-                                  <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
-                                    <AccountReputationSummary
-                                      accountName={buyerName}
-                                      href={buyerFeedbackHref}
-                                      averageRating={offer.buyer_average_rating}
-                                      reviewCount={offer.buyer_review_count ?? 0}
-                                      ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
-                                      onLinkClick={(event) => event.stopPropagation()}
-                                    />
-                                    {isViewerOffer ? (
-                                      <Text size="xs" tone="secondary">
-                                        {t("discovery.features.itemDetail.ui.itemDetailPage.own.offer.visibility")}
-                                      </Text>
-                                    ) : null}
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <MarketplaceEmptyState
+                            title={t("discovery.features.itemDetail.ui.itemDetailPage.no.active.listings")}
+                            description={
+                              itemMarketListings.length > 0
+                                ? t(
+                                    "discovery.features.itemDetail.ui.itemDetailPage.no.active.listings.match.these.filters",
+                                  )
+                                : t(
+                                    "discovery.features.itemDetail.ui.itemDetailPage.sellers.have.not.published.inventory.for",
+                                  )
+                            }
+                            recoveryActions={
+                              <>
+                                {selectedProductId ? (
+                                  <LinkButton href="#make-offer" size="sm">
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.make.offer.3")}
+                                  </LinkButton>
+                                ) : (
+                                  <LinkButton href="#select-options" size="sm">
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.choose.options.2")}
+                                  </LinkButton>
+                                )}
+                                {hasActiveFilters ? (
+                                  <Button type="button" tone="secondary" size="sm" onClick={() => setSelections({})}>
+                                    {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.2")}
+                                  </Button>
+                                ) : null}
+                              </>
+                            }
+                          />
+                        )}
+                      </Stack>
+                    ),
+                  },
+                  {
+                    value: "offers",
+                    label: t("discovery.features.itemDetail.ui.itemDetailPage.offers.2"),
+                    content: (
+                      <Stack gap={3}>
+                        <Inline gap={2}>
+                          <Text size="sm" tone="secondary">
+                            {t("discovery.features.itemDetail.ui.itemDetailPage.matching.offer.count", {
+                              count: matchingOffers.length,
+                              offerLabel: t(
+                                matchingOffers.length === 1
+                                  ? "discovery.features.itemDetail.ui.itemDetailPage.offer.singular"
+                                  : "discovery.features.itemDetail.ui.itemDetailPage.offer.plural",
+                              ),
+                            })}
+                          </Text>
+                          {hasActiveFilters ? (
+                            <Button type="button" tone="ghost" size="sm" onClick={() => setSelections({})}>
+                              {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.3")}
+                            </Button>
+                          ) : null}
+                        </Inline>
+                        {matchingOffers.length > 0 ? (
+                          <div className="grid gap-3">
+                            <div
+                              className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
+                              aria-hidden="true"
+                            >
+                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
+                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.buyer")}</span>
+                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
+                              <span className="text-right">
+                                {t("discovery.features.itemDetail.ui.itemDetailPage.action")}
+                              </span>
+                            </div>
+                            {matchingOffers.map((offer) => {
+                              const isViewerOffer =
+                                viewerAccountId !== null && offer.buyer_account_id === viewerAccountId;
+                              const isSelected = selectedOffer?.offer_id === offer.offer_id;
+                              const isBestOfferPrice = isBestOffer(offer, matchingOffers);
+                              const buyerName = offer.buyer_display_name ?? offer.buyer_account_id;
+                              const buyerFeedbackHref = offer.buyer_slug
+                                ? `/accounts/${offer.buyer_slug}#feedback`
+                                : null;
+                              const compactProductSummary = formatCompactProductSummary(
+                                offer.product_summary,
+                                getProductSelectionDetails(offer.selected_options),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.standard.2"),
+                              );
+                              const selectOffer = () => {
+                                setSelectedOfferId(offer.offer_id);
+                                if (data.product_schema) {
+                                  setSelections(
+                                    normalizeProductSearchOptionsForSchema(
+                                      data.product_schema,
+                                      selectionsFromListing(offer),
+                                    ),
+                                  );
+                                }
+                              };
+
+                              return (
+                                <article
+                                  key={offer.offer_id}
+                                  className={cx(
+                                    "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
+                                    isSelected
+                                      ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
+                                      : "border-muted",
+                                  )}
+                                  aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.offer.row.label", {
+                                    price: formatMoney(offer.price_amount),
+                                    buyer: buyerName,
+                                  })}
+                                >
+                                  {isSelected ? (
+                                    <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
+                                  ) : null}
+                                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
+                                    <div className="min-w-0">
+                                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                        <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
+                                          {formatMoney(offer.price_amount)}
+                                        </span>
+                                        {isBestOfferPrice ? (
+                                          <Badge tone="success">
+                                            {t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")}
+                                          </Badge>
+                                        ) : null}
+                                        {isViewerOffer ? (
+                                          <Badge tone="accent">
+                                            {t("discovery.features.itemDetail.ui.itemDetailPage.your.offer")}
+                                          </Badge>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
+                                      <AccountReputationSummary
+                                        accountName={buyerName}
+                                        href={buyerFeedbackHref}
+                                        averageRating={offer.buyer_average_rating}
+                                        reviewCount={offer.buyer_review_count ?? 0}
+                                        ratingLabel={t(
+                                          "discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation",
+                                        )}
+                                        onLinkClick={(event) => event.stopPropagation()}
+                                      />
+                                      {isViewerOffer ? (
+                                        <Text size="xs" tone="secondary">
+                                          {t("discovery.features.itemDetail.ui.itemDetailPage.own.offer.visibility")}
+                                        </Text>
+                                      ) : null}
+                                    </div>
+                                    <div className="col-span-2 col-start-1 row-start-3 min-w-0 lg:col-span-1 lg:col-start-auto lg:row-start-auto">
+                                      <ProductOptions
+                                        options={productOptionsFromSelectionDetails(
+                                          getProductSelectionDetails(offer.selected_options),
+                                        )}
+                                        emptyLabel={compactProductSummary}
+                                        variant="compact"
+                                        className="block max-w-full truncate text-sm font-semibold leading-5"
+                                      />
+                                      <span className="mt-0.5 block text-xs font-medium text-secondary">
+                                        {formatOfferRequestedQuantity(offer)}
+                                      </span>
+                                    </div>
+                                    <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
+                                      <Button
+                                        type="button"
+                                        tone={isSelected ? "primary" : "secondary"}
+                                        size="sm"
+                                        aria-pressed={isSelected}
+                                        aria-label={t(
+                                          isSelected
+                                            ? "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.action"
+                                            : "discovery.features.itemDetail.ui.itemDetailPage.select.offer.action",
+                                          { buyer: buyerName, price: formatMoney(offer.price_amount) },
+                                        )}
+                                        leadingIcon={isSelected ? "check" : undefined}
+                                        onClick={selectOffer}
+                                      >
+                                        {isSelected
+                                          ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
+                                          : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
+                                      </Button>
+                                    </div>
                                   </div>
-                                  <div className="col-span-2 col-start-1 row-start-3 min-w-0 lg:col-span-1 lg:col-start-auto lg:row-start-auto">
-                                    <ProductOptions
-                                      options={productOptionsFromSelectionDetails(getProductSelectionDetails(offer.selected_options))}
-                                      emptyLabel={compactProductSummary}
-                                      variant="compact"
-                                      className="block max-w-full truncate text-sm font-semibold leading-5"
-                                    />
-                                    <span className="mt-0.5 block text-xs font-medium text-secondary">
-                                      {formatOfferRequestedQuantity(offer)}
-                                    </span>
-                                  </div>
-                                  <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
-                                    <Button
-                                      type="button"
-                                      tone={isSelected ? "primary" : "secondary"}
-                                      size="sm"
-                                      aria-pressed={isSelected}
-                                      aria-label={t(
-                                        isSelected
-                                          ? "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.action"
-                                          : "discovery.features.itemDetail.ui.itemDetailPage.select.offer.action",
-                                        { buyer: buyerName, price: formatMoney(offer.price_amount) },
-                                      )}
-                                      leadingIcon={isSelected ? "check" : undefined}
-                                      onClick={selectOffer}
-                                    >
-                                      {isSelected
-                                        ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
-                                        : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
-                                    </Button>
-                                  </div>
-                                </div>
-                              </article>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <MarketplaceEmptyState
-                          title={t("discovery.features.itemDetail.ui.itemDetailPage.no.matching.offers")}
-                          description={
-                            itemOfferDemandMatches.length > 0
-                              ? t("discovery.features.itemDetail.ui.itemDetailPage.no.offers.match.these.filters")
-                              : t("discovery.features.itemDetail.ui.itemDetailPage.buyers.have.not.placed.offers.for")
-                          }
-                        />
-                      )}
-                    </Stack>
-                      ),
-                    },
-                    {
-                      value: "sales",
-                      label: t("discovery.features.itemDetail.ui.itemDetailPage.sales"),
-                      content: (
-                        <MarketplaceEmptyState
-                          title={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history")}
-                          description={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history.unavailable")}
-                        />
-                      ),
-                    },
-                    {
-                      value: "details",
-                      label: t("discovery.features.itemDetail.ui.itemDetailPage.details"),
-                      content: data.description || detailItems.length > 0 ? (
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <MarketplaceEmptyState
+                            title={t("discovery.features.itemDetail.ui.itemDetailPage.no.matching.offers")}
+                            description={
+                              itemOfferDemandMatches.length > 0
+                                ? t("discovery.features.itemDetail.ui.itemDetailPage.no.offers.match.these.filters")
+                                : t("discovery.features.itemDetail.ui.itemDetailPage.buyers.have.not.placed.offers.for")
+                            }
+                          />
+                        )}
+                      </Stack>
+                    ),
+                  },
+                  {
+                    value: "sales",
+                    label: t("discovery.features.itemDetail.ui.itemDetailPage.sales"),
+                    content: (
+                      <MarketplaceEmptyState
+                        title={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history")}
+                        description={t("discovery.features.itemDetail.ui.itemDetailPage.sales.history.unavailable")}
+                      />
+                    ),
+                  },
+                  {
+                    value: "details",
+                    label: t("discovery.features.itemDetail.ui.itemDetailPage.details"),
+                    content:
+                      data.description || detailItems.length > 0 ? (
                         <Stack gap={4}>
                           {data.description ? (
                             <Stack gap={2}>
@@ -1860,9 +1692,7 @@ function LoadedItemDetailPage({
                               <Text>{data.description}</Text>
                             </Stack>
                           ) : null}
-                          {detailItems.length > 0 ? (
-                            <KeyValueList density="compact" items={detailItems} />
-                          ) : null}
+                          {detailItems.length > 0 ? <KeyValueList density="compact" items={detailItems} /> : null}
                         </Stack>
                       ) : (
                         <MarketplaceEmptyState
@@ -1870,21 +1700,21 @@ function LoadedItemDetailPage({
                           description={t("discovery.features.itemDetail.ui.itemDetailPage.no.additional.details")}
                         />
                       ),
-                    },
-                  ]}
-                />
-              </PageSection>
-            </Stack>
-          </MarketplaceProductDetailLayout>
-          {mobileCommerceBottomSheet}
-          <ReferenceDetailDialog
-            reference={selectedReference}
-            onOpenChange={(open) => {
-              if (!open) {
-                setSelectedReference(null);
-              }
-            }}
-          />
+                  },
+                ]}
+              />
+            </PageSection>
+          </Stack>
+        </MarketplaceProductDetailLayout>
+        {mobileCommerceBottomSheet}
+        <ReferenceDetailDialog
+          reference={selectedReference}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedReference(null);
+            }
+          }}
+        />
       </Container>
     </>
   );

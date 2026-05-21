@@ -27,10 +27,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
-  { title: data?.data ? `${data.data.name} | Catalog Admin` : t("catalog.routes.admin.referenceRecordsDetail.reference.record.catalog.admin") },
+  {
+    title: data?.data
+      ? `${data.data.name} | Catalog Admin`
+      : t("catalog.routes.admin.referenceRecordsDetail.reference.record.catalog.admin"),
+  },
 ];
 
 export default function ReferenceRecordDetailRoute() {
   const { id, data, referenceTypes, referenceRecords } = useLoaderData<typeof loader>();
-  return <ReferenceRecordDetailPage id={id} initialData={data} referenceTypes={referenceTypes} referenceRecords={referenceRecords} />;
+  return (
+    <ReferenceRecordDetailPage
+      id={id}
+      initialData={data}
+      referenceTypes={referenceTypes}
+      referenceRecords={referenceRecords}
+    />
+  );
 }

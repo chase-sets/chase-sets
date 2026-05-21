@@ -42,9 +42,7 @@ describe("ses email adapter", () => {
 
     expect(response).toEqual({ MessageId: "ses_msg_sdk" });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]?.[0].input.FromEmailAddress).toBe(
-      "notifications@chasesets.com",
-    );
+    expect(send.mock.calls[0]?.[0].input.FromEmailAddress).toBe("notifications@chasesets.com");
   });
 
   it("maps transactional messages into SES SendEmail requests", async () => {
@@ -115,12 +113,8 @@ describe("ses email adapter", () => {
 
     expect(receipt.attemptCount).toBe(2);
     expect(onAttempt).toHaveBeenCalledTimes(2);
-    expect(onResult).toHaveBeenCalledWith(
-      expect.objectContaining({ success: false }),
-    );
-    expect(onResult).toHaveBeenCalledWith(
-      expect.objectContaining({ success: true }),
-    );
+    expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+    expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
   it("parses SES SNS notification envelopes", () => {

@@ -22,14 +22,10 @@ if (!landingUrl || !adminUrl) {
   );
 }
 
-const syntheticEmail =
-  getSmokeEnv("SMOKE_WAITLIST_EMAIL") ||
-  getSmokeEnv("SMOKE_EMAIL") ||
-  "ops+smoke@chasesets.com";
+const syntheticEmail = getSmokeEnv("SMOKE_WAITLIST_EMAIL") || getSmokeEnv("SMOKE_EMAIL") || "ops+smoke@chasesets.com";
 const adminEmail = getSmokeEnv("PLATFORM_ADMIN_EMAIL");
 const adminPassword = getSmokeEnv("PLATFORM_ADMIN_PASSWORD");
-const writeWaitlist =
-  (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
+const writeWaitlist = (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
 const requireMarketplaceRoot = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_ROOT", false);
@@ -118,9 +114,7 @@ async function fetchWithRetry(label, input, init, isSuccess) {
     }
 
     if (attempt < fetchAttempts) {
-      const detail = lastResponse
-        ? `${lastResponse.status} ${lastResponse.statusText}`
-        : describeFetchError(lastError);
+      const detail = lastResponse ? `${lastResponse.status} ${lastResponse.statusText}` : describeFetchError(lastError);
       console.warn(
         `${label} attempt ${attempt}/${fetchAttempts} failed for ${input}: ${detail}; retrying in ${fetchRetryDelayMs}ms.`,
       );
@@ -129,9 +123,7 @@ async function fetchWithRetry(label, input, init, isSuccess) {
   }
 
   if (lastResponse) {
-    throw new Error(
-      `${label} failed for ${input} with ${lastResponse.status} ${lastResponse.statusText}.`,
-    );
+    throw new Error(`${label} failed for ${input} with ${lastResponse.status} ${lastResponse.statusText}.`);
   }
 
   throw new Error(`${label} failed for ${input}: ${describeFetchError(lastError)}`);
@@ -178,16 +170,12 @@ async function expectSocialLoginProviders(marketplaceOrigin) {
   );
   const body = await response.json();
   const providerNames = new Set(
-    Array.isArray(body.providers)
-      ? body.providers.map((provider) => provider?.providerName)
-      : [],
+    Array.isArray(body.providers) ? body.providers.map((provider) => provider?.providerName) : [],
   );
 
   for (const providerName of ["google", "facebook"]) {
     if (!providerNames.has(providerName)) {
-      throw new Error(
-        `Marketplace social login providers did not include '${providerName}'.`,
-      );
+      throw new Error(`Marketplace social login providers did not include '${providerName}'.`);
     }
   }
 }
@@ -197,14 +185,9 @@ async function expectUcpEndpoints(origin) {
   const profile = await profileResponse.json();
   const services = profile.ucp?.services?.["dev.ucp.shopping"] ?? [];
   const endpoints = new Set(
-    Array.isArray(services)
-      ? services.map((service) => `${service?.transport}:${service?.endpoint}`)
-      : [],
+    Array.isArray(services) ? services.map((service) => `${service?.transport}:${service?.endpoint}`) : [],
   );
-  for (const expectedEndpoint of [
-    `rest:${origin}/ucp/v1`,
-    `mcp:${origin}/ucp/mcp`,
-  ]) {
+  for (const expectedEndpoint of [`rest:${origin}/ucp/v1`, `mcp:${origin}/ucp/mcp`]) {
     if (!endpoints.has(expectedEndpoint)) {
       throw new Error(`UCP business profile did not advertise ${expectedEndpoint}.`);
     }
@@ -222,11 +205,7 @@ async function expectUcpEndpoints(origin) {
     body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
   });
   const mcpBody = await mcpResponse.json();
-  const toolNames = new Set(
-    Array.isArray(mcpBody.result?.tools)
-      ? mcpBody.result.tools.map((tool) => tool?.name)
-      : [],
-  );
+  const toolNames = new Set(Array.isArray(mcpBody.result?.tools) ? mcpBody.result.tools.map((tool) => tool?.name) : []);
   for (const expectedTool of ["search_catalog", "lookup_catalog", "create_checkout"]) {
     if (!toolNames.has(expectedTool)) {
       throw new Error(`UCP MCP tools did not include ${expectedTool}.`);
@@ -252,20 +231,12 @@ async function expectUcpEndpoints(origin) {
 async function expectMarketplaceSurface(label, origin) {
   await expectOk(`${label} home`, `${origin}/`);
   await expectOk(`${label} search`, `${origin}/search`);
-  await expectOk(
-    `${label} platform API health`,
-    `${origin}/api/health/ready`,
-  );
+  await expectOk(`${label} platform API health`, `${origin}/api/health/ready`);
   await expectUcpEndpoints(origin);
 }
 
 async function expectRedirect(label, input, expectedAuthority) {
-  const response = await fetchWithRetry(
-    label,
-    input,
-    { redirect: "manual" },
-    (candidate) => candidate.status === 302,
-  );
+  const response = await fetchWithRetry(label, input, { redirect: "manual" }, (candidate) => candidate.status === 302);
 
   const location = response.headers.get("location");
   if (!location) {
@@ -274,9 +245,7 @@ async function expectRedirect(label, input, expectedAuthority) {
 
   const redirected = new URL(location, input);
   if (redirected.host !== expectedAuthority) {
-    throw new Error(
-      `${label} redirected to '${redirected.host}' instead of '${expectedAuthority}'.`,
-    );
+    throw new Error(`${label} redirected to '${redirected.host}' instead of '${expectedAuthority}'.`);
   }
   if (redirected.protocol !== "https:") {
     throw new Error(`${label} redirected with '${redirected.protocol}' instead of 'https:'.`);
@@ -288,17 +257,13 @@ async function main() {
     throw new Error("Marketplace URL is required when SMOKE_REQUIRE_MARKETPLACE=true.");
   }
   if (requireMarketplaceRoot && !marketplaceRootUrl) {
-    throw new Error(
-      "Marketplace root URL is required when SMOKE_REQUIRE_MARKETPLACE_ROOT=true.",
-    );
+    throw new Error("Marketplace root URL is required when SMOKE_REQUIRE_MARKETPLACE_ROOT=true.");
   }
   if (requireLegacyRedirect && !redirectUrl) {
     throw new Error("Legacy redirect URL is required when SMOKE_REQUIRE_LEGACY_REDIRECT=true.");
   }
   if (requireAdmin && (!adminEmail || !adminPassword)) {
-    throw new Error(
-      "PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD are required when SMOKE_REQUIRE_ADMIN=true.",
-    );
+    throw new Error("PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD are required when SMOKE_REQUIRE_ADMIN=true.");
   }
 
   await expectOk("landing home", `${landingUrl}/`);
@@ -328,11 +293,7 @@ async function main() {
   }
 
   if (redirectUrl) {
-    await expectRedirect(
-      "legacy staging redirect",
-      `${redirectUrl}/`,
-      new URL(landingUrl).host,
-    );
+    await expectRedirect("legacy staging redirect", `${redirectUrl}/`, new URL(landingUrl).host);
   }
 
   if (writeWaitlist) {
@@ -361,15 +322,11 @@ async function main() {
   }
 
   if (adminEmail && adminPassword) {
-    const authResponse = await expectOk(
-      "admin password sign-in",
-      `${adminUrl}/api/auth/password-sign-in`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: adminEmail, password: adminPassword }),
-      },
-    );
+    const authResponse = await expectOk("admin password sign-in", `${adminUrl}/api/auth/password-sign-in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+    });
     const authBody = await authResponse.json();
     if (authBody.type !== "session-started" || !authBody.sessionToken) {
       throw new Error("Admin sign-in did not return a session token.");
@@ -381,9 +338,7 @@ async function main() {
         async () => {
           const waitlistResponse = await expectOk(
             "admin waitlist list",
-            `${adminUrl}/api/public-presence/admin/waitlist?search=${encodeURIComponent(
-              syntheticEmail,
-            )}`,
+            `${adminUrl}/api/public-presence/admin/waitlist?search=${encodeURIComponent(syntheticEmail)}`,
             {
               headers: {
                 Authorization: `Bearer ${authBody.sessionToken}`,

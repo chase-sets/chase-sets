@@ -21,20 +21,28 @@ function requireActor(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("experience.api.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authentication_required", message: t("experience.api.authentication.required") },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (permission && !actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("experience.api.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({ error: { code: "authorization_forbidden", message: t("experience.api.forbidden") } }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -47,7 +55,7 @@ function relatedEntitiesFromBody(value: unknown): readonly PlatformFeedbackRelat
   }
 
   return value.map((entry) => {
-    const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+    const record = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
     return {
       type: String(record.type ?? ""),
       id: String(record.id ?? ""),
@@ -55,19 +63,13 @@ function relatedEntitiesFromBody(value: unknown): readonly PlatformFeedbackRelat
   });
 }
 
-function relatedEntitiesFromQuery(c: {
-  req: { query(name: string): string | undefined };
-}) {
+function relatedEntitiesFromQuery(c: { req: { query(name: string): string | undefined } }) {
   const relatedEntityType = c.req.query("relatedEntityType");
   const relatedEntityId = c.req.query("relatedEntityId");
-  return relatedEntityType && relatedEntityId
-    ? [{ type: relatedEntityType, id: relatedEntityId }]
-    : [];
+  return relatedEntityType && relatedEntityId ? [{ type: relatedEntityType, id: relatedEntityId }] : [];
 }
 
-export function createPlatformFeedbackRoutes(
-  services: PlatformFeedbackServices,
-) {
+export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices) {
   const app = new Hono<ExperienceApiEnv>();
 
   app.get("/prompt", async (c) => {
@@ -77,11 +79,13 @@ export function createPlatformFeedbackRoutes(
     }
 
     try {
-      return c.json(await services.getPromptEligibility({
-        accountId: access.actor.accountId,
-        workflow: c.req.query("workflow") as never,
-        relatedEntities: relatedEntitiesFromQuery(c),
-      }));
+      return c.json(
+        await services.getPromptEligibility({
+          accountId: access.actor.accountId,
+          workflow: c.req.query("workflow") as never,
+          relatedEntities: relatedEntitiesFromQuery(c),
+        }),
+      );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -94,22 +98,28 @@ export function createPlatformFeedbackRoutes(
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("experience.api.authentication.context.missing") } }, 401);
+      return c.json(
+        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing") } },
+        401,
+      );
     }
     const body = await c.req.json();
 
     try {
-      const result = await services.submitPlatformFeedback({
-        userId: access.actor.userId,
-        accountId: access.actor.accountId,
-        rating: Number(body.rating ?? 0),
-        topic: String(body.topic ?? "") as never,
-        comment: typeof body.comment === "string" ? body.comment : null,
-        followUpConsent: Boolean(body.followUpConsent),
-        workflow: String(body.workflow ?? "") as never,
-        sourceRoutePath: String(body.sourceRoutePath ?? ""),
-        relatedEntities: relatedEntitiesFromBody(body.relatedEntities),
-      }, context);
+      const result = await services.submitPlatformFeedback(
+        {
+          userId: access.actor.userId,
+          accountId: access.actor.accountId,
+          rating: Number(body.rating ?? 0),
+          topic: String(body.topic ?? "") as never,
+          comment: typeof body.comment === "string" ? body.comment : null,
+          followUpConsent: Boolean(body.followUpConsent),
+          workflow: String(body.workflow ?? "") as never,
+          sourceRoutePath: String(body.sourceRoutePath ?? ""),
+          relatedEntities: relatedEntitiesFromBody(body.relatedEntities),
+        },
+        context,
+      );
       return c.json({ id: result.feedbackId, version: result.version, status: "submitted" }, 201);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
@@ -123,18 +133,24 @@ export function createPlatformFeedbackRoutes(
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.2") } }, 401);
+      return c.json(
+        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.2") } },
+        401,
+      );
     }
     const body = await c.req.json();
 
     try {
-      const result = await services.dismissPrompt({
-        userId: access.actor.userId,
-        accountId: access.actor.accountId,
-        workflow: String(body.workflow ?? "") as never,
-        sourceRoutePath: String(body.sourceRoutePath ?? ""),
-        relatedEntities: relatedEntitiesFromBody(body.relatedEntities),
-      }, context);
+      const result = await services.dismissPrompt(
+        {
+          userId: access.actor.userId,
+          accountId: access.actor.accountId,
+          workflow: String(body.workflow ?? "") as never,
+          sourceRoutePath: String(body.sourceRoutePath ?? ""),
+          relatedEntities: relatedEntitiesFromBody(body.relatedEntities),
+        },
+        context,
+      );
       return c.json({ id: result.promptId, version: result.version, snoozedUntil: result.snoozedUntil });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
@@ -194,7 +210,10 @@ export function createPlatformFeedbackRoutes(
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.3") } }, 401);
+      return c.json(
+        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.3") } },
+        401,
+      );
     }
 
     try {
@@ -212,7 +231,10 @@ export function createPlatformFeedbackRoutes(
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.4") } }, 401);
+      return c.json(
+        { error: { code: "authentication_required", message: t("experience.api.authentication.context.missing.4") } },
+        401,
+      );
     }
 
     try {

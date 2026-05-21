@@ -1,10 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { NotificationMessage } from "@chase-sets/notifications";
-import {
-  createTwilioMessagingAdapter,
-  parseTwilioMessagingWebhook,
-} from "./index";
+import { createTwilioMessagingAdapter, parseTwilioMessagingWebhook } from "./index";
 
 const message: NotificationMessage = {
   messageType: "fulfillment.shipment.exception",
@@ -45,8 +42,7 @@ describe("twilio messaging adapter", () => {
       messagingServiceSid: "MG123",
       channel: "rcs",
       apiBaseUrl: "https://twilio.test",
-      statusCallbackBaseUrl:
-        "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks",
+      statusCallbackBaseUrl: "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks",
       sendRequest,
       now: () => new Date("2026-05-15T12:00:00.000Z"),
     });
@@ -66,9 +62,7 @@ describe("twilio messaging adapter", () => {
     });
     expect(sendRequest).toHaveBeenCalledTimes(1);
     const request = sendRequest.mock.calls[0]?.[0];
-    expect(request?.url).toBe(
-      "https://twilio.test/2010-04-01/Accounts/AC123/Messages.json",
-    );
+    expect(request?.url).toBe("https://twilio.test/2010-04-01/Accounts/AC123/Messages.json");
     expect(request?.body.get("To")).toBe("+15551234567");
     expect(request?.body.get("MessagingServiceSid")).toBe("MG123");
     expect(request?.body.get("Body")).toBe("Shipment shp_1 needs attention.");
@@ -78,8 +72,7 @@ describe("twilio messaging adapter", () => {
   });
 
   it("parses signed delivery status callbacks", () => {
-    const url =
-      "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks?deliveryId=delivery_1";
+    const url = "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks?deliveryId=delivery_1";
     const body = new URLSearchParams({
       MessageSid: "SM123",
       MessageStatus: "delivered",
@@ -87,13 +80,15 @@ describe("twilio messaging adapter", () => {
       From: "+15557654321",
     }).toString();
 
-    expect(parseTwilioMessagingWebhook({
-      rawBody: body,
-      url,
-      signatureHeader: signTwilio(url, body, "secret"),
-      authToken: "secret",
-      receivedAt: "2026-05-15T12:01:00.000Z",
-    })).toEqual({
+    expect(
+      parseTwilioMessagingWebhook({
+        rawBody: body,
+        url,
+        signatureHeader: signTwilio(url, body, "secret"),
+        authToken: "secret",
+        receivedAt: "2026-05-15T12:01:00.000Z",
+      }),
+    ).toEqual({
       providerEventId: "twilio:SM123:delivery-status:delivered",
       providerName: "twilio",
       eventKind: "delivery-status",
@@ -111,8 +106,7 @@ describe("twilio messaging adapter", () => {
   });
 
   it("parses signed inbound replies as SMS/RCS interactions", () => {
-    const url =
-      "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks";
+    const url = "https://api.chasesets.test/api/notifications/provider/mobile-messaging/webhooks";
     const body = new URLSearchParams({
       MessageSid: "SM456",
       To: "+15557654321",
@@ -120,13 +114,15 @@ describe("twilio messaging adapter", () => {
       Body: "HELP",
     }).toString();
 
-    expect(parseTwilioMessagingWebhook({
-      rawBody: body,
-      url,
-      signatureHeader: signTwilio(url, body, "secret"),
-      authToken: "secret",
-      receivedAt: "2026-05-15T12:02:00.000Z",
-    })).toMatchObject({
+    expect(
+      parseTwilioMessagingWebhook({
+        rawBody: body,
+        url,
+        signatureHeader: signTwilio(url, body, "secret"),
+        authToken: "secret",
+        receivedAt: "2026-05-15T12:02:00.000Z",
+      }),
+    ).toMatchObject({
       providerEventId: "twilio:SM456:inbound-message:received",
       eventKind: "inbound-message",
       providerMessageId: "SM456",

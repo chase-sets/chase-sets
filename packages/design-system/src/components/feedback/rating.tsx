@@ -3,8 +3,7 @@ import { Icon } from "../../icons";
 
 export type RatingSize = "sm" | "md" | "lg";
 
-export interface RatingProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "onChange"> {
+export interface RatingProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "onChange"> {
   value: number;
   max?: number;
   size?: RatingSize;
@@ -44,14 +43,7 @@ export function Rating({
       );
     }
 
-    return (
-      <Icon
-        key={position}
-        name={iconName}
-        size={size}
-        tone="warning"
-      />
-    );
+    return <Icon key={position} name={iconName} size={size} tone="warning" />;
   });
 
   return (

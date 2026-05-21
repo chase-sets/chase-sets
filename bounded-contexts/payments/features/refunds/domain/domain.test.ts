@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideRefund,
-  evolveRefund,
-  initialRefundState,
-} from "./domain";
+import { decideRefund, evolveRefund, initialRefundState } from "./domain";
 
 describe("payments refund domain", () => {
   it("requests and issues a refund", () => {

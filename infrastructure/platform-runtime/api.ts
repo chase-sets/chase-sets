@@ -73,24 +73,17 @@ export function getApiHostEntries<TRegistry extends ApiContextRegistry>(
   registry: TRegistry,
   hostName: ApiHostName,
 ): readonly ApiContextRegistryEntry[] {
-  return registry.filter((entry) =>
-    (entry.manifest as ApiContextManifest).apiDeployables?.includes(hostName),
-  );
+  return registry.filter((entry) => (entry.manifest as ApiContextManifest).apiDeployables?.includes(hostName));
 }
 
 export function getApiHostContextNames<TRegistry extends ApiContextRegistry>(
   registry: TRegistry,
   hostName: ApiHostName,
 ): readonly ApiHostContextName<TRegistry>[] {
-  return getApiHostEntries(registry, hostName).map(
-    (entry) => entry.contextName as ApiHostContextName<TRegistry>,
-  );
+  return getApiHostEntries(registry, hostName).map((entry) => entry.contextName as ApiHostContextName<TRegistry>);
 }
 
-function getHostPortsForContext(
-  manifest: ApiContextManifest,
-  hostPorts: Readonly<Record<string, unknown>>,
-) {
+function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonly<Record<string, unknown>>) {
   const entries = manifest.hostPorts ?? [];
   if (entries.length === 0) {
     return undefined;
@@ -117,19 +110,14 @@ export function createApiHost(
     entries.map((entry) => {
       const pool = options.pools[entry.contextName];
       if (!pool) {
-        throw new Error(
-          `API host '${hostName}' is missing a pool for context '${entry.contextName}'.`,
-        );
+        throw new Error(`API host '${hostName}' is missing a pool for context '${entry.contextName}'.`);
       }
 
       return [
         entry.contextName,
         entry.module.createServices(
           pool,
-          getHostPortsForContext(
-            entry.manifest as ApiContextManifest,
-            options.hostPorts ?? {},
-          ) as never,
+          getHostPortsForContext(entry.manifest as ApiContextManifest, options.hostPorts ?? {}) as never,
         ),
       ];
     }),
@@ -154,10 +142,7 @@ export function createApiHost(
     services: entry.services,
   }));
   const subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
-  const projectionGroups = resolveModuleProjectionGroups(
-    mountedContexts,
-    subscriptionRunners,
-  );
+  const projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
 
   return {
     mountedContexts,
@@ -192,10 +177,7 @@ function getSeedDependencyNames(
   );
 }
 
-export function getApiHostSeedOrder(
-  registry: ApiContextRegistry,
-  hostName: ApiHostName,
-): readonly string[] {
+export function getApiHostSeedOrder(registry: ApiContextRegistry, hostName: ApiHostName): readonly string[] {
   const entries = getApiHostEntries(registry, hostName);
   const activeNames = entries.map((entry) => entry.contextName);
   const byName = new Map(entries.map((entry) => [entry.contextName, entry]));
@@ -209,16 +191,12 @@ export function getApiHostSeedOrder(
     }
 
     if (inProgress.has(contextName)) {
-      throw new Error(
-        `API host '${hostName}' has a circular seed dependency involving '${contextName}'.`,
-      );
+      throw new Error(`API host '${hostName}' has a circular seed dependency involving '${contextName}'.`);
     }
 
     const entry = byName.get(contextName);
     if (!entry) {
-      throw new Error(
-        `API host '${hostName}' is missing registry entry '${contextName}'.`,
-      );
+      throw new Error(`API host '${hostName}' is missing registry entry '${contextName}'.`);
     }
 
     inProgress.add(contextName);
@@ -246,9 +224,7 @@ export async function seedApiHostIfEmpty(
     environmentName: null,
   },
 ): Promise<void> {
-  const mountedContextsByName = new Map(
-    runtime.mountedContexts.map((entry) => [entry.contextName, entry]),
-  );
+  const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
 
   for (const context of runtime.mountedContexts) {
     await bootstrapContextDatabase(context.module, context.pool);
@@ -257,20 +233,13 @@ export async function seedApiHostIfEmpty(
   for (const contextName of getApiHostSeedOrder(registry, hostName)) {
     const context = mountedContextsByName.get(contextName);
     if (!context) {
-      throw new Error(
-        `API host '${hostName}' is missing mounted context '${contextName}' during seed.`,
-      );
+      throw new Error(`API host '${hostName}' is missing mounted context '${contextName}' during seed.`);
     }
 
     await syncContextProjectionGroups(runtime, contextName, {
       requiredOnly: true,
     });
-    await seedApiModuleIfEmpty(
-      context.module,
-      context.pool,
-      context.services,
-      options,
-    );
+    await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
     await syncContextProjectionGroups(runtime, contextName);
     await drainContextRuntime(runtime);
   }

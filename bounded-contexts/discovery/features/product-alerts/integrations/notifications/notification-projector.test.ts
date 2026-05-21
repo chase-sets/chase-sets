@@ -11,19 +11,13 @@ class ProductAlertProjectionDb implements PgQueryable {
   public readonly accounts = new Map<string, Row>();
   public readonly notifications = new Set<string>();
 
-  async query<T = Row>(
-    sql: string,
-    values: readonly unknown[] = [],
-  ): Promise<PgQueryResult<T>> {
+  async query<T = Row>(sql: string, values: readonly unknown[] = []): Promise<PgQueryResult<T>> {
     if (sql.includes("SELECT") && sql.includes("FROM discovery_product_alert_market_activity")) {
       const row = this.activities.get(String(values[0]));
       const account = row ? this.accounts.get(String(row.owner_account_id)) : null;
-      const listingAvailability =
-        account?.seller_listing_availability_status ?? "available";
+      const listingAvailability = account?.seller_listing_availability_status ?? "available";
       return {
-        rows: (row
-          ? [{ ...row, seller_listing_availability_status: listingAvailability }]
-          : []) as T[],
+        rows: (row ? [{ ...row, seller_listing_availability_status: listingAvailability }] : []) as T[],
         rowCount: row ? 1 : 0,
       };
     }
@@ -74,10 +68,7 @@ class ProductAlertProjectionDb implements PgQueryable {
 
     if (sql.includes("FROM discovery_product_alert_pages")) {
       const rows = [...this.alerts.values()].filter(
-        (alert) =>
-          alert.status === "active" &&
-          alert.market_side === values[0] &&
-          alert.product_id === values[1],
+        (alert) => alert.status === "active" && alert.market_side === values[0] && alert.product_id === values[1],
       );
       return { rows: rows as T[], rowCount: rows.length };
     }
@@ -130,9 +121,10 @@ describe("Product Alert notification projector", () => {
       status: "active",
     });
 
-    await projectMarketplaceEventToProductAlertNotifications(db, outbox, marketplaceEvent(
-      "marketplace.listing.created",
-      {
+    await projectMarketplaceEventToProductAlertNotifications(
+      db,
+      outbox,
+      marketplaceEvent("marketplace.listing.created", {
         listingId: "lst_1",
         accountId: "acc_seller",
         catalogItemId: "cat_1",
@@ -143,12 +135,13 @@ describe("Product Alert notification projector", () => {
         productSummary: "Raw",
         priceAmount: "18.00",
         quantityCap: 1,
-      },
-    ));
-    await projectMarketplaceEventToProductAlertNotifications(db, outbox, marketplaceEvent(
-      "marketplace.listing.published",
-      {},
-    ));
+      }),
+    );
+    await projectMarketplaceEventToProductAlertNotifications(
+      db,
+      outbox,
+      marketplaceEvent("marketplace.listing.published", {}),
+    );
 
     expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
     expect(outbox.enqueueNotification.mock.calls[0]?.[0].message).toMatchObject({
@@ -169,9 +162,10 @@ describe("Product Alert notification projector", () => {
       status: "active",
     });
 
-    await projectMarketplaceEventToProductAlertNotifications(db, outbox, marketplaceEvent(
-      "marketplace.offer.submitted",
-      {
+    await projectMarketplaceEventToProductAlertNotifications(
+      db,
+      outbox,
+      marketplaceEvent("marketplace.offer.submitted", {
         offerId: "off_1",
         buyerAccountId: "acc_buyer",
         catalogItemId: "cat_1",
@@ -182,8 +176,8 @@ describe("Product Alert notification projector", () => {
         productSummary: "Raw",
         priceAmount: "12.00",
         quantityRequested: 1,
-      },
-    ));
+      }),
+    );
 
     expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
     const message = outbox.enqueueNotification.mock.calls[0]?.[0].message;
@@ -207,9 +201,10 @@ describe("Product Alert notification projector", () => {
       seller_listing_availability_status: "unavailable",
     });
 
-    await projectMarketplaceEventToProductAlertNotifications(db, outbox, marketplaceEvent(
-      "marketplace.listing.created",
-      {
+    await projectMarketplaceEventToProductAlertNotifications(
+      db,
+      outbox,
+      marketplaceEvent("marketplace.listing.created", {
         listingId: "lst_1",
         accountId: "acc_seller",
         catalogItemId: "cat_1",
@@ -220,12 +215,13 @@ describe("Product Alert notification projector", () => {
         productSummary: "Raw",
         priceAmount: "18.00",
         quantityCap: 1,
-      },
-    ));
-    await projectMarketplaceEventToProductAlertNotifications(db, outbox, marketplaceEvent(
-      "marketplace.listing.published",
-      {},
-    ));
+      }),
+    );
+    await projectMarketplaceEventToProductAlertNotifications(
+      db,
+      outbox,
+      marketplaceEvent("marketplace.listing.published", {}),
+    );
 
     expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });

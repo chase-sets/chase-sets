@@ -26,8 +26,7 @@ import type {
 } from "../support/client-support/contracts";
 
 vi.mock("@chase-sets/platform-runtime/realtime-react", () => ({
-  useRealtimePatchedSnapshot: ({ initialSnapshot }: { initialSnapshot: unknown }) =>
-    initialSnapshot,
+  useRealtimePatchedSnapshot: ({ initialSnapshot }: { initialSnapshot: unknown }) => initialSnapshot,
 }));
 
 afterEach(() => cleanup());
@@ -173,9 +172,7 @@ function renderItemDetailRoute(loaderData: Record<string, unknown>) {
   return render(<RouterProvider router={router} />);
 }
 
-function createItem(
-  overrides: Partial<DiscoveryItemDetail> = {},
-): DiscoveryItemDetail {
+function createItem(overrides: Partial<DiscoveryItemDetail> = {}): DiscoveryItemDetail {
   return {
     catalog_item_id: "cat_charizard",
     slug: "charizard-base-set-cat_charizard",
@@ -207,65 +204,65 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem({
           image_urls: ["/legacy-detail.webp"],
-          product_asset_sets: [{
-            kind: "product-image",
-            sourceHash: "source_hash",
-            source: {
-              role: "source",
-              width: 480,
-              height: 672,
-              density: null,
-              mediaType: "image/webp",
-              storageKey: "catalog/items/cat_test/product-image/source.webp",
-              publicUrl: "/source.webp",
-              byteSize: 100,
-              generatedAt: "2026-05-20T00:00:00.000Z",
-            },
-            variants: [
-              {
-                role: "catalog-detail",
+          product_asset_sets: [
+            {
+              kind: "product-image",
+              sourceHash: "source_hash",
+              source: {
+                role: "source",
                 width: 480,
                 height: 672,
-                density: 1,
+                density: null,
                 mediaType: "image/webp",
-                storageKey: "catalog/items/cat_test/product-image/catalog-detail-480w-1x.webp",
-                publicUrl: "/catalog-detail-480w.webp",
-                byteSize: 80,
+                storageKey: "catalog/items/cat_test/product-image/source.webp",
+                publicUrl: "/source.webp",
+                byteSize: 100,
                 generatedAt: "2026-05-20T00:00:00.000Z",
               },
-              {
-                role: "catalog-detail",
-                width: 960,
-                height: 1344,
-                density: 2,
-                mediaType: "image/webp",
-                storageKey: "catalog/items/cat_test/product-image/catalog-detail-960w-2x.webp",
-                publicUrl: "/catalog-detail-960w.webp",
-                byteSize: 120,
-                generatedAt: "2026-05-20T00:00:00.000Z",
-              },
-              {
-                role: "thumbnail",
-                width: 96,
-                height: 134,
-                density: 1,
-                mediaType: "image/webp",
-                storageKey: "catalog/items/cat_test/product-image/thumbnail-96w-1x.webp",
-                publicUrl: "/thumbnail-96w.webp",
-                byteSize: 40,
-                generatedAt: "2026-05-20T00:00:00.000Z",
-              },
-            ],
-          }],
+              variants: [
+                {
+                  role: "catalog-detail",
+                  width: 480,
+                  height: 672,
+                  density: 1,
+                  mediaType: "image/webp",
+                  storageKey: "catalog/items/cat_test/product-image/catalog-detail-480w-1x.webp",
+                  publicUrl: "/catalog-detail-480w.webp",
+                  byteSize: 80,
+                  generatedAt: "2026-05-20T00:00:00.000Z",
+                },
+                {
+                  role: "catalog-detail",
+                  width: 960,
+                  height: 1344,
+                  density: 2,
+                  mediaType: "image/webp",
+                  storageKey: "catalog/items/cat_test/product-image/catalog-detail-960w-2x.webp",
+                  publicUrl: "/catalog-detail-960w.webp",
+                  byteSize: 120,
+                  generatedAt: "2026-05-20T00:00:00.000Z",
+                },
+                {
+                  role: "thumbnail",
+                  width: 96,
+                  height: 134,
+                  density: 1,
+                  mediaType: "image/webp",
+                  storageKey: "catalog/items/cat_test/product-image/thumbnail-96w-1x.webp",
+                  publicUrl: "/thumbnail-96w.webp",
+                  byteSize: 40,
+                  generatedAt: "2026-05-20T00:00:00.000Z",
+                },
+              ],
+            },
+          ],
         })}
       />,
     );
 
     const image = screen.getByRole("img", { name: "Charizard image 1" });
     expect(image.getAttribute("src")).toBe("/catalog-detail-480w.webp");
-    expect(image.getAttribute("srcset")).toBe(
-      "/catalog-detail-480w.webp 480w, /catalog-detail-960w.webp 960w",
-    );
+    expect(image.getAttribute("srcset")).toBe("/catalog-detail-480w.webp 480w, /catalog-detail-960w.webp 960w");
   });
 
   it("renders item detail language codes as localized labels", async () => {
@@ -296,16 +293,18 @@ describe("item detail commerce panel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Details" }));
 
     await waitFor(() => expect(screen.getByText("Expansion")).toBeTruthy());
-    expect(screen.getAllByRole("button", { name: "View Expansion reference details for Perfect Order" })[0])
-      .toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: "View Expansion reference details for Perfect Order" })[0],
+    ).toBeTruthy();
     expect(screen.getByText("Series")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "View Series reference details for Mega Evolution" })[0])
-      .toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "View Series reference details for Mega Evolution" })[0]).toBeTruthy();
     expect(screen.queryByText("fld_seed_expansion")).toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", {
-      name: "View Expansion reference details for Perfect Order",
-    })[0]);
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "View Expansion reference details for Perfect Order",
+      })[0],
+    );
 
     const dialog = screen.getByRole("dialog", { name: "Perfect Order" });
     expect(within(dialog).getByText("Reference type")).toBeTruthy();
@@ -339,8 +338,9 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Sell on Chase Sets")).toBeTruthy();
     expect(screen.getByText(/Start with:/)).toBeTruthy();
     expect(screen.getByLabelText("Product options: Raw, Near Mint")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Register to sell" }).getAttribute("href"))
-      .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
+    expect(screen.getByRole("link", { name: "Register to sell" }).getAttribute("href")).toBe(
+      "/register?returnTo=%2Fitems%2Fcat_charizard",
+    );
   });
 
   it("uses buyer demand in the signed-out sell registration module", () => {
@@ -366,12 +366,17 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
     expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
     expect(screen.getAllByText("Raw / Near Mint")).toHaveLength(2);
-    expect(screen.getByText("Quote preview uses Standard seller terms; final account terms are confirmed after registration.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Quote preview uses Standard seller terms; final account terms are confirmed after registration.",
+      ),
+    ).toBeTruthy();
     expect(
       screen.getByText("Register to confirm inventory, see seller payout, and accept matching offers."),
     ).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Sign in or register to accept offer" }).getAttribute("href"))
-      .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
+    expect(screen.getByRole("link", { name: "Sign in or register to accept offer" }).getAttribute("href")).toBe(
+      "/register?returnTo=%2Fitems%2Fcat_charizard",
+    );
     expect(screen.getByText("Create a listing after registration")).toBeTruthy();
     expect(
       screen.getByText("If this offer does not meet your price, sign in or register to list this item instead."),
@@ -380,8 +385,9 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Set after registration")).toBeTruthy();
     expect(screen.getByText("Inventory")).toBeTruthy();
     expect(screen.getByText("Confirm after registration")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Sign in or register to list" }).getAttribute("href"))
-      .toBe("/register?returnTo=%2Fitems%2Fcat_charizard");
+    expect(screen.getByRole("link", { name: "Sign in or register to list" }).getAttribute("href")).toBe(
+      "/register?returnTo=%2Fitems%2Fcat_charizard",
+    );
   });
 
   it("keeps list at price as a compact action when ship-from setup exists", () => {
@@ -511,12 +517,12 @@ describe("item detail commerce panel", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
     const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
-    expect(within(buySheet).getByRole("spinbutton", { name: /Quantity/ }))
-      .toBeTruthy();
-    expect(within(buySheet).getByRole("button", { name: "Buy now" }))
-      .not.toHaveProperty("disabled", true);
-    expect(within(buySheet).getByRole("button", { name: "Add product to buy cart" }))
-      .not.toHaveProperty("disabled", true);
+    expect(within(buySheet).getByRole("spinbutton", { name: /Quantity/ })).toBeTruthy();
+    expect(within(buySheet).getByRole("button", { name: "Buy now" })).not.toHaveProperty("disabled", true);
+    expect(within(buySheet).getByRole("button", { name: "Add product to buy cart" })).not.toHaveProperty(
+      "disabled",
+      true,
+    );
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
@@ -537,13 +543,11 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Choose action")).toBeTruthy();
     expect(screen.getByText("Choose what you want to do with this item.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Buy now/ })).toBeTruthy();
-    expect(screen.getByText("Checkout immediately with the best matching live listing."))
-      .toBeTruthy();
+    expect(screen.getByText("Checkout immediately with the best matching live listing.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add product to buy cart/ })).toBeTruthy();
     expect(screen.getByText("Save this selected product for Buy Cart checkout.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Make offer/ })).toBeTruthy();
-    expect(screen.getByText("Submit product-wide demand eligible sellers can accept."))
-      .toBeTruthy();
+    expect(screen.getByText("Submit product-wide demand eligible sellers can accept.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Set alert/ })).toBeNull();
     expect(screen.getByText("Buy now form")).toBeTruthy();
     expect(screen.queryByText("Make offer form")).toBeNull();
@@ -615,9 +619,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByRole("button", { name: /Add product to Sell List/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /List for sale/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Set alert/ })).toBeNull();
-    expect(
-      screen.getByText("Same-buyer offer batching can improve the 5% shipping allowance."),
-    ).toBeTruthy();
+    expect(screen.getByText("Same-buyer offer batching can improve the 5% shipping allowance.")).toBeTruthy();
     expect(container.querySelector(".modern-surface")).toBeNull();
     expect(container.querySelector('[class*="-mx-4"]')).toBeTruthy();
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
@@ -658,7 +660,9 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByRole("button", { name: /Sell now/ }).getAttribute("data-disabled")).toBeNull();
-    expect(screen.getByRole("button", { name: /Add selected offer to Sell List/ }).getAttribute("data-disabled")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Add selected offer to Sell List/ }).getAttribute("data-disabled"),
+    ).toBeNull();
 
     const productSellListAction = screen.getByRole("button", { name: /Add product to Sell List/ });
     const listForSaleAction = screen.getByRole("button", { name: /List for sale/ });
@@ -710,9 +714,7 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(
-      screen.queryByRole("tablist", { name: "Choose mobile market intent" }),
-    ).toBeNull();
+    expect(screen.queryByRole("tablist", { name: "Choose mobile market intent" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Buy" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Sell" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Watch" }).length).toBeGreaterThan(0);
@@ -763,9 +765,7 @@ describe("item detail commerce panel", () => {
         .getAllByRole("link", { name: "Select options" })
         .every((link) => link.getAttribute("href") === "#select-options"),
     ).toBe(true);
-    expect(
-      screen.queryByRole("tablist", { name: "Choose mobile market intent" }),
-    ).toBeNull();
+    expect(screen.queryByRole("tablist", { name: "Choose mobile market intent" })).toBeNull();
     expect(
       screen
         .getAllByRole("link", { name: "Choose to sell" })
@@ -836,9 +836,7 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Watch" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Watch" }),
     );
 
     expect(await screen.findByRole("button", { name: /Watch listings/ })).toBeTruthy();
@@ -868,18 +866,14 @@ describe("item detail commerce panel", () => {
     );
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Buy" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Buy" }),
     );
 
     expect(new URL(window.location.href).searchParams.get("market")).toBe("buy");
     expect(screen.getByText("Buy selected product")).toBeTruthy();
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
     );
 
     expect(new URL(window.location.href).searchParams.get("market")).toBe("sell");
@@ -900,9 +894,7 @@ describe("item detail commerce panel", () => {
     );
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
     );
 
     expect(await screen.findByText("Selected")).toBeTruthy();
@@ -925,18 +917,22 @@ describe("item detail commerce panel", () => {
     render(
       <ItemDetailPage
         data={createItem({
-          market_listings: [{
-            ...baseListing,
-            seller_slug: "chase-sets-seller",
-            seller_average_rating: "4.80",
-            seller_review_count: 12,
-          }],
-          offer_demand_matches: [{
-            ...baseOffer,
-            buyer_slug: "ash-ketchum",
-            buyer_average_rating: "4.20",
-            buyer_review_count: 5,
-          }],
+          market_listings: [
+            {
+              ...baseListing,
+              seller_slug: "chase-sets-seller",
+              seller_average_rating: "4.80",
+              seller_review_count: 12,
+            },
+          ],
+          offer_demand_matches: [
+            {
+              ...baseOffer,
+              buyer_slug: "ash-ketchum",
+              buyer_average_rating: "4.20",
+              buyer_review_count: 5,
+            },
+          ],
         })}
         renderCommerce={() => ({
           buy: <div>Buy selected product</div>,
@@ -957,9 +953,7 @@ describe("item detail commerce panel", () => {
     expect(sellerReputationLink.getAttribute("href")).toBe("/accounts/chase-sets-seller#feedback");
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
     );
 
     const buyerReputationLink = await screen.findByRole("link", { name: /Ash Ketchum/ });
@@ -1002,20 +996,13 @@ describe("item detail commerce panel", () => {
     expect(screen.getAllByText("New")).toHaveLength(2);
     expect(screen.getByText("2 available")).toBeTruthy();
     expect(
-      within(screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" }))
-        .getByText("Raw · Near Mint"),
+      within(screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" })).getByText("Raw · Near Mint"),
     ).toBeTruthy();
-    const selectedListingText = screen
-      .getByRole("article", { name: "Listing $399.99 from Chase Sets" })
-      .textContent ?? "";
-    expect(selectedListingText.indexOf("Raw · Near Mint"))
-      .toBeLessThan(selectedListingText.indexOf("2 available"));
-    expect(screen.getByText("2 available · Raw · Near Mint"))
-      .toBeTruthy();
-    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
-      "value",
-      "listing_charizard",
-    );
+    const selectedListingText =
+      screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" }).textContent ?? "";
+    expect(selectedListingText.indexOf("Raw · Near Mint")).toBeLessThan(selectedListingText.indexOf("2 available"));
+    expect(screen.getByText("2 available · Raw · Near Mint")).toBeTruthy();
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard");
   });
 
   it("initializes product selection from dimension filters carried by search", () => {
@@ -1042,21 +1029,9 @@ describe("item detail commerce panel", () => {
         renderCommerce={(context) => ({
           buy: (
             <>
-              <input
-                data-testid="selected-product-id"
-                readOnly
-                value={context.selectedProductId ?? ""}
-              />
-              <input
-                data-testid="selected-options"
-                readOnly
-                value={JSON.stringify(context.selectedProductOptions)}
-              />
-              <input
-                data-testid="visible-listing-count"
-                readOnly
-                value={String(context.visibleListings.length)}
-              />
+              <input data-testid="selected-product-id" readOnly value={context.selectedProductId ?? ""} />
+              <input data-testid="selected-options" readOnly value={JSON.stringify(context.selectedProductOptions)} />
+              <input data-testid="visible-listing-count" readOnly value={String(context.visibleListings.length)} />
             </>
           ),
           offer: <div>Make an offer</div>,
@@ -1064,10 +1039,7 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByTestId("selected-product-id")).toHaveProperty(
-      "value",
-      "cat_charizard::form:graded",
-    );
+    expect(screen.getByTestId("selected-product-id")).toHaveProperty("value", "cat_charizard::form:graded");
     expect(screen.getByTestId("selected-options")).toHaveProperty(
       "value",
       JSON.stringify([{ dimensionId: "form", optionId: "graded" }]),
@@ -1081,23 +1053,19 @@ describe("item detail commerce panel", () => {
       <ItemDetailPage
         data={createItem({
           product_schema: requiredSchema,
-          market_listings: [{
-            ...baseListing,
-            product_id: "cat_charizard::form:raw",
-            selected_options: [{ dimensionId: "form", optionId: "raw" }],
-            product_summary: "Raw",
-          }],
+          market_listings: [
+            {
+              ...baseListing,
+              product_id: "cat_charizard::form:raw",
+              selected_options: [{ dimensionId: "form", optionId: "raw" }],
+              product_summary: "Raw",
+            },
+          ],
         })}
         initialSelectedOptions={[]}
         hasInitialSelectedOptionFilters
         renderCommerce={(context) => ({
-          buy: (
-            <input
-              data-testid="selected-product-id"
-              readOnly
-              value={context.selectedProductId ?? ""}
-            />
-          ),
+          buy: <input data-testid="selected-product-id" readOnly value={context.selectedProductId ?? ""} />,
           offer: <div>Make an offer</div>,
         })}
       />,
@@ -1119,27 +1087,25 @@ describe("item detail commerce panel", () => {
         data={createItem({
           market_listings: [baseListing, cheaperListing, alternateListing],
         })}
-        renderCommerce={(context) => (
-          {
-            buy: (
-              <form>
-                <input
-                  data-testid="selected-listing-id"
-                  name="listingId"
-                  readOnly
-                  value={context.selectedListing?.listing_id ?? ""}
-                />
-                <input
-                  data-testid="best-listing-id"
-                  name="bestListingId"
-                  readOnly
-                  value={context.bestListing?.listing_id ?? ""}
-                />
-              </form>
-            ),
-            offer: <div>Make an offer</div>,
-          }
-        )}
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input
+                data-testid="selected-listing-id"
+                name="listingId"
+                readOnly
+                value={context.selectedListing?.listing_id ?? ""}
+              />
+              <input
+                data-testid="best-listing-id"
+                name="bestListingId"
+                readOnly
+                value={context.bestListing?.listing_id ?? ""}
+              />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
       />,
     );
 
@@ -1150,18 +1116,10 @@ describe("item detail commerce panel", () => {
         })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
-      "value",
-      "listing_charizard_cheapest",
-    );
-    expect(screen.getByTestId("best-listing-id")).toHaveProperty(
-      "value",
-      "listing_charizard_cheapest",
-    );
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_cheapest");
+    expect(screen.getByTestId("best-listing-id")).toHaveProperty("value", "listing_charizard_cheapest");
     expect(
-      screen
-        .getAllByRole("button", { name: /listing at \$/ })
-        .map((button) => button.getAttribute("aria-label")),
+      screen.getAllByRole("button", { name: /listing at \$/ }).map((button) => button.getAttribute("aria-label")),
     ).toEqual([
       "Selected Best Price Cards listing at $300.00",
       "Select Chase Sets listing at $399.99",
@@ -1208,14 +1166,8 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.queryByText("Wrong Item Seller")).toBeNull();
-    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
-      "value",
-      "listing_charizard",
-    );
-    expect(screen.getByTestId("selected-product-id")).toHaveProperty(
-      "value",
-      "cat_charizard::",
-    );
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard");
+    expect(screen.getByTestId("selected-product-id")).toHaveProperty("value", "cat_charizard::");
   });
 
   it("changes the selected listing when another listing is clicked", () => {
@@ -1253,12 +1205,8 @@ describe("item detail commerce panel", () => {
         })
         .getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(screen.getByText("1 available · Raw · Near Mint"))
-      .toBeTruthy();
-    expect(screen.getByTestId("selected-listing-id")).toHaveProperty(
-      "value",
-      "listing_charizard_alt",
-    );
+    expect(screen.getByText("1 available · Raw · Near Mint")).toBeTruthy();
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt");
   });
 
   it("keeps add to cart available for a selected product without a listing", () => {
@@ -1268,11 +1216,7 @@ describe("item detail commerce panel", () => {
         renderCommerce={(context) => ({
           buy: (
             <form>
-              <input
-                data-testid="selected-listing-id"
-                readOnly
-                value={context.selectedListing?.listing_id ?? "none"}
-              />
+              <input data-testid="selected-listing-id" readOnly value={context.selectedListing?.listing_id ?? "none"} />
               <button type="submit" disabled={!context.selectedProductId}>
                 Add to cart
               </button>
@@ -1284,10 +1228,7 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "none");
-    expect(screen.getByRole("button", { name: "Add to cart" })).not.toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(screen.getByRole("button", { name: "Add to cart" })).not.toHaveProperty("disabled", true);
   });
 
   it("uses accordion headers as purchase workflow selectors", () => {
@@ -1354,9 +1295,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Offer details")).toBeTruthy();
     expect(screen.getByText("Product criteria")).toBeTruthy();
     expect(screen.getByText("1 listing matches this selection.")).toBeTruthy();
-    expect(
-      screen.getByText("Your offer applies to matching product criteria, not a specific seller."),
-    ).toBeTruthy();
+    expect(screen.getByText("Your offer applies to matching product criteria, not a specific seller.")).toBeTruthy();
     expect(screen.getByLabelText(/Offer price/)).toBeTruthy();
     expect(screen.getByLabelText(/Quantity requested/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Submit offer" })).toBeTruthy();
@@ -1364,15 +1303,12 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Selected seller signal")).toBeNull();
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Watch" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Watch" }),
     );
 
     expect(await screen.findByText("Alert criteria")).toBeTruthy();
     expect(
-      screen.getAllByText("Get notified when matching supply appears at or below your target.")
-        .length,
+      screen.getAllByText("Get notified when matching supply appears at or below your target.").length,
     ).toBeGreaterThan(0);
     expect(screen.getByLabelText("Maximum listing price")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set alert" })).toBeTruthy();
@@ -1403,14 +1339,10 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("$399.99")).toBeTruthy();
     expect(screen.getByText("Chase Sets")).toBeTruthy();
     expect(screen.getByText("2 available")).toBeTruthy();
-    expect(
-      screen.getByLabelText("Product options: Form Raw, Condition Excellent"),
-    ).toBeTruthy();
+    expect(screen.getByLabelText("Product options: Form Raw, Condition Excellent")).toBeTruthy();
     const productQuantityText = screen.getByText("2 available").parentElement?.textContent ?? "";
-    expect(productQuantityText.indexOf("Raw"))
-      .toBeGreaterThanOrEqual(0);
-    expect(productQuantityText.indexOf("Raw"))
-      .toBeLessThan(productQuantityText.indexOf("2 available"));
+    expect(productQuantityText.indexOf("Raw")).toBeGreaterThanOrEqual(0);
+    expect(productQuantityText.indexOf("Raw")).toBeLessThan(productQuantityText.indexOf("2 available"));
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Buy optimized" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add product to cart" })).toBeNull();
@@ -1514,30 +1446,18 @@ describe("item detail commerce panel", () => {
     );
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
     );
 
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /Misty/ }).getAttribute("aria-pressed"),
-      ).toBe("true"),
+      expect(screen.getByRole("button", { name: /Misty/ }).getAttribute("aria-pressed")).toBe("true"),
     );
-    expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
-      "value",
-      "offer_charizard_alt",
-    );
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard_alt");
 
     fireEvent.click(screen.getByRole("button", { name: /Ash Ketchum/ }));
 
-    expect(
-      screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
-      "value",
-      "offer_charizard",
-    );
+    expect(screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard");
   });
 
   it("shows the viewer's own offer without selecting it for seller acceptance", async () => {
@@ -1567,23 +1487,14 @@ describe("item detail commerce panel", () => {
     );
 
     fireEvent.click(
-      within(
-        screen.getByRole("tablist", { name: "Choose market intent" }),
-      ).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
     );
 
     expect(await screen.findByRole("button", { name: /Misty/ })).toBeTruthy();
     expect(screen.getByText("Your offer")).toBeTruthy();
-    expect(
-      screen.getByText("Visible to eligible sellers. You cannot accept your own offer."),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed")).toBe(
-      "true",
-    );
-    expect(screen.getByTestId("selected-offer-id")).toHaveProperty(
-      "value",
-      "offer_charizard",
-    );
+    expect(screen.getByText("Visible to eligible sellers. You cannot accept your own offer.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard");
   });
 
   it("uses buyer offer demand for option summaries and product selection in sell mode", () => {
@@ -1619,20 +1530,14 @@ describe("item detail commerce panel", () => {
               <div data-testid="sell-product-summary">
                 Selected sell product {context.selectedProductSummary ?? "none"}
               </div>
-              <input
-                data-testid="selected-options"
-                readOnly
-                value={JSON.stringify(context.selectedProductOptions)}
-              />
+              <input data-testid="selected-options" readOnly value={JSON.stringify(context.selectedProductOptions)} />
             </form>
           ),
         })}
       />,
     );
 
-    expect(screen.getByTestId("sell-product-summary").textContent).toBe(
-      "Selected sell product Graded",
-    );
+    expect(screen.getByTestId("sell-product-summary").textContent).toBe("Selected sell product Graded");
     expect(screen.getByText("Graded · 1 requested from $360.00")).toBeTruthy();
     expect(screen.queryByText("Selected offer product")).toBeNull();
     expect(screen.queryByText(/Matched listing:/)).toBeNull();
@@ -1710,11 +1615,7 @@ describe("item detail commerce panel", () => {
           buy: (
             <form>
               <div>Selected product {context.selectedProductSummary ?? "none"}</div>
-              <input
-                data-testid="selected-options"
-                readOnly
-                value={JSON.stringify(context.selectedProductOptions)}
-              />
+              <input data-testid="selected-options" readOnly value={JSON.stringify(context.selectedProductOptions)} />
             </form>
           ),
           offer: <div>Make an offer</div>,

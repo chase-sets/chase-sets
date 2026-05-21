@@ -6,15 +6,12 @@ import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
 import type { ButtonTone, ButtonSize } from "./shared";
-import {
-  buttonBaseClass,
-  buttonToneClasses,
-  buttonSizeClasses,
-  resolveInteractiveMotion
-} from "./shared";
+import { buttonBaseClass, buttonToneClasses, buttonSizeClasses, resolveInteractiveMotion } from "./shared";
 
-export interface CopyButtonProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "children"> {
+export interface CopyButtonProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "className" | "style" | "children"
+> {
   value: string;
   label?: string;
   copiedLabel?: string;
@@ -37,7 +34,7 @@ export function CopyButton({
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
     motionSettings.interactiveScale,
-    motionSettings.interactiveLift
+    motionSettings.interactiveLift,
   );
   const nativeProps = toMotionDomProps(rest);
 
@@ -56,11 +53,7 @@ export function CopyButton({
       {...nativeProps}
       type={type}
       {...interactiveMotion}
-      className={cx(
-        buttonBaseClass,
-        buttonToneClasses[tone],
-        buttonSizeClasses[size]
-      )}
+      className={cx(buttonBaseClass, buttonToneClasses[tone], buttonSizeClasses[size])}
       onClick={handleClick}
     >
       <Icon

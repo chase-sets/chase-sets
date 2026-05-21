@@ -27,8 +27,9 @@ function parseShipFromAddress(value: unknown) {
   }
 
   const source = value as Record<string, unknown>;
-  const hasRequiredFields = ["name", "line1", "city", "state", "postalCode", "country"]
-    .every((key) => String(source[key] ?? "").trim().length > 0);
+  const hasRequiredFields = ["name", "line1", "city", "state", "postalCode", "country"].every(
+    (key) => String(source[key] ?? "").trim().length > 0,
+  );
 
   if (!hasRequiredFields) {
     return null;
@@ -48,10 +49,7 @@ function parseShipFromAddress(value: unknown) {
   };
 }
 
-export function inventoryItemRoutes(
-  items: InventoryItemServices,
-  holds: InventoryHoldServices,
-) {
+export function inventoryItemRoutes(items: InventoryItemServices, holds: InventoryHoldServices) {
   const app = new Hono<InventoryApiEnv>();
 
   app.get("/", async (c) => {
@@ -76,7 +74,15 @@ export function inventoryItemRoutes(
     const item = await items.getItem(c.req.param("id"), actor.accountId);
 
     if (!item) {
-      return c.json({ error: { code: "not_found", message: t("inventory.features.inventoryItems.api.route.inventory.item.not.found") } }, 404);
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("inventory.features.inventoryItems.api.route.inventory.item.not.found"),
+          },
+        },
+        404,
+      );
     }
 
     return c.json(item);
@@ -93,12 +99,9 @@ export function inventoryItemRoutes(
           catalogItemId: String(body.catalogItemId ?? ""),
           selectedOptions: parseSelectedOptions(body.selectedOptions),
           gradedCard:
-            typeof body.gradedCard === "object" && body.gradedCard !== null
-              ? body.gradedCard as never
-              : null,
+            typeof body.gradedCard === "object" && body.gradedCard !== null ? (body.gradedCard as never) : null,
           quantity: Number(body.quantity ?? body.quantityCap ?? 0),
-          shipFromCode:
-            typeof body.shipFromCode === "string" ? body.shipFromCode : null,
+          shipFromCode: typeof body.shipFromCode === "string" ? body.shipFromCode : null,
           shipFromAddress: parseShipFromAddress(body.shipFromAddress),
         },
         c.get("context"),
@@ -106,12 +109,16 @@ export function inventoryItemRoutes(
 
       return c.json(result, 201);
     } catch (error) {
-      return c.json({
-        error: {
-          code: "validation_failed",
-          message: error instanceof Error ? error.message : t("inventory.features.inventoryItems.api.route.request.failed"),
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message:
+              error instanceof Error ? error.message : t("inventory.features.inventoryItems.api.route.request.failed"),
+          },
         },
-      }, 400);
+        400,
+      );
     }
   });
 
@@ -123,10 +130,7 @@ export function inventoryItemRoutes(
         accountId: actor.accountId as never,
         catalogItemId: String(body.catalogItemId ?? ""),
         selectedOptions: body.selectedOptions,
-        gradedCard:
-          typeof body.gradedCard === "object" && body.gradedCard !== null
-            ? body.gradedCard
-            : null,
+        gradedCard: typeof body.gradedCard === "object" && body.gradedCard !== null ? body.gradedCard : null,
         storageLocationId: String(body.storageLocationId ?? ""),
         totalQuantity: Number(body.totalQuantity ?? 0),
         acquisitionCostAmount:
@@ -139,7 +143,7 @@ export function inventoryItemRoutes(
       c.get("context"),
     );
 
-      return c.json({ id: result.itemId, version: result.version, status: "created" }, 201);
+    return c.json({ id: result.itemId, version: result.version, status: "created" }, 201);
   });
 
   app.post("/:id/adjustments", async (c) => {
@@ -155,7 +159,7 @@ export function inventoryItemRoutes(
       c.get("context"),
     );
 
-      return c.json({ id: result.itemId, version: result.version, status: "adjusted" });
+    return c.json({ id: result.itemId, version: result.version, status: "adjusted" });
   });
 
   app.post("/:id/holds", async (c) => {
@@ -172,7 +176,7 @@ export function inventoryItemRoutes(
       c.get("context"),
     );
 
-      return c.json({ id: result.holdId, version: result.version, status: "placed" }, 201);
+    return c.json({ id: result.holdId, version: result.version, status: "placed" }, 201);
   });
 
   return app;

@@ -5,9 +5,7 @@ import { catalogAdminAuthHostConfig } from "../../support/route-support/host-con
 import { catalogAdminAuthHost } from "../../support/route-support/auth-host.server";
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
 
-export const meta: MetaFunction = () => [
-  { title: catalogAdminAuthHostConfig.titles.signIn },
-];
+export const meta: MetaFunction = () => [{ title: catalogAdminAuthHostConfig.titles.signIn }];
 
 export const action = catalogAdminAuthHost.createSignInAction();
 
@@ -19,9 +17,7 @@ export default function CatalogAdminSignInRoute() {
         errorMessage={actionData && "error" in actionData ? actionData.error : null}
         notice={actionData && "status" in actionData ? actionData : null}
         signInMethods={catalogAdminAuthHostConfig.signInMethods}
-        allowManualMagicLinkTokenEntry={
-          catalogAdminAuthHostConfig.allowManualMagicLinkTokenEntry
-        }
+        allowManualMagicLinkTokenEntry={catalogAdminAuthHostConfig.allowManualMagicLinkTokenEntry}
       />
     </Container>
   );

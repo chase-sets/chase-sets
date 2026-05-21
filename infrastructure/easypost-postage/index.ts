@@ -96,12 +96,14 @@ type EasyPostShipment = Readonly<{
   refund_status?: string | null;
 }>;
 
-export function createEasyPostPostageLabelProvider(options: Readonly<{
-  apiKey: string;
-  apiBaseUrl?: string;
-  mode?: PostageProviderMode;
-  fetch?: typeof globalThis.fetch;
-}>): PostageLabelProvider {
+export function createEasyPostPostageLabelProvider(
+  options: Readonly<{
+    apiKey: string;
+    apiBaseUrl?: string;
+    mode?: PostageProviderMode;
+    fetch?: typeof globalThis.fetch;
+  }>,
+): PostageLabelProvider {
   const apiBaseUrl = options.apiBaseUrl ?? "https://api.easypost.com/v2";
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const authorization = `Basic ${globalThis.btoa(`${options.apiKey}:`)}`;
@@ -138,24 +140,17 @@ export function createEasyPostPostageLabelProvider(options: Readonly<{
         }),
       });
       const normalizedService = request.serviceLevel.trim().toLowerCase();
-      const uspsRates = (shipment.rates ?? []).filter(
-        (rate) => rate.carrier.toLowerCase() === "usps",
-      );
-      const selectedRate =
-        uspsRates.find((rate) => rate.service.toLowerCase() === normalizedService) ??
-        uspsRates[0];
+      const uspsRates = (shipment.rates ?? []).filter((rate) => rate.carrier.toLowerCase() === "usps");
+      const selectedRate = uspsRates.find((rate) => rate.service.toLowerCase() === normalizedService) ?? uspsRates[0];
 
       if (!selectedRate) {
         throw new Error("No USPS rates were returned for this shipment.");
       }
 
-      const purchased = await easyPostRequest<EasyPostShipment>(
-        `/shipments/${shipment.id}/buy`,
-        {
-          method: "POST",
-          body: JSON.stringify({ rate: { id: selectedRate.id } }),
-        },
-      );
+      const purchased = await easyPostRequest<EasyPostShipment>(`/shipments/${shipment.id}/buy`, {
+        method: "POST",
+        body: JSON.stringify({ rate: { id: selectedRate.id } }),
+      });
       const label = purchased.postage_label;
       const labelDocumentUrl = label?.label_pdf_url ?? label?.label_url;
       if (!labelDocumentUrl || !purchased.tracking_code) {
@@ -179,12 +174,9 @@ export function createEasyPostPostageLabelProvider(options: Readonly<{
       };
     },
     async voidLabel(request) {
-      const refunded = await easyPostRequest<EasyPostShipment>(
-        `/shipments/${request.providerShipmentId}/refund`,
-        {
-          method: "POST",
-        },
-      );
+      const refunded = await easyPostRequest<EasyPostShipment>(`/shipments/${request.providerShipmentId}/refund`, {
+        method: "POST",
+      });
 
       return {
         providerName: "easypost",

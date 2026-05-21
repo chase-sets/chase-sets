@@ -8,20 +8,11 @@ export type ProductPhysicalFlag =
   | "jumbo"
   | "irregular";
 
-export type ProductMeasureStackBehavior =
-  | "stackable-thickness"
-  | "stackable-height"
-  | "non-stackable";
+export type ProductMeasureStackBehavior = "stackable-thickness" | "stackable-height" | "non-stackable";
 
-export type ProductMeasureSource =
-  | "profile"
-  | "catalog-item-override"
-  | "product-override";
+export type ProductMeasureSource = "profile" | "catalog-item-override" | "product-override";
 
-export type ProductMeasureConfidence =
-  | "measured"
-  | "provider"
-  | "conservative-estimate";
+export type ProductMeasureConfidence = "measured" | "provider" | "conservative-estimate";
 
 export type ProductMeasureSnapshot = Readonly<{
   catalogItemId: string;
@@ -96,9 +87,7 @@ export const defaultPackagePlanPolicy: PackagePlanPolicy = {
 
 export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
   const policy = { ...defaultPackagePlanPolicy, ...input.policy };
-  const missingProductIds = input.lines
-    .filter((line) => line.measure === null)
-    .map((line) => line.productId);
+  const missingProductIds = input.lines.filter((line) => line.measure === null).map((line) => line.productId);
 
   if (missingProductIds.length > 0) {
     return {
@@ -163,14 +152,15 @@ function evaluateLetterEligibility(
     reasons.push("declared-value-requires-parcel");
   }
   if (
-    !lines.every((line) =>
-      hasFlag(line.measure, "raw-card") &&
-      !hasFlag(line.measure, "slab") &&
-      !hasFlag(line.measure, "sealed") &&
-      !hasFlag(line.measure, "rigid") &&
-      !hasFlag(line.measure, "metal") &&
-      !hasFlag(line.measure, "jumbo") &&
-      !hasFlag(line.measure, "irregular")
+    !lines.every(
+      (line) =>
+        hasFlag(line.measure, "raw-card") &&
+        !hasFlag(line.measure, "slab") &&
+        !hasFlag(line.measure, "sealed") &&
+        !hasFlag(line.measure, "rigid") &&
+        !hasFlag(line.measure, "metal") &&
+        !hasFlag(line.measure, "jumbo") &&
+        !hasFlag(line.measure, "irregular"),
     )
   ) {
     reasons.push("product-type-requires-parcel");
@@ -227,27 +217,15 @@ function buildParcelPackage(
   };
 }
 
-function totalUnitWeight(
-  lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[],
-) {
-  return lines.reduce(
-    (sum, line) => sum + line.measure.unitWeightOunces * line.quantity,
-    0,
-  );
+function totalUnitWeight(lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[]) {
+  return lines.reduce((sum, line) => sum + line.measure.unitWeightOunces * line.quantity, 0);
 }
 
-function totalStackedHeight(
-  lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[],
-) {
-  return lines.reduce(
-    (sum, line) => sum + line.measure.unitHeightInches * line.quantity,
-    0,
-  );
+function totalStackedHeight(lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[]) {
+  return lines.reduce((sum, line) => sum + line.measure.unitHeightInches * line.quantity, 0);
 }
 
-function totalParcelHeight(
-  lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[],
-) {
+function totalParcelHeight(lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[]) {
   return lines.reduce((sum, line) => {
     if (line.measure.stackBehavior === "non-stackable") {
       return sum + line.measure.unitHeightInches * line.quantity;
@@ -256,9 +234,7 @@ function totalParcelHeight(
   }, 0);
 }
 
-function measureVersions(
-  lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[],
-) {
+function measureVersions(lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[]) {
   return [...new Set(lines.map((line) => line.measure.measureVersion))].sort();
 }
 

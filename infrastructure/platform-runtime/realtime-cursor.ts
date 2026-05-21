@@ -14,10 +14,7 @@ type RealtimeCursorEnvelope = Readonly<{
   sig?: string;
 }>;
 
-export function encodeRealtimeCursor(
-  cursor: RealtimeCursor,
-  signingKeys?: RealtimeCursorSigningKeySet,
-): string {
+export function encodeRealtimeCursor(cursor: RealtimeCursor, signingKeys?: RealtimeCursorSigningKeySet): string {
   const currentSigningSecret = resolveCurrentRealtimeCursorSigningSecret(signingKeys);
   const envelope: RealtimeCursorEnvelope = {
     v: 1,
@@ -92,18 +89,11 @@ function signRealtimeCursorPayload(payload: string, signingSecret: string): stri
   return createHmac("sha256", signingSecret).update(payload).digest("base64url");
 }
 
-function isValidRealtimeCursorSignature(
-  payload: string,
-  signature: string,
-  signingSecret: string,
-): boolean {
+function isValidRealtimeCursorSignature(payload: string, signature: string, signingSecret: string): boolean {
   const expected = signRealtimeCursorPayload(payload, signingSecret);
   const expectedBuffer = Buffer.from(expected);
   const actualBuffer = Buffer.from(signature);
-  return (
-    expectedBuffer.length === actualBuffer.length &&
-    timingSafeEqual(expectedBuffer, actualBuffer)
-  );
+  return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 function resolveCurrentRealtimeCursorSigningSecret(
@@ -112,9 +102,7 @@ function resolveCurrentRealtimeCursorSigningSecret(
   return typeof signingKeys === "string" ? signingKeys : signingKeys?.current;
 }
 
-function resolveRealtimeCursorSigningSecrets(
-  signingKeys: RealtimeCursorSigningKeySet | undefined,
-): readonly string[] {
+function resolveRealtimeCursorSigningSecrets(signingKeys: RealtimeCursorSigningKeySet | undefined): readonly string[] {
   if (!signingKeys) {
     return [];
   }

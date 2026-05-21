@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -48,9 +44,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "accounts.view",
   });
   const api = createIdentityRequestApiClient(request);
-  const response = await api.listShippingAddresses<ListResponse<ShippingAddress>>(
-    actor.accountId,
-  );
+  const response = await api.listShippingAddresses<ListResponse<ShippingAddress>>(actor.accountId);
   return { addresses: response.items };
 }
 
@@ -70,11 +64,7 @@ export async function action({ request }: ActionFunctionArgs) {
       return redirect("/account/shipping-addresses");
     }
     if (intent === "update" && shippingAddressId) {
-      await api.updateShippingAddress(
-        actor.accountId,
-        shippingAddressId,
-        addressBody(formData),
-      );
+      await api.updateShippingAddress(actor.accountId, shippingAddressId, addressBody(formData));
       return redirect("/account/shipping-addresses");
     }
     if (intent === "default" && shippingAddressId) {
@@ -88,9 +78,10 @@ export async function action({ request }: ActionFunctionArgs) {
     return { error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") };
   } catch (error) {
     return {
-      error: error instanceof Error
-        ? error.message
-        : t("identity.routes.marketplace.accountShippingAddresses.request.failed"),
+      error:
+        error instanceof Error
+          ? error.message
+          : t("identity.routes.marketplace.accountShippingAddresses.request.failed"),
     } satisfies ActionData;
   }
 }
@@ -103,10 +94,5 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as ActionData | undefined;
-  return (
-    <ShippingAddressPage
-      addresses={data.addresses}
-      errorMessage={actionData?.error ?? null}
-    />
-  );
+  return <ShippingAddressPage addresses={data.addresses} errorMessage={actionData?.error ?? null} />;
 }

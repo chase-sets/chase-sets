@@ -167,9 +167,7 @@ describe("source observation routes", () => {
   });
 
   it("streams TCGdex import progress events", async () => {
-    const importTcgdexSet = vi.fn(async (input: {
-      onProgress?: (progress: unknown) => void;
-    }) => {
+    const importTcgdexSet = vi.fn(async (input: { onProgress?: (progress: unknown) => void }) => {
       input.onProgress?.({
         phase: "fetching",
         completed: 1,
@@ -190,14 +188,11 @@ describe("source observation routes", () => {
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
-    const response = await app.request(
-      "/source-observations/imports/tcgdex-set/progress",
-      {
-        method: "POST",
-        body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
-        headers: { "content-type": "application/json" },
-      },
-    );
+    const response = await app.request("/source-observations/imports/tcgdex-set/progress", {
+      method: "POST",
+      body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
+      headers: { "content-type": "application/json" },
+    });
 
     expect(response.status).toBe(200);
     const events = (await response.text())
@@ -229,12 +224,8 @@ describe("source observation routes", () => {
   });
 
   it("lists TCGdex metadata for language, series, and expansion selectors", async () => {
-    const listTcgdexLanguages = vi.fn(async () => [
-      { languageCode: "en" },
-    ]);
-    const listTcgdexSeries = vi.fn(async () => [
-      { seriesId: "me", name: "Mega Evolution", logoUrl: null },
-    ]);
+    const listTcgdexLanguages = vi.fn(async () => [{ languageCode: "en" }]);
+    const listTcgdexSeries = vi.fn(async () => [{ seriesId: "me", name: "Mega Evolution", logoUrl: null }]);
     const listTcgdexExpansions = vi.fn(async () => [
       {
         expansionId: "me02.5",

@@ -11,9 +11,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return api.listSessions<ListResponse<Session>>("limit=50&offset=0");
 }
 
-export const meta: MetaFunction = () => [
-  { title: identityAdminAuthHostConfig.titles.sessions! },
-];
+export const meta: MetaFunction = () => [{ title: identityAdminAuthHostConfig.titles.sessions! }];
 
 export default function SessionsRoute() {
   const data = useLoaderData<typeof loader>();

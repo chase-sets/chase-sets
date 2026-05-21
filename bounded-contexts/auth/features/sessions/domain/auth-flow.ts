@@ -8,10 +8,7 @@ export const AUTH_SOCIAL_LOGIN_STATE_TTL_MS = 1000 * 60 * 10;
 
 export const AUTH_SESSION_STREAM_PREFIX = "auth.session-";
 
-export function createExpiryTimestamp(
-  durationMs: number,
-  now = Date.now(),
-) {
+export function createExpiryTimestamp(durationMs: number, now = Date.now()) {
   return new Date(now + durationMs).toISOString();
 }
 

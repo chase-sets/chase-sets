@@ -60,6 +60,9 @@ importers:
       jsdom:
         specifier: ^29.0.2
         version: 29.1.1
+      prettier:
+        specifier: ^3.8.3
+        version: 3.8.3
       react:
         specifier: ^19.2.5
         version: 19.2.6

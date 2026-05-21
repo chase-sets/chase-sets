@@ -45,9 +45,7 @@ export function ActorIdentityCue({
           <div className="space-y-4">
             <div className="max-w-3xl space-y-1">
               <div className="font-heading text-lg font-semibold text-foreground">{title}</div>
-              {description ? (
-                <div className="text-sm leading-6 text-secondary">{description}</div>
-              ) : null}
+              {description ? <div className="text-sm leading-6 text-secondary">{description}</div> : null}
             </div>
             <StatGrid columns={{ base: 1, md: 3 }}>
               <Stat label={accountLabel} value={accountName} trend={accountDetail} />

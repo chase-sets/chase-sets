@@ -79,37 +79,30 @@ export const catalogSeedIds = {
   },
   referenceRecords: {
     manufacturers: {
-      thePokemonCompanyInternational:
-        "ref_seed_the_pokemon_company_international" as SeedReferenceRecordId,
+      thePokemonCompanyInternational: "ref_seed_the_pokemon_company_international" as SeedReferenceRecordId,
     },
     productLines: {
-      pokemonTradingCardGame:
-        "ref_seed_pokemon_trading_card_game" as SeedReferenceRecordId,
+      pokemonTradingCardGame: "ref_seed_pokemon_trading_card_game" as SeedReferenceRecordId,
     },
     series: {
       base: "ref_seed_series_base" as SeedReferenceRecordId,
       neo: "ref_seed_series_neo" as SeedReferenceRecordId,
       scarletViolet: "ref_seed_series_scarlet_violet" as SeedReferenceRecordId,
-      wizardBlackStarPromos:
-        "ref_seed_series_wizards_black_star_promos" as SeedReferenceRecordId,
+      wizardBlackStarPromos: "ref_seed_series_wizards_black_star_promos" as SeedReferenceRecordId,
     },
     expansions: {
       baseSet: "ref_seed_expansion_base_set" as SeedReferenceRecordId,
       jungle: "ref_seed_expansion_jungle" as SeedReferenceRecordId,
       neoGenesis: "ref_seed_expansion_neo_genesis" as SeedReferenceRecordId,
-      wizardsBlackStarPromos:
-        "ref_seed_expansion_wizards_black_star_promos" as SeedReferenceRecordId,
-      prismaticEvolutions:
-        "ref_seed_expansion_prismatic_evolutions" as SeedReferenceRecordId,
+      wizardsBlackStarPromos: "ref_seed_expansion_wizards_black_star_promos" as SeedReferenceRecordId,
+      prismaticEvolutions: "ref_seed_expansion_prismatic_evolutions" as SeedReferenceRecordId,
       surgingSparks: "ref_seed_expansion_surging_sparks" as SeedReferenceRecordId,
-      twilightMasquerade:
-        "ref_seed_expansion_twilight_masquerade" as SeedReferenceRecordId,
+      twilightMasquerade: "ref_seed_expansion_twilight_masquerade" as SeedReferenceRecordId,
     },
   },
   components: {
     singleCardIdentity: "cmp_seed_single_card_identity" as SeedComponentId,
-    singleCardProductResolution:
-      "cmp_seed_single_card_product_resolution" as SeedComponentId,
+    singleCardProductResolution: "cmp_seed_single_card_product_resolution" as SeedComponentId,
     sealedProductIdentity: "cmp_seed_sealed_product_identity" as SeedComponentId,
   },
   blueprints: {
@@ -157,11 +150,8 @@ export const catalogSeedIds = {
     mewtwoBlackStarPromo: "cat_seed_mewtwo_black_star_promo" as SeedCatalogItemId,
     bulbasaurBaseSet: "cat_seed_bulbasaur_base_set" as SeedCatalogItemId,
     pikachuPrismaticEvolutions: "cat_seed_pikachu_prismatic_evolutions" as SeedCatalogItemId,
-    prismaticEvolutionsBoosterPack:
-      "cat_seed_prismatic_evolutions_booster_pack" as SeedCatalogItemId,
-    surgingSparksBoosterBox:
-      "cat_seed_surging_sparks_booster_box" as SeedCatalogItemId,
-    twilightMasqueradeEliteTrainerBox:
-      "cat_seed_twilight_masquerade_elite_trainer_box" as SeedCatalogItemId,
+    prismaticEvolutionsBoosterPack: "cat_seed_prismatic_evolutions_booster_pack" as SeedCatalogItemId,
+    surgingSparksBoosterBox: "cat_seed_surging_sparks_booster_box" as SeedCatalogItemId,
+    twilightMasqueradeEliteTrainerBox: "cat_seed_twilight_masquerade_elite_trainer_box" as SeedCatalogItemId,
   },
 } as const;

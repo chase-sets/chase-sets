@@ -133,12 +133,7 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
 
 describe("checkout session page", () => {
   it("renders mixed optimized, locked, and unavailable fulfillment without leaking internal ids", () => {
-    const markup = renderToString(
-      <CheckoutSessionPage
-        session={session}
-        fulfillmentPreview={fulfillmentPreview}
-      />,
-    );
+    const markup = renderToString(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
 
     expect(markup).toContain("Recalculate fulfillment");
     expect(markup).toContain("Card Vault");

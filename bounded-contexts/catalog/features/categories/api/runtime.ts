@@ -1,9 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import {
-  createCommandHandler,
-  type CommandHandler,
-} from "@chase-sets/event-core/command-handler";
+import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjector, type Projector } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -32,19 +29,13 @@ import { buildCategoryProjectionHandlers } from "../read-model/projection";
 
 export type CategoryServices = Readonly<{
   commandHandler: CommandHandler<CategoryCommand, CategoryState, CategoryEvent>;
-  listCategories: (
-    params?: Parameters<typeof listCategories>[1],
-  ) => ReturnType<typeof listCategories>;
-  getCategoryDetail: (
-    categoryId: string,
-  ) => ReturnType<typeof getCategoryDetail>;
+  listCategories: (params?: Parameters<typeof listCategories>[1]) => ReturnType<typeof listCategories>;
+  getCategoryDetail: (categoryId: string) => ReturnType<typeof getCategoryDetail>;
   bulkLifecycle: BulkLifecycleOperations<CategoryListParams, CategoryCommand, CategoryState, CategoryEvent>;
   projectors: readonly Projector[];
 }>;
 
-export function createCategoryRuntime(
-  deps: CatalogRuntimeDeps,
-): CategoryServices {
+export function createCategoryRuntime(deps: CatalogRuntimeDeps): CategoryServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -67,14 +58,18 @@ export function createCategoryRuntime(
       projectorName: "catalog-admin-category-projection",
       eventStore: deps.eventStore,
       checkpointStore: deps.checkpointStore,
-      handlers: withCatalogAdminRealtimeInvalidation(
-        buildCatalogAdminCategoryProjectionHandlers(deps.db),
-        deps.db,
-        { projectionName: "catalog-admin-category-projection", surface: "categories" },
-      ),
+      handlers: withCatalogAdminRealtimeInvalidation(buildCatalogAdminCategoryProjectionHandlers(deps.db), deps.db, {
+        projectionName: "catalog-admin-category-projection",
+        surface: "categories",
+      }),
     }),
   ];
-  const bulkLifecycle = createBulkLifecycleOperations<CategoryListParams, CategoryCommand, CategoryState, CategoryEvent>({
+  const bulkLifecycle = createBulkLifecycleOperations<
+    CategoryListParams,
+    CategoryCommand,
+    CategoryState,
+    CategoryEvent
+  >({
     actions: [
       {
         action: "publish",

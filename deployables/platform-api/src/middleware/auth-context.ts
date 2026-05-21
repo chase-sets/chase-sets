@@ -1,23 +1,10 @@
 import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type {
-  AccountId,
-  TenantId,
-  UserId,
-} from "@chase-sets/primitives/typed-ids";
-import {
-  createActorEventStoreContext,
-  type ResolvedActor,
-} from "@chase-sets/platform-runtime/auth";
-import {
-  PLATFORM_INTERNAL_AUTH_HEADER,
-  resolvePlatformInternalAuthSecret,
-} from "@chase-sets/platform-runtime/http";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
 import type { PlatformIdentityServices } from "../app";
-import {
-  createAuthBootstrapContext,
-  resolveActorFromRequest,
-} from "../auth-request-context";
+import { createAuthBootstrapContext, resolveActorFromRequest } from "../auth-request-context";
 import { authenticationRequiredResponse } from "@chase-sets/http/responses";
 import { attachActiveTraceContext } from "@chase-sets/observability";
 
@@ -56,10 +43,7 @@ function isAnonymousAllowed(method: string, pathname: string) {
     return true;
   }
 
-  if (
-    method.toUpperCase() === "GET" &&
-    pathname.startsWith("/api/auth/social/")
-  ) {
+  if (method.toUpperCase() === "GET" && pathname.startsWith("/api/auth/social/")) {
     return true;
   }
 
@@ -106,19 +90,12 @@ export function createIdentityAuthMiddleware(
   services: PlatformIdentityServices,
   options: Readonly<{ internalAuthSecret?: string }> = {},
 ) {
-  const internalAuthSecret =
-    options.internalAuthSecret ?? resolvePlatformInternalAuthSecret();
-  return async function identityAuthMiddleware(
-    c: Context<TenantContextEnv>,
-    next: Next,
-  ): Promise<Response | void> {
+  const internalAuthSecret = options.internalAuthSecret ?? resolvePlatformInternalAuthSecret();
+  return async function identityAuthMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
     const pathname = new URL(c.req.url).pathname;
     const headerContext = createContextFromHeaders(c.req.raw);
 
-    if (
-      isInternalIdentityAuthRoute(pathname) ||
-      isInternalGuestCheckoutClaimRoute(pathname)
-    ) {
+    if (isInternalIdentityAuthRoute(pathname) || isInternalGuestCheckoutClaimRoute(pathname)) {
       if (!hasInternalCapability(c.req.raw, internalAuthSecret)) {
         return c.json(authenticationRequiredResponse(), 401);
       }
@@ -157,24 +134,14 @@ export function createIdentityAuthMiddleware(
   };
 }
 
-export type PlatformActorResolver = (
-  request: Request,
-) => Promise<ResolvedActor | null>;
+export type PlatformActorResolver = (request: Request) => Promise<ResolvedActor | null>;
 
-export function createPlatformActorMiddleware(
-  resolveActor: PlatformActorResolver,
-) {
-  return async function platformActorMiddleware(
-    c: Context<TenantContextEnv>,
-    next: Next,
-  ): Promise<void> {
+export function createPlatformActorMiddleware(resolveActor: PlatformActorResolver) {
+  return async function platformActorMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<void> {
     const actor = await resolveActor(c.req.raw);
 
     c.set("actor", actor);
-    c.set(
-      "context",
-      actor ? attachActiveTraceContext(createActorEventStoreContext(actor)) : null,
-    );
+    c.set("context", actor ? attachActiveTraceContext(createActorEventStoreContext(actor)) : null);
 
     await next();
   };

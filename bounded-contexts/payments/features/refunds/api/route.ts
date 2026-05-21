@@ -14,20 +14,33 @@ function requireRefundAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("payments.features.refunds.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("payments.features.refunds.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("payments.features.refunds.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("payments.features.refunds.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -45,7 +58,15 @@ export function createRefundRoutes(services: RefundServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("payments.features.refunds.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("payments.features.refunds.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -53,9 +74,7 @@ export function createRefundRoutes(services: RefundServices) {
       const result = await services.issueRefund(
         {
           paymentId: c.req.param("paymentId") as never,
-          orderIds: Array.isArray(body.orderIds)
-            ? body.orderIds.map(String)
-            : [],
+          orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           amount: String(body.amount ?? ""),
           reason: String(body.reason ?? t("payments.features.refunds.api.route.operator.refund")),
         },

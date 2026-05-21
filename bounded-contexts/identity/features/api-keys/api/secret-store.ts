@@ -28,10 +28,7 @@ export async function upsertApiKeySecret(
   );
 }
 
-export async function getApiKeySecretByPrefix(
-  db: PgQueryable,
-  keyPrefix: string,
-) {
+export async function getApiKeySecretByPrefix(db: PgQueryable, keyPrefix: string) {
   const result = await db.query<{
     api_key_id: string;
     user_id: string;

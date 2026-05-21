@@ -9,18 +9,14 @@ export interface ToolbarProps {
   orientation?: "horizontal" | "vertical";
 }
 
-export function Toolbar({
-  children,
-  label,
-  orientation = "horizontal"
-}: ToolbarProps) {
+export function Toolbar({ children, label, orientation = "horizontal" }: ToolbarProps) {
   return (
     <ToolbarPrimitive.Root
       aria-label={label}
       orientation={orientation}
       className={cx(
         "inline-flex items-center gap-1 rounded-tokenLg border border-muted bg-surface-2 p-1",
-        orientation === "vertical" && "flex-col items-stretch"
+        orientation === "vertical" && "flex-col items-stretch",
       )}
     >
       {children}
@@ -28,17 +24,11 @@ export function Toolbar({
   );
 }
 
-export interface ToolbarButtonProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
+export interface ToolbarButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
   icon?: IconName;
 }
 
-export function ToolbarButton({
-  children,
-  icon,
-  type = "button",
-  ...rest
-}: ToolbarButtonProps) {
+export function ToolbarButton({ children, icon, type = "button", ...rest }: ToolbarButtonProps) {
   return (
     <ToolbarPrimitive.Button
       {...rest}
@@ -51,8 +41,7 @@ export function ToolbarButton({
   );
 }
 
-export interface ToolbarInputProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style"> {}
+export interface ToolbarInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "style"> {}
 
 export function ToolbarInput(props: ToolbarInputProps) {
   return (

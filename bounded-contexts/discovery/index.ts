@@ -15,25 +15,15 @@ import { buildProductAlertNotificationProjectionHandlers } from "./features/prod
 import { buildProductAlertPageProjectionHandlers } from "./features/product-alerts/read-model/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
-import {
-  createDiscoveryServices,
-  type DiscoveryHostPorts,
-} from "./support/runtime-support/services";
+import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
 import { discoverySchemaSql } from "./support/runtime-support/schema";
 
-const eventSubscriptions =
-  (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups =
-  (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
+const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
+const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
 
-function getEventSubscription(
-  sourceContextName: string,
-  projectionName: string,
-): BcEventSubscriptionDeclaration {
+function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
   const declaration = eventSubscriptions.find(
-    (entry) =>
-      entry.sourceContextName === sourceContextName &&
-      entry.projectionName === projectionName,
+    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
   );
 
   if (!declaration) {
@@ -50,40 +40,23 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
   routePrefix: "/api/marketplace",
   streamPrefix: "discovery.",
   schemaSql: discoverySchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>["apiMounts"],
+  apiMounts: contextManifest.apiMounts as BcApiModule<
+    DiscoveryServices,
+    PgTransactionalPool,
+    DiscoveryHostPorts
+  >["apiMounts"],
   projectionGroups,
   createServices: (pool, ports) => createDiscoveryServices(pool, ports),
   buildApis: (services) => [buildDiscoveryApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const categorySubscription = getEventSubscription(
-      "catalog",
-      "discovery-category-projection",
-    );
-    const productAlertPageSubscription = getEventSubscription(
-      "discovery",
-      "discovery-product-alert-page-projection",
-    );
-    const searchSubscription = getEventSubscription(
-      "catalog",
-      "discovery-search-item-projection",
-    );
-    const detailSubscription = getEventSubscription(
-      "catalog",
-      "discovery-item-detail-projection",
-    );
-    const identitySubscription = getEventSubscription(
-      "identity",
-      "discovery-market-projection",
-    );
-    const marketplaceSubscription = getEventSubscription(
-      "marketplace",
-      "discovery-market-projection",
-    );
-    const reputationSubscription = getEventSubscription(
-      "reputation",
-      "discovery-market-projection",
-    );
+    const categorySubscription = getEventSubscription("catalog", "discovery-category-projection");
+    const productAlertPageSubscription = getEventSubscription("discovery", "discovery-product-alert-page-projection");
+    const searchSubscription = getEventSubscription("catalog", "discovery-search-item-projection");
+    const detailSubscription = getEventSubscription("catalog", "discovery-item-detail-projection");
+    const identitySubscription = getEventSubscription("identity", "discovery-market-projection");
+    const marketplaceSubscription = getEventSubscription("marketplace", "discovery-market-projection");
+    const reputationSubscription = getEventSubscription("reputation", "discovery-market-projection");
     const productAlertSubscription = getEventSubscription(
       "marketplace",
       "discovery-product-alert-notification-projection",

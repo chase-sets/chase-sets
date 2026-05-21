@@ -102,9 +102,7 @@ describe("sync-workspace-metadata --check", () => {
     const staleContent = "// stale\n";
     writeFileSync(generatedPath, staleContent, "utf8");
 
-    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
-      /Workspace metadata is out of date:/,
-    );
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(/Workspace metadata is out of date:/);
     expect(readFileSync(generatedPath, "utf8")).toBe(staleContent);
   });
 

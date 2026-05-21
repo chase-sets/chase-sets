@@ -1,19 +1,7 @@
 import type { IsoUtcTimestamp } from "../primitives/iso-utc-timestamp";
 import type { JsonObject } from "../primitives/json";
-import type {
-  AccountId,
-  EventId,
-  SpanId,
-  TenantId,
-  TraceId,
-  UserId,
-} from "../primitives/typed-ids";
-import type {
-  GlobalPosition,
-  StoredEvent,
-  StreamId,
-  StreamVersion,
-} from "./storage";
+import type { AccountId, EventId, SpanId, TenantId, TraceId, UserId } from "../primitives/typed-ids";
+import type { GlobalPosition, StoredEvent, StreamId, StreamVersion } from "./storage";
 
 export type TransportEvent = Readonly<{
   id: EventId;

@@ -31,9 +31,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const context = createIdentityBootstrapContext();
 
   try {
-    const existing = await services.db.query(
-      "SELECT COUNT(*) AS count FROM identity_accounts",
-    );
+    const existing = await services.db.query("SELECT COUNT(*) AS count FROM identity_accounts");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Identity already contains data. Skipping seed.");
       return;
@@ -462,14 +460,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     });
   }
 
-  for (const consent of [
-    demo,
-    collector,
-    valueTrader,
-    highRollerTrader,
-    cardVault,
-    sealedStockroom,
-  ]) {
+  for (const consent of [demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom]) {
     await services.consents.commandHandler({
       streamId: `identity.consent-${consent.consentId}`,
       command: {

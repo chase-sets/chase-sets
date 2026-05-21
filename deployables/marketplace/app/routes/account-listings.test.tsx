@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  action as listingsAction,
-  loader as listingsLoader,
-} from "@chase-sets/marketplace/routes/account-listings";
+import { action as listingsAction, loader as listingsLoader } from "@chase-sets/marketplace/routes/account-listings";
 
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -43,9 +40,7 @@ describe("marketplace listing routes", () => {
                   product_id: "cat_charizard::dim_condition:near_mint",
                   item_title: "Charizard ex",
                   item_subtitle: null,
-                  selected_options: [
-                    { dimensionId: "dim_condition", optionId: "near_mint" },
-                  ],
+                  selected_options: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
                   product_summary: "Condition: Near Mint",
                   storage_location_id: "loc_1",
                   storage_location_name: "North shelf",
@@ -133,14 +128,10 @@ describe("marketplace listing routes", () => {
         }
 
         return Promise.resolve(
-          jsonResponse(
-            { id: "lst_1", version: 1 },
-            201,
-            {
-              "Chase-Sets-Consistency": "eventual",
-              "Chase-Sets-Commit-Position": "42",
-            },
-          ),
+          jsonResponse({ id: "lst_1", version: 1 }, 201, {
+            "Chase-Sets-Consistency": "eventual",
+            "Chase-Sets-Commit-Position": "42",
+          }),
         );
       }),
     );

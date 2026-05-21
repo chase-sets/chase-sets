@@ -29,8 +29,7 @@ import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics
 
 const PAGE_SIZE = 24;
 const SEARCH_DEBOUNCE_MS = 300;
-const MARKETPLACE_DESCRIPTION =
-  t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
+const MARKETPLACE_DESCRIPTION = t("discovery.routes.search.browse.the.chase.sets.marketplace.with");
 const EMPTY_SEARCH_RESULT = {
   search: "",
   category: "",
@@ -128,12 +127,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     categoryParam ? api.getCategoryBySlug(categoryParam).catch(() => null) : Promise.resolve(null),
     api.listCategories().catch(() => EMPTY_CATEGORY_LIST),
   ]);
-  const resolvedCategory = categoryBySlug ?? categories.items.find(
-    (item) =>
-      item.name === categoryParam ||
-      item.key === categoryParam ||
-      item.category_id === categoryParam,
-  ) ?? null;
+  const resolvedCategory =
+    categoryBySlug ??
+    categories.items.find(
+      (item) => item.name === categoryParam || item.key === categoryParam || item.category_id === categoryParam,
+    ) ??
+    null;
   const category = resolvedCategory?.slug ?? categoryParam;
 
   if (params.categorySlug && resolvedCategory && params.categorySlug !== resolvedCategory.slug) {
@@ -144,12 +143,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(buildCategoryPath(resolvedCategory.slug, url.searchParams), { status: 301 });
   }
 
-  const data = await api.searchItems(
-    buildSearchQuery({ search, category, tag, language, sort, dynamicFilters }),
-  ).catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
-  const canonicalPath = params.categorySlug && resolvedCategory
-    ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
-    : buildCategoryPath("", url.searchParams);
+  const data = await api
+    .searchItems(buildSearchQuery({ search, category, tag, language, sort, dynamicFilters }))
+    .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
+  const canonicalPath =
+    params.categorySlug && resolvedCategory
+      ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
+      : buildCategoryPath("", url.searchParams);
 
   return {
     search,
@@ -162,7 +162,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     categories: categories.items,
     canonicalUrl: new URL(canonicalPath, url.origin).toString(),
   };
-};
+}
 
 type BulkAddActionData =
   | Readonly<{ status: "bulk-preview"; preview: DiscoveryBulkCartPreview }>
@@ -249,24 +249,16 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
       : t("discovery.routes.search.marketplace.search"),
     description: MARKETPLACE_DESCRIPTION,
   }),
-  ...(data?.canonicalUrl
-    ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }]
-    : []),
+  ...(data?.canonicalUrl ? [{ tagName: "link", rel: "canonical", href: data.canonicalUrl }] : []),
 ];
 
 export default function DiscoverySearchRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_SEARCH_RESULT;
 
-  return (
-    <DiscoverySearchRealtimeView
-      data={data}
-    />
-  );
+  return <DiscoverySearchRealtimeView data={data} />;
 }
 
-type DiscoverySearchRouteData =
-  | typeof EMPTY_SEARCH_RESULT
-  | Awaited<ReturnType<typeof loader>>;
+type DiscoverySearchRouteData = typeof EMPTY_SEARCH_RESULT | Awaited<ReturnType<typeof loader>>;
 
 function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData }) {
   const navigate = useNavigate();
@@ -297,9 +289,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   }>({ status: "idle" });
   const loadMoreInFlightRef = useRef(false);
   let draftSearch = draftSearchState.value;
-  const activeExtraPages = extraPageState.key === resultSetKey
-    ? extraPageState.pages
-    : EMPTY_EXTRA_PAGES;
+  const activeExtraPages = extraPageState.key === resultSetKey ? extraPageState.pages : EMPTY_EXTRA_PAGES;
   const accumulatedData = useMemo(
     () => mergeDiscoverySearchResponses(data.data, activeExtraPages),
     [activeExtraPages, data.data],
@@ -348,84 +338,93 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
 
   useEffect(() => clearSearchTimer, [clearSearchTimer]);
 
-  const updateSearchParams = useCallback((nextValues: {
-    search?: string;
-    category?: string;
-    tag?: string | null;
-    language?: string;
-    sort?: string;
-    dynamicFilter?: DynamicSearchFilterSelection;
-    dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
-  }, replace = false) => {
-    if (nextValues.category !== undefined) {
-      const current = new URLSearchParams(searchParams);
-      const search = pendingSearchRef.current ?? draftSearchRef.current;
-      if (search) {
-        current.set("q", search);
-        current.delete("search");
-      } else {
-        current.delete("q");
-        current.delete("search");
-      }
-      current.delete("page");
-      navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
-      return;
-    }
-
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-
-      if (nextValues.search !== undefined) {
-        if (nextValues.search) {
-          next.set("q", nextValues.search);
-          next.delete("search");
+  const updateSearchParams = useCallback(
+    (
+      nextValues: {
+        search?: string;
+        category?: string;
+        tag?: string | null;
+        language?: string;
+        sort?: string;
+        dynamicFilter?: DynamicSearchFilterSelection;
+        dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
+      },
+      replace = false,
+    ) => {
+      if (nextValues.category !== undefined) {
+        const current = new URLSearchParams(searchParams);
+        const search = pendingSearchRef.current ?? draftSearchRef.current;
+        if (search) {
+          current.set("q", search);
+          current.delete("search");
         } else {
-          next.delete("q");
-          next.delete("search");
+          current.delete("q");
+          current.delete("search");
         }
-        next.delete("page");
+        current.delete("page");
+        navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
+        return;
       }
 
-      if (nextValues.sort !== undefined) {
-        if (nextValues.sort && nextValues.sort !== "relevance") {
-          next.set("sort", nextValues.sort);
-        } else {
-          next.delete("sort");
-        }
-        next.delete("page");
-      }
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
 
-      if (nextValues.tag !== undefined) {
-        if (nextValues.tag) {
-          next.set("tag", nextValues.tag);
-        } else {
-          next.delete("tag");
-        }
-        next.delete("page");
-      }
+          if (nextValues.search !== undefined) {
+            if (nextValues.search) {
+              next.set("q", nextValues.search);
+              next.delete("search");
+            } else {
+              next.delete("q");
+              next.delete("search");
+            }
+            next.delete("page");
+          }
 
-      if (nextValues.language !== undefined) {
-        if (nextValues.language) {
-          next.set("language", nextValues.language);
-        } else {
-          next.delete("language");
-        }
-        next.delete("page");
-      }
+          if (nextValues.sort !== undefined) {
+            if (nextValues.sort && nextValues.sort !== "relevance") {
+              next.set("sort", nextValues.sort);
+            } else {
+              next.delete("sort");
+            }
+            next.delete("page");
+          }
 
-      if (nextValues.dynamicFilter !== undefined) {
-        toggleDynamicSearchFilter(next, nextValues.dynamicFilter);
-        next.delete("page");
-      }
+          if (nextValues.tag !== undefined) {
+            if (nextValues.tag) {
+              next.set("tag", nextValues.tag);
+            } else {
+              next.delete("tag");
+            }
+            next.delete("page");
+          }
 
-      if (nextValues.dynamicFilterClear !== undefined) {
-        next.delete(dynamicSearchFilterKey({ ...nextValues.dynamicFilterClear, value: "" }));
-        next.delete("page");
-      }
+          if (nextValues.language !== undefined) {
+            if (nextValues.language) {
+              next.set("language", nextValues.language);
+            } else {
+              next.delete("language");
+            }
+            next.delete("page");
+          }
 
-      return next;
-    }, { preventScrollReset: true, replace });
-  }, [navigate, searchParams, setSearchParams]);
+          if (nextValues.dynamicFilter !== undefined) {
+            toggleDynamicSearchFilter(next, nextValues.dynamicFilter);
+            next.delete("page");
+          }
+
+          if (nextValues.dynamicFilterClear !== undefined) {
+            next.delete(dynamicSearchFilterKey({ ...nextValues.dynamicFilterClear, value: "" }));
+            next.delete("page");
+          }
+
+          return next;
+        },
+        { preventScrollReset: true, replace },
+      );
+    },
+    [navigate, searchParams, setSearchParams],
+  );
 
   function handleSearchChange(value: string) {
     restoreSearchFocusRef.current = true;
@@ -478,14 +477,14 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         throw new Error(`Search request failed with ${response.status}.`);
       }
 
-      const nextPage = await response.json() as DiscoverySearchResponse;
+      const nextPage = (await response.json()) as DiscoverySearchResponse;
       if (resultSetKeyRef.current !== requestKey) {
         return;
       }
 
-      setExtraPageState((current) => current.key === requestKey
-        ? { key: current.key, pages: [...current.pages, nextPage] }
-        : current);
+      setExtraPageState((current) =>
+        current.key === requestKey ? { key: current.key, pages: [...current.pages, nextPage] } : current,
+      );
       setLoadMoreState({ loading: false, error: null });
     } catch {
       if (resultSetKeyRef.current === requestKey) {
@@ -499,15 +498,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         loadMoreInFlightRef.current = false;
       }
     }
-  }, [
-    data.category,
-    data.language,
-    data.search,
-    data.tag,
-    data.sort,
-    dynamicFilters,
-    visibleData?.nextCursor,
-  ]);
+  }, [data.category, data.language, data.search, data.tag, data.sort, dynamicFilters, visibleData?.nextCursor]);
 
   const submitBulkAddIntent = useCallback(async (intent: "preview-bulk-add" | "commit-bulk-add") => {
     if (typeof window === "undefined") {
@@ -531,7 +522,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
 
       setBulkAddState({
         status: "idle",
-        data: await response.json() as BulkAddActionData,
+        data: (await response.json()) as BulkAddActionData,
       });
     } catch (error) {
       console.error("Bulk add search results failed.", error);
@@ -595,9 +586,7 @@ function mergeDiscoverySearchResponses(
     ...firstPage,
     items,
     count: items.length,
-    nextCursor: extraPages.length > 0
-      ? extraPages.at(-1)?.nextCursor ?? null
-      : firstPage.nextCursor,
+    nextCursor: extraPages.length > 0 ? (extraPages.at(-1)?.nextCursor ?? null) : firstPage.nextCursor,
   };
 }
 
@@ -624,23 +613,15 @@ function readDynamicSearchFilters(searchParams: URLSearchParams): DynamicSearchF
     .filter((filter) => filter.id.length > 0 && filter.value.length > 0);
 }
 
-function appendDynamicSearchFilters(
-  searchParams: URLSearchParams,
-  filters: readonly DynamicSearchFilterSelection[],
-) {
+function appendDynamicSearchFilters(searchParams: URLSearchParams, filters: readonly DynamicSearchFilterSelection[]) {
   for (const filter of filters) {
     searchParams.append(dynamicSearchFilterKey(filter), filter.value);
   }
 }
 
-function toggleDynamicSearchFilter(
-  searchParams: URLSearchParams,
-  filter: DynamicSearchFilterSelection,
-) {
+function toggleDynamicSearchFilter(searchParams: URLSearchParams, filter: DynamicSearchFilterSelection) {
   const key = dynamicSearchFilterKey(filter);
-  const nextValues = searchParams
-    .getAll(key)
-    .filter((value) => value !== filter.value);
+  const nextValues = searchParams.getAll(key).filter((value) => value !== filter.value);
 
   if (nextValues.length === searchParams.getAll(key).length) {
     nextValues.push(filter.value);

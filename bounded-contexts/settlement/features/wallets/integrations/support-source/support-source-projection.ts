@@ -1,16 +1,9 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-const refundResolutionTypes = new Set([
-  "full-refund",
-  "partial-refund",
-  "return-for-refund",
-  "cancel-order",
-]);
+const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund", "cancel-order"]);
 
-export function buildSettlementSupportHoldProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
       const data = event.data as {

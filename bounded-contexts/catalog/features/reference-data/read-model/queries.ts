@@ -33,17 +33,19 @@ export type ReferenceRecordRow = Readonly<{
   updated_at: string;
 }>;
 
-export type ReferenceTypeListParams = ListParams & Readonly<{
-  attributeKey?: string;
-}>;
+export type ReferenceTypeListParams = ListParams &
+  Readonly<{
+    attributeKey?: string;
+  }>;
 
-export type ReferenceRecordListParams = ListParams & Readonly<{
-  typeKey?: string;
-  relationshipType?: string;
-  relatedReferenceId?: string;
-  attributeKey?: string;
-  attributeValue?: string;
-}>;
+export type ReferenceRecordListParams = ListParams &
+  Readonly<{
+    typeKey?: string;
+    relationshipType?: string;
+    relatedReferenceId?: string;
+    attributeKey?: string;
+    attributeValue?: string;
+  }>;
 
 export async function listReferenceTypes(
   db: PgQueryable,
@@ -69,10 +71,7 @@ export async function listReferenceTypes(
   return executeListQuery<ReferenceTypeRow>(db, query.countSql, query.listSql, query.values);
 }
 
-export async function listReferenceTypeIds(
-  db: PgQueryable,
-  params: ReferenceTypeListParams = {},
-): Promise<string[]> {
+export async function listReferenceTypeIds(db: PgQueryable, params: ReferenceTypeListParams = {}): Promise<string[]> {
   const result = await listReferenceTypes(db, { ...params, limit: undefined, offset: undefined });
   return result.items.map((row) => row.reference_type_id);
 }

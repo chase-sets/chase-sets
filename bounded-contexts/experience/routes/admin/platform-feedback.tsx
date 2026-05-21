@@ -45,11 +45,5 @@ export const meta: MetaFunction = () => [
 
 export default function PlatformFeedbackRoute() {
   const data = useLoaderData<typeof loader>();
-  return (
-    <PlatformFeedbackAdminListPage
-      feedback={data.feedback}
-      metrics={data.metrics}
-      filters={data.filters}
-    />
-  );
+  return <PlatformFeedbackAdminListPage feedback={data.feedback} metrics={data.metrics} filters={data.filters} />;
 }

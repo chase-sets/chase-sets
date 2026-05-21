@@ -15,31 +15,40 @@ function requireWalletAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.wallets.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("settlement.features.wallets.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("settlement.features.wallets.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   return { actor, response: null };
 }
 
-function normalizeRequiredBodyText(
-  body: Record<string, unknown>,
-  fieldName: string,
-  message: string,
-) {
+function normalizeRequiredBodyText(body: Record<string, unknown>, fieldName: string, message: string) {
   const value = body[fieldName];
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(message);
@@ -57,13 +66,10 @@ function deterministicLedgerEntryId(idempotencyKey: string): LedgerEntryId {
 }
 
 function duplicateLedgerEntryResponse() {
-  return new Response(
-    JSON.stringify({ idempotent: true, duplicate: true }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    },
-  );
+  return new Response(JSON.stringify({ idempotent: true, duplicate: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 async function postOperatorWalletEntry(
@@ -102,9 +108,7 @@ async function postOperatorWalletEntry(
       amount: String(params.body.amount ?? ""),
       currencyCode: normalizeCurrencyCode(String(params.body.currencyCode ?? "usd")),
       fundsStatus: "available",
-      paymentId: params.body.paymentId
-        ? String(params.body.paymentId) as PaymentId
-        : null,
+      paymentId: params.body.paymentId ? (String(params.body.paymentId) as PaymentId) : null,
       description: t("settlement.features.wallets.api.route.ledger.description.with.reason", {
         description,
         reason: auditReason,
@@ -116,8 +120,7 @@ async function postOperatorWalletEntry(
 }
 
 function isDuplicateLedgerEntryError(error: unknown) {
-  return error instanceof Error &&
-    error.message === "Ledger entry has already been posted.";
+  return error instanceof Error && error.message === "Ledger entry has already been posted.";
 }
 
 export function createWalletRoutes(services: WalletServices) {
@@ -162,7 +165,15 @@ export function createWalletRoutes(services: WalletServices) {
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.wallets.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -196,7 +207,8 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.adjustment.failed"),
+            message:
+              error instanceof Error ? error.message : t("settlement.features.wallets.api.route.adjustment.failed"),
           },
         },
         400,
@@ -211,7 +223,15 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.wallets.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
     const body = await c.req.json();
 
@@ -234,7 +254,8 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.refund.debit.failed"),
+            message:
+              error instanceof Error ? error.message : t("settlement.features.wallets.api.route.refund.debit.failed"),
           },
         },
         400,
@@ -249,7 +270,15 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.wallets.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
     const body = await c.req.json();
 
@@ -272,7 +301,8 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.dispute.hold.failed"),
+            message:
+              error instanceof Error ? error.message : t("settlement.features.wallets.api.route.dispute.hold.failed"),
           },
         },
         400,
@@ -287,7 +317,15 @@ export function createWalletRoutes(services: WalletServices) {
     }
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("settlement.features.wallets.api.route.authentication.context.missing.4") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.wallets.api.route.authentication.context.missing.4"),
+          },
+        },
+        401,
+      );
     }
     const body = await c.req.json();
 
@@ -310,7 +348,10 @@ export function createWalletRoutes(services: WalletServices) {
         {
           error: {
             code: "validation_failed",
-            message: error instanceof Error ? error.message : t("settlement.features.wallets.api.route.dispute.release.failed"),
+            message:
+              error instanceof Error
+                ? error.message
+                : t("settlement.features.wallets.api.route.dispute.release.failed"),
           },
         },
         400,

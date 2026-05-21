@@ -63,13 +63,7 @@ describe("notifications contract", () => {
     expect(createNotificationDeliveryId(message, message.channels[1], 1)).toBe(
       "ordering:order_confirmed:ord_123:sms:2",
     );
-    expect(message.channels.map((channel) => channel.channel)).toEqual([
-      "email",
-      "sms",
-      "rcs",
-      "web",
-      "push",
-    ]);
+    expect(message.channels.map((channel) => channel.channel)).toEqual(["email", "sms", "rcs", "web", "push"]);
   });
 
   it("supports custom future channels through the same adapter contract", async () => {
@@ -93,32 +87,34 @@ describe("notifications contract", () => {
     if (!configuredAdapter) {
       throw new Error("Expected secure-inbox adapter to be configured.");
     }
-    await expect(configuredAdapter.sendNotificationChannel({
-      deliveryId: "delivery_1",
-      message: {
-        messageType: "identity.security.notice",
-        criticality: "security",
-        title: "Security notice",
-        body: "Review your account.",
-        templateId: "security_notice",
-        templateVersion: 1,
-        locale: "en",
-        templateData: {},
-        channels: [
-          {
-            channel: "secure-inbox",
-            payload: { severity: "high" },
-          },
-        ],
-        idempotencyKey: "identity:security_notice:1",
-        correlationId: "req_1",
-        actor: { userId: null, accountId: null },
-      },
-      channel: {
-        channel: "secure-inbox",
-        payload: { severity: "high" },
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      configuredAdapter.sendNotificationChannel({
+        deliveryId: "delivery_1",
+        message: {
+          messageType: "identity.security.notice",
+          criticality: "security",
+          title: "Security notice",
+          body: "Review your account.",
+          templateId: "security_notice",
+          templateVersion: 1,
+          locale: "en",
+          templateData: {},
+          channels: [
+            {
+              channel: "secure-inbox",
+              payload: { severity: "high" },
+            },
+          ],
+          idempotencyKey: "identity:security_notice:1",
+          correlationId: "req_1",
+          actor: { userId: null, accountId: null },
+        },
+        channel: {
+          channel: "secure-inbox",
+          payload: { severity: "high" },
+        },
+      }),
+    ).resolves.toMatchObject({
       channel: "secure-inbox",
       providerName: "internal-secure-inbox",
     });
@@ -146,11 +142,13 @@ describe("notifications contract", () => {
   it("supports a no-op outbox for unconfigured composition roots", async () => {
     const outbox = createNoopNotificationOutbox();
 
-    await expect(outbox.claimPendingNotificationDeliveries({
-      limit: 10,
-      claimOwnerId: "test",
-      claimTtlMs: 1_000,
-    })).resolves.toEqual([]);
+    await expect(
+      outbox.claimPendingNotificationDeliveries({
+        limit: 10,
+        claimOwnerId: "test",
+        claimTtlMs: 1_000,
+      }),
+    ).resolves.toEqual([]);
   });
 
   it("applies channel preferences while keeping security notifications mandatory", () => {
@@ -182,34 +180,34 @@ describe("notifications contract", () => {
       actor: { userId: null, accountId: null },
     };
 
-    expect(applyNotificationChannelPreferences(commerceMessage, [
-      { channel: "email", enabled: false },
-    ])?.channels.map((channel) => channel.channel)).toEqual([
-      "sms",
-      "rcs",
-      "web",
-    ]);
+    expect(
+      applyNotificationChannelPreferences(commerceMessage, [{ channel: "email", enabled: false }])?.channels.map(
+        (channel) => channel.channel,
+      ),
+    ).toEqual(["sms", "rcs", "web"]);
 
-    expect(applyNotificationChannelPreferences(commerceMessage, [
-      { channel: "email", enabled: false },
-      { channel: "sms", enabled: false },
-      { channel: "rcs", enabled: false },
-      { channel: "web", enabled: false },
-    ])).toBeNull();
+    expect(
+      applyNotificationChannelPreferences(commerceMessage, [
+        { channel: "email", enabled: false },
+        { channel: "sms", enabled: false },
+        { channel: "rcs", enabled: false },
+        { channel: "web", enabled: false },
+      ]),
+    ).toBeNull();
 
-    expect(applyNotificationChannelPreferences({
-      ...commerceMessage,
-      criticality: "security",
-    }, [
-      { channel: "email", enabled: false },
-      { channel: "sms", enabled: false },
-      { channel: "rcs", enabled: false },
-      { channel: "web", enabled: false },
-    ])?.channels.map((channel) => channel.channel)).toEqual([
-      "email",
-      "sms",
-      "rcs",
-      "web",
-    ]);
+    expect(
+      applyNotificationChannelPreferences(
+        {
+          ...commerceMessage,
+          criticality: "security",
+        },
+        [
+          { channel: "email", enabled: false },
+          { channel: "sms", enabled: false },
+          { channel: "rcs", enabled: false },
+          { channel: "web", enabled: false },
+        ],
+      )?.channels.map((channel) => channel.channel),
+    ).toEqual(["email", "sms", "rcs", "web"]);
   });
 });

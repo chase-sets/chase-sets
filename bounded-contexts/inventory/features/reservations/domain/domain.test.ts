@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideInventoryReservation,
-  evolveInventoryReservation,
-  initialInventoryReservationState,
-} from "./domain";
+import { decideInventoryReservation, evolveInventoryReservation, initialInventoryReservationState } from "./domain";
 
 describe("inventory reservations", () => {
   it("confirms, idempotently repeats, and releases reservations", () => {

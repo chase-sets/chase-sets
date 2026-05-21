@@ -28,9 +28,7 @@ function statusTone(status: string) {
       : "secondary";
 }
 
-function SupportRequestTable({
-  requests,
-}: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
+function SupportRequestTable({ requests }: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
   if (requests.length === 0) {
     return (
       <UiEmptyState
@@ -66,11 +64,7 @@ function SupportRequestTable({
   );
 }
 
-export function SupportRequestListPage({
-  buyerRequests,
-  sellerRequests,
-  flows,
-}: SupportRequestListPageProps) {
+export function SupportRequestListPage({ buyerRequests, sellerRequests, flows }: SupportRequestListPageProps) {
   return (
     <UiPage>
       <UiPageHeader
@@ -78,15 +72,11 @@ export function SupportRequestListPage({
         description={t("support.features.supportRequests.ui.supportRequestListPage.description")}
       />
 
-      <UiPageSection
-        title={t("support.features.supportRequests.ui.supportRequestListPage.buyer.requests")}
-      >
+      <UiPageSection title={t("support.features.supportRequests.ui.supportRequestListPage.buyer.requests")}>
         <SupportRequestTable requests={buyerRequests} />
       </UiPageSection>
 
-      <UiPageSection
-        title={t("support.features.supportRequests.ui.supportRequestListPage.seller.requests")}
-      >
+      <UiPageSection title={t("support.features.supportRequests.ui.supportRequestListPage.seller.requests")}>
         <SupportRequestTable requests={sellerRequests} />
       </UiPageSection>
 
@@ -98,8 +88,12 @@ export function SupportRequestListPage({
           <UiTableHeader>
             <UiTableRow>
               <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.flow")}</UiTableHead>
-              <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.default.outcome")}</UiTableHead>
-              <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.response.window")}</UiTableHead>
+              <UiTableHead>
+                {t("support.features.supportRequests.ui.supportRequestListPage.default.outcome")}
+              </UiTableHead>
+              <UiTableHead>
+                {t("support.features.supportRequests.ui.supportRequestListPage.response.window")}
+              </UiTableHead>
             </UiTableRow>
           </UiTableHeader>
           <UiTableBody>

@@ -1,42 +1,20 @@
 {
   "contextName": "fulfillment",
   "packageName": "@chase-sets/fulfillment",
-  "ownedNouns": [
-    "shipment"
-  ],
+  "ownedNouns": ["shipment"],
   "streamPrefix": "fulfillment.",
   "apiBasePath": "/api/marketplace",
-  "slices": [
-    "shipments"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support",
-    "seed-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./seed-support/*",
-    "./server"
-  ],
-  "allowedContextDependencies": [
-    "@chase-sets/identity"
-  ],
-  "seedRequirements": [
-    "identity",
-    "payments",
-    "ordering"
-  ],
+  "slices": ["shipments"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedContextDependencies": ["@chase-sets/identity"],
+  "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
     {
       "sourceContextName": "identity",
       "projectionName": "fulfillment-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "fulfillment-account-projection"
-      ],
+      "projectorNames": ["fulfillment-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -50,9 +28,7 @@
       "sourceContextName": "ordering",
       "projectionName": "fulfillment-order-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "fulfillment-order-source-projection"
-      ],
+      "projectorNames": ["fulfillment-order-source-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
@@ -65,23 +41,14 @@
   "projectionGroups": [
     {
       "projectionName": "fulfillment-account-projection",
-      "sourceContextNames": [
-        "identity"
-      ],
-      "ownedTables": [
-        "fulfillment_account_pages"
-      ],
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["fulfillment_account_pages"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "fulfillment-order-source-projection",
-      "sourceContextNames": [
-        "ordering"
-      ],
-      "ownedTables": [
-        "fulfillment_order_sources",
-        "fulfillment_order_source_lines"
-      ],
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["fulfillment_order_sources", "fulfillment_order_source_lines"],
       "requiredDuringBootstrap": true
     }
   ],
@@ -92,9 +59,7 @@
       "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
+  "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
@@ -156,9 +121,7 @@
       "href": "/account/shipments",
       "order": 150,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "fulfillment.view"
-      ]
+      "requiredPermissions": ["fulfillment.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -169,9 +132,7 @@
       "href": "/account/shipments",
       "order": 150,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "fulfillment.view"
-      ]
+      "requiredPermissions": ["fulfillment.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -182,9 +143,7 @@
       "href": "/account/sales/shipments",
       "order": 155,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "fulfillment.view"
-      ]
+      "requiredPermissions": ["fulfillment.view"]
     },
     {
       "deployable": "marketplace-web",
@@ -195,9 +154,7 @@
       "href": "/account/sales/shipments",
       "order": 155,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "fulfillment.view"
-      ]
+      "requiredPermissions": ["fulfillment.view"]
     }
   ],
   "directoryIntent": {
@@ -205,18 +162,13 @@
       "classification": "slice",
       "purpose": "Own shipments feature behavior, read models, and UI contracts for the fulfillment context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal fulfillment module composition"
-      ]
+      "expectedConsumers": ["Internal fulfillment module composition"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by fulfillment-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple fulfillment slices",
-        "Deployable composition for fulfillment"
-      ],
+      "expectedConsumers": ["Multiple fulfillment slices", "Deployable composition for fulfillment"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "fulfillment workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -226,9 +178,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by fulfillment-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "shipments"
-      ],
+      "expectedConsumers": ["shipments"],
       "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "fulfillment workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
@@ -237,10 +187,7 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by fulfillment-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": [
-        "Multiple fulfillment slices",
-        "Deployable composition for fulfillment"
-      ],
+      "expectedConsumers": ["Multiple fulfillment slices", "Deployable composition for fulfillment"],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "fulfillment workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
@@ -250,12 +197,8 @@
       "classification": "routes",
       "purpose": "Expose fulfillment-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["platform-worker"]
 }

@@ -17,4 +17,3 @@ export default function ApiKeysRoute() {
   const data = useLoaderData<typeof loader>();
   return <ApiKeyListPage initialData={data} />;
 }
-

@@ -1,6 +1,1 @@
-export type {
-  ReviewSummary,
-  ReviewOpportunity,
-  ReviewDetail,
-  ReviewListItem,
-} from "../ui/contracts";
+export type { ReviewSummary, ReviewOpportunity, ReviewDetail, ReviewListItem } from "../ui/contracts";

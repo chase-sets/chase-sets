@@ -72,8 +72,7 @@ describe("worktree sandbox", () => {
     expect(env.PLATFORM_CONTROL_DATABASE_URL).toContain("/cs_abc123_control");
     expect(env[getContextDatabaseEnvName("catalog")]).toContain("/cs_abc123_catalog");
     expect(env[getContextDatabaseEnvName("marketplace")]).toContain("/cs_abc123_marketplace");
-    expect(env.STRIPE_WEBHOOK_FORWARD_URL)
-      .toBe("http://host.docker.internal:7012/api/payments/provider/webhooks");
+    expect(env.STRIPE_WEBHOOK_FORWARD_URL).toBe("http://host.docker.internal:7012/api/payments/provider/webhooks");
   });
 
   it("writes and updates the ignored per-worktree sandbox env file", () => {
@@ -99,9 +98,7 @@ describe("worktree sandbox", () => {
       },
     );
 
-    expect(readFileSync(sandbox.envFilePath, "utf8")).toContain(
-      "STRIPE_WEBHOOK_SECRET=whsec_test",
-    );
+    expect(readFileSync(sandbox.envFilePath, "utf8")).toContain("STRIPE_WEBHOOK_SECRET=whsec_test");
 
     ensureWorktreeSandboxEnvironment({
       rootDir,
@@ -111,9 +108,7 @@ describe("worktree sandbox", () => {
       },
     });
 
-    expect(readFileSync(sandbox.envFilePath, "utf8")).toContain(
-      "STRIPE_WEBHOOK_SECRET=whsec_test",
-    );
+    expect(readFileSync(sandbox.envFilePath, "utf8")).toContain("STRIPE_WEBHOOK_SECRET=whsec_test");
   });
 
   it("builds project-scoped Docker Compose arguments", () => {

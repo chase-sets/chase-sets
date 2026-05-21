@@ -1,24 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
-import {
-  Form,
-  redirect,
-  useActionData,
-  useLoaderData,
-  useNavigation,
-  useSubmit,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { Form, redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import {
   Badge,
   OrderProtectionModule,
@@ -88,9 +74,7 @@ function requestedBalanceCreditFromForm(formData: FormData) {
     return decimalMoney(Math.min(total, available));
   }
 
-  return normalizeRequestedBalanceCreditAmount(
-    formData.get("requestedBalanceCreditAmount"),
-  );
+  return normalizeRequestedBalanceCreditAmount(formData.get("requestedBalanceCreditAmount"));
 }
 
 async function loadWalletBalance(request: Request) {
@@ -126,14 +110,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   try {
     const orders = await Promise.all(orderIds.map((orderId) => orderingApi.getPurchase(orderId)));
     const wallet = await loadWalletBalance(request);
-    const totalAmount = orders
-      .reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0)
-      .toFixed(2);
+    const totalAmount = orders.reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0).toFixed(2);
     const requestedBalanceCreditAmount = decimalMoney(
-      Math.min(
-        Number.parseFloat(totalAmount),
-        Number.parseFloat(wallet?.available_balance_amount ?? "0.00"),
-      ),
+      Math.min(Number.parseFloat(totalAmount), Number.parseFloat(wallet?.available_balance_amount ?? "0.00")),
     );
     const checkoutStatus = await paymentsApi.getCheckoutStatus({
       orderIds,
@@ -183,15 +162,15 @@ export async function action({ request }: ActionFunctionArgs) {
       orderIds,
       requestedBalanceCreditAmount,
       paymentMethodCategory,
-      marketplaceCheckoutFeeQuoteFingerprint:
-        checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
+      marketplaceCheckoutFeeQuoteFingerprint: checkoutStatus.marketplace_checkout_fee.quote_fingerprint,
     });
-    return redirect(
-      appendFreshWriteToken(`/account/payments/${payment.payment_id}`, payment),
-    );
+    return redirect(appendFreshWriteToken(`/account/payments/${payment.payment_id}`, payment));
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : t("payments.routes.marketplace.accountPaymentNew.payment.could.not.be.started"),
+      error:
+        error instanceof Error
+          ? error.message
+          : t("payments.routes.marketplace.accountPaymentNew.payment.could.not.be.started"),
     };
   }
 }
@@ -222,9 +201,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
     submit(formRef.current, { method: "post" });
   }, [actionData?.error, data.autostart, navigation.state, submit]);
 
-  const totalAmount = data.orders
-    .reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0)
-    .toFixed(2);
+  const totalAmount = data.orders.reduce((sum, order) => sum + Number.parseFloat(order.total_amount), 0).toFixed(2);
   const marketplaceSalesFeeAmount = data.orders
     .reduce((sum, order) => sum + Number.parseFloat(order.marketplace_sales_fee_amount), 0)
     .toFixed(2);
@@ -237,7 +214,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
   const selectedCheckoutFee = data.checkoutStatus.marketplace_checkout_fee;
   const availableBalanceAmount = Number.parseFloat(data.wallet?.available_balance_amount ?? "0.00");
   const maxBalanceCreditAmount = decimalMoney(Math.min(Number.parseFloat(totalAmount), availableBalanceAmount));
-  const externalAfterMaxAmount = decimalMoney(Number.parseFloat(totalAmount) - Number.parseFloat(maxBalanceCreditAmount));
+  const externalAfterMaxAmount = decimalMoney(
+    Number.parseFloat(totalAmount) - Number.parseFloat(maxBalanceCreditAmount),
+  );
 
   return (
     <Page>
@@ -247,7 +226,8 @@ export default function MarketplaceAccountPaymentNewRoute() {
         description={t("payments.routes.marketplace.accountPaymentNew.review.the.purchases.created.by.checkout")}
         actions={
           <LinkButton href="/account/purchases" tone="secondary">
-            {t("payments.routes.marketplace.accountPaymentNew.back.to.purchases")}</LinkButton>
+            {t("payments.routes.marketplace.accountPaymentNew.back.to.purchases")}
+          </LinkButton>
         }
       />
 
@@ -258,9 +238,18 @@ export default function MarketplaceAccountPaymentNewRoute() {
             <PriceBreakdown
               lines={[
                 { label: t("payments.routes.marketplace.accountPaymentNew.purchases"), value: data.orders.length },
-                { label: t("payments.routes.marketplace.accountPaymentNew.marketplace.sales.fee"), value: formatMoney(marketplaceSalesFeeAmount) },
-                { label: t("payments.routes.marketplace.accountPaymentNew.seller.payout"), value: formatMoney(sellerPayoutAmount) },
-                { label: t("payments.routes.marketplace.accountPaymentNew.sales.tax"), value: formatMoney(salesTaxAmount) },
+                {
+                  label: t("payments.routes.marketplace.accountPaymentNew.marketplace.sales.fee"),
+                  value: formatMoney(marketplaceSalesFeeAmount),
+                },
+                {
+                  label: t("payments.routes.marketplace.accountPaymentNew.seller.payout"),
+                  value: formatMoney(sellerPayoutAmount),
+                },
+                {
+                  label: t("payments.routes.marketplace.accountPaymentNew.sales.tax"),
+                  value: formatMoney(salesTaxAmount),
+                },
                 {
                   label: t("payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee"),
                   value: formatMoney(selectedCheckoutFee.marketplace_checkout_fee_amount),
@@ -282,7 +271,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
               ]}
               total={formatMoney(selectedCheckoutFee.total_amount)}
               totalLabel={t("payments.routes.marketplace.accountPaymentNew.total.due")}
-              reassurance={<SecurePaymentIndicator label={t("payments.routes.marketplace.accountPaymentNew.secure.payment")} />}
+              reassurance={
+                <SecurePaymentIndicator label={t("payments.routes.marketplace.accountPaymentNew.secure.payment")} />
+              }
             />
             <OrderProtectionModule
               title={t("payments.routes.marketplace.accountPaymentNew.checkout.confidence")}
@@ -314,7 +305,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
             <Stack gap={4}>
               <Stack gap={2}>
                 <Badge tone="accent">{t("payments.routes.marketplace.accountPaymentNew.payment.setup.2")}</Badge>
-                <Text weight="semibold">{t("payments.routes.marketplace.accountPaymentNew.ready.to.initialize.payment")}</Text>
+                <Text weight="semibold">
+                  {t("payments.routes.marketplace.accountPaymentNew.ready.to.initialize.payment")}
+                </Text>
                 <Text size="sm" tone="secondary">
                   {t("payments.routes.marketplace.accountPaymentNew.payment.covers.purchases", {
                     count: data.orders.length,
@@ -323,7 +316,8 @@ export default function MarketplaceAccountPaymentNewRoute() {
                         ? "payments.routes.marketplace.accountPaymentNew.purchase.singular"
                         : "payments.routes.marketplace.accountPaymentNew.purchase.plural",
                     ),
-                  })}</Text>
+                  })}
+                </Text>
               </Stack>
               {actionData?.error ? (
                 <Surface tone="subtle">
@@ -352,7 +346,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
                         disabled: Number.parseFloat(externalAfterMaxAmount) > 0,
                       },
                     ]}
-                    description={t("payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee.description")}
+                    description={t(
+                      "payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee.description",
+                    )}
                   />
                   <NativeSelect
                     label={t("payments.routes.marketplace.accountPaymentNew.wallet.balance")}
@@ -367,7 +363,10 @@ export default function MarketplaceAccountPaymentNewRoute() {
                         }),
                         disabled: availableBalanceAmount <= 0,
                       },
-                      { value: "custom", label: t("payments.routes.marketplace.accountPaymentNew.use.a.custom.amount") },
+                      {
+                        value: "custom",
+                        label: t("payments.routes.marketplace.accountPaymentNew.use.a.custom.amount"),
+                      },
                     ]}
                     description={
                       data.wallet
@@ -392,7 +391,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
                     }
                   />
                   <Button type="submit" size="lg" leadingIcon="lock">
-                    {navigation.state === "submitting" ? t("payments.routes.marketplace.accountPaymentNew.starting.payment") : t("payments.routes.marketplace.accountPaymentNew.continue.to.payment")}
+                    {navigation.state === "submitting"
+                      ? t("payments.routes.marketplace.accountPaymentNew.starting.payment")
+                      : t("payments.routes.marketplace.accountPaymentNew.continue.to.payment")}
                   </Button>
                 </Stack>
               </Form>
@@ -437,21 +438,29 @@ export default function MarketplaceAccountPaymentNewRoute() {
                   <Stack gap={3}>
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>
-                        <Text weight="semibold">{t("payments.routes.marketplace.accountPaymentNew.purchase")}{order.order_id}</Text>
+                        <Text weight="semibold">
+                          {t("payments.routes.marketplace.accountPaymentNew.purchase")}
+                          {order.order_id}
+                        </Text>
                         <Badge tone="accent">{order.status}</Badge>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPaymentNew.total")}</Text>
+                        <Text size="sm" tone="secondary">
+                          {t("payments.routes.marketplace.accountPaymentNew.total")}
+                        </Text>
                         <Text weight="semibold">{formatMoney(order.total_amount)}</Text>
                       </Stack>
                       <Stack gap={1}>
-                        <Text size="sm" tone="secondary">{t("payments.routes.marketplace.accountPaymentNew.seller.payout")}</Text>
+                        <Text size="sm" tone="secondary">
+                          {t("payments.routes.marketplace.accountPaymentNew.seller.payout")}
+                        </Text>
                         <Text>{formatMoney(order.seller_payout_amount)}</Text>
                       </Stack>
                     </Grid>
                     <Divider />
                     <LinkButton href={`/account/purchases/${order.order_id}`} tone="secondary">
-                      {t("payments.routes.marketplace.accountPaymentNew.open.purchase")}</LinkButton>
+                      {t("payments.routes.marketplace.accountPaymentNew.open.purchase")}
+                    </LinkButton>
                   </Stack>
                 </Surface>
               ))}

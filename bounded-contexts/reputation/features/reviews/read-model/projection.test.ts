@@ -36,14 +36,9 @@ describe("reputation review projection", () => {
       },
     } as never);
 
-    const summaryRefreshes = queries.filter((query) =>
-      query.sql.includes("INSERT INTO review_summary_pages"),
-    );
+    const summaryRefreshes = queries.filter((query) => query.sql.includes("INSERT INTO review_summary_pages"));
     expect(summaryRefreshes).toHaveLength(2);
-    expect(summaryRefreshes.map((query) => query.params[0])).toEqual([
-      "acc_buyer",
-      "acc_buyer",
-    ]);
+    expect(summaryRefreshes.map((query) => query.params[0])).toEqual(["acc_buyer", "acc_buyer"]);
     for (const refresh of summaryRefreshes) {
       expect(refresh.sql).toContain("WHERE subject_account_id = $1");
       expect(refresh.sql).toContain("AND status = 'active'");

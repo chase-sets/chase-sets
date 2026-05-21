@@ -1,11 +1,7 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import {
-  UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
-  UCP_MCP_TOOLS,
-  UCP_VERSION,
-} from "@chase-sets/ucp";
+import { UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI, UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/ucp";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
 import {
@@ -120,9 +116,12 @@ describe("UCP profile routes", () => {
         privateJwk: privateKey.export({ format: "jwk" }),
       },
     };
-    const app = new Hono().route("/.well-known", createUcpProfileRoutes({
-      businessSigningKeys,
-    }));
+    const app = new Hono().route(
+      "/.well-known",
+      createUcpProfileRoutes({
+        businessSigningKeys,
+      }),
+    );
 
     const response = await app.request("https://marketplace.example/.well-known/ucp");
     const profile = await response.json();
@@ -147,11 +146,14 @@ describe("UCP profile routes", () => {
     });
     expect(profile.signing_keys[0]).not.toHaveProperty("d");
 
-    const signed = addUcpAp2MerchantAuthorization({
-      id: "chk_1",
-      status: "started",
-      totals: [{ type: "total", amount: 1000 }],
-    }, businessSigningKeys);
+    const signed = addUcpAp2MerchantAuthorization(
+      {
+        id: "chk_1",
+        status: "started",
+        totals: [{ type: "total", amount: 1000 }],
+      },
+      businessSigningKeys,
+    );
 
     expect(signed.ap2).toMatchObject({
       merchant_authorization: expect.stringMatching(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$/),
@@ -185,11 +187,14 @@ describe("UCP REST routes", () => {
       ucp: { version: UCP_VERSION, status: "ok" as const },
       checkout: { id: `chk_${handler.mock.calls.length}` },
     }));
-    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({
-      restHandlers: {
-        create_checkout: handler,
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+      }),
+    );
     const body = JSON.stringify({ source: { type: "cart" } });
     const headers = signedHeaders(body, { "Idempotency-Key": "idem_1" });
 
@@ -214,11 +219,14 @@ describe("UCP REST routes", () => {
       ucp: { version: UCP_VERSION, status: "ok" as const },
       checkout: { id: "chk_1" },
     }));
-    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({
-      restHandlers: {
-        create_checkout: handler,
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+      }),
+    );
     const firstBody = JSON.stringify({ source: { type: "cart" } });
     const secondBody = JSON.stringify({ source: { type: "buy-now" } });
 
@@ -246,16 +254,19 @@ describe("UCP REST routes", () => {
       ucp: { version: UCP_VERSION, status: "ok" as const },
       checkout: { id: "chk_1" },
     }));
-    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({
-      restHandlers: {
-        create_checkout: handler,
-      },
-      observer: {
-        operationCompleted: (event) => events.push(`completed:${event.operation}:${event.status}`),
-        idempotencyReplayed: (event) => events.push(`replayed:${event.operation}`),
-        idempotencyConflict: (event) => events.push(`conflict:${event.operation}`),
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+        observer: {
+          operationCompleted: (event) => events.push(`completed:${event.operation}:${event.status}`),
+          idempotencyReplayed: (event) => events.push(`replayed:${event.operation}`),
+          idempotencyConflict: (event) => events.push(`conflict:${event.operation}`),
+        },
+      }),
+    );
     const firstBody = JSON.stringify({ source: { type: "cart" } });
     const secondBody = JSON.stringify({ source: { type: "buy-now" } });
 
@@ -275,11 +286,7 @@ describe("UCP REST routes", () => {
       headers: signedHeaders(secondBody, { "Idempotency-Key": "idem_events" }),
     });
 
-    expect(events).toEqual([
-      "completed:create_checkout:ok",
-      "replayed:create_checkout",
-      "conflict:create_checkout",
-    ]);
+    expect(events).toEqual(["completed:create_checkout:ok", "replayed:create_checkout", "conflict:create_checkout"]);
   });
 
   it("verifies HTTP Message Signatures when a UCP key resolver is configured", async () => {
@@ -291,30 +298,27 @@ describe("UCP REST routes", () => {
       ucp: { version: UCP_VERSION, status: "ok" as const },
       checkout: { id: "chk_signed" },
     }));
-    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({
-      restHandlers: {
-        create_checkout: handler,
-      },
-      signatureVerification: {
-        keyResolver: vi.fn(async (profileUrl, keyId) =>
-          profileUrl === "https://agent.example/.well-known/ucp" && keyId === "platform-2026"
-            ? publicJwk
-            : null,
-        ),
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+        signatureVerification: {
+          keyResolver: vi.fn(async (profileUrl, keyId) =>
+            profileUrl === "https://agent.example/.well-known/ucp" && keyId === "platform-2026" ? publicJwk : null,
+          ),
+        },
+      }),
+    );
     const body = JSON.stringify({ source: { type: "cart" } });
 
     const response = await app.request("/ucp/v1/checkout-sessions", {
       method: "POST",
       body,
-      headers: signedHeadersWithKey(
-        "POST",
-        "/ucp/v1/checkout-sessions",
-        body,
-        privateKey,
-        { "Idempotency-Key": "idem_signed" },
-      ),
+      headers: signedHeadersWithKey("POST", "/ucp/v1/checkout-sessions", body, privateKey, {
+        "Idempotency-Key": "idem_signed",
+      }),
     });
 
     expect(response.status).toBe(200);
@@ -326,11 +330,14 @@ describe("UCP REST routes", () => {
 
   it("rejects checkout completion without an idempotency key before invoking handlers", async () => {
     const handler = vi.fn();
-    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({
-      restHandlers: {
-        complete_checkout: handler,
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          complete_checkout: handler,
+        },
+      }),
+    );
     const body = "{}";
 
     const response = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
@@ -348,15 +355,18 @@ describe("UCP REST routes", () => {
 
   it("verifies Content-Digest before invoking signed checkout write handlers", async () => {
     const handler = vi.fn();
-    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({
-      restHandlers: {
-        create_checkout: handler,
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({
+        restHandlers: {
+          create_checkout: handler,
+        },
+      }),
+    );
 
     const response = await app.request("/ucp/v1/checkout-sessions", {
       method: "POST",
-      body: "{\"changed\":true}",
+      body: '{"changed":true}',
       headers: signedHeaders("{}", { "Idempotency-Key": "idem_1" }),
     });
 
@@ -370,12 +380,14 @@ describe("UCP REST routes", () => {
 describe("UCP profile key cache", () => {
   it("caches fetched agent signing keys in the platform store", async () => {
     const db = createFakeProfileDb();
-    const fetch = vi.fn(async () =>
-      new Response(JSON.stringify({
-        signing_keys: [
-          { kid: "platform-2026", kty: "RSA", n: "abc", e: "AQAB" },
-        ],
-      }), { status: 200 }),
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            signing_keys: [{ kid: "platform-2026", kty: "RSA", n: "abc", e: "AQAB" }],
+          }),
+          { status: 200 },
+        ),
     );
     const resolver = createUcpProfileKeyResolver({
       db,
@@ -518,11 +530,14 @@ describe("UCP MCP routes", () => {
       ucp: { version: UCP_VERSION, status: "ok" as const },
       observed: args,
     }));
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({
-      mcpToolHandlers: {
-        search_catalog: handler,
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({
+        mcpToolHandlers: {
+          search_catalog: handler,
+        },
+      }),
+    );
 
     const response = await app.request("/ucp/mcp", {
       method: "POST",
@@ -539,9 +554,11 @@ describe("UCP MCP routes", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(handler).toHaveBeenCalledWith(expect.objectContaining({
-      arguments: { query: "charizard" },
-    }));
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        arguments: { query: "charizard" },
+      }),
+    );
     await expect(response.json()).resolves.toMatchObject({
       result: {
         structuredContent: {
@@ -563,20 +580,23 @@ describe("UCP MCP routes", () => {
   });
 
   it("keeps machine-readable UCP payloads out of MCP content blocks", async () => {
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({
-      mcpToolHandlers: {
-        search_catalog: async () => ({
-          ucp: { version: UCP_VERSION, status: "ok" as const },
-          products: [
-            {
-              id: "cat_1",
-              title: "Charizard",
-            },
-          ],
-          total: 1,
-        }),
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({
+        mcpToolHandlers: {
+          search_catalog: async () => ({
+            ucp: { version: UCP_VERSION, status: "ok" as const },
+            products: [
+              {
+                id: "cat_1",
+                title: "Charizard",
+              },
+            ],
+            total: 1,
+          }),
+        },
+      }),
+    );
 
     const response = await app.request("/ucp/mcp", {
       method: "POST",
@@ -604,26 +624,27 @@ describe("UCP MCP routes", () => {
         text: "Found 1 marketplace result: Charizard.",
       },
     ]);
-    expect(body.result.content).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: "json" })]),
-    );
+    expect(body.result.content).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "json" })]));
   });
 
   it("returns an OAuth challenge in tool results when account-scoped handlers require authentication", async () => {
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({
-      mcpToolHandlers: {
-        get_checkout: async () => ({
-          ucp: { version: UCP_VERSION, status: "error" as const },
-          messages: [
-            {
-              severity: "error" as const,
-              code: "authentication_required",
-              message: "UCP checkout requires a linked buyer account.",
-            },
-          ],
-        }),
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({
+        mcpToolHandlers: {
+          get_checkout: async () => ({
+            ucp: { version: UCP_VERSION, status: "error" as const },
+            messages: [
+              {
+                severity: "error" as const,
+                code: "authentication_required",
+                message: "UCP checkout requires a linked buyer account.",
+              },
+            ],
+          }),
+        },
+      }),
+    );
 
     const response = await app.request("/ucp/mcp", {
       method: "POST",
@@ -680,11 +701,14 @@ describe("UCP MCP routes", () => {
       });
       await next();
     });
-    app.route("/ucp/mcp", createUcpMcpRoutes({
-      mcpToolHandlers: {
-        complete_checkout: vi.fn(),
-      },
-    }));
+    app.route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({
+        mcpToolHandlers: {
+          complete_checkout: vi.fn(),
+        },
+      }),
+    );
 
     const response = await app.request("/ucp/mcp", {
       method: "POST",
@@ -720,11 +744,14 @@ describe("UCP MCP routes", () => {
       ucp: { version: UCP_VERSION, status: "ok" as const },
       checkout: { id: `chk_${handler.mock.calls.length}` },
     }));
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({
-      mcpToolHandlers: {
-        complete_checkout: handler,
-      },
-    }));
+    const app = new Hono().route(
+      "/ucp/mcp",
+      createUcpMcpRoutes({
+        mcpToolHandlers: {
+          complete_checkout: handler,
+        },
+      }),
+    );
     const firstBody = JSON.stringify({
       jsonrpc: "2.0",
       id: "1",
@@ -777,16 +804,16 @@ describe("UCP MCP routes", () => {
 });
 
 function createFakeProfileDb() {
-  const profiles = new Map<string, {
-    profile: unknown;
-    expires_at: string;
-  }>();
+  const profiles = new Map<
+    string,
+    {
+      profile: unknown;
+      expires_at: string;
+    }
+  >();
 
   return {
-    async query<Row = Record<string, unknown>>(
-      text: string,
-      values: readonly unknown[] = [],
-    ) {
+    async query<Row = Record<string, unknown>>(text: string, values: readonly unknown[] = []) {
       if (text.includes("SELECT profile, expires_at")) {
         const row = profiles.get(String(values[0]));
         return {
@@ -809,19 +836,19 @@ function createFakeProfileDb() {
 }
 
 function createFakeIdempotencyDb() {
-  const records = new Map<string, {
-    key: string;
-    request_hash: string;
-    response: unknown;
-    created_at: string;
-    expires_at: string | null;
-  }>();
+  const records = new Map<
+    string,
+    {
+      key: string;
+      request_hash: string;
+      response: unknown;
+      created_at: string;
+      expires_at: string | null;
+    }
+  >();
 
   return {
-    async query<Row = Record<string, unknown>>(
-      text: string,
-      values: readonly unknown[] = [],
-    ) {
+    async query<Row = Record<string, unknown>>(text: string, values: readonly unknown[] = []) {
       if (text.includes("INSERT INTO platform_ucp_idempotency_records")) {
         const row = {
           key: String(values[0]),

@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
   assert,
@@ -260,14 +256,9 @@ export type PaymentEvent =
   | PaymentFailedEvent
   | PaymentCancelledEvent;
 
-function normalizeSellerPayoutComponents(
-  components: readonly SellerPayoutComponent[],
-): SellerPayoutComponent[] {
+function normalizeSellerPayoutComponents(components: readonly SellerPayoutComponent[]): SellerPayoutComponent[] {
   return components.map((component) => ({
-    orderId: normalizeRequiredText(
-      component.orderId,
-      "Seller payout component must include an order.",
-    ) as OrderId,
+    orderId: normalizeRequiredText(component.orderId, "Seller payout component must include an order.") as OrderId,
     sellerAccountId: normalizeRequiredText(
       component.sellerAccountId,
       "Seller payout component must include a seller account.",
@@ -294,20 +285,14 @@ function normalizeSellerPayoutComponents(
   }));
 }
 
-export const decidePayment: AggregateDecider<
-  PaymentState,
-  PaymentCommand,
-  PaymentEvent
-> = (state, command) => {
+export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, PaymentEvent> = (state, command) => {
   switch (command.type) {
     case "CreatePayment":
       assert(state.paymentId === null, "Payment has already been created.");
       const sellerPayouts = normalizeSellerPayoutComponents(command.sellerPayouts ?? []);
       const sellerPayoutAmount = normalizeMoneyAmount(
         command.sellerPayoutAmount ??
-          sellerPayouts
-            .reduce((sum, component) => sum + Number.parseFloat(component.sellerPayoutAmount), 0)
-            .toFixed(2),
+          sellerPayouts.reduce((sum, component) => sum + Number.parseFloat(component.sellerPayoutAmount), 0).toFixed(2),
         {
           fieldName: "Seller payout amount",
           allowZero: true,
@@ -323,13 +308,10 @@ export const decidePayment: AggregateDecider<
             amount: normalizeMoneyAmount(command.amount, {
               fieldName: "Payment amount",
             }),
-            balanceCreditAmount: normalizeMoneyAmount(
-              command.balanceCreditAmount ?? "0.00",
-              {
-                fieldName: "Balance credit amount",
-                allowZero: true,
-              },
-            ),
+            balanceCreditAmount: normalizeMoneyAmount(command.balanceCreditAmount ?? "0.00", {
+              fieldName: "Balance credit amount",
+              allowZero: true,
+            }),
             processorAmount: normalizeMoneyAmount(command.processorAmount ?? command.amount, {
               fieldName: "External payment amount",
               allowZero: true,
@@ -342,15 +324,11 @@ export const decidePayment: AggregateDecider<
               fieldName: "Marketplace checkout fee amount",
               allowZero: true,
             }),
-            marketplaceCheckoutFeePolicyVersion: normalizeOptionalText(
-              command.marketplaceCheckoutFeePolicyVersion,
-            ),
+            marketplaceCheckoutFeePolicyVersion: normalizeOptionalText(command.marketplaceCheckoutFeePolicyVersion),
             marketplaceCheckoutFeeQuoteFingerprint: normalizeOptionalText(
               command.marketplaceCheckoutFeeQuoteFingerprint,
             ),
-            paymentMethodCategory: normalizeOptionalText(
-              command.paymentMethodCategory,
-            ),
+            paymentMethodCategory: normalizeOptionalText(command.paymentMethodCategory),
             sellerNetAmount: normalizeMoneyAmount(command.sellerNetAmount, {
               fieldName: "Seller net amount",
               allowZero: true,
@@ -366,16 +344,10 @@ export const decidePayment: AggregateDecider<
             ),
             processorClientSecret: normalizeOptionalText(command.processorClientSecret),
             processorRedirectUrl: normalizeOptionalText(command.processorRedirectUrl),
-            processorStatus: normalizeRequiredText(
-              command.processorStatus,
-              "Processor status is required.",
-            ),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
             sourceContext: normalizeOptionalText(command.sourceContext),
             sourceReferenceId: normalizeOptionalText(command.sourceReferenceId),
-            createdAt: ensureIsoTimestamp(
-              command.createdAt,
-              "Payment creation must include a timestamp.",
-            ),
+            createdAt: ensureIsoTimestamp(command.createdAt, "Payment creation must include a timestamp."),
           },
         },
       ];
@@ -389,14 +361,8 @@ export const decidePayment: AggregateDecider<
           type: "payments.payment-authorized",
           data: {
             paymentId: state.paymentId,
-            processorStatus: normalizeRequiredText(
-              command.processorStatus,
-              "Processor status is required.",
-            ),
-            authorizedAt: ensureIsoTimestamp(
-              command.authorizedAt,
-              "Payment authorization must include a timestamp.",
-            ),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            authorizedAt: ensureIsoTimestamp(command.authorizedAt, "Payment authorization must include a timestamp."),
           },
         },
       ];
@@ -419,10 +385,8 @@ export const decidePayment: AggregateDecider<
             processorAmount: state.processorAmount!,
             marketplaceSalesFeeAmount: state.marketplaceSalesFeeAmount!,
             marketplaceCheckoutFeeAmount: state.marketplaceCheckoutFeeAmount!,
-            marketplaceCheckoutFeePolicyVersion:
-              state.marketplaceCheckoutFeePolicyVersion,
-            marketplaceCheckoutFeeQuoteFingerprint:
-              state.marketplaceCheckoutFeeQuoteFingerprint,
+            marketplaceCheckoutFeePolicyVersion: state.marketplaceCheckoutFeePolicyVersion,
+            marketplaceCheckoutFeeQuoteFingerprint: state.marketplaceCheckoutFeeQuoteFingerprint,
             paymentMethodCategory: state.paymentMethodCategory,
             sellerNetAmount: state.sellerNetAmount!,
             sellerPayoutAmount: state.sellerPayoutAmount!,
@@ -430,14 +394,8 @@ export const decidePayment: AggregateDecider<
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
-            processorStatus: normalizeRequiredText(
-              command.processorStatus,
-              "Processor status is required.",
-            ),
-            capturedAt: ensureIsoTimestamp(
-              command.capturedAt,
-              "Payment capture must include a timestamp.",
-            ),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            capturedAt: ensureIsoTimestamp(command.capturedAt, "Payment capture must include a timestamp."),
           },
         },
       ];
@@ -460,10 +418,8 @@ export const decidePayment: AggregateDecider<
             processorAmount: state.processorAmount!,
             marketplaceSalesFeeAmount: state.marketplaceSalesFeeAmount!,
             marketplaceCheckoutFeeAmount: state.marketplaceCheckoutFeeAmount!,
-            marketplaceCheckoutFeePolicyVersion:
-              state.marketplaceCheckoutFeePolicyVersion,
-            marketplaceCheckoutFeeQuoteFingerprint:
-              state.marketplaceCheckoutFeeQuoteFingerprint,
+            marketplaceCheckoutFeePolicyVersion: state.marketplaceCheckoutFeePolicyVersion,
+            marketplaceCheckoutFeeQuoteFingerprint: state.marketplaceCheckoutFeeQuoteFingerprint,
             paymentMethodCategory: state.paymentMethodCategory,
             sellerNetAmount: state.sellerNetAmount!,
             sellerPayoutAmount: state.sellerPayoutAmount!,
@@ -471,16 +427,10 @@ export const decidePayment: AggregateDecider<
             currencyCode: state.currencyCode!,
             processorName: state.processorName!,
             processorPaymentReference: state.processorPaymentReference!,
-            processorStatus: normalizeRequiredText(
-              command.processorStatus,
-              "Processor status is required.",
-            ),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
             failureCode: normalizeOptionalText(command.failureCode),
             failureMessage: normalizeOptionalText(command.failureMessage),
-            failedAt: ensureIsoTimestamp(
-              command.failedAt,
-              "Payment failure must include a timestamp.",
-            ),
+            failedAt: ensureIsoTimestamp(command.failedAt, "Payment failure must include a timestamp."),
           },
         },
       ];
@@ -495,10 +445,7 @@ export const decidePayment: AggregateDecider<
           type: "payments.payment-cancelled",
           data: {
             paymentId: state.paymentId,
-            cancelledAt: ensureIsoTimestamp(
-              command.cancelledAt,
-              "Payment cancellation must include a timestamp.",
-            ),
+            cancelledAt: ensureIsoTimestamp(command.cancelledAt, "Payment cancellation must include a timestamp."),
           },
         },
       ];
@@ -507,10 +454,7 @@ export const decidePayment: AggregateDecider<
   }
 };
 
-export const evolvePayment: AggregateEvolver<
-  PaymentState,
-  PaymentEvent
-> = (state, event) => {
+export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (state, event) => {
   switch (event.type) {
     case "payments.payment-created":
       return {
@@ -522,10 +466,8 @@ export const evolvePayment: AggregateEvolver<
         processorAmount: event.data.processorAmount,
         marketplaceSalesFeeAmount: event.data.marketplaceSalesFeeAmount,
         marketplaceCheckoutFeeAmount: event.data.marketplaceCheckoutFeeAmount,
-        marketplaceCheckoutFeePolicyVersion:
-          event.data.marketplaceCheckoutFeePolicyVersion ?? null,
-        marketplaceCheckoutFeeQuoteFingerprint:
-          event.data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
+        marketplaceCheckoutFeePolicyVersion: event.data.marketplaceCheckoutFeePolicyVersion ?? null,
+        marketplaceCheckoutFeeQuoteFingerprint: event.data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
         paymentMethodCategory: event.data.paymentMethodCategory ?? null,
         sellerNetAmount: event.data.sellerNetAmount,
         sellerPayoutAmount: event.data.sellerPayoutAmount ?? event.data.sellerNetAmount,

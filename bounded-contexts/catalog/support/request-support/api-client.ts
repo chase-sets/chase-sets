@@ -1,12 +1,5 @@
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-export {
-  CatalogApiError,
-  catalogApi,
-  createCatalogApiClient,
-} from "../../client";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { CatalogApiError, catalogApi, createCatalogApiClient } from "../../client";
 export type {
   Blueprint,
   BlueprintDetail,

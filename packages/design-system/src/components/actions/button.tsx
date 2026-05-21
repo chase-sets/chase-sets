@@ -1,9 +1,4 @@
-import type {
-  AnchorHTMLAttributes,
-  ButtonHTMLAttributes,
-  HTMLAttributes,
-  ReactNode
-} from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { forwardRef } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
@@ -17,7 +12,7 @@ import {
   buttonToneClasses,
   buttonSizeClasses,
   buttonCompactSizeClasses,
-  resolveInteractiveMotion
+  resolveInteractiveMotion,
 } from "./shared";
 
 function iconTone(tone: ButtonTone): "inverse" | "accent" {
@@ -33,24 +28,19 @@ function renderLeadingIcon(icon: IconName | undefined, tone: ButtonTone): ReactN
 }
 
 function ButtonSpinner({ tone }: { tone: ButtonTone }) {
-  const color = tone === "primary" || tone === "danger"
-    ? "border-t-accent-contrast border-accent-contrast/30"
-    : "border-t-accent border-accent/30";
+  const color =
+    tone === "primary" || tone === "danger"
+      ? "border-t-accent-contrast border-accent-contrast/30"
+      : "border-t-accent border-accent/30";
 
   return (
-    <span
-      aria-hidden="true"
-      className={cx(
-        "absolute inset-0 flex items-center justify-center",
-      )}
-    >
+    <span aria-hidden="true" className={cx("absolute inset-0 flex items-center justify-center")}>
       <span className={cx("h-4 w-4 animate-spin rounded-full border-2", color)} />
     </span>
   );
 }
 
-export interface ButtonProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
+export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
   tone?: ButtonTone;
   size?: ButtonSize;
   block?: boolean;
@@ -72,7 +62,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     disabled,
     ...rest
   },
-  ref
+  ref,
 ) {
   const motionSettings = useChaseMotion();
   const density = useDensity();
@@ -80,7 +70,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
     motionSettings.interactiveScale,
-    motionSettings.interactiveLift
+    motionSettings.interactiveLift,
   );
   const nativeProps = toMotionDomProps(rest);
   const isDisabled = disabled || loading;
@@ -93,12 +83,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={isDisabled}
       aria-busy={loading || undefined}
       {...(isDisabled ? undefined : interactiveMotion)}
-      className={cx(
-        buttonBaseClass,
-        buttonToneClasses[tone],
-        sizeClasses[size],
-        block && "w-full"
-      )}
+      className={cx(buttonBaseClass, buttonToneClasses[tone], sizeClasses[size], block && "w-full")}
     >
       {loading ? <ButtonSpinner tone={tone} /> : null}
       <span className={cx("inline-flex min-w-0 max-w-full items-center justify-center gap-2", loading && "invisible")}>
@@ -110,58 +95,45 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
-export interface IconButtonProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "children"> {
+export interface IconButtonProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "className" | "style" | "children"
+> {
   label: string;
   icon: IconName;
   tone?: ButtonTone;
   size?: ButtonSize;
 }
 
-export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
-  function IconButton(
-    {
-      label,
-      icon,
-      tone = "ghost",
-      size = "md",
-      type = "button",
-      ...rest
-    },
-    ref
-  ) {
-    const motionSettings = useChaseMotion();
-    const density = useDensity();
-    const sizeClasses = density === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
-    const interactiveMotion = resolveInteractiveMotion(
-      motionSettings.reducedMotion,
-      motionSettings.interactiveScale,
-      motionSettings.interactiveLift
-    );
-    const nativeProps = toMotionDomProps(rest);
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+  { label, icon, tone = "ghost", size = "md", type = "button", ...rest },
+  ref,
+) {
+  const motionSettings = useChaseMotion();
+  const density = useDensity();
+  const sizeClasses = density === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
+  const interactiveMotion = resolveInteractiveMotion(
+    motionSettings.reducedMotion,
+    motionSettings.interactiveScale,
+    motionSettings.interactiveLift,
+  );
+  const nativeProps = toMotionDomProps(rest);
 
-    return (
-      <motion.button
-        {...nativeProps}
-        ref={ref}
-        type={type}
-        aria-label={label}
-        {...interactiveMotion}
-        className={cx(
-          buttonBaseClass,
-          buttonToneClasses[tone],
-          sizeClasses[size],
-          "px-0"
-        )}
-      >
-        <Icon name={icon} size="sm" tone={iconTone(tone)} />
-      </motion.button>
-    );
-  }
-);
+  return (
+    <motion.button
+      {...nativeProps}
+      ref={ref}
+      type={type}
+      aria-label={label}
+      {...interactiveMotion}
+      className={cx(buttonBaseClass, buttonToneClasses[tone], sizeClasses[size], "px-0")}
+    >
+      <Icon name={icon} size="sm" tone={iconTone(tone)} />
+    </motion.button>
+  );
+});
 
-export interface LinkButtonProps
-  extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "style"> {
+export interface LinkButtonProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "style"> {
   tone?: ButtonTone;
   size?: ButtonSize;
   leadingIcon?: IconName;
@@ -169,62 +141,39 @@ export interface LinkButtonProps
   block?: boolean;
 }
 
-export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(
-  function LinkButton(
-    {
-      children,
-      tone = "secondary",
-      size = "md",
-      leadingIcon,
-      trailingIcon,
-      block = false,
-      ...rest
-    },
-    ref
-  ) {
-    const motionSettings = useChaseMotion();
-    const interactiveMotion = resolveInteractiveMotion(
-      motionSettings.reducedMotion,
-      motionSettings.interactiveScale,
-      motionSettings.interactiveLift
-    );
-    const nativeProps = toMotionDomProps(rest);
+export const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(function LinkButton(
+  { children, tone = "secondary", size = "md", leadingIcon, trailingIcon, block = false, ...rest },
+  ref,
+) {
+  const motionSettings = useChaseMotion();
+  const interactiveMotion = resolveInteractiveMotion(
+    motionSettings.reducedMotion,
+    motionSettings.interactiveScale,
+    motionSettings.interactiveLift,
+  );
+  const nativeProps = toMotionDomProps(rest);
 
-    return (
-      <motion.a
-        {...nativeProps}
-        ref={ref}
-        {...interactiveMotion}
-        className={cx(
-          buttonBaseClass,
-          buttonToneClasses[tone],
-          buttonSizeClasses[size],
-          block && "w-full"
-        )}
-      >
-        {renderLeadingIcon(leadingIcon, tone)}
-        <span className="min-w-0">{children}</span>
-        {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}
-      </motion.a>
-    );
-  }
-);
+  return (
+    <motion.a
+      {...nativeProps}
+      ref={ref}
+      {...interactiveMotion}
+      className={cx(buttonBaseClass, buttonToneClasses[tone], buttonSizeClasses[size], block && "w-full")}
+    >
+      {renderLeadingIcon(leadingIcon, tone)}
+      <span className="min-w-0">{children}</span>
+      {trailingIcon ? <Icon name={trailingIcon} size="sm" tone={iconTone(tone)} /> : null}
+    </motion.a>
+  );
+});
 
-export interface ButtonGroupProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface ButtonGroupProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
 }
 
-export function ButtonGroup({
-  children,
-  ...rest
-}: ButtonGroupProps) {
+export function ButtonGroup({ children, ...rest }: ButtonGroupProps) {
   return (
-    <div
-      {...rest}
-      role="group"
-      className="inline-flex flex-wrap items-center gap-3"
-    >
+    <div {...rest} role="group" className="inline-flex flex-wrap items-center gap-3">
       {children}
     </div>
   );

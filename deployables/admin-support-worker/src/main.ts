@@ -13,10 +13,7 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { getObservabilityRuntime } from "@chase-sets/observability";
 import { loadConfig } from "./config";
-import {
-  closeAdminSupportWorkerPools,
-  createAdminSupportWorkerPools,
-} from "./database-pools";
+import { closeAdminSupportWorkerPools, createAdminSupportWorkerPools } from "./database-pools";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
 const observability = getObservabilityRuntime();
@@ -28,10 +25,7 @@ const controlPlane = createPostgresPlatformControlPlane(pools.control);
 const runtime = createWorkerHost(workerContextRegistry, "admin-support-worker", {
   pools,
 });
-const runners = [
-  ...collectWorkerRunners(runtime),
-  ...createCatalogBulkJobRunners(runtime.services, config),
-];
+const runners = [...collectWorkerRunners(runtime), ...createCatalogBulkJobRunners(runtime.services, config)];
 const runnerLoop = createWorkerRunnerLoop({
   workerId: config.workerId,
   controlPlane,
@@ -55,18 +49,23 @@ await controlPlane.heartbeatWorker({
   workerKind: "admin-support-worker",
   metadata: { runnerCount: runners.length },
 });
-const heartbeatTimer = setInterval(() => {
-  void controlPlane.heartbeatWorker({
-    workerId: config.workerId,
-    workerKind: "admin-support-worker",
-    metadata: { runnerCount: runners.length },
-  }).catch((error) => {
-    logger.error("Admin support worker heartbeat failed.", {
-      type: "admin-support-worker.heartbeat.failed",
-      error,
-    });
-  });
-}, Math.max(5_000, Math.floor(config.leaseTtlMs / 3)));
+const heartbeatTimer = setInterval(
+  () => {
+    void controlPlane
+      .heartbeatWorker({
+        workerId: config.workerId,
+        workerKind: "admin-support-worker",
+        metadata: { runnerCount: runners.length },
+      })
+      .catch((error) => {
+        logger.error("Admin support worker heartbeat failed.", {
+          type: "admin-support-worker.heartbeat.failed",
+          error,
+        });
+      });
+  },
+  Math.max(5_000, Math.floor(config.leaseTtlMs / 3)),
+);
 heartbeatTimer.unref?.();
 runnerLoop.start();
 
@@ -98,7 +97,8 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
     clearInterval(heartbeatTimer);
-    void runnerLoop.stop()
+    void runnerLoop
+      .stop()
       .finally(() => closeAdminSupportWorkerPools(pools))
       .finally(() => observability.shutdown())
       .finally(() => process.exit(0));
@@ -112,15 +112,11 @@ function createCatalogBulkJobRunners(
   const catalog = services.catalog as
     | {
         sourceObservations?: {
-          processNextBulkReviewJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-          }) => Promise<number>;
+          processNextBulkReviewJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
         };
       }
     | undefined;
-  const processNextBulkReviewJob =
-    catalog?.sourceObservations?.processNextBulkReviewJob;
+  const processNextBulkReviewJob = catalog?.sourceObservations?.processNextBulkReviewJob;
 
   if (!processNextBulkReviewJob) {
     return [];

@@ -17,4 +17,3 @@ export function buildCatalogAuthoringTestApp(
 
   return app;
 }
-

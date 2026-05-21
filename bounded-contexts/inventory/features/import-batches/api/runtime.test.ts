@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  PgQueryResult,
-  PgQueryable,
-} from "@chase-sets/event-core-postgres";
+import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
@@ -74,18 +71,14 @@ type StoredLocation = Readonly<{
 const now = "2026-05-09T00:00:00.000Z";
 
 const productSchema = {
-  canonicalDimensionOrder: [
-    { dimensionId: "condition", dimensionName: "Condition" },
-  ],
+  canonicalDimensionOrder: [{ dimensionId: "condition", dimensionName: "Condition" }],
   dimensions: [
     {
       dimensionId: "condition",
       dimensionName: "Condition",
       required: true,
       appliesWhen: [],
-      allowedOptions: [
-        { optionId: "near_mint", code: "NM" },
-      ],
+      allowedOptions: [{ optionId: "near_mint", code: "NM" }],
     },
   ],
 } satisfies InventoryProductSchema;
@@ -101,10 +94,7 @@ class ImportBatchDb implements PgQueryable {
   ): Promise<PgQueryResult<Row>> {
     if (sql.includes("FROM inventory_storage_locations")) {
       const location = this.locations.get(String(values[0]));
-      const rows =
-        location && (!values[1] || location.account_id === values[1])
-          ? [location]
-          : [];
+      const rows = location && (!values[1] || location.account_id === values[1]) ? [location] : [];
       return this.result(rows as Row[]);
     }
 
@@ -201,19 +191,13 @@ class ImportBatchDb implements PgQueryable {
       ]);
     }
 
-    if (
-      sql.includes("FROM inventory_import_batches") &&
-      sql.includes("WHERE batch_id = $1")
-    ) {
+    if (sql.includes("FROM inventory_import_batches") && sql.includes("WHERE batch_id = $1")) {
       const batch = this.batches.get(String(values[0]));
       const rows = batch && batch.account_id === values[1] ? [batch] : [];
       return this.result(rows as Row[]);
     }
 
-    if (
-      sql.includes("FROM inventory_import_batch_rows") &&
-      sql.includes("WHERE batch_id = $1")
-    ) {
+    if (sql.includes("FROM inventory_import_batch_rows") && sql.includes("WHERE batch_id = $1")) {
       const rows = this.rows
         .filter((row) => row.batch_id === values[0])
         .sort((left, right) => left.row_number - right.row_number);
@@ -236,9 +220,7 @@ class ImportBatchDb implements PgQueryable {
     }
 
     const rows = this.rows.filter((row) => row.batch_id === batchId);
-    const acceptedCount = rows.filter((row) =>
-      row.status === "accepted" || row.status === "committed",
-    ).length;
+    const acceptedCount = rows.filter((row) => row.status === "accepted" || row.status === "committed").length;
     const committedCount = rows.filter((row) => row.status === "committed").length;
     this.batches.set(batchId, {
       ...batch,

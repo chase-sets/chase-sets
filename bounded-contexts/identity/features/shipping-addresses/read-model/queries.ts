@@ -36,11 +36,7 @@ export async function listShippingAddresses(
   return result.rows;
 }
 
-export async function getShippingAddress(
-  db: PgQueryable,
-  accountId: string,
-  shippingAddressId: string,
-) {
+export async function getShippingAddress(db: PgQueryable, accountId: string, shippingAddressId: string) {
   const result = await db.query<ShippingAddressRow>(
     `SELECT *
      FROM identity_shipping_addresses

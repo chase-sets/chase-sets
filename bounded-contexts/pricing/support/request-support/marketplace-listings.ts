@@ -14,15 +14,10 @@ function readCurrentQuoteFingerprint(body: unknown) {
     return null;
   }
   const currentQuote = (error as { currentQuote?: unknown }).currentQuote;
-  if (
-    !currentQuote ||
-    typeof currentQuote !== "object" ||
-    !("fee_quote_fingerprint" in currentQuote)
-  ) {
+  if (!currentQuote || typeof currentQuote !== "object" || !("fee_quote_fingerprint" in currentQuote)) {
     return null;
   }
-  const fingerprint = (currentQuote as MarketplaceListingTermsPreview)
-    .fee_quote_fingerprint;
+  const fingerprint = (currentQuote as MarketplaceListingTermsPreview).fee_quote_fingerprint;
   return typeof fingerprint === "string" ? fingerprint : null;
 }
 
@@ -38,20 +33,14 @@ function createdListingResponse(value: unknown) {
   };
 }
 
-export function createPricingMarketplaceListingGateway(
-  request: Request,
-): PricingMarketplaceListingGateway {
+export function createPricingMarketplaceListingGateway(request: Request): PricingMarketplaceListingGateway {
   const marketplaceApi = createMarketplaceRequestApiClient(request);
 
   return {
     previewListingTerms: (body) => marketplaceApi.previewListingTerms(body),
-    updateListingPrice: (listingId, body) =>
-      marketplaceApi.updateListingPrice(listingId, body),
-    createListing: async (body) =>
-      createdListingResponse(await marketplaceApi.createListing(body)),
+    updateListingPrice: (listingId, body) => marketplaceApi.updateListingPrice(listingId, body),
+    createListing: async (body) => createdListingResponse(await marketplaceApi.createListing(body)),
     staleFeeQuoteFingerprint: (error) =>
-      error instanceof MarketplaceApiError
-        ? readCurrentQuoteFingerprint(error.body)
-        : null,
+      error instanceof MarketplaceApiError ? readCurrentQuoteFingerprint(error.body) : null,
   };
 }

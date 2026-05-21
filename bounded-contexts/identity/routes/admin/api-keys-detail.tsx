@@ -13,10 +13,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
-export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.apiKeysDetail.api.key.detail.identity.admin") }];
+export const meta: MetaFunction = () => [
+  { title: t("identity.routes.admin.apiKeysDetail.api.key.detail.identity.admin") },
+];
 
 export default function ApiKeyDetailRoute() {
   const data = useLoaderData<typeof loader>();
   return <ApiKeyDetailPage data={data.data} />;
 }
-

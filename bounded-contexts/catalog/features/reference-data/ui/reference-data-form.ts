@@ -60,9 +60,7 @@ export function parseRelationshipsInput(value: string): ReferenceRelationship[] 
         referenceId: referenceId.trim(),
       };
     })
-    .filter((relationship) =>
-      relationship.relationshipType.length > 0 && relationship.referenceId.length > 0,
-    );
+    .filter((relationship) => relationship.relationshipType.length > 0 && relationship.referenceId.length > 0);
 }
 
 export function formatRelationshipsInput(relationships: readonly ReferenceRelationship[] | unknown): string {

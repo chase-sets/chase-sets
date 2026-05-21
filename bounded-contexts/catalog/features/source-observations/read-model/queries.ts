@@ -83,12 +83,7 @@ export async function listSourceObservations(
     filter.values,
   );
 
-  return executeListQuery<SourceObservationListRow>(
-    db,
-    query.countSql,
-    query.listSql,
-    query.values,
-  );
+  return executeListQuery<SourceObservationListRow>(db, query.countSql, query.listSql, query.values);
 }
 
 export async function listSourceObservationIntegrationScopes(
@@ -96,9 +91,7 @@ export async function listSourceObservationIntegrationScopes(
   params: Pick<SourceObservationFilterScope, "provider" | "language" | "setId"> = {},
 ): Promise<SourceObservationIntegrationScopeRow[]> {
   const filter = buildSourceObservationFilter(params, { includeListFilters: false });
-  const where = filter.conditions.length > 0
-    ? `WHERE ${filter.conditions.join(" AND ")}`
-    : "";
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
   const result = await db.query<SourceObservationIntegrationScopeRow>(
     `SELECT
        provider_key,
@@ -137,13 +130,9 @@ export async function previewSourceObservationPromotionScope(
 ): Promise<SourceObservationPromotionPreview> {
   const scope = normalizeSourceObservationFilterScope(params);
   const eligibleStatuses = reviewableStatusesForScope(scope);
-  const eligibleCount = eligibleStatuses.length === 0
-    ? Promise.resolve(0)
-    : countSourceObservations(db, scope, eligibleStatuses);
-  const [matched, eligible] = await Promise.all([
-    countSourceObservations(db, scope),
-    eligibleCount,
-  ]);
+  const eligibleCount =
+    eligibleStatuses.length === 0 ? Promise.resolve(0) : countSourceObservations(db, scope, eligibleStatuses);
+  const [matched, eligible] = await Promise.all([countSourceObservations(db, scope), eligibleCount]);
 
   return {
     matched,
@@ -167,9 +156,7 @@ export async function listSourceObservationIdsForPromotion(
     includeListFilters: true,
     statuses: eligibleStatuses,
   });
-  const where = filter.conditions.length > 0
-    ? `WHERE ${filter.conditions.join(" AND ")}`
-    : "";
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
   const result = await db.query<{ observation_id: string }>(
     `SELECT observation_id FROM catalog_source_observations ${where} ORDER BY observed_at DESC`,
     filter.values,
@@ -199,9 +186,7 @@ async function countSourceObservations(
     includeListFilters: true,
     statuses,
   });
-  const where = filter.conditions.length > 0
-    ? `WHERE ${filter.conditions.join(" AND ")}`
-    : "";
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
   const result = await db.query<{ count: string }>(
     `SELECT COUNT(*) as count FROM catalog_source_observations ${where}`,
     filter.values,
@@ -247,7 +232,9 @@ function buildSourceObservationFilter(
   if (options.includeListFilters && scope.search) {
     values.push(`%${scope.search}%`);
     const param = `$${values.length}`;
-    conditions.push(`(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'cardNumber') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`);
+    conditions.push(
+      `(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'cardNumber') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`,
+    );
   }
 
   return { conditions, values };

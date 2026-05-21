@@ -1,23 +1,14 @@
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
-export type KnownNotificationChannelName =
-  | "email"
-  | "sms"
-  | "rcs"
-  | "web"
-  | "push";
-export type NotificationChannelName =
-  | KnownNotificationChannelName
-  | (string & {});
+export type KnownNotificationChannelName = "email" | "sms" | "rcs" | "web" | "push";
+export type NotificationChannelName = KnownNotificationChannelName | (string & {});
 export type KnownNotificationProviderName =
   | "amazon-ses"
   | "twilio"
   | "web-notification-feed"
   | "push-notification-service"
   | "noop";
-export type NotificationProviderName =
-  | KnownNotificationProviderName
-  | (string & {});
+export type NotificationProviderName = KnownNotificationProviderName | (string & {});
 export type NotificationCriticality = "security" | "commerce" | "operational";
 export type NotificationMessageType = `${string}.${string}`;
 export type NotificationTemplateData = Readonly<Record<string, string | number | boolean | null>>;
@@ -57,7 +48,8 @@ export type EmailNotificationChannel = Readonly<{
   templateId?: string | null;
   templateVersion?: number | null;
   templateData?: NotificationTemplateData;
-}> & NotificationChannelProviderOptions;
+}> &
+  NotificationChannelProviderOptions;
 
 export type SmsNotificationChannel = Readonly<{
   channel: "sms";
@@ -65,7 +57,8 @@ export type SmsNotificationChannel = Readonly<{
   from?: string | null;
   body?: string | null;
   mediaUrls?: readonly string[];
-}> & NotificationChannelProviderOptions;
+}> &
+  NotificationChannelProviderOptions;
 
 export type RcsNotificationChannel = Readonly<{
   channel: "rcs";
@@ -76,7 +69,8 @@ export type RcsNotificationChannel = Readonly<{
   mediaUrl?: string | null;
   actionHref?: string | null;
   smsFallback?: Omit<SmsNotificationChannel, "channel"> | null;
-}> & NotificationChannelProviderOptions;
+}> &
+  NotificationChannelProviderOptions;
 
 export type WebNotificationRecipient = Readonly<{
   userId?: UserId | null;
@@ -89,7 +83,8 @@ export type WebNotificationChannel = Readonly<{
   title?: string | null;
   body?: string | null;
   actionHref?: string | null;
-}> & NotificationChannelProviderOptions;
+}> &
+  NotificationChannelProviderOptions;
 
 export type PushNotificationChannel = Readonly<{
   channel: "push";
@@ -99,12 +94,14 @@ export type PushNotificationChannel = Readonly<{
   actionHref?: string | null;
   badgeCount?: number | null;
   collapseKey?: string | null;
-}> & NotificationChannelProviderOptions;
+}> &
+  NotificationChannelProviderOptions;
 
 export type CustomNotificationChannel = Readonly<{
   channel: NotificationChannelName;
   payload: NotificationTemplateData;
-}> & NotificationChannelProviderOptions;
+}> &
+  NotificationChannelProviderOptions;
 
 export type NotificationChannel =
   | EmailNotificationChannel
@@ -130,11 +127,7 @@ export type NotificationMessage = Readonly<{
   actor: NotificationActor;
 }>;
 
-export type NotificationOutboxStatus =
-  | "pending"
-  | "sending"
-  | "sent"
-  | "failed";
+export type NotificationOutboxStatus = "pending" | "sending" | "sent" | "failed";
 
 export type NotificationOutboxSource = Readonly<{
   sourceEventId: string;
@@ -156,17 +149,18 @@ export type NotificationDelivery = Readonly<{
   channel: NotificationChannel;
 }>;
 
-export type ClaimedNotificationDelivery = NotificationDelivery & Readonly<{
-  outboxId: string;
-  source: NotificationOutboxSource;
-  status: NotificationOutboxStatus;
-  attemptCount: number;
-  maxAttempts: number;
-  createdAt: string;
-  updatedAt: string;
-  nextAttemptAt: string;
-  lastError: string | null;
-}>;
+export type ClaimedNotificationDelivery = NotificationDelivery &
+  Readonly<{
+    outboxId: string;
+    source: NotificationOutboxSource;
+    status: NotificationOutboxStatus;
+    attemptCount: number;
+    maxAttempts: number;
+    createdAt: string;
+    updatedAt: string;
+    nextAttemptAt: string;
+    lastError: string | null;
+  }>;
 
 export type SentNotificationReceipt = Readonly<{
   channel: NotificationChannelName;
@@ -179,16 +173,12 @@ export type SentNotificationReceipt = Readonly<{
 export interface NotificationChannelAdapter {
   channel: NotificationChannelName;
   providerName?: NotificationProviderName;
-  sendNotificationChannel(
-    delivery: NotificationDelivery,
-  ): Promise<SentNotificationReceipt>;
+  sendNotificationChannel(delivery: NotificationDelivery): Promise<SentNotificationReceipt>;
 }
 
 export type NotificationChannelAdapterRegistry = Readonly<{
   configuredChannels: readonly NotificationChannelName[];
-  adapterForChannel(
-    channel: NotificationChannelName,
-  ): NotificationChannelAdapter | null;
+  adapterForChannel(channel: NotificationChannelName): NotificationChannelAdapter | null;
 }>;
 
 export function createNotificationChannelAdapterRegistry(
@@ -198,9 +188,7 @@ export function createNotificationChannelAdapterRegistry(
 
   for (const adapter of adapters) {
     if (adapterByChannel.has(adapter.channel)) {
-      throw new Error(
-        `Multiple notification adapters configured for '${adapter.channel}'.`,
-      );
+      throw new Error(`Multiple notification adapters configured for '${adapter.channel}'.`);
     }
     adapterByChannel.set(adapter.channel, adapter);
   }
@@ -245,9 +233,7 @@ export interface NotificationOutboxStore extends NotificationOutbox {
   markNotificationDeliveryFailed(input: MarkNotificationDeliveryFailedInput): Promise<void>;
 }
 
-export type MobileMessageProviderWebhookEventKind =
-  | "delivery-status"
-  | "inbound-message";
+export type MobileMessageProviderWebhookEventKind = "delivery-status" | "inbound-message";
 
 export type MobileMessageProviderWebhookEvent = Readonly<{
   providerEventId: string;
@@ -332,26 +318,20 @@ function isChannelEnabled(
   preferences: readonly NotificationChannelPreference[],
 ) {
   const exact = preferences.find(
-    (preference) =>
-      preference.channel === channel &&
-      preference.messageType === messageType,
+    (preference) => preference.channel === channel && preference.messageType === messageType,
   );
   if (exact) {
     return exact.enabled;
   }
 
   const channelDefault = preferences.find(
-    (preference) =>
-      preference.channel === channel &&
-      (preference.messageType ?? null) === null,
+    (preference) => preference.channel === channel && (preference.messageType ?? null) === null,
   );
 
   return channelDefault?.enabled ?? true;
 }
 
-export function createNoopNotificationAdapter(
-  channel: NotificationChannelName,
-): NotificationChannelAdapter {
+export function createNoopNotificationAdapter(channel: NotificationChannelName): NotificationChannelAdapter {
   return {
     channel,
     providerName: "noop",

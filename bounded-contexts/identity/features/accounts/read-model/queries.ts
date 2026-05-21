@@ -1,9 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  buildFilteredQuery,
-  executeListQuery,
-  type ListParams,
-} from "../../../support/read-model-support/list-query";
+import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 
 export type AccountRow = Readonly<{
@@ -20,8 +16,9 @@ type AccountQueryRow = Omit<AccountRow, "badges"> & Readonly<{ badges: unknown }
 
 function normalizeAccountBadges(value: unknown): AccountBadgeKey[] {
   const badges = Array.isArray(value) ? value : [];
-  return badges.filter((badgeKey): badgeKey is AccountBadgeKey =>
-    typeof badgeKey === "string" && accountBadgeKeys.includes(badgeKey as AccountBadgeKey),
+  return badges.filter(
+    (badgeKey): badgeKey is AccountBadgeKey =>
+      typeof badgeKey === "string" && accountBadgeKeys.includes(badgeKey as AccountBadgeKey),
   );
 }
 
@@ -32,22 +29,9 @@ function mapAccountRow(row: AccountQueryRow): AccountRow {
   };
 }
 
-export async function listAccounts(
-  db: PgQueryable,
-  params: ListParams = {},
-) {
-  const query = buildFilteredQuery(
-    "identity_accounts",
-    params,
-    ["name", "display_name"],
-    "display_name ASC",
-  );
-  const result = await executeListQuery<AccountQueryRow>(
-    db,
-    query.countSql,
-    query.listSql,
-    query.values,
-  );
+export async function listAccounts(db: PgQueryable, params: ListParams = {}) {
+  const query = buildFilteredQuery("identity_accounts", params, ["name", "display_name"], "display_name ASC");
+  const result = await executeListQuery<AccountQueryRow>(db, query.countSql, query.listSql, query.values);
   return {
     ...result,
     items: result.items.map(mapAccountRow),
@@ -55,10 +39,7 @@ export async function listAccounts(
 }
 
 export async function getAccount(db: PgQueryable, accountId: string) {
-  const result = await db.query<AccountQueryRow>(
-    `SELECT * FROM identity_accounts WHERE account_id = $1`,
-    [accountId],
-  );
+  const result = await db.query<AccountQueryRow>(`SELECT * FROM identity_accounts WHERE account_id = $1`, [accountId]);
   const row = result.rows[0] ?? null;
   return row ? mapAccountRow(row) : null;
 }

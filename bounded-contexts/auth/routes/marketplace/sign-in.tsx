@@ -6,8 +6,7 @@ import { marketplaceAuthHostConfig } from "../../support/route-support/host-conf
 import { marketplaceAuthHost } from "../../support/route-support/auth-host.server";
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
 
-export const meta: MetaFunction = () =>
-  buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.signIn });
+export const meta: MetaFunction = () => buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.signIn });
 
 export const action = marketplaceAuthHost.createSignInAction();
 
@@ -25,17 +24,11 @@ export default function MarketplaceSignInRoute() {
   return (
     <Container width="narrow" paddingX={0}>
       <SignInPage
-        errorMessage={
-          actionData && "error" in actionData
-            ? actionData.error
-            : data.socialLoginError
-        }
+        errorMessage={actionData && "error" in actionData ? actionData.error : data.socialLoginError}
         notice={actionData && "status" in actionData ? actionData : null}
         returnTo={data.returnTo}
         signInMethods={marketplaceAuthHostConfig.signInMethods}
-        allowManualMagicLinkTokenEntry={
-          marketplaceAuthHostConfig.allowManualMagicLinkTokenEntry
-        }
+        allowManualMagicLinkTokenEntry={marketplaceAuthHostConfig.allowManualMagicLinkTokenEntry}
       />
     </Container>
   );

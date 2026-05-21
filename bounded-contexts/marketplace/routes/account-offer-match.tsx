@@ -1,9 +1,5 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -16,8 +12,7 @@ import {
 } from "../support/request-support/api-client";
 import { MarketplaceOfferMatchDetailPage } from "../features/offers/ui/offer-match-detail-page";
 
-const MARKETPLACE_DESCRIPTION =
-  t("marketplace.routes.accountOfferMatch.inspect.and.accept.an.offer.match");
+const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferMatch.inspect.and.accept.an.offer.match");
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await requireActorFromAuthApi({
@@ -35,9 +30,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     return {
       offerMatch,
       acceptanceTerms:
-        offerMatch.status === "submitted"
-          ? await api.previewOfferAcceptanceTerms(params.offerId!)
-          : null,
+        offerMatch.status === "submitted" ? await api.previewOfferAcceptanceTerms(params.offerId!) : null,
     };
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {

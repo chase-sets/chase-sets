@@ -40,19 +40,14 @@ function destinationStepStatus(value: "missing" | "pending" | "ready") {
   return "needs-attention";
 }
 
-function hasRequirement(
-  readiness: SettlementPayoutReadinessRow,
-  patterns: readonly string[],
-) {
+function hasRequirement(readiness: SettlementPayoutReadinessRow, patterns: readonly string[]) {
   return readiness.missing_requirements.some((requirement) => {
     const normalized = requirement.toLowerCase();
     return patterns.some((pattern) => normalized.includes(pattern));
   });
 }
 
-export function buildPayoutSetupProgress(
-  readiness: SettlementPayoutReadinessRow,
-): PayoutSetupProgress {
+export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow): PayoutSetupProgress {
   const onboardingStatus =
     readiness.onboarding_status === "complete"
       ? "ready"
@@ -84,10 +79,7 @@ export function buildPayoutSetupProgress(
         id: "hosted-onboarding",
         label: "Hosted setup",
         status: onboardingStatus,
-        detail:
-          onboardingStatus === "ready"
-            ? "Hosted setup is complete."
-            : "Continue the hosted setup flow.",
+        detail: onboardingStatus === "ready" ? "Hosted setup is complete." : "Continue the hosted setup flow.",
       },
       {
         id: "identity-and-business",

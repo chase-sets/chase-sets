@@ -94,11 +94,7 @@ export interface SourceObservationPromotionPreview {
   scope: Required<SourceObservationPromotionScope>;
 }
 
-export type BulkSourceObservationPromotionStatus =
-  | "promoted"
-  | "rejected"
-  | "skipped"
-  | "failed";
+export type BulkSourceObservationPromotionStatus = "promoted" | "rejected" | "skipped" | "failed";
 
 export interface BulkSourceObservationPromotionOutcome {
   observationId: string;

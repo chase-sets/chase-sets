@@ -28,12 +28,7 @@ const inventoryItem: InventoryItemListItem = {
 
 describe("inventory item pages", () => {
   it("renders inventory list language codes as localized labels", () => {
-    const html = renderToString(
-      <InventoryItemListPage
-        data={{ items: [inventoryItem] }}
-        locations={[]}
-      />,
-    );
+    const html = renderToString(<InventoryItemListPage data={{ items: [inventoryItem] }} locations={[]} />);
 
     expect(html).toContain("Japanese");
     expect(html).not.toContain(">ja<");

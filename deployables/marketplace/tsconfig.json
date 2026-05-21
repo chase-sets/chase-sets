@@ -15,8 +15,5 @@
     "../../bounded-contexts/inventory/**/*.ts",
     "../../bounded-contexts/inventory/**/*.tsx"
   ],
-  "exclude": [
-    "../../bounded-contexts/**/*.test.ts",
-    "../../bounded-contexts/**/*.test.tsx"
-  ]
+  "exclude": ["../../bounded-contexts/**/*.test.ts", "../../bounded-contexts/**/*.test.tsx"]
 }

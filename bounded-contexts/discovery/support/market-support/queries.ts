@@ -60,9 +60,7 @@ export type DiscoveryPublicAccountReviewRow = Readonly<{
 function mapListing(row: DiscoveryPublicListingRow): DiscoveryPublicListingRow {
   return {
     ...row,
-    selected_options: Array.isArray(row.selected_options)
-      ? row.selected_options
-      : [],
+    selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
   };
 }
 
@@ -107,7 +105,9 @@ export async function getDiscoveryPublicAccountBySlug(
   db: PgQueryable,
   slug: string,
 ): Promise<DiscoveryPublicAccountRow | null> {
-  const accountResult = await db.query<Omit<DiscoveryPublicAccountRow, "listings" | "active_listing_count" | "recent_reviews">>(
+  const accountResult = await db.query<
+    Omit<DiscoveryPublicAccountRow, "listings" | "active_listing_count" | "recent_reviews">
+  >(
     `SELECT
        account.account_id,
        account.seller_slug AS account_slug,

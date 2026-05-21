@@ -1,28 +1,12 @@
 {
   "contextName": "public-presence",
   "packageName": "@chase-sets/public-presence",
-  "ownedNouns": [
-    "public-presence",
-    "waitlist-signup"
-  ],
+  "ownedNouns": ["public-presence", "waitlist-signup"],
   "streamPrefix": "public-presence.",
   "apiBasePath": "/api/public-presence",
-  "slices": [
-    "waitlist"
-  ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support",
-    "shell-support",
-    "ui-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./server",
-    "./web"
-  ],
+  "slices": ["waitlist"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support", "ui-support"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventSubscriptions": [
@@ -30,53 +14,32 @@
       "sourceContextName": "public-presence",
       "projectionName": "public-presence-waitlist-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "public-presence-waitlist-projection"
-      ],
-      "eventTypes": [
-        "public-presence.waitlist-signup.recorded",
-        "public-presence.waitlist-signup.updated"
-      ],
-      "streamPrefixes": [
-        "public-presence.waitlist-signup-"
-      ],
+      "projectorNames": ["public-presence-waitlist-projection"],
+      "eventTypes": ["public-presence.waitlist-signup.recorded", "public-presence.waitlist-signup.updated"],
+      "streamPrefixes": ["public-presence.waitlist-signup-"],
       "order": 10
     },
     {
       "sourceContextName": "public-presence",
       "projectionName": "public-presence-waitlist-transactional-email-projection",
       "subscriptionVersion": 1,
-      "projectorNames": [
-        "public-presence-waitlist-transactional-email-projection"
-      ],
-      "eventTypes": [
-        "public-presence.waitlist-signup.recorded"
-      ],
-      "streamPrefixes": [
-        "public-presence.waitlist-signup-"
-      ],
+      "projectorNames": ["public-presence-waitlist-transactional-email-projection"],
+      "eventTypes": ["public-presence.waitlist-signup.recorded"],
+      "streamPrefixes": ["public-presence.waitlist-signup-"],
       "order": 20
     }
   ],
   "projectionGroups": [
     {
       "projectionName": "public-presence-waitlist-projection",
-      "sourceContextNames": [
-        "public-presence"
-      ],
-      "ownedTables": [
-        "public_presence_waitlist_signups"
-      ],
+      "sourceContextNames": ["public-presence"],
+      "ownedTables": ["public_presence_waitlist_signups"],
       "requiredDuringBootstrap": true
     },
     {
       "projectionName": "public-presence-waitlist-transactional-email-projection",
-      "sourceContextNames": [
-        "public-presence"
-      ],
-      "ownedTables": [
-        "transactional_email_outbox"
-      ],
+      "sourceContextNames": ["public-presence"],
+      "ownedTables": ["transactional_email_outbox"],
       "requiredDuringBootstrap": true
     }
   ],
@@ -87,10 +50,7 @@
       "purpose": "Durable transactional email outbox consumed only by event projectors."
     }
   ],
-  "apiDeployables": [
-    "admin-support-api",
-    "platform-api"
-  ],
+  "apiDeployables": ["admin-support-api", "platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/public-presence",
@@ -198,9 +158,7 @@
       "href": "/waitlist",
       "order": 20,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "public-presence.view"
-      ]
+      "requiredPermissions": ["public-presence.view"]
     }
   ],
   "directoryIntent": {
@@ -208,20 +166,13 @@
       "classification": "slice",
       "purpose": "Own prelaunch waitlist behavior, read models, and admin review surfaces.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": [
-        "Internal public-presence module composition",
-        "Public web routes",
-        "Admin review routes"
-      ]
+      "expectedConsumers": ["Internal public-presence module composition", "Public web routes", "Admin review routes"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide public-presence API clients shared by route modules.",
       "allowedWhen": "Allowed only for context-local request composition.",
-      "expectedConsumers": [
-        "Public web routes",
-        "Admin waitlist route"
-      ],
+      "expectedConsumers": ["Public web routes", "Admin waitlist route"],
       "justification": "request-support centralizes the Public Presence API client for route modules.",
       "createdFor": "Waitlist submission and review routes.",
       "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
@@ -231,9 +182,7 @@
       "classification": "support",
       "purpose": "Provide event-store, schema, and projector composition for the public-presence context.",
       "allowedWhen": "Allowed only for context runtime composition.",
-      "expectedConsumers": [
-        "waitlist"
-      ],
+      "expectedConsumers": ["waitlist"],
       "justification": "runtime-support centralizes event-store composition for the waitlist slice.",
       "createdFor": "public-presence API and worker runtime.",
       "sunsetWhen": "Remove when public presence no longer needs runtime composition."
@@ -242,9 +191,7 @@
       "classification": "support",
       "purpose": "Provide deployable-facing public-presence page shell exports for waitlist routes.",
       "allowedWhen": "Allowed only for shell composition consumed by context web exports.",
-      "expectedConsumers": [
-        "waitlist"
-      ],
+      "expectedConsumers": ["waitlist"],
       "justification": "shell-support keeps deployable-facing page shell exports out of feature internals.",
       "createdFor": "public-presence waitlist page shell composition.",
       "sunsetWhen": "Remove when public presence no longer exports deployable-facing shell modules."
@@ -253,9 +200,7 @@
       "classification": "support",
       "purpose": "Expose the public-presence waitlist analytics event contract to deployable browser bridges without moving waitlist behavior out of the slice.",
       "allowedWhen": "Allowed only for browser-safe Public Presence UI contracts consumed through the context web export.",
-      "expectedConsumers": [
-        "Public web deployable analytics bridge"
-      ],
+      "expectedConsumers": ["Public web deployable analytics bridge"],
       "justification": "The waitlist slice owns analytics event names; public-web needs the event allowlist to validate provider-neutral analytics without duplicating bounded-context vocabulary.",
       "createdFor": "Public Presence waitlist analytics capture.",
       "sunsetWhen": "Remove if analytics capture moves fully into a bounded context browser entrypoint or an approved experimentation context."
@@ -264,13 +209,8 @@
       "classification": "routes",
       "purpose": "Expose public-presence-owned route modules consumed by generated deployable adapters.",
       "allowedWhen": "Required whenever the context contributes routes to any deployable.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "admin-support-worker",
-    "platform-worker"
-  ]
+  "runtimeDeployables": ["admin-support-worker", "platform-worker"]
 }

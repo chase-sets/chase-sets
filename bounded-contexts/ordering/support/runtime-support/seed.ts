@@ -1,8 +1,5 @@
 import type { Projector } from "@chase-sets/event-core/projector";
-import type {
-  PgQueryable,
-  PgTransactionalPool,
-} from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
@@ -45,8 +42,7 @@ const cancelledCartLines = [
 ] as const;
 
 const acceptedOfferSeed = {
-  offerId:
-    marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
+  offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
   catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
   itemTitle: "Twilight Masquerade Elite Trainer Box",
   itemSubtitle: "Sealed elite trainer box",
@@ -118,9 +114,7 @@ async function listOrderPagesForSource(
 
 async function buildCheckoutLine(
   services: ReturnType<typeof createOrderingServices>,
-  line:
-    | (typeof checkoutCartLines)[number]
-    | (typeof cancelledCartLines)[number],
+  line: (typeof checkoutCartLines)[number] | (typeof cancelledCartLines)[number],
 ) {
   const result = await services.db.query<{
     product_id: string;
@@ -160,10 +154,7 @@ async function buildCheckoutLine(
   };
 }
 
-async function getAcceptedOfferInput(
-  services: ReturnType<typeof createOrderingServices>,
-  offerId: string,
-) {
+async function getAcceptedOfferInput(services: ReturnType<typeof createOrderingServices>, offerId: string) {
   const result = await services.db.query<{
     product_id: string;
     marketplace_sales_fee_unit_amount: string;
@@ -194,18 +185,11 @@ export async function seedOrderingDatabase(
   const buyerAccountId = identitySeedIds.collector.accountId;
 
   try {
-    const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder] =
-      await Promise.all([
-        hasOrderPage(
-          ordering.db,
-          orderingReservedSeedIds.orders.checkoutPending,
-        ),
-        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled),
-        hasOrderPage(
-          ordering.db,
-          orderingReservedSeedIds.orders.acceptedOfferReady,
-        ),
-      ]);
+    const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder] = await Promise.all([
+      hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
+      hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled),
+      hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
+    ]);
 
     if (hasCheckoutPending && hasCancelledOrder && hasAcceptedOfferOrder) {
       console.log("Ordering already contains seed data. Skipping seed.");
@@ -219,21 +203,10 @@ export async function seedOrderingDatabase(
 
   console.log("Starting ordering development seed...\n");
 
-  const buyerContext = createSeedContextFor(
-    identitySeedIds.collector.accountId,
-    identitySeedIds.collector.userId,
-  );
-  const sellerContext = createSeedContextFor(
-    identitySeedIds.demo.accountId,
-    identitySeedIds.demo.userId,
-  );
+  const buyerContext = createSeedContextFor(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
+  const sellerContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
-  if (
-    !(await hasOrderPage(
-      ordering.db,
-      orderingReservedSeedIds.orders.checkoutPending,
-    ))
-  ) {
+  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
     const checkoutResult = await ordering.orders.createOrdersFromCheckout(
       {
         buyerAccountId,
@@ -247,14 +220,10 @@ export async function seedOrderingDatabase(
       buyerContext,
     );
     await drainProjectors(ordering.projectors);
-    console.log(
-      `  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`,
-    );
+    console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
   }
 
-  if (
-    !(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled))
-  ) {
+  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled))) {
     const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
       {
         buyerAccountId,
@@ -271,9 +240,7 @@ export async function seedOrderingDatabase(
 
     const cancelledOrderId = cancelledOrderResult.orderIds[0];
     if (!cancelledOrderId) {
-      throw new Error(
-        "Ordering demo seed could not create the cancellable order.",
-      );
+      throw new Error("Ordering demo seed could not create the cancellable order.");
     }
 
     await ordering.orders.cancelPurchase(
@@ -287,26 +254,16 @@ export async function seedOrderingDatabase(
     console.log(`  Cancelled order seeded (${cancelledOrderId})`);
   }
 
-  if (
-    !(await hasOrderPage(
-      ordering.db,
-      orderingReservedSeedIds.orders.acceptedOfferReady,
-    ))
-  ) {
+  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady))) {
     const existingAcceptedOfferOrderIds = await listOrderPagesForSource(
       ordering.db,
       "offer-acceptance",
       acceptedOfferSeed.offerId,
     );
     if (existingAcceptedOfferOrderIds.length > 0) {
-      console.log(
-        `  Accepted-offer order already seeded (${existingAcceptedOfferOrderIds.join(", ")})`,
-      );
+      console.log(`  Accepted-offer order already seeded (${existingAcceptedOfferOrderIds.join(", ")})`);
     } else {
-      const acceptedOfferInput = await getAcceptedOfferInput(
-        ordering,
-        acceptedOfferSeed.offerId,
-      );
+      const acceptedOfferInput = await getAcceptedOfferInput(ordering, acceptedOfferSeed.offerId);
 
       await ordering.orders.createOrdersFromAcceptedOffer(
         {
@@ -320,14 +277,11 @@ export async function seedOrderingDatabase(
           selectedOptions: [...acceptedOfferSeed.selectedOptions],
           productSummary: acceptedOfferSeed.productSummary,
           priceAmount: acceptedOfferSeed.priceAmount,
-          marketplaceSalesFeeUnitAmount:
-            acceptedOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
-          sellerNetUnitAmount:
-            acceptedOfferInput?.seller_net_unit_amount ?? "44.00",
+          marketplaceSalesFeeUnitAmount: acceptedOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
+          sellerNetUnitAmount: acceptedOfferInput?.seller_net_unit_amount ?? "44.00",
           termsScheduleId: acceptedOfferInput?.terms_schedule_id ?? null,
           termsAgreementId: acceptedOfferInput?.terms_agreement_id ?? null,
-          termsResolvedAt:
-            acceptedOfferInput?.terms_resolved_at ?? new Date().toISOString(),
+          termsResolvedAt: acceptedOfferInput?.terms_resolved_at ?? new Date().toISOString(),
           shippingDestinationSnapshot: seedShippingAddress,
           quantityRequested: acceptedOfferSeed.quantityRequested,
           orderIdsOverride: [orderingReservedSeedIds.orders.acceptedOfferReady],
@@ -335,9 +289,7 @@ export async function seedOrderingDatabase(
         sellerContext,
       );
       await drainProjectors(ordering.projectors);
-      console.log(
-        `  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`,
-      );
+      console.log(`  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`);
     }
   }
 

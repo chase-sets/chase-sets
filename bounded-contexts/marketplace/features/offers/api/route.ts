@@ -1,10 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
-import {
-  MarketplaceOfferFeeQuoteStaleError,
-  type MarketplaceOfferServices,
-} from "./runtime";
+import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
 
 function requireOfferAccess(
   c: {
@@ -16,37 +13,56 @@ function requireOfferAccess(
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("marketplace.features.offers.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   if (!actor.permissions.includes(permission)) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden") } }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden") },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
   return { actor, response: null };
 }
 
-function requireSignedInAccount(c: {
-  get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"];
-}) {
+function requireSignedInAccount(c: { get(key: "actor"): MarketplaceApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
   if (!actor) {
     return {
       actor: null,
-      response: new Response(JSON.stringify({ error: { code: "authentication_required", message: t("marketplace.features.offers.api.route.authentication.required") } }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.required"),
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     };
   }
 
@@ -57,9 +73,12 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.offers.api.route.request.failed");
 }
 
-function validationError(c: {
-  json: (body: unknown, status?: number) => Response;
-}, error: unknown) {
+function validationError(
+  c: {
+    json: (body: unknown, status?: number) => Response;
+  },
+  error: unknown,
+) {
   if (error instanceof MarketplaceOfferFeeQuoteStaleError) {
     return c.json(
       {
@@ -79,14 +98,8 @@ function validationError(c: {
 function parseVersionSelection(value: unknown) {
   return Array.isArray(value)
     ? value
-        .filter(
-          (selection): selection is { dimensionId: string; optionId: string } =>
-            Boolean(
-              selection &&
-              typeof selection === "object" &&
-              "dimensionId" in selection &&
-              "optionId" in selection,
-            ),
+        .filter((selection): selection is { dimensionId: string; optionId: string } =>
+          Boolean(selection && typeof selection === "object" && "dimensionId" in selection && "optionId" in selection),
         )
         .map((selection) => ({
           dimensionId: String(selection.dimensionId ?? ""),
@@ -96,10 +109,7 @@ function parseVersionSelection(value: unknown) {
 }
 
 function parseShippingDestination(value: unknown) {
-  const source =
-    value && typeof value === "object"
-      ? value as Record<string, unknown>
-      : {};
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
     name: String(source.name ?? ""),
     company: source.company == null ? null : String(source.company),
@@ -144,13 +154,13 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       return access.response;
     }
 
-    const offer = await services.getSubmittedOffer(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const offer = await services.getSubmittedOffer(c.req.param("id"), access.actor.accountId);
 
     if (!offer) {
-      return c.json({ error: { code: "not_found", message: t("marketplace.features.offers.api.route.submitted.offer.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("marketplace.features.offers.api.route.submitted.offer.not.found") } },
+        404,
+      );
     }
 
     return c.json(offer);
@@ -164,7 +174,15 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.offers.api.route.authentication.context.missing") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
     }
 
     const body = await c.req.json();
@@ -172,26 +190,17 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     try {
       const result = await services.submitOffer(
         {
-          offerId:
-            typeof body.offerId === "string" && body.offerId.trim()
-              ? body.offerId as never
-              : undefined,
+          offerId: typeof body.offerId === "string" && body.offerId.trim() ? (body.offerId as never) : undefined,
           buyerAccountId: access.actor.accountId as never,
           catalogItemId: String(body.catalogItemId ?? ""),
           productId: String(body.productId ?? ""),
           itemTitle: String(body.itemTitle ?? ""),
           itemSubtitle:
-            body.itemSubtitle === null || body.itemSubtitle === undefined
-              ? null
-              : String(body.itemSubtitle),
+            body.itemSubtitle === null || body.itemSubtitle === undefined ? null : String(body.itemSubtitle),
           selectedOptions: parseVersionSelection(body.selectedOptions),
           productSummary:
-            body.productSummary === null || body.productSummary === undefined
-              ? null
-              : String(body.productSummary),
-          shippingDestinationSnapshot: parseShippingDestination(
-            body.shippingDestinationSnapshot,
-          ),
+            body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
+          shippingDestinationSnapshot: parseShippingDestination(body.shippingDestinationSnapshot),
           priceAmount: String(body.priceAmount ?? ""),
           quantityRequested: Number(body.quantityRequested ?? 0),
         },
@@ -237,13 +246,13 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       return access.response;
     }
 
-    const offer = await services.getOfferMatch(
-      c.req.param("id"),
-      access.actor.accountId,
-    );
+    const offer = await services.getOfferMatch(c.req.param("id"), access.actor.accountId);
 
     if (!offer) {
-      return c.json({ error: { code: "not_found", message: t("marketplace.features.offers.api.route.offer.match.not.found") } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("marketplace.features.offers.api.route.offer.match.not.found") } },
+        404,
+      );
     }
 
     return c.json(offer);
@@ -256,7 +265,10 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } }, 403);
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
+        403,
+      );
     }
 
     try {
@@ -278,12 +290,23 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } }, 403);
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
+        403,
+      );
     }
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.offers.api.route.authentication.context.missing.2") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
     }
 
     try {
@@ -313,7 +336,10 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.3") } }, 403);
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.3") } },
+        403,
+      );
     }
 
     const items = await services.listOfferMatchSellList(access.actor.accountId);
@@ -332,7 +358,10 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.4") } }, 403);
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.4") } },
+        403,
+      );
     }
 
     const body = await c.req.json();
@@ -356,12 +385,23 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     }
 
     if (!access.actor.permissions.includes("listings.view")) {
-      return c.json({ error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.5") } }, 403);
+      return c.json(
+        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.5") } },
+        403,
+      );
     }
 
     const context = c.get("context");
     if (!context) {
-      return c.json({ error: { code: "authentication_required", message: t("marketplace.features.offers.api.route.authentication.context.missing.3") } }, 401);
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
     }
 
     try {

@@ -12,17 +12,15 @@ export type SettlementPayoutReadinessRow = Readonly<{
   updated_at: string | null;
 }>;
 
-type PayoutReadinessPageRow = Omit<
-  SettlementPayoutReadinessRow,
-  "status" | "missing_requirements"
-> & Readonly<{
-  status: string;
-  missing_requirements: unknown;
-  onboarding_status: string;
-  transfer_capability_status: string;
-  payout_capability_status: string;
-  payout_destination_status: string;
-}>;
+type PayoutReadinessPageRow = Omit<SettlementPayoutReadinessRow, "status" | "missing_requirements"> &
+  Readonly<{
+    status: string;
+    missing_requirements: unknown;
+    onboarding_status: string;
+    transfer_capability_status: string;
+    payout_capability_status: string;
+    payout_destination_status: string;
+  }>;
 
 function normalizeStatus(status: string): SettlementPayoutReadinessRow["status"] {
   switch (status) {
@@ -35,9 +33,7 @@ function normalizeStatus(status: string): SettlementPayoutReadinessRow["status"]
   }
 }
 
-function normalizeOnboardingStatus(
-  status: string,
-): SettlementPayoutReadinessRow["onboarding_status"] {
+function normalizeOnboardingStatus(status: string): SettlementPayoutReadinessRow["onboarding_status"] {
   switch (status) {
     case "pending":
     case "complete":
@@ -47,9 +43,7 @@ function normalizeOnboardingStatus(
   }
 }
 
-function normalizeCapabilityStatus(
-  status: string,
-): SettlementPayoutReadinessRow["transfer_capability_status"] {
+function normalizeCapabilityStatus(status: string): SettlementPayoutReadinessRow["transfer_capability_status"] {
   switch (status) {
     case "pending":
     case "active":
@@ -59,9 +53,7 @@ function normalizeCapabilityStatus(
   }
 }
 
-function normalizeDestinationStatus(
-  status: string,
-): SettlementPayoutReadinessRow["payout_destination_status"] {
+function normalizeDestinationStatus(status: string): SettlementPayoutReadinessRow["payout_destination_status"] {
   switch (status) {
     case "pending":
     case "ready":
@@ -76,24 +68,16 @@ function mapPayoutReadiness(row: PayoutReadinessPageRow): SettlementPayoutReadin
     ...row,
     status: normalizeStatus(row.status),
     onboarding_status: normalizeOnboardingStatus(row.onboarding_status),
-    transfer_capability_status: normalizeCapabilityStatus(
-      row.transfer_capability_status,
-    ),
-    payout_capability_status: normalizeCapabilityStatus(
-      row.payout_capability_status,
-    ),
-    payout_destination_status: normalizeDestinationStatus(
-      row.payout_destination_status,
-    ),
+    transfer_capability_status: normalizeCapabilityStatus(row.transfer_capability_status),
+    payout_capability_status: normalizeCapabilityStatus(row.payout_capability_status),
+    payout_destination_status: normalizeDestinationStatus(row.payout_destination_status),
     missing_requirements: Array.isArray(row.missing_requirements)
       ? row.missing_requirements.filter((value): value is string => typeof value === "string")
       : [],
   };
 }
 
-export function createEmptyPayoutReadiness(
-  accountId: string,
-): SettlementPayoutReadinessRow {
+export function createEmptyPayoutReadiness(accountId: string): SettlementPayoutReadinessRow {
   return {
     account_id: accountId,
     status: "not-started",
@@ -107,10 +91,7 @@ export function createEmptyPayoutReadiness(
   };
 }
 
-export async function getPayoutReadiness(
-  db: PgQueryable,
-  accountId: string,
-): Promise<SettlementPayoutReadinessRow> {
+export async function getPayoutReadiness(db: PgQueryable, accountId: string): Promise<SettlementPayoutReadinessRow> {
   const result = await db.query<PayoutReadinessPageRow>(
     `SELECT
        account_id,

@@ -1,6 +1,4 @@
-import type {
-  MetaFunction,
-} from "react-router";
+import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { marketplaceAuthHostConfig } from "../../support/route-support/host-config";
@@ -20,11 +18,5 @@ export default function MarketplaceAccountSelectionRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return (
-    <AccountSelectionPage
-      memberships={data.memberships}
-      errorMessage={actionData?.error ?? null}
-    />
-  );
+  return <AccountSelectionPage memberships={data.memberships} errorMessage={actionData?.error ?? null} />;
 }
-

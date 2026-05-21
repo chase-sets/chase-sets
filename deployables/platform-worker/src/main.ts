@@ -1,10 +1,7 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import {
-  createNoopNotificationAdapter,
-  type NotificationChannelAdapter,
-} from "@chase-sets/notifications";
+import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/notifications";
 import {
   createNoopTransactionalEmailGateway,
   type TransactionalEmailGateway,
@@ -37,10 +34,7 @@ import {
   createPostgresTransactionalEmailOutbox,
   createTransactionalEmailOutboxDispatcher,
 } from "@chase-sets/transactional-email-outbox";
-import {
-  createNotificationOutboxDispatcher,
-  createPostgresNotificationOutbox,
-} from "@chase-sets/notification-outbox";
+import { createNotificationOutboxDispatcher, createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notifications";
 import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
 import {
@@ -49,10 +43,7 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { getObservabilityRuntime } from "@chase-sets/observability";
 import { loadConfig } from "./config";
-import {
-  closePlatformWorkerPools,
-  createPlatformWorkerPools,
-} from "./database-pools";
+import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
 const observability = getObservabilityRuntime();
@@ -67,9 +58,7 @@ const platformEmailTemplateRenderer: TransactionalEmailTemplateRenderer = {
       "<body>",
       `<h1>${escapeHtml(message.subject)}</h1>`,
       ...bodyLines.map((line) =>
-        line.trim().length === 0
-          ? "<br>"
-          : `<p>${linkifyEscapedText(escapeHtml(line))}</p>`,
+        line.trim().length === 0 ? "<br>" : `<p>${linkifyEscapedText(escapeHtml(line))}</p>`,
       ),
       "</body>",
       "</html>",
@@ -126,15 +115,9 @@ const postageLabelProvider =
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({ db: pools["commercial-terms"] })
   : undefined;
-const balanceCreditResolver = pools.settlement
-  ? createSettlementBalanceCreditResolver(pools.settlement)
-  : undefined;
-const transactionalEmailGateway = createPlatformTransactionalEmailGateway(
-  config.notificationEmail,
-);
-const emailNotificationAdapter = createPlatformEmailNotificationAdapter(
-  config.notificationEmail,
-);
+const balanceCreditResolver = pools.settlement ? createSettlementBalanceCreditResolver(pools.settlement) : undefined;
+const transactionalEmailGateway = createPlatformTransactionalEmailGateway(config.notificationEmail);
+const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
 
 const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   pools,
@@ -151,16 +134,8 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
 const runners = [
   ...collectWorkerRunners(runtime),
   ...createCatalogBulkJobRunners(runtime.services, config),
-  ...createNotificationDispatchRunners(
-    runtime,
-    config.workerId,
-    emailNotificationAdapter,
-  ),
-  ...createTransactionalEmailDispatchRunners(
-    runtime,
-    config.workerId,
-    transactionalEmailGateway,
-  ),
+  ...createNotificationDispatchRunners(runtime, config.workerId, emailNotificationAdapter),
+  ...createTransactionalEmailDispatchRunners(runtime, config.workerId, transactionalEmailGateway),
   ...createScheduledJobRunners(runtime.services, config),
 ];
 const runnerLoop = createWorkerRunnerLoop({
@@ -186,18 +161,23 @@ await controlPlane.heartbeatWorker({
   workerKind: "platform-worker",
   metadata: { runnerCount: runners.length },
 });
-const heartbeatTimer = setInterval(() => {
-  void controlPlane.heartbeatWorker({
-    workerId: config.workerId,
-    workerKind: "platform-worker",
-    metadata: { runnerCount: runners.length },
-  }).catch((error) => {
-    logger.error("Platform worker heartbeat failed.", {
-      type: "platform-worker.heartbeat.failed",
-      error,
-    });
-  });
-}, Math.max(5_000, Math.floor(config.leaseTtlMs / 3)));
+const heartbeatTimer = setInterval(
+  () => {
+    void controlPlane
+      .heartbeatWorker({
+        workerId: config.workerId,
+        workerKind: "platform-worker",
+        metadata: { runnerCount: runners.length },
+      })
+      .catch((error) => {
+        logger.error("Platform worker heartbeat failed.", {
+          type: "platform-worker.heartbeat.failed",
+          error,
+        });
+      });
+  },
+  Math.max(5_000, Math.floor(config.leaseTtlMs / 3)),
+);
 heartbeatTimer.unref?.();
 runnerLoop.start();
 
@@ -229,7 +209,8 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
     clearInterval(heartbeatTimer);
-    void runnerLoop.stop()
+    void runnerLoop
+      .stop()
       .finally(() => closePlatformWorkerPools(pools))
       .finally(() => observability.shutdown())
       .finally(() => process.exit(0));
@@ -240,9 +221,7 @@ function createScheduledJobRunners(
   services: Readonly<Record<string, unknown>>,
   input: Pick<
     ReturnType<typeof loadConfig>,
-    | "paymentReconciliationIntervalMs"
-    | "sellerFundsReleaseIntervalMs"
-    | "payoutReconciliationIntervalMs"
+    "paymentReconciliationIntervalMs" | "sellerFundsReleaseIntervalMs" | "payoutReconciliationIntervalMs"
   >,
 ): readonly WorkerRunner[] {
   const payments = services.payments as PaymentsServices | undefined;
@@ -250,10 +229,8 @@ function createScheduledJobRunners(
   const runners: WorkerRunner[] = [];
 
   if (payments && input.paymentReconciliationIntervalMs) {
-    runners.push(createScheduledJobRunner(
-      "payments.reconciliation",
-      input.paymentReconciliationIntervalMs,
-      async () => {
+    runners.push(
+      createScheduledJobRunner("payments.reconciliation", input.paymentReconciliationIntervalMs, async () => {
         const result = await payments.payments.scanPaymentsNeedingReconciliation({
           limit: 100,
           claimOwnerId: config.workerId,
@@ -264,15 +241,13 @@ function createScheduledJobRunners(
           count: result.attention,
         });
         return result.checked;
-      },
-    ));
+      }),
+    );
   }
 
   if (settlement && input.sellerFundsReleaseIntervalMs) {
-    runners.push(createScheduledJobRunner(
-      "settlement.seller-funds-release",
-      input.sellerFundsReleaseIntervalMs,
-      async () => {
+    runners.push(
+      createScheduledJobRunner("settlement.seller-funds-release", input.sellerFundsReleaseIntervalMs, async () => {
         const result = await settlement.wallets.releaseMaturePendingSaleCredits(
           {
             limit: 500,
@@ -288,15 +263,13 @@ function createScheduledJobRunners(
         return typeof result === "object" && result && "released" in result
           ? Number((result as { released: unknown }).released)
           : 0;
-      },
-    ));
+      }),
+    );
   }
 
   if (settlement && input.payoutReconciliationIntervalMs) {
-    runners.push(createScheduledJobRunner(
-      "settlement.payout-reconciliation",
-      input.payoutReconciliationIntervalMs,
-      async () => {
+    runners.push(
+      createScheduledJobRunner("settlement.payout-reconciliation", input.payoutReconciliationIntervalMs, async () => {
         const result = await settlement.payouts.reconcilePayoutsNeedingAttention(
           {
             limit: 100,
@@ -312,8 +285,8 @@ function createScheduledJobRunners(
         return typeof result === "object" && result && "checked" in result
           ? Number((result as { checked: unknown }).checked)
           : 0;
-      },
-    ));
+      }),
+    );
   }
 
   return runners;
@@ -326,15 +299,11 @@ function createCatalogBulkJobRunners(
   const catalog = services.catalog as
     | {
         sourceObservations?: {
-          processNextBulkReviewJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-          }) => Promise<number>;
+          processNextBulkReviewJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
         };
       }
     | undefined;
-  const processNextBulkReviewJob =
-    catalog?.sourceObservations?.processNextBulkReviewJob;
+  const processNextBulkReviewJob = catalog?.sourceObservations?.processNextBulkReviewJob;
 
   if (!processNextBulkReviewJob) {
     return [];
@@ -363,10 +332,7 @@ function createTransactionalEmailDispatchRunners(
   const emailOutboxContextNames = new Set<string>(
     workerContextRegistry
       .filter((entry) =>
-        entry.manifest.hostPorts?.some(
-          (port: { portName: string }) =>
-            port.portName === "transactionalEmailOutbox",
-        ),
+        entry.manifest.hostPorts?.some((port: { portName: string }) => port.portName === "transactionalEmailOutbox"),
       )
       .map((entry) => entry.contextName),
   );
@@ -393,9 +359,7 @@ function createNotificationDispatchRunners(
   workerId: string,
   emailAdapter: NotificationChannelAdapter,
 ): readonly WorkerRunner[] {
-  const notificationCenterContext = runtime.mountedContexts.find(
-    (context) => context.contextName === "notifications",
-  );
+  const notificationCenterContext = runtime.mountedContexts.find((context) => context.contextName === "notifications");
   const mobileMessageAdapters: readonly NotificationChannelAdapter[] =
     config.mobileMessaging.kind === "twilio"
       ? [
@@ -416,16 +380,11 @@ function createNotificationDispatchRunners(
             statusCallbackBaseUrl: config.mobileMessaging.statusCallbackBaseUrl,
           }),
         ]
-      : [
-          createNoopNotificationAdapter("sms"),
-          createNoopNotificationAdapter("rcs"),
-        ];
+      : [createNoopNotificationAdapter("sms"), createNoopNotificationAdapter("rcs")];
   const notificationOutboxContextNames = new Set<string>(
     workerContextRegistry
       .filter((entry) =>
-        entry.manifest.hostPorts?.some(
-          (port: { portName: string }) => port.portName === "notificationOutbox",
-        ),
+        entry.manifest.hostPorts?.some((port: { portName: string }) => port.portName === "notificationOutbox"),
       )
       .map((entry) => entry.contextName),
   );
@@ -452,11 +411,7 @@ function createNotificationDispatchRunners(
     });
 }
 
-function createScheduledJobRunner(
-  name: string,
-  intervalMs: number,
-  job: () => Promise<number>,
-): WorkerRunner {
+function createScheduledJobRunner(name: string, intervalMs: number, job: () => Promise<number>): WorkerRunner {
   let nextRunAt = 0;
 
   return {
@@ -533,22 +488,16 @@ function createPlatformEmailNotificationAdapter(
   });
 }
 
-function requireCompleteSesConfig(
-  ses: ReturnType<typeof loadConfig>["notificationEmail"]["ses"],
-) {
+function requireCompleteSesConfig(ses: ReturnType<typeof loadConfig>["notificationEmail"]["ses"]) {
   const { region, fromEmail, configurationSetName, sourceArn } = ses;
   if (!region || !fromEmail || !configurationSetName || !sourceArn) {
-    throw new Error(
-      "Complete SES configuration is required when Amazon SES email is enabled.",
-    );
+    throw new Error("Complete SES configuration is required when Amazon SES email is enabled.");
   }
 
   return { region, fromEmail, configurationSetName, sourceArn };
 }
 
-function renderPlatformEmailBodyLines(
-  message: TransactionalEmailMessage,
-): readonly string[] {
+function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): readonly string[] {
   if (message.templateId === "auth_magic_link") {
     return [
       "Use this secure link to sign in to Chase Sets:",
@@ -580,15 +529,8 @@ function renderPlatformEmailBodyLines(
     ];
   }
 
-  const dataLines = Object.entries(message.templateData).map(
-    ([key, value]) => `${key}: ${String(value ?? "")}`,
-  );
-  return [
-    "A Chase Sets account update is available.",
-    ...dataLines,
-    "",
-    "Chase Sets",
-  ];
+  const dataLines = Object.entries(message.templateData).map(([key, value]) => `${key}: ${String(value ?? "")}`);
+  return ["A Chase Sets account update is available.", ...dataLines, "", "Chase Sets"];
 }
 
 function escapeHtml(value: string) {
@@ -601,10 +543,7 @@ function escapeHtml(value: string) {
 }
 
 function linkifyEscapedText(value: string) {
-  return value.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" rel="noopener noreferrer">$1</a>',
-  );
+  return value.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" rel="noopener noreferrer">$1</a>');
 }
 
 const SYSTEM_CONTEXT = {

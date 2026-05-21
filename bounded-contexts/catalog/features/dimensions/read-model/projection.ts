@@ -1,10 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  coerceLocalizedTextMap,
-  resolveLocalizedTextMap,
-  type LocalizedTextMap,
-} from "@chase-sets/localization";
+import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
 const STREAM_PREFIX = "catalog.dimension-";
@@ -163,28 +159,28 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
     "catalog.dimension.activated": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_dimensions SET status = 'active', updated_at = $2 WHERE dimension_id = $1`,
-        [dimensionId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_dimensions SET status = 'active', updated_at = $2 WHERE dimension_id = $1`, [
+        dimensionId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.dimension.deprecated": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_dimensions SET status = 'deprecated', updated_at = $2 WHERE dimension_id = $1`,
-        [dimensionId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_dimensions SET status = 'deprecated', updated_at = $2 WHERE dimension_id = $1`, [
+        dimensionId,
+        event.timing.recordedAt,
+      ]);
     },
 
     "catalog.dimension.archived": async (event) => {
       const dimensionId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE catalog_dimensions SET status = 'archived', updated_at = $2 WHERE dimension_id = $1`,
-        [dimensionId, event.timing.recordedAt],
-      );
+      await db.query(`UPDATE catalog_dimensions SET status = 'archived', updated_at = $2 WHERE dimension_id = $1`, [
+        dimensionId,
+        event.timing.recordedAt,
+      ]);
     },
   };
 }

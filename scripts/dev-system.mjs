@@ -24,23 +24,12 @@ const localEnvScript = fileURLToPath(new URL("./local-env.mjs", import.meta.url)
 const stripeCliScript = fileURLToPath(new URL("./stripe-cli.mjs", import.meta.url));
 const dockerComposeArgs = buildDockerComposeArgs(sandbox);
 const localAdminDatabaseUrl =
-  process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ??
-  "postgresql://postgres:postgres@localhost:5432/postgres";
+  process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres";
 const devDatabaseUrl = process.env.POSTGRES_DEV_DATABASE_URL ?? sandbox.controlDatabaseUrl;
 const requiredExtensions = ["vector"];
 const extensionContextNames = new Set(["discovery"]);
-const platformApiEnvExamplePath = path.join(
-  rootDir,
-  "deployables",
-  "platform-api",
-  ".env.example",
-);
-const platformApiEnvLocalPath = path.join(
-  rootDir,
-  "deployables",
-  "platform-api",
-  ".env.local",
-);
+const platformApiEnvExamplePath = path.join(rootDir, "deployables", "platform-api", ".env.example");
+const platformApiEnvLocalPath = path.join(rootDir, "deployables", "platform-api", ".env.local");
 const stripeReadyTimeoutMs = 20_000;
 const postgresReadyTimeoutMs = 30_000;
 const postgresReadyPollMs = 1_000;
@@ -75,10 +64,9 @@ function parseOwnedDatabaseUrl(databaseUrl) {
 }
 
 async function ensureOwnedDatabase(adminPool, spec) {
-  const roleExists = await adminPool.query(
-    "SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
-    [spec.roleName],
-  );
+  const roleExists = await adminPool.query("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists", [
+    spec.roleName,
+  ]);
 
   if (roleExists.rows[0]?.exists) {
     await adminPool.query(
@@ -137,10 +125,7 @@ async function withAdminPool(action, databaseName = "postgres") {
 
 async function preparePlatformDatabase() {
   await withAdminPool(async (adminPool) => {
-    const databaseUrls = [
-      sandbox.controlDatabaseUrl,
-      ...Object.values(sandbox.contextDatabaseUrls),
-    ];
+    const databaseUrls = [sandbox.controlDatabaseUrl, ...Object.values(sandbox.contextDatabaseUrls)];
 
     for (const databaseUrl of databaseUrls) {
       await ensureOwnedDatabase(adminPool, parseOwnedDatabaseUrl(databaseUrl));
@@ -155,18 +140,13 @@ async function preparePlatformDatabase() {
     const { databaseName } = parseOwnedDatabaseUrl(databaseUrl);
     await withAdminPool(async (adminPool) => {
       for (const extensionName of requiredExtensions) {
-        await adminPool.query(
-          `CREATE EXTENSION IF NOT EXISTS ${escapeIdentifier(extensionName)}`,
-        );
+        await adminPool.query(`CREATE EXTENSION IF NOT EXISTS ${escapeIdentifier(extensionName)}`);
       }
     }, databaseName);
   }
 }
 
-const bootstrapWorkspaces = [
-  "@chase-sets/app-platform-api",
-  "@chase-sets/app-platform-worker",
-];
+const bootstrapWorkspaces = ["@chase-sets/app-platform-api", "@chase-sets/app-platform-worker"];
 
 function buildContextDatabaseEnv() {
   return Object.fromEntries(
@@ -254,9 +234,7 @@ function resolveProcessesForTarget(targetName) {
   const processNames = devTargets[targetName];
 
   if (!processNames) {
-    throw new Error(
-      `Unknown dev target "${targetName}". Use one of: ${Object.keys(devTargets).join(", ")}.`,
-    );
+    throw new Error(`Unknown dev target "${targetName}". Use one of: ${Object.keys(devTargets).join(", ")}.`);
   }
 
   return processes.filter((definition) => processNames.includes(definition.name));
@@ -279,16 +257,9 @@ function resolveMarketplaceStripeConfig() {
   const envLocal = readEnvFile(platformApiEnvLocalPath);
 
   return {
-    secretKey:
-      process.env.STRIPE_SECRET_KEY ??
-      envLocal.STRIPE_SECRET_KEY ??
-      envExample.STRIPE_SECRET_KEY ??
-      "",
+    secretKey: process.env.STRIPE_SECRET_KEY ?? envLocal.STRIPE_SECRET_KEY ?? envExample.STRIPE_SECRET_KEY ?? "",
     publishableKey:
-      process.env.STRIPE_PUBLISHABLE_KEY ??
-      envLocal.STRIPE_PUBLISHABLE_KEY ??
-      envExample.STRIPE_PUBLISHABLE_KEY ??
-      "",
+      process.env.STRIPE_PUBLISHABLE_KEY ?? envLocal.STRIPE_PUBLISHABLE_KEY ?? envExample.STRIPE_PUBLISHABLE_KEY ?? "",
   };
 }
 
@@ -316,17 +287,12 @@ async function waitForStripeReady(readyFilePath, child) {
     await sleep(200);
   }
 
-  throw new Error(
-    `Stripe listener did not report a webhook secret within ${stripeReadyTimeoutMs / 1000} seconds.`,
-  );
+  throw new Error(`Stripe listener did not report a webhook secret within ${stripeReadyTimeoutMs / 1000} seconds.`);
 }
 
 function isPortInUseError(error) {
   return (
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    (error.code === "EADDRINUSE" || error.code === "EACCES")
+    error && typeof error === "object" && "code" in error && (error.code === "EADDRINUSE" || error.code === "EACCES")
   );
 }
 
@@ -335,9 +301,7 @@ function isConnectionRefusedError(error) {
     error &&
     typeof error === "object" &&
     "code" in error &&
-    (error.code === "ECONNREFUSED" ||
-      error.code === "EHOSTUNREACH" ||
-      error.code === "ETIMEDOUT")
+    (error.code === "ECONNREFUSED" || error.code === "EHOSTUNREACH" || error.code === "ETIMEDOUT")
   );
 }
 
@@ -435,9 +399,7 @@ function listListeningProcessIds(port) {
     }
 
     if (result.status !== 0 && result.status !== 1) {
-      throw new Error(
-        `Unable to inspect listeners on port ${port}: ${result.stderr?.trim() || "unknown error"}`,
-      );
+      throw new Error(`Unable to inspect listeners on port ${port}: ${result.stderr?.trim() || "unknown error"}`);
     }
 
     return String(result.stdout ?? "")
@@ -461,9 +423,7 @@ function listListeningProcessIds(port) {
   }
 
   if (result.status !== 0 && result.status !== 1) {
-    throw new Error(
-      `Unable to inspect listeners on port ${port}: ${result.stderr?.trim() || "unknown error"}`,
-    );
+    throw new Error(`Unable to inspect listeners on port ${port}: ${result.stderr?.trim() || "unknown error"}`);
   }
 
   return String(result.stdout ?? "")
@@ -505,15 +465,8 @@ async function runBootstrap() {
 
   for (const workspace of bootstrapWorkspaces) {
     prefixedConsole("bootstrap", `Running ${workspace} bootstrap...`);
-    const processDefinition = processes.find(
-      (definition) => definition.workspace === workspace,
-    );
-    const invocation = buildPackageManagerInvocation([
-      "--filter",
-      workspace,
-      "run",
-      "bootstrap",
-    ]);
+    const processDefinition = processes.find((definition) => definition.workspace === workspace);
+    const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);
     await runCommand(invocation.command, invocation.args, {
       env: processDefinition?.env ?? {},
       prefix: workspace.replace("@chase-sets/", ""),
@@ -524,9 +477,7 @@ async function runBootstrap() {
 function printDevUrls(targetName, selectedProcesses, includePortal = false) {
   console.log("");
   console.log(
-    targetName === "all"
-      ? `Local dev system (${sandbox.id})`
-      : `Local dev stack: ${targetName} (${sandbox.id})`,
+    targetName === "all" ? `Local dev system (${sandbox.id})` : `Local dev stack: ${targetName} (${sandbox.id})`,
   );
 
   if (includePortal) {
@@ -534,9 +485,7 @@ function printDevUrls(targetName, selectedProcesses, includePortal = false) {
   }
 
   for (const definition of selectedProcesses) {
-    console.log(
-      `  ${definition.name.padEnd(16)} http://localhost:${definition.port}`,
-    );
+    console.log(`  ${definition.name.padEnd(16)} http://localhost:${definition.port}`);
   }
 
   console.log(`  Sandbox env:     ${path.relative(rootDir, sandbox.envFilePath)}`);
@@ -580,23 +529,15 @@ async function runDev(targetName = "all") {
   process.once("SIGINT", () => shutdown("SIGINT", 0));
   process.once("SIGTERM", () => shutdown("SIGTERM", 0));
 
-  const platformApiDefinition = selectedProcesses.find(
-    (definition) => definition.name === "platform-api",
-  );
+  const platformApiDefinition = selectedProcesses.find((definition) => definition.name === "platform-api");
 
   if (platformApiDefinition) {
-    await assertSandboxPortAvailable(
-      platformApiDefinition.port,
-      platformApiDefinition.name,
-    );
+    await assertSandboxPortAvailable(platformApiDefinition.port, platformApiDefinition.name);
 
     const stripeConfig = resolveMarketplaceStripeConfig();
 
     if (stripeConfig.secretKey && stripeConfig.publishableKey) {
-      const readyFilePath = path.join(
-        os.tmpdir(),
-        `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`,
-      );
+      const readyFilePath = path.join(os.tmpdir(), `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`);
       const stripeListener = spawnCommand("node", [stripeCliScript, "listen"], {
         env: {
           STRIPE_READY_FILE: readyFilePath,
@@ -613,9 +554,7 @@ async function runDev(targetName = "all") {
 
       stripeListener.on("exit", (code) => {
         if (!shuttingDown && code !== 0) {
-          console.error(
-            `[stripe] exited unexpectedly with code ${code ?? "unknown"}.`,
-          );
+          console.error(`[stripe] exited unexpectedly with code ${code ?? "unknown"}.`);
           shutdown("stripe", code ?? 1);
         }
       });
@@ -628,15 +567,10 @@ async function runDev(targetName = "all") {
         for (const definition of processes) {
           definition.env = {
             ...definition.env,
-            STRIPE_WEBHOOK_SECRET:
-              updatedSandboxEnv.STRIPE_WEBHOOK_SECRET ??
-              definition.env.STRIPE_WEBHOOK_SECRET,
+            STRIPE_WEBHOOK_SECRET: updatedSandboxEnv.STRIPE_WEBHOOK_SECRET ?? definition.env.STRIPE_WEBHOOK_SECRET,
           };
         }
-        prefixedConsole(
-          "dev",
-          "Stripe listener is ready. platform-api will start with the current webhook secret.",
-        );
+        prefixedConsole("dev", "Stripe listener is ready. platform-api will start with the current webhook secret.");
       } catch (error) {
         if (!stripeListener.killed) {
           stripeListener.kill("SIGTERM");
@@ -669,12 +603,7 @@ async function runDev(targetName = "all") {
       await assertSandboxPortAvailable(definition.port, definition.name);
     }
 
-    const invocation = buildPackageManagerInvocation([
-      "--filter",
-      definition.workspace,
-      "run",
-      "dev",
-    ]);
+    const invocation = buildPackageManagerInvocation(["--filter", definition.workspace, "run", "dev"]);
     const child = spawnCommand(invocation.command, invocation.args, {
       env: definition.env,
       prefix: definition.name,
@@ -689,9 +618,7 @@ async function runDev(targetName = "all") {
 
     child.on("exit", (code) => {
       if (!shuttingDown && code !== 0) {
-        console.error(
-          `[${definition.name}] exited unexpectedly with code ${code ?? "unknown"}.`,
-        );
+        console.error(`[${definition.name}] exited unexpectedly with code ${code ?? "unknown"}.`);
         shutdown(definition.name, code ?? 1);
       }
     });
@@ -735,4 +662,3 @@ try {
   console.error(message);
   process.exitCode = 1;
 }
-

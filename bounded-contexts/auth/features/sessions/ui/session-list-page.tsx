@@ -15,11 +15,7 @@ const columns: DataColumn<Session>[] = [
   { key: "status", header: t("auth.features.sessions.ui.sessionListPage.status"), cell: (row) => row.status },
 ];
 
-export function SessionListPage({
-  initialData,
-}: {
-  initialData: { items: Session[] };
-}) {
+export function SessionListPage({ initialData }: { initialData: { items: Session[] } }) {
   return (
     <AdminListPage
       title={t("auth.features.sessions.ui.sessionListPage.sessions")}

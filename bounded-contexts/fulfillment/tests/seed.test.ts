@@ -1,8 +1,5 @@
 import { expect, it } from "vitest";
-import {
-  describeWithMarketplaceSeedDatabase,
-  useMarketplaceSeedRuntime,
-} from "@chase-sets/marketplace-seed-testing";
+import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "@chase-sets/marketplace-seed-testing";
 
 describeWithMarketplaceSeedDatabase("fulfillment seed", () => {
   const seedRuntime = useMarketplaceSeedRuntime("fulfillment");
@@ -34,5 +31,4 @@ describeWithMarketplaceSeedDatabase("fulfillment seed", () => {
     );
     expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
   }, 120_000);
-
 });

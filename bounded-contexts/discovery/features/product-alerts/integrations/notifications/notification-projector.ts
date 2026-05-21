@@ -4,8 +4,7 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { mapProductAlertMatchToNotification } from "./notification-intents";
 
-export const DISCOVERY_PRODUCT_ALERT_NOTIFICATION_PROJECTION =
-  "discovery-product-alert-notification-projection";
+export const DISCOVERY_PRODUCT_ALERT_NOTIFICATION_PROJECTION = "discovery-product-alert-notification-projection";
 
 type MarketSide = "listing" | "offer";
 
@@ -49,10 +48,7 @@ function normalizeSelectedOptions(value: unknown) {
 }
 
 function isActiveForSide(
-  activity: Pick<
-    MarketActivity,
-    "market_side" | "status" | "quantity" | "seller_listing_availability_status"
-  >,
+  activity: Pick<MarketActivity, "market_side" | "status" | "quantity" | "seller_listing_availability_status">,
 ) {
   return activity.market_side === "listing"
     ? activity.status === "active" &&
@@ -61,10 +57,7 @@ function isActiveForSide(
     : activity.status === "submitted" && activity.quantity > 0;
 }
 
-function thresholdMatches(
-  alert: ProductAlertCandidate,
-  activity: Pick<MarketActivity, "price_amount">,
-) {
+function thresholdMatches(alert: ProductAlertCandidate, activity: Pick<MarketActivity, "price_amount">) {
   if (alert.threshold_amount === null) {
     return true;
   }
@@ -76,16 +69,10 @@ function thresholdMatches(
     return false;
   }
 
-  return alert.market_side === "listing"
-    ? price <= threshold
-    : price >= threshold;
+  return alert.market_side === "listing" ? price <= threshold : price >= threshold;
 }
 
-function shouldNotify(
-  alert: ProductAlertCandidate,
-  previous: MarketActivity | null,
-  next: MarketActivity,
-) {
+function shouldNotify(alert: ProductAlertCandidate, previous: MarketActivity | null, next: MarketActivity) {
   if (alert.account_id === next.owner_account_id) {
     return false;
   }
@@ -371,10 +358,7 @@ async function upsertMarketActivityFromEvent(
   return undefined;
 }
 
-async function loadMarketActivity(
-  db: PgQueryable,
-  activityId: string,
-): Promise<MarketActivity | null> {
+async function loadMarketActivity(db: PgQueryable, activityId: string): Promise<MarketActivity | null> {
   const result = await db.query<MarketActivity>(
     `SELECT
        activity.activity_id,
@@ -402,10 +386,7 @@ async function loadMarketActivity(
   return result.rows[0] ?? null;
 }
 
-async function loadProductAlertCandidates(
-  db: PgQueryable,
-  activity: MarketActivity,
-) {
+async function loadProductAlertCandidates(db: PgQueryable, activity: MarketActivity) {
   const result = await db.query<ProductAlertCandidate>(
     `SELECT
        alert_id,
@@ -444,13 +425,7 @@ async function recordNotificationMatch(
     ) VALUES ($1, $2, $3, $4, $5)
     ON CONFLICT DO NOTHING
     RETURNING 1 AS inserted`,
-    [
-      input.alertId,
-      input.activityId,
-      input.matchKey,
-      input.sourceGlobalPosition,
-      input.notifiedAt,
-    ],
+    [input.alertId, input.activityId, input.matchKey, input.sourceGlobalPosition, input.notifiedAt],
   );
 
   return result.rows.length === 1;

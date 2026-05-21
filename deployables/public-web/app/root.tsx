@@ -13,19 +13,8 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
-import {
-  ChaseRoot,
-  Container,
-  LinkButton,
-  MarketplaceEmptyState,
-  Page,
-  Stack,
-} from "@chase-sets/design-system";
-import {
-  buildCanonicalUrl,
-  resolvePublicOrigin,
-  shouldIndexPublicWeb,
-} from "./seo";
+import { ChaseRoot, Container, LinkButton, MarketplaceEmptyState, Page, Stack } from "@chase-sets/design-system";
+import { buildCanonicalUrl, resolvePublicOrigin, shouldIndexPublicWeb } from "./seo";
 import { waitlistAnalyticsEventNames } from "@chase-sets/public-presence/web";
 
 export const waitlistAnalyticsBridgeScript = `
@@ -84,9 +73,7 @@ export function loader(_args: LoaderFunctionArgs) {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const data = useLoaderData<typeof loader>() as
-    | Awaited<ReturnType<typeof loader>>
-    | undefined;
+  const data = useLoaderData<typeof loader>() as Awaited<ReturnType<typeof loader>> | undefined;
   const location = useLocation();
   const origin = data?.origin ?? resolvePublicOrigin();
   const shouldIndex = data?.shouldIndex ?? shouldIndexPublicWeb();
@@ -111,9 +98,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
-        <script
-          dangerouslySetInnerHTML={{ __html: waitlistAnalyticsBridgeScript }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: waitlistAnalyticsBridgeScript }} />
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -134,12 +119,8 @@ export function ErrorBoundary() {
     : error instanceof Error
       ? error.message
       : t("marketplace.app.root.unknown.error");
-  const title = isNotFound
-    ? t("marketplace.app.root.page.not.found")
-    : t("marketplace.app.root.marketplace.error");
-  const description = isNotFound
-    ? t("marketplace.app.root.page.not.found.description")
-    : message;
+  const title = isNotFound ? t("marketplace.app.root.page.not.found") : t("marketplace.app.root.marketplace.error");
+  const description = isNotFound ? t("marketplace.app.root.page.not.found.description") : message;
 
   return (
     <html lang="en">
@@ -162,11 +143,7 @@ export function ErrorBoundary() {
                     title={title}
                     description={description}
                     trustCue={t("marketplace.app.root.error.trust.cue")}
-                    recoveryActions={
-                      <LinkButton href="/">
-                        {t("marketplace.app.root.go.home")}
-                      </LinkButton>
-                    }
+                    recoveryActions={<LinkButton href="/">{t("marketplace.app.root.go.home")}</LinkButton>}
                   />
                 </Stack>
               </Container>

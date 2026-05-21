@@ -3,10 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const {
-  mockUseNavigation,
-  mockUseSearchParams,
-} = vi.hoisted(() => ({
+const { mockUseNavigation, mockUseSearchParams } = vi.hoisted(() => ({
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
 }));
@@ -30,11 +27,7 @@ function Harness({ query }: { query: CatalogListQuery }) {
 
   return (
     <>
-      <input
-        aria-label="Search"
-        value={controls.search}
-        onChange={(event) => controls.setSearch(event.target.value)}
-      />
+      <input aria-label="Search" value={controls.search} onChange={(event) => controls.setSearch(event.target.value)} />
       <button type="button" onClick={() => controls.setStatus("active")}>
         Active
       </button>
@@ -74,7 +67,9 @@ describe("catalog list query state", () => {
 
   it("reads URL params and builds the API query with limit and offset", () => {
     const query = readCatalogListQuery(
-      new Request("http://localhost/catalog-items?search=charizard&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set&page=3"),
+      new Request(
+        "http://localhost/catalog-items?search=charizard&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set&page=3",
+      ),
     );
 
     expect(query).toEqual({
@@ -113,16 +108,12 @@ describe("catalog list query state", () => {
   });
 
   it("applies search, status, language, source, blueprint, tag, set, type, and page updates to URL params", () => {
-    const searched = applyCatalogListQueryToSearchParams(
-      new URLSearchParams("search=old&page=3"),
-      { search: " new " },
-    );
+    const searched = applyCatalogListQueryToSearchParams(new URLSearchParams("search=old&page=3"), { search: " new " });
     expect(searched.toString()).toBe("search=new");
 
-    const filtered = applyCatalogListQueryToSearchParams(
-      new URLSearchParams("search=new&page=2"),
-      { status: "active" },
-    );
+    const filtered = applyCatalogListQueryToSearchParams(new URLSearchParams("search=new&page=2"), {
+      status: "active",
+    });
     expect(filtered.toString()).toBe("search=new&status=active");
 
     const languageFiltered = applyCatalogListQueryToSearchParams(
@@ -141,31 +132,47 @@ describe("catalog list query state", () => {
       new URLSearchParams("search=new&status=active&language=ja&source=tcgplayer&page=2"),
       { blueprintId: "bpr_card" },
     );
-    expect(blueprintFiltered.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card");
+    expect(blueprintFiltered.toString()).toBe(
+      "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card",
+    );
 
     const tagFiltered = applyCatalogListQueryToSearchParams(
       new URLSearchParams("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&page=2"),
       { tag: "vintage" },
     );
-    expect(tagFiltered.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage");
+    expect(tagFiltered.toString()).toBe(
+      "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage",
+    );
 
     const setFiltered = applyCatalogListQueryToSearchParams(
-      new URLSearchParams("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&page=2"),
+      new URLSearchParams(
+        "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&page=2",
+      ),
       { setId: "base1" },
     );
-    expect(setFiltered.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1");
+    expect(setFiltered.toString()).toBe(
+      "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1",
+    );
 
     const typeFiltered = applyCatalogListQueryToSearchParams(
-      new URLSearchParams("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&page=2"),
+      new URLSearchParams(
+        "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&page=2",
+      ),
       { typeKey: "set" },
     );
-    expect(typeFiltered.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set");
+    expect(typeFiltered.toString()).toBe(
+      "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set",
+    );
 
     const paged = applyCatalogListQueryToSearchParams(
-      new URLSearchParams("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set"),
+      new URLSearchParams(
+        "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set",
+      ),
       { page: 1 },
     );
-    expect(paged.toString()).toBe("search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set&page=2");
+    expect(paged.toString()).toBe(
+      "search=new&status=active&language=ja&source=tcgplayer&blueprintId=bpr_card&tag=vintage&setId=base1&typeKey=set&page=2",
+    );
   });
 
   it("loads route data through the derived API query", async () => {
@@ -189,7 +196,9 @@ describe("catalog list query state", () => {
 
   it("keeps specialized workflow filters in route and API query state", () => {
     const query = readCatalogListQuery(
-      new Request("http://localhost/catalog-items?valueKind=numeric&valueType=money&filterable=true&searchable=false&sortable=true&hasFieldRules=true&hasDimensionRules=false&hasComponents=true&parentCategoryId=cat_parent&hierarchy=root&blueprintId=bp_1&blueprintState=assigned&tag=foil&hasImages=true&hasSourceReferences=false&missingRequiredFields=true&attributeKey=rarity&attributeValue=rare&relationshipType=part-of&relatedReferenceId=ref_1&page=4"),
+      new Request(
+        "http://localhost/catalog-items?valueKind=numeric&valueType=money&filterable=true&searchable=false&sortable=true&hasFieldRules=true&hasDimensionRules=false&hasComponents=true&parentCategoryId=cat_parent&hierarchy=root&blueprintId=bp_1&blueprintState=assigned&tag=foil&hasImages=true&hasSourceReferences=false&missingRequiredFields=true&attributeKey=rarity&attributeValue=rare&relationshipType=part-of&relatedReferenceId=ref_1&page=4",
+      ),
     );
 
     expect(query).toMatchObject({
@@ -224,13 +233,8 @@ describe("catalog list query state", () => {
     vi.useFakeTimers();
     const setSearchParams = vi.fn();
     mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([
-      new URLSearchParams("search=old&page=3"),
-      setSearchParams,
-    ]);
-    const query = readCatalogListQuery(
-      new Request("http://localhost/catalog-items?search=old&page=3"),
-    );
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("search=old&page=3"), setSearchParams]);
+    const query = readCatalogListQuery(new Request("http://localhost/catalog-items?search=old&page=3"));
 
     render(<Harness query={query} />);
 
@@ -241,9 +245,7 @@ describe("catalog list query state", () => {
     act(() => vi.advanceTimersByTime(1));
     expect(setSearchParams).toHaveBeenCalledTimes(1);
     const [searchUpdater, searchOptions] = setSearchParams.mock.calls[0];
-    expect(searchUpdater(new URLSearchParams("search=old&page=3")).toString()).toBe(
-      "search=charizard",
-    );
+    expect(searchUpdater(new URLSearchParams("search=old&page=3")).toString()).toBe("search=charizard");
     expect(searchOptions).toMatchObject({ replace: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Active" }));
@@ -281,25 +283,19 @@ describe("catalog list query state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tag" }));
     expect(setSearchParams).toHaveBeenCalledTimes(6);
     const [tagUpdater, tagOptions] = setSearchParams.mock.calls[5];
-    expect(tagUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe(
-      "search=charizard&tag=vintage",
-    );
+    expect(tagUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe("search=charizard&tag=vintage");
     expect(tagOptions).toMatchObject({ replace: false });
 
     fireEvent.click(screen.getByRole("button", { name: "Base Set" }));
     expect(setSearchParams).toHaveBeenCalledTimes(7);
     const [setUpdater, setOptions] = setSearchParams.mock.calls[6];
-    expect(setUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe(
-      "search=charizard&setId=base1",
-    );
+    expect(setUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe("search=charizard&setId=base1");
     expect(setOptions).toMatchObject({ replace: false });
 
     fireEvent.click(screen.getByRole("button", { name: "Type" }));
     expect(setSearchParams).toHaveBeenCalledTimes(8);
     const [typeUpdater, typeOptions] = setSearchParams.mock.calls[7];
-    expect(typeUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe(
-      "search=charizard&typeKey=set",
-    );
+    expect(typeUpdater(new URLSearchParams("search=charizard&page=3")).toString()).toBe("search=charizard&typeKey=set");
     expect(typeOptions).toMatchObject({ replace: false });
 
     fireEvent.click(screen.getByRole("button", { name: "Item Workflow" }));

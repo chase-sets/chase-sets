@@ -60,8 +60,7 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
   return {
-    loadCheckpoint: async (projectorName) =>
-      checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
     saveCheckpoint: async (projectorName, checkpoint) => {
       checkpoints.set(projectorName, checkpoint);
     },
@@ -407,17 +406,20 @@ describe("marketplace listing runtime", () => {
 
   it("creates batch draft listings from committed inventory snapshots with fee terms", async () => {
     const { eventStore } = createInMemoryEventStore();
-    const supplyByItemId = new Map<string, {
-      itemId: string;
-      accountId: string;
-      catalogItemId: string;
-      productId: string;
-      selectedOptions: readonly { dimensionId: string; optionId: string }[];
-      storageLocationName: string;
-      shipFromCode: string;
-      shipFromAddress: typeof shipFromAddress;
-      totalQuantity: number;
-    }>();
+    const supplyByItemId = new Map<
+      string,
+      {
+        itemId: string;
+        accountId: string;
+        catalogItemId: string;
+        productId: string;
+        selectedOptions: readonly { dimensionId: string; optionId: string }[];
+        storageLocationName: string;
+        shipFromCode: string;
+        shipFromAddress: typeof shipFromAddress;
+        totalQuantity: number;
+      }
+    >();
     const resolveListingTerms = vi.fn(async ({ amount, accountId }) => ({
       accountId,
       accountType: "business" as const,

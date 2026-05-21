@@ -152,15 +152,16 @@ function buildDynamicAppliedFilters(
   return dynamicFilters.map((filter) => {
     const facet = facets.find((entry) => entry.kind === filter.kind && entry.id === filter.id);
     const value = facet?.values.find((entry) => entry.id === filter.value);
-    const label = facet && value
-      ? t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
-          facet: facet.label,
-          value: value.label,
-        })
-      : t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
-          facet: filter.id,
-          value: filter.value,
-        });
+    const label =
+      facet && value
+        ? t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
+            facet: facet.label,
+            value: value.label,
+          })
+        : t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
+            facet: filter.id,
+            value: filter.value,
+          });
 
     return {
       id: `${filter.kind}:${filter.id}:${filter.value}`,
@@ -170,10 +171,7 @@ function buildDynamicAppliedFilters(
   });
 }
 
-function buildItemDetailHref(
-  slug: string,
-  dynamicFilters: readonly DynamicSearchFilterSelection[],
-) {
+function buildItemDetailHref(slug: string, dynamicFilters: readonly DynamicSearchFilterSelection[]) {
   const params = new URLSearchParams();
 
   for (const filter of dynamicFilters) {
@@ -286,16 +284,15 @@ export function SearchPage({
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
   const exactTotal = data?.total ?? data?.items.length ?? 0;
   const featuredCategories = categories.slice(0, 5);
-  const liveListingItems =
-    data?.items.filter((item) => item.market_summary?.active_listing_count).length ?? 0;
+  const liveListingItems = data?.items.filter((item) => item.market_summary?.active_listing_count).length ?? 0;
   const marketOnlyItems = data ? data.items.length - liveListingItems : 0;
-  const catalogDepth = categories.reduce(
-    (total, current) => total + current.item_count,
-    0,
-  );
+  const catalogDepth = categories.reduce((total, current) => total + current.item_count, 0);
   const activeCategoryLabel =
-    categories.find((item) => item.slug === category)?.name ?? t("discovery.features.search.ui.searchPage.all.categories");
-  const activeLanguageLabel = language ? findLanguageLabel(language) : t("discovery.features.search.ui.searchPage.all.languages");
+    categories.find((item) => item.slug === category)?.name ??
+    t("discovery.features.search.ui.searchPage.all.categories");
+  const activeLanguageLabel = language
+    ? findLanguageLabel(language)
+    : t("discovery.features.search.ui.searchPage.all.languages");
   const activeDynamicFilterCount = dynamicFilters.length;
   const dynamicFacets = data?.facets ?? [];
   const resultsSummary = t("discovery.features.search.ui.searchPage.results.summary", {
@@ -303,62 +300,73 @@ export function SearchPage({
     category: activeCategoryLabel,
   });
   const hasFocusedResults =
-    committedSearch.trim().length > 0 || Boolean(category) || Boolean(tag) || Boolean(language) || activeDynamicFilterCount > 0 || sort !== "relevance";
+    committedSearch.trim().length > 0 ||
+    Boolean(category) ||
+    Boolean(tag) ||
+    Boolean(language) ||
+    activeDynamicFilterCount > 0 ||
+    sort !== "relevance";
   const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
-  const dynamicAppliedFilters = buildDynamicAppliedFilters(
-    data?.facets ?? [],
-    dynamicFilters,
-    onDynamicFilterChange,
-  );
+  const dynamicAppliedFilters = buildDynamicAppliedFilters(data?.facets ?? [], dynamicFilters, onDynamicFilterChange);
   const progressiveFacetLabels = {
     showMoreLabel: t("discovery.features.search.ui.searchPage.facet.option.show.more"),
     showLessLabel: t("discovery.features.search.ui.searchPage.facet.option.show.less"),
   };
   const appliedFilters = [
     ...(committedSearch.trim()
-      ? [{
-          id: "search",
-          label: t("discovery.features.search.ui.searchPage.search.filter.label", {
-            search: committedSearch,
-          }),
-          onRemove: () => onSearchChange(""),
-        }]
+      ? [
+          {
+            id: "search",
+            label: t("discovery.features.search.ui.searchPage.search.filter.label", {
+              search: committedSearch,
+            }),
+            onRemove: () => onSearchChange(""),
+          },
+        ]
       : []),
     ...(category
-      ? [{
-          id: "category",
-          label: t("discovery.features.search.ui.searchPage.category.filter.label", {
-            category: activeCategoryLabel,
-          }),
-          onRemove: () => onCategoryChange(""),
-        }]
+      ? [
+          {
+            id: "category",
+            label: t("discovery.features.search.ui.searchPage.category.filter.label", {
+              category: activeCategoryLabel,
+            }),
+            onRemove: () => onCategoryChange(""),
+          },
+        ]
       : []),
     ...(language
-      ? [{
-          id: "language",
-          label: t("discovery.features.search.ui.searchPage.language.filter.label", {
-            language: activeLanguageLabel,
-          }),
-          onRemove: () => onLanguageChange(""),
-        }]
+      ? [
+          {
+            id: "language",
+            label: t("discovery.features.search.ui.searchPage.language.filter.label", {
+              language: activeLanguageLabel,
+            }),
+            onRemove: () => onLanguageChange(""),
+          },
+        ]
       : []),
     ...(tag
-      ? [{
-          id: "tag",
-          label: t("discovery.features.search.ui.searchPage.tag.filter.label", {
-            tag,
-          }),
-          onRemove: () => onTagClear?.(),
-        }]
+      ? [
+          {
+            id: "tag",
+            label: t("discovery.features.search.ui.searchPage.tag.filter.label", {
+              tag,
+            }),
+            onRemove: () => onTagClear?.(),
+          },
+        ]
       : []),
     ...(sort !== "relevance"
-      ? [{
-          id: "sort",
-          label: t("discovery.features.search.ui.searchPage.sort.filter.label", {
-            sort: sortOptions.find((item) => item.value === sort)?.label ?? sort,
-          }),
-          onRemove: () => onSortChange("relevance"),
-        }]
+      ? [
+          {
+            id: "sort",
+            label: t("discovery.features.search.ui.searchPage.sort.filter.label", {
+              sort: sortOptions.find((item) => item.value === sort)?.label ?? sort,
+            }),
+            onRemove: () => onSortChange("relevance"),
+          },
+        ]
       : []),
     ...dynamicAppliedFilters,
   ];
@@ -422,10 +430,10 @@ export function SearchPage({
   const bulkCanPreview = Boolean(bulkAdd && hasFocusedResults && data && data.items.length > 0);
   const bulkCanCommit = Boolean(
     bulkAdd &&
-      bulkPreview &&
-      !bulkPreview.overLimit &&
-      bulkPreview.eligibleCount > 0 &&
-      bulkActionData?.status !== "bulk-added",
+    bulkPreview &&
+    !bulkPreview.overLimit &&
+    bulkPreview.eligibleCount > 0 &&
+    bulkActionData?.status !== "bulk-added",
   );
 
   useEffect(() => {
@@ -447,11 +455,14 @@ export function SearchPage({
       return undefined;
     }
 
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        onLoadMore();
-      }
-    }, { rootMargin: AUTO_LOAD_ROOT_MARGIN });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: AUTO_LOAD_ROOT_MARGIN },
+    );
 
     observer.observe(target);
     return () => observer.disconnect();
@@ -494,9 +505,21 @@ export function SearchPage({
                 })),
               ]}
               metrics={[
-                { label: t("discovery.features.search.ui.searchPage.results"), value: exactTotal, detail: activeCategoryLabel },
-                { label: t("discovery.features.search.ui.searchPage.available.now"), value: liveListingItems, detail: t("discovery.features.search.ui.searchPage.with.active.listings") },
-                { label: t("discovery.features.search.ui.searchPage.market.only.2"), value: marketOnlyItems, detail: t("discovery.features.search.ui.searchPage.tracked.items", { count: catalogDepth }) },
+                {
+                  label: t("discovery.features.search.ui.searchPage.results"),
+                  value: exactTotal,
+                  detail: activeCategoryLabel,
+                },
+                {
+                  label: t("discovery.features.search.ui.searchPage.available.now"),
+                  value: liveListingItems,
+                  detail: t("discovery.features.search.ui.searchPage.with.active.listings"),
+                },
+                {
+                  label: t("discovery.features.search.ui.searchPage.market.only.2"),
+                  value: marketOnlyItems,
+                  detail: t("discovery.features.search.ui.searchPage.tracked.items", { count: catalogDepth }),
+                },
               ]}
             />
             <PromoStrip
@@ -598,11 +621,7 @@ export function SearchPage({
                   <LinkButton href="/search" tone="ghost" size="sm">
                     {t("discovery.features.search.ui.searchPage.clear.all")}
                   </LinkButton>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => setMobileFiltersOpen(false)}
-                  >
+                  <Button type="button" size="sm" onClick={() => setMobileFiltersOpen(false)}>
                     {t("discovery.features.search.ui.searchPage.show.results")}
                   </Button>
                 </Inline>
@@ -667,7 +686,9 @@ export function SearchPage({
           </>
         ) : null}
 
-        {error ? <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} /> : null}
+        {error ? (
+          <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} />
+        ) : null}
 
         {loading && !data ? (
           <LoadingSpinner label={t("discovery.features.search.ui.searchPage.searching")} />
@@ -699,10 +720,7 @@ export function SearchPage({
           />
         ) : data ? (
           <>
-            <Grid
-              columns={hasFocusedResults ? { base: 1, lg: 2, "2xl": 3 } : { base: 1, sm: 2, xl: 3 }}
-              gap={4}
-            >
+            <Grid columns={hasFocusedResults ? { base: 1, lg: 2, "2xl": 3 } : { base: 1, sm: 2, xl: 3 }} gap={4}>
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
@@ -712,10 +730,7 @@ export function SearchPage({
                   item.image_urls[0] ??
                   (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined) ??
                   discoveryAssetUrls.defaultProductImage;
-                const imageSrcSet = buildDiscoveryProductAssetSrcSet(
-                  item.product_asset_sets,
-                  "search-card",
-                );
+                const imageSrcSet = buildDiscoveryProductAssetSrcSet(item.product_asset_sets, "search-card");
                 const buyHref = withMarketIntent(itemDetailHref, "buy");
                 const sellHref = withMarketIntent(itemDetailHref, "sell");
                 const watchHref = withMarketIntent(itemDetailHref, "watch");
@@ -730,7 +745,9 @@ export function SearchPage({
                     imageSizes="(min-width: 1536px) 160px, (min-width: 640px) 160px, 100vw"
                     imageAlt={item.title}
                     imageFallbackSrc={item.image_fallback?.url ?? discoveryAssetUrls.defaultProductImage}
-                    imageFallbackAlt={item.image_fallback?.alt ?? t("discovery.features.search.ui.searchPage.default.product.image")}
+                    imageFallbackAlt={
+                      item.image_fallback?.alt ?? t("discovery.features.search.ui.searchPage.default.product.image")
+                    }
                     imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
                     imageFallbackSizes="(min-width: 1280px) 18rem, (min-width: 640px) 15rem, 100vw"
                     imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
@@ -745,7 +762,11 @@ export function SearchPage({
                     }
                     sellerVerified={hasActiveListings}
                     fulfillment={formatAvailability(item)}
-                    availability={item.blueprint_name ?? uniqueDisplayValues(item.category_names)[0] ?? t("discovery.features.search.ui.searchPage.marketplace")}
+                    availability={
+                      item.blueprint_name ??
+                      uniqueDisplayValues(item.category_names)[0] ??
+                      t("discovery.features.search.ui.searchPage.marketplace")
+                    }
                     condition={formatItemLanguage(item)}
                     promotion={
                       hasActiveListings
@@ -830,17 +851,11 @@ export function SearchPage({
           })}
           footer={
             <Inline gap={2} align="end">
-              <Button
-                type="button"
-                tone="ghost"
-                onClick={() => setBulkSheetOpen(false)}
-              >
+              <Button type="button" tone="ghost" onClick={() => setBulkSheetOpen(false)}>
                 {t("discovery.features.search.ui.searchPage.close")}
               </Button>
               {bulkActionData?.status === "bulk-added" ? (
-                <LinkButton href="/account/cart">
-                  {t("discovery.features.search.ui.searchPage.review.cart")}
-                </LinkButton>
+                <LinkButton href="/account/cart">{t("discovery.features.search.ui.searchPage.review.cart")}</LinkButton>
               ) : (
                 <Button
                   type="button"
@@ -878,7 +893,9 @@ export function SearchPage({
             ) : null}
             <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
               <div>
-                <div className="font-semibold text-foreground">{bulkPreview.totalMatches ?? bulkPreview.eligibleCount + bulkPreview.skippedCount}</div>
+                <div className="font-semibold text-foreground">
+                  {bulkPreview.totalMatches ?? bulkPreview.eligibleCount + bulkPreview.skippedCount}
+                </div>
                 <div>{t("discovery.features.search.ui.searchPage.bulk.matches")}</div>
               </div>
               <div>
@@ -894,7 +911,10 @@ export function SearchPage({
               <Banner
                 tone="info"
                 title={t("discovery.features.search.ui.searchPage.bulk.skipped.title")}
-                description={bulkPreview.skippedItems.slice(0, 3).map((item) => item.message).join(" ")}
+                description={bulkPreview.skippedItems
+                  .slice(0, 3)
+                  .map((item) => item.message)
+                  .join(" ")}
               />
             ) : null}
           </Stack>

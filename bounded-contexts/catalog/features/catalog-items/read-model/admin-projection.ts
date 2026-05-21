@@ -70,10 +70,7 @@ type ReferenceRecordRef = Readonly<{
 }>;
 
 async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: string): Promise<void> {
-  const result = await db.query<BaseCatalogItemRow>(
-    `SELECT * FROM catalog_items WHERE catalog_item_id = $1`,
-    [itemId],
-  );
+  const result = await db.query<BaseCatalogItemRow>(`SELECT * FROM catalog_items WHERE catalog_item_id = $1`, [itemId]);
 
   const item = result.rows[0];
 
@@ -130,10 +127,7 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
 }
 
 async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
-  const result = await db.query<BaseCatalogItemRow>(
-    `SELECT * FROM catalog_items WHERE catalog_item_id = $1`,
-    [itemId],
-  );
+  const result = await db.query<BaseCatalogItemRow>(`SELECT * FROM catalog_items WHERE catalog_item_id = $1`, [itemId]);
 
   const item = result.rows[0];
 
@@ -145,7 +139,9 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   const fieldValues = asArray<FieldValue>(item.field_values);
   const categoryIds = asStringArray(item.category_ids);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
-  const referenceIds = fieldValues.map((entry) => referenceIdFromValue(entry.value)).filter((entry): entry is string => entry !== null);
+  const referenceIds = fieldValues
+    .map((entry) => referenceIdFromValue(entry.value))
+    .filter((entry): entry is string => entry !== null);
   const externalReferencesResult = await db.query<ExternalProductReferenceRow>(
     `SELECT provider_key, external_key, selected_options, updated_at
      FROM catalog_external_product_references
@@ -177,9 +173,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   const externalReferences = externalReferencesResult.rows.map((reference) => ({
     providerKey: reference.provider_key,
     externalKey: reference.external_key,
-    selectedOptions: Array.isArray(reference.selected_options)
-      ? reference.selected_options
-      : [],
+    selectedOptions: Array.isArray(reference.selected_options) ? reference.selected_options : [],
     updatedAt: reference.updated_at,
   }));
 
@@ -253,10 +247,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   );
 }
 
-export async function refreshCatalogAdminCatalogItemPages(
-  db: PgQueryable,
-  itemId: string,
-): Promise<void> {
+export async function refreshCatalogAdminCatalogItemPages(db: PgQueryable, itemId: string): Promise<void> {
   await Promise.all([
     refreshCatalogAdminCatalogItemListPage(db, itemId),
     refreshCatalogAdminCatalogItemDetailPage(db, itemId),
@@ -272,10 +263,7 @@ async function findCatalogItemIdsByField(db: PgQueryable, fieldId: string): Prom
   return result.rows.map((row) => row.catalog_item_id);
 }
 
-async function findCatalogItemIdsByReferenceRecord(
-  db: PgQueryable,
-  referenceRecordId: string,
-): Promise<string[]> {
+async function findCatalogItemIdsByReferenceRecord(db: PgQueryable, referenceRecordId: string): Promise<string[]> {
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT DISTINCT catalog_item_id
      FROM catalog_items, jsonb_array_elements(field_values) AS field_value
@@ -287,10 +275,7 @@ async function findCatalogItemIdsByReferenceRecord(
   return result.rows.map((row) => row.catalog_item_id);
 }
 
-async function findReferenceRecordIdsByRelatedReference(
-  db: PgQueryable,
-  referenceRecordId: string,
-): Promise<string[]> {
+async function findReferenceRecordIdsByRelatedReference(db: PgQueryable, referenceRecordId: string): Promise<string[]> {
   const result = await db.query<{ reference_record_id: string }>(
     `SELECT DISTINCT reference_record_id
      FROM catalog_reference_records, jsonb_array_elements(relationships) AS relationship
@@ -311,11 +296,7 @@ async function findReferenceRecordIdsByRelatedReferenceGraph(
   for (let depth = 0; depth < MAX_REFERENCE_EXPANSION_DEPTH && frontier.length > 0; depth++) {
     const next = [
       ...new Set(
-        (
-          await Promise.all(
-            frontier.map((recordId) => findReferenceRecordIdsByRelatedReference(db, recordId)),
-          )
-        ).flat(),
+        (await Promise.all(frontier.map((recordId) => findReferenceRecordIdsByRelatedReference(db, recordId)))).flat(),
       ),
     ].filter((recordId) => !visited.has(recordId));
 
@@ -370,9 +351,7 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       ...(await findCatalogItemIdsByReferenceRecord(db, referenceRecordId)),
       ...(
         await Promise.all(
-          relatedRecordIds.map((relatedRecordId) =>
-            findCatalogItemIdsByReferenceRecord(db, relatedRecordId),
-          ),
+          relatedRecordIds.map((relatedRecordId) => findCatalogItemIdsByReferenceRecord(db, relatedRecordId)),
         )
       ).flat(),
     ];
@@ -532,11 +511,7 @@ async function loadReferenceRecordMap(
   }
 
   const rowsById = await loadReferenceRecordRowsByGraph(db, uniqueIds);
-  const buildReference = (
-    row: ReferenceRecordRow,
-    depth: number,
-    path: ReadonlySet<string>,
-  ): ReferenceRecordRef => {
+  const buildReference = (row: ReferenceRecordRow, depth: number, path: ReadonlySet<string>): ReferenceRecordRef => {
     const nextPath = new Set(path);
     nextPath.add(row.reference_record_id);
 
@@ -553,9 +528,7 @@ async function loadReferenceRecordMap(
         return {
           relationshipType: relationship.relationshipType,
           referenceId: relationship.referenceId,
-          reference: canExpand
-            ? buildReference(related, depth + 1, nextPath)
-            : undefined,
+          reference: canExpand ? buildReference(related, depth + 1, nextPath) : undefined,
         };
       }),
       status: row.status,
@@ -566,9 +539,7 @@ async function loadReferenceRecordMap(
     uniqueIds.flatMap((referenceId) => {
       const row = rowsById.get(referenceId);
 
-      return row
-        ? [[row.reference_record_id, buildReference(row, 0, new Set())] as const]
-        : [];
+      return row ? [[row.reference_record_id, buildReference(row, 0, new Set())] as const] : [];
     }),
   );
 }
@@ -604,10 +575,7 @@ async function loadReferenceRecordRowsByGraph(
   return rowsById;
 }
 
-async function loadReferenceRecordRows(
-  db: PgQueryable,
-  ids: readonly string[],
-): Promise<ReferenceRecordRow[]> {
+async function loadReferenceRecordRows(db: PgQueryable, ids: readonly string[]): Promise<ReferenceRecordRow[]> {
   if (ids.length === 0) {
     return [];
   }

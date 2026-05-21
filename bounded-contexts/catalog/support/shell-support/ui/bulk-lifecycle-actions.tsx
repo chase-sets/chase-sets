@@ -58,14 +58,8 @@ export interface BulkLifecycleActionBarProps {
   actions: readonly BulkLifecycleActionOption[];
   extraActions?: ReactNode;
   clearSelection: () => void;
-  preview: (
-    action: string,
-    selection: BulkLifecycleSelection,
-  ) => Promise<BulkLifecyclePreview>;
-  confirm: (
-    action: string,
-    selection: BulkLifecycleSelection,
-  ) => Promise<BulkLifecycleResult>;
+  preview: (action: string, selection: BulkLifecycleSelection) => Promise<BulkLifecyclePreview>;
+  confirm: (action: string, selection: BulkLifecycleSelection) => Promise<BulkLifecycleResult>;
   onCompleted: () => void;
 }
 
@@ -91,7 +85,7 @@ export function BulkLifecycleActionBar({
   const actionLabel = actions.find((action) => action.value === selectedAction)?.label ?? selectedAction;
   const hasSelectedRows = selectedKeys.size > 0;
   const hasFilterScope = filterSelection !== undefined;
-  const barCount = hasSelectedRows ? selectedKeys.size : filterCount ?? 0;
+  const barCount = hasSelectedRows ? selectedKeys.size : (filterCount ?? 0);
 
   async function handlePreviewSelected() {
     const nextSelection = { mode: "ids" as const, ids: [...selectedKeys] };
@@ -221,7 +215,11 @@ export function BulkLifecycleActionBar({
             </Button>
           ) : (
             <Inline gap={2}>
-              <Button onClick={handleConfirm} loading={busy} disabled={!previewResult || previewResult.ready_count === 0}>
+              <Button
+                onClick={handleConfirm}
+                loading={busy}
+                disabled={!previewResult || previewResult.ready_count === 0}
+              >
                 {t("catalog.support.shellSupport.ui.bulkLifecycleActions.confirm")}
               </Button>
               <Button tone="secondary" onClick={() => setPreviewResult(null)} disabled={busy}>

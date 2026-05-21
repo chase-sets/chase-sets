@@ -21,11 +21,7 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
-import type {
-  PlatformFeedbackDetail,
-  PlatformFeedbackListItem,
-  PlatformFeedbackMetrics,
-} from "../api/contracts";
+import type { PlatformFeedbackDetail, PlatformFeedbackListItem, PlatformFeedbackMetrics } from "../api/contracts";
 
 type ListResponse<T> = Readonly<{
   items: readonly T[];
@@ -133,7 +129,10 @@ export function PlatformFeedbackAdminListPage({
         <Stat label={t("experience.platformFeedbackAdmin.total")} value={metrics.total_count} />
         <Stat label={t("experience.platformFeedbackAdmin.new")} value={metrics.new_count} />
         <Stat label={t("experience.platformFeedbackAdmin.reviewed")} value={metrics.reviewed_count} />
-        <Stat label={t("experience.platformFeedbackAdmin.averageRating")} value={metrics.average_rating ?? t("experience.platformFeedbackAdmin.notSet")} />
+        <Stat
+          label={t("experience.platformFeedbackAdmin.averageRating")}
+          value={metrics.average_rating ?? t("experience.platformFeedbackAdmin.notSet")}
+        />
       </StatGrid>
 
       <PageSection title={t("experience.platformFeedbackAdmin.filters")}>
@@ -222,11 +221,7 @@ export function PlatformFeedbackAdminListPage({
   );
 }
 
-export function PlatformFeedbackAdminDetailPage({
-  feedback,
-}: {
-  feedback: PlatformFeedbackDetail;
-}) {
+export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: PlatformFeedbackDetail }) {
   return (
     <Page>
       <PageHeader
@@ -270,15 +265,18 @@ export function PlatformFeedbackAdminDetailPage({
                   items={[
                     { key: t("experience.platformFeedbackAdmin.topic"), value: topicLabel(feedback.topic) },
                     { key: t("experience.platformFeedbackAdmin.workflow"), value: workflowLabel(feedback.workflow) },
-                    { key: t("experience.platformFeedbackAdmin.followUp"), value: feedback.follow_up_consent ? t("experience.platformFeedbackAdmin.yes") : t("experience.platformFeedbackAdmin.no") },
+                    {
+                      key: t("experience.platformFeedbackAdmin.followUp"),
+                      value: feedback.follow_up_consent
+                        ? t("experience.platformFeedbackAdmin.yes")
+                        : t("experience.platformFeedbackAdmin.no"),
+                    },
                     { key: t("experience.platformFeedbackAdmin.sourceRoute"), value: feedback.source_route_path },
                     { key: t("experience.platformFeedbackAdmin.submitted"), value: formatDate(feedback.submitted_at) },
                   ]}
                 />
                 <Surface tone="subtle">
-                  <Text>
-                    {feedback.comment ?? t("experience.platformFeedbackAdmin.noComment")}
-                  </Text>
+                  <Text>{feedback.comment ?? t("experience.platformFeedbackAdmin.noComment")}</Text>
                 </Surface>
               </Stack>
             </DetailPanel>
@@ -292,8 +290,14 @@ export function PlatformFeedbackAdminDetailPage({
                   { key: t("experience.platformFeedbackAdmin.user"), value: feedback.user_id },
                   { key: t("experience.platformFeedbackAdmin.account"), value: feedback.account_id },
                   { key: t("experience.platformFeedbackAdmin.updated"), value: formatDate(feedback.updated_at) },
-                  { key: t("experience.platformFeedbackAdmin.reviewedBy"), value: feedback.reviewed_by_user_id ?? t("experience.platformFeedbackAdmin.notSet") },
-                  { key: t("experience.platformFeedbackAdmin.archivedBy"), value: feedback.archived_by_user_id ?? t("experience.platformFeedbackAdmin.notSet") },
+                  {
+                    key: t("experience.platformFeedbackAdmin.reviewedBy"),
+                    value: feedback.reviewed_by_user_id ?? t("experience.platformFeedbackAdmin.notSet"),
+                  },
+                  {
+                    key: t("experience.platformFeedbackAdmin.archivedBy"),
+                    value: feedback.archived_by_user_id ?? t("experience.platformFeedbackAdmin.notSet"),
+                  },
                 ]}
               />
             </DetailPanel>
@@ -309,9 +313,7 @@ export function PlatformFeedbackAdminDetailPage({
                         {entityLabel(entity)}
                       </LinkButton>
                     ) : (
-                      <Text key={`${entity.type}:${entity.id}`}>
-                        {entityLabel(entity)}
-                      </Text>
+                      <Text key={`${entity.type}:${entity.id}`}>{entityLabel(entity)}</Text>
                     );
                   })
                 )}

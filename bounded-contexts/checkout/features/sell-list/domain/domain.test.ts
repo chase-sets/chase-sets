@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decideCheckoutSellList,
-  evolveCheckoutSellList,
-  initialCheckoutSellListState,
-} from "./domain";
+import { decideCheckoutSellList, evolveCheckoutSellList, initialCheckoutSellListState } from "./domain";
 
 describe("checkout sell list domain", () => {
   it("adds, updates, removes, and clears sell list lines on checkout", () => {

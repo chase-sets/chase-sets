@@ -45,9 +45,9 @@ const query: CatalogListQuery = {
 
 describe("IntegrationManagementPage", () => {
   beforeEach(() => {
-    mockUseSourceObservationIntegrationOptions.mockImplementation((input: {
-      queryKind: string;
-    }) => integrationOptionsResult(input.queryKind));
+    mockUseSourceObservationIntegrationOptions.mockImplementation((input: { queryKind: string }) =>
+      integrationOptionsResult(input.queryKind),
+    );
   });
 
   afterEach(() => {
@@ -58,20 +58,16 @@ describe("IntegrationManagementPage", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
 
-    render(
-      <IntegrationManagementPage
-        data={{ items: [integrationScope()], total: 1, count: 1 }}
-        query={query}
-      />,
-    );
+    render(<IntegrationManagementPage data={{ items: [integrationScope()], total: 1, count: 1 }} query={query} />);
 
     expect(screen.getByText("Catalog Integrations")).toBeTruthy();
     expect(screen.getAllByText("Base Set").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Base").length).toBeGreaterThan(0);
     expect(screen.getAllByText("English").length).toBeGreaterThan(0);
     expect(screen.getAllByText("100").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "Review" })[0].getAttribute("href"))
-      .toBe("/catalog/source-observations?source=tcgdex&language=en&setId=base1");
+    expect(screen.getAllByRole("link", { name: "Review" })[0].getAttribute("href")).toBe(
+      "/catalog/source-observations?source=tcgdex&language=en&setId=base1",
+    );
   });
 
   it("imports a TCGdex expansion and scopes the integration view to the result", async () => {
@@ -85,19 +81,12 @@ describe("IntegrationManagementPage", () => {
       observationIds: [],
     });
 
-    render(
-      <IntegrationManagementPage
-        data={{ items: [], total: 0, count: 0 }}
-        query={query}
-      />,
-    );
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: /Import TCGdex Expansion/i })[0]);
     expect(screen.queryByLabelText("TCGdex Expansion ID")).toBeNull();
     const importButton = screen.getByRole("button", { name: /^Import$/i });
-    await waitFor(() =>
-      expect((importButton as HTMLButtonElement).disabled).toBe(false),
-    );
+    await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(importButton);
 
     await waitFor(() =>

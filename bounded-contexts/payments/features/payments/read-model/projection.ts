@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-export function buildPaymentProjectionHandlers(
-  db: PgQueryable,
-): ProjectorHandlerMap {
+export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "payments.payment-created": async (event) => {
       const data = event.data as {

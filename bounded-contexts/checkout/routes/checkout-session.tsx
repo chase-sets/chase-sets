@@ -1,38 +1,22 @@
 import { t } from "@chase-sets/localization";
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useEffect } from "react";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
-import {
-  appendFreshWriteToken,
-  loadFreshlyWrittenResource,
-} from "@chase-sets/http/responses";
+import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
-import {
-  createForwardedAuthFetch,
-  resolveRequestApiBaseUrl,
-} from "@chase-sets/platform-runtime/http";
-import {
-  CheckoutApiError,
-  createCheckoutRequestApiClient,
-} from "../support/request-support/api-client";
-import {
-  createIdentityRequestApiClient,
-  type ShippingAddress,
-} from "@chase-sets/identity/server";
+import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
-const MARKETPLACE_DESCRIPTION =
-  t("checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped");
-const FULFILLMENT_PREVIEW_UNAVAILABLE =
-  t("checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable");
+const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped");
+const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
+  "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable",
+);
 
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request)(
@@ -62,9 +46,13 @@ function shippingAddressFromForm(formData: FormData) {
     line1: String(formData.get("shippingLine1") ?? "").trim(),
     line2: normalizeText(formData.get("shippingLine2")),
     city: String(formData.get("shippingCity") ?? "").trim(),
-    state: String(formData.get("shippingState") ?? "").trim().toUpperCase(),
+    state: String(formData.get("shippingState") ?? "")
+      .trim()
+      .toUpperCase(),
     postalCode: String(formData.get("shippingPostalCode") ?? "").trim(),
-    country: String(formData.get("shippingCountry") ?? "US").trim().toUpperCase(),
+    country: String(formData.get("shippingCountry") ?? "US")
+      .trim()
+      .toUpperCase(),
     phone: normalizeText(formData.get("shippingPhone")),
     email: normalizeText(formData.get("shippingEmail")),
   };
@@ -86,7 +74,10 @@ function shippingAddressFromSavedAddress(address: ShippingAddress) {
   };
 }
 
-async function loadSavedShippingAddresses(request: Request, actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
+async function loadSavedShippingAddresses(
+  request: Request,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+) {
   if (
     !actor ||
     actor.roleKey === "guest-buyer" ||
@@ -134,18 +125,15 @@ async function resolveCheckoutShippingAddress(
   }
 
   const identityApi = createIdentityRequestApiClient(request);
-  const savedAddresses = selectedShippingAddressId && selectedShippingAddressId !== "__manual"
-    ? await loadSavedShippingAddresses(request, actor)
-    : [];
+  const savedAddresses =
+    selectedShippingAddressId && selectedShippingAddressId !== "__manual"
+      ? await loadSavedShippingAddresses(request, actor)
+      : [];
   const selectedSavedAddress = savedAddresses.find(
     (address) => address.shipping_address_id === selectedShippingAddressId,
   );
 
-  if (
-    selectedSavedAddress &&
-    addressBookAction !== "save-new" &&
-    addressBookAction !== "update-selected"
-  ) {
+  if (selectedSavedAddress && addressBookAction !== "save-new" && addressBookAction !== "update-selected") {
     return shippingAddressFromSavedAddress(selectedSavedAddress);
   }
 
@@ -178,10 +166,7 @@ async function resolveCheckoutShippingAddress(
   };
 }
 
-function paymentPathForActor(
-  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
-  paymentId: string,
-) {
+function paymentPathForActor(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>, paymentId: string) {
   return actor && actor.roleKey !== "guest-buyer"
     ? `/account/payments/${paymentId}`
     : `/checkout/payments/${paymentId}`;
@@ -211,9 +196,7 @@ function isOfferIntentSession(session: Readonly<{ source_type: string }>) {
 
 async function loadFulfillmentPreview(
   request: Request,
-  session: Awaited<
-    ReturnType<ReturnType<typeof createCheckoutRequestApiClient>["getCheckoutSession"]>
-  >,
+  session: Awaited<ReturnType<ReturnType<typeof createCheckoutRequestApiClient>["getCheckoutSession"]>>,
 ) {
   if (isOfferIntentSession(session)) {
     return { fulfillmentPreview: null, previewError: null };
@@ -253,8 +236,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const session = await loadFreshlyWrittenResource({
     request,
-    isNotFound: (error) =>
-      error instanceof CheckoutApiError && error.status === 404,
+    isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getCheckoutSession(params.sessionId!),
   });
   if (session.payment_id) {
@@ -264,14 +246,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}?feedbackWorkflow=offer-submit`);
   }
 
-  const wallet = actor && actor.roleKey !== "guest-buyer"
-    ? await loadWalletBalance(request)
-    : null;
+  const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(request) : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(request, actor);
-  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(
-    request,
-    session,
-  );
+  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(request, session);
 
   return {
     session,
@@ -300,10 +277,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   try {
     if (intent === "select-optimization-goal") {
       await api.selectOptimizationGoal(params.sessionId, {
-        optimizationGoal:
-          formData.get("optimizationGoal") === "fewest-shipments"
-            ? "fewest-shipments"
-            : "lowest-total",
+        optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
       });
       return redirect(`/checkout/${params.sessionId}`);
     }
@@ -317,26 +291,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
           formData.get("requestedBalanceCreditAmount"),
         ),
         paymentMethodCategory: String(formData.get("paymentMethodCategory") ?? "card"),
-        fulfillmentPreviewRevision:
-          String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
-        acknowledgedMaterialChanges:
-          String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
+        fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
+        acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
         shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
       });
       if (result.offer_id) {
         return redirect(
-          appendFreshWriteToken(
-            `/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`,
-            result,
-          ),
+          appendFreshWriteToken(`/account/offers/submitted/${result.offer_id}?feedbackWorkflow=offer-submit`, result),
         );
       }
       if (!result.payment_id) {
         throw new Error("Checkout confirmation did not return a payment.");
       }
-      return redirect(
-        appendFreshWriteToken(paymentPathForActor(actor, result.payment_id), result),
-      );
+      return redirect(appendFreshWriteToken(paymentPathForActor(actor, result.payment_id), result));
     }
 
     return null;

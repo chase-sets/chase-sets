@@ -1,8 +1,4 @@
-import type {
-  AggregateDecider,
-  AggregateEvolver,
-  DomainEvent,
-} from "@chase-sets/event-core";
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import {
   EMPTY_EVENT_DATA,
   assert,
@@ -16,13 +12,7 @@ import {
   type EmptyEventData,
   type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
-import type {
-  BlueprintId,
-  OptionId,
-  ComponentId,
-  DimensionId,
-  FieldId,
-} from "../../../ids";
+import type { BlueprintId, OptionId, ComponentId, DimensionId, FieldId } from "../../../ids";
 
 export type BlueprintFieldRule = Readonly<{
   fieldId: FieldId;
@@ -183,20 +173,11 @@ export type BlueprintProductResolutionRulesSetEvent = DomainEvent<
   }>
 >;
 
-export type BlueprintPublishedEvent = DomainEvent<
-  "catalog.blueprint.published",
-  EmptyEventData
->;
+export type BlueprintPublishedEvent = DomainEvent<"catalog.blueprint.published", EmptyEventData>;
 
-export type BlueprintDeprecatedEvent = DomainEvent<
-  "catalog.blueprint.deprecated",
-  EmptyEventData
->;
+export type BlueprintDeprecatedEvent = DomainEvent<"catalog.blueprint.deprecated", EmptyEventData>;
 
-export type BlueprintArchivedEvent = DomainEvent<
-  "catalog.blueprint.archived",
-  EmptyEventData
->;
+export type BlueprintArchivedEvent = DomainEvent<"catalog.blueprint.archived", EmptyEventData>;
 
 export type BlueprintEvent =
   | BlueprintCreatedEvent
@@ -210,11 +191,7 @@ export type BlueprintEvent =
   | BlueprintDeprecatedEvent
   | BlueprintArchivedEvent;
 
-export const decideBlueprint: AggregateDecider<
-  BlueprintState,
-  BlueprintCommand,
-  BlueprintEvent
-> = (state, command) => {
+export const decideBlueprint: AggregateDecider<BlueprintState, BlueprintCommand, BlueprintEvent> = (state, command) => {
   switch (command.type) {
     case "CreateBlueprint":
       assert(state.id === null, "Blueprint has already been created.");
@@ -242,18 +219,13 @@ export const decideBlueprint: AggregateDecider<
           data: {
             key: command.key.trim(),
             name: normalizeLocalizedTextMap(command.name, { requiredEnglish: true }),
-            description: command.description
-              ? normalizeLocalizedTextMap(command.description)
-              : state.description,
+            description: command.description ? normalizeLocalizedTextMap(command.description) : state.description,
           },
         },
       ];
     case "AttachComponentToBlueprint":
       requireMutableBlueprint(state);
-      assert(
-        !state.componentIds.includes(command.componentId),
-        "Blueprint already references that component.",
-      );
+      assert(!state.componentIds.includes(command.componentId), "Blueprint already references that component.");
 
       return [
         {
@@ -265,10 +237,7 @@ export const decideBlueprint: AggregateDecider<
       ];
     case "DetachComponentFromBlueprint":
       requireMutableBlueprint(state);
-      assert(
-        state.componentIds.includes(command.componentId),
-        "Blueprint does not reference that component.",
-      );
+      assert(state.componentIds.includes(command.componentId), "Blueprint does not reference that component.");
 
       return [
         {
@@ -340,10 +309,7 @@ export const decideBlueprint: AggregateDecider<
       ];
     case "DeprecateBlueprint":
       requireCreatedBlueprint(state);
-      assert(
-        state.status === "active",
-        "Only active blueprints can be deprecated.",
-      );
+      assert(state.status === "active", "Only active blueprints can be deprecated.");
 
       return [
         {
@@ -353,10 +319,7 @@ export const decideBlueprint: AggregateDecider<
       ];
     case "ArchiveBlueprint":
       requireCreatedBlueprint(state);
-      assert(
-        state.status === "deprecated",
-        "Only deprecated blueprints can be archived.",
-      );
+      assert(state.status === "deprecated", "Only deprecated blueprints can be archived.");
 
       return [
         {
@@ -369,10 +332,7 @@ export const decideBlueprint: AggregateDecider<
   }
 };
 
-export const evolveBlueprint: AggregateEvolver<BlueprintState, BlueprintEvent> = (
-  state,
-  event,
-) => {
+export const evolveBlueprint: AggregateEvolver<BlueprintState, BlueprintEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.blueprint.created":
       return {
@@ -393,17 +353,12 @@ export const evolveBlueprint: AggregateEvolver<BlueprintState, BlueprintEvent> =
     case "catalog.blueprint.component-attached":
       return {
         ...state,
-        componentIds: toSortedUniqueList([
-          ...state.componentIds,
-          event.data.componentId,
-        ]),
+        componentIds: toSortedUniqueList([...state.componentIds, event.data.componentId]),
       };
     case "catalog.blueprint.component-detached":
       return {
         ...state,
-        componentIds: state.componentIds.filter(
-          (componentId) => componentId !== event.data.componentId,
-        ),
+        componentIds: state.componentIds.filter((componentId) => componentId !== event.data.componentId),
       };
     case "catalog.blueprint.fields-set":
       return {
@@ -414,11 +369,8 @@ export const evolveBlueprint: AggregateEvolver<BlueprintState, BlueprintEvent> =
       return {
         ...state,
         dimensionRules: normalizeDimensionRules(event.data.dimensionRules),
-        canonicalDimensionOrder: state.canonicalDimensionOrder.filter(
-          (dimensionId) =>
-            event.data.dimensionRules.some(
-              (rule) => rule.dimensionId === dimensionId,
-            ),
+        canonicalDimensionOrder: state.canonicalDimensionOrder.filter((dimensionId) =>
+          event.data.dimensionRules.some((rule) => rule.dimensionId === dimensionId),
         ),
       };
     case "catalog.blueprint.product-resolution-rules-set":
@@ -452,10 +404,7 @@ function requireCreatedBlueprint(state: BlueprintState): void {
 
 function requireMutableBlueprint(state: BlueprintState): void {
   requireCreatedBlueprint(state);
-  assert(
-    state.status === "draft",
-    "Only draft blueprints can change identity-bearing structure.",
-  );
+  assert(state.status === "draft", "Only draft blueprints can change identity-bearing structure.");
 }
 
 function normalizeFieldRule(rule: BlueprintFieldRule): BlueprintFieldRule {
@@ -465,27 +414,16 @@ function normalizeFieldRule(rule: BlueprintFieldRule): BlueprintFieldRule {
   };
 }
 
-function normalizeFieldRules(
-  rules: readonly BlueprintFieldRule[],
-): BlueprintFieldRule[] {
+function normalizeFieldRules(rules: readonly BlueprintFieldRule[]): BlueprintFieldRule[] {
   const normalized = rules.map(normalizeFieldRule);
 
-  ensureUniqueBy(
-    normalized,
-    (rule) => rule.fieldId,
-    "Blueprint field rules must be unique per field.",
-  );
+  ensureUniqueBy(normalized, (rule) => rule.fieldId, "Blueprint field rules must be unique per field.");
 
   return normalized.sort((left, right) => left.fieldId.localeCompare(right.fieldId));
 }
 
-function normalizeDimensionRule(
-  rule: BlueprintDimensionRule,
-): BlueprintDimensionRule {
-  const appliesWhen = normalizeDimensionApplicability(
-    rule.dimensionId,
-    rule.appliesWhen,
-  );
+function normalizeDimensionRule(rule: BlueprintDimensionRule): BlueprintDimensionRule {
+  const appliesWhen = normalizeDimensionApplicability(rule.dimensionId, rule.appliesWhen);
 
   return {
     dimensionId: rule.dimensionId,
@@ -495,20 +433,12 @@ function normalizeDimensionRule(
   };
 }
 
-function normalizeDimensionRules(
-  rules: readonly BlueprintDimensionRule[],
-): BlueprintDimensionRule[] {
+function normalizeDimensionRules(rules: readonly BlueprintDimensionRule[]): BlueprintDimensionRule[] {
   const normalized = rules.map(normalizeDimensionRule);
 
-  ensureUniqueBy(
-    normalized,
-    (rule) => rule.dimensionId,
-    "Blueprint dimension rules must be unique per dimension.",
-  );
+  ensureUniqueBy(normalized, (rule) => rule.dimensionId, "Blueprint dimension rules must be unique per dimension.");
 
-  return normalized.sort((left, right) =>
-    left.dimensionId.localeCompare(right.dimensionId),
-  );
+  return normalized.sort((left, right) => left.dimensionId.localeCompare(right.dimensionId));
 }
 
 function normalizeDimensionApplicability(
@@ -516,10 +446,7 @@ function normalizeDimensionApplicability(
   clauses?: readonly BlueprintDimensionApplicabilityClause[],
 ): BlueprintDimensionApplicabilityClause[] {
   const normalized = (clauses ?? []).map((clause) => {
-    assert(
-      clause.dimensionId !== dimensionId,
-      "Dimension rules cannot depend on their own dimension.",
-    );
+    assert(clause.dimensionId !== dimensionId, "Dimension rules cannot depend on their own dimension.");
 
     return {
       dimensionId: clause.dimensionId,
@@ -533,10 +460,5 @@ function normalizeDimensionApplicability(
     "Dimension rule applicability must be unique per referenced dimension.",
   );
 
-  return normalized.sort((left, right) =>
-    left.dimensionId.localeCompare(right.dimensionId),
-  );
+  return normalized.sort((left, right) => left.dimensionId.localeCompare(right.dimensionId));
 }
-
-
-
