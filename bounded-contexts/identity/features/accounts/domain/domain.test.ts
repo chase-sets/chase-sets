@@ -30,4 +30,61 @@ describe("account domain", () => {
 
     expect(createdState.accountType).toBe("enterprise");
   });
+
+  it("assigns founding account badges idempotently", () => {
+    const created = decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId: "acc_founder" as never,
+      name: "Founding Store LLC",
+      accountType: "business",
+      displayName: "Founding Store",
+    });
+    const createdState = created.reduce(evolveAccount, initialAccountState);
+
+    const assigned = decideAccount(createdState, {
+      type: "AssignAccountBadge",
+      badgeKey: "founding-account",
+    });
+    const assignedState = assigned.reduce(evolveAccount, createdState);
+    const assignedAgain = decideAccount(assignedState, {
+      type: "AssignAccountBadge",
+      badgeKey: "founding-account",
+    });
+
+    expect(assigned).toEqual([
+      {
+        type: "identity.account.badge-assigned",
+        data: { badgeKey: "founding-account" },
+      },
+    ]);
+    expect(assignedState.badges).toEqual(["founding-account"]);
+    expect(assignedAgain).toEqual([]);
+  });
+
+  it("removes account badges idempotently", () => {
+    const createdState = decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId: "acc_founder" as never,
+      name: "Founding Store LLC",
+      accountType: "business",
+      displayName: "Founding Store",
+    }).reduce(evolveAccount, initialAccountState);
+    const assignedState = decideAccount(createdState, {
+      type: "AssignAccountBadge",
+      badgeKey: "founding-account",
+    }).reduce(evolveAccount, createdState);
+
+    const removed = decideAccount(assignedState, {
+      type: "RemoveAccountBadge",
+      badgeKey: "founding-account",
+    });
+    const removedState = removed.reduce(evolveAccount, assignedState);
+    const removedAgain = decideAccount(removedState, {
+      type: "RemoveAccountBadge",
+      badgeKey: "founding-account",
+    });
+
+    expect(removedState.badges).toEqual([]);
+    expect(removedAgain).toEqual([]);
+  });
 });

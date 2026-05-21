@@ -70,6 +70,16 @@ Notes:
 - Buying and selling are not account capability classes; accounts may play buyer or seller roles only inside transaction-specific contexts.
 - Seller operational locations remain separate: Inventory owns storage locations for account-held stock, and Fulfillment owns ship-from locations and shipment execution.
 
+### Account Badge
+
+An **Account Badge** is an Identity-owned trust or participation marker assigned to an Account and displayed beside account identity surfaces.
+
+Notes:
+
+- Account Badges belong to Accounts, not Users, Memberships, Buyer roles, or Seller roles.
+- Account Badges must be assigned through Identity-owned account behavior so replay preserves the same visible account markers.
+- A **Founding Account Badge** marks accounts in the first invited group of marketplace participants.
+
 ### Membership
 
 A **Membership** links a User to an Account and defines what the user can do on behalf of that account.

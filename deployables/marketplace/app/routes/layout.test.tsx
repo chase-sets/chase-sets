@@ -31,6 +31,7 @@ const actorDisplay = {
     account_id: "acc_card_vault",
     display_name: "Card Vault",
     name: "Card Vault LLC",
+    badges: [],
   },
   membership: {
     membership_id: "mbr_card_vault_alex",

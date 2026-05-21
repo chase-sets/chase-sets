@@ -37,6 +37,7 @@ function buildServices(overrides: Partial<IdentityServices> = {}) {
     accounts: {
       getAccount: vi.fn(async () => ({
         account_id: "acc_1",
+        badges: ["founding-account"],
         display_name: "Card Vault",
         name: "Card Vault LLC",
       })),
@@ -67,6 +68,7 @@ describe("current actor display", () => {
     await expect(response.json()).resolves.toEqual({
       account: {
         account_id: "acc_1",
+        badges: ["founding-account"],
         display_name: "Card Vault",
         name: "Card Vault LLC",
       },
@@ -102,6 +104,7 @@ describe("current actor display", () => {
     await expect(response.json()).resolves.toEqual({
       account: {
         account_id: "acc_1",
+        badges: [],
         display_name: null,
         name: null,
       },

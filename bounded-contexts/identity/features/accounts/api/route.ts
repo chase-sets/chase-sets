@@ -3,7 +3,14 @@ import { Hono } from "hono";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { hasPermission } from "../../../support/request-support/permissions";
+import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 import type { AccountServices } from "./runtime";
+
+function readAccountBadgeKey(value: unknown): AccountBadgeKey | null {
+  return typeof value === "string" && accountBadgeKeys.includes(value as AccountBadgeKey)
+    ? value as AccountBadgeKey
+    : null;
+}
 
 export function accountRoutes(services: AccountServices) {
   const app = new Hono<IdentityApiEnv>();
@@ -70,6 +77,63 @@ export function accountRoutes(services: AccountServices) {
       context: c.get("context"),
     });
     return c.json({ id: accountId, version: result.version, status: result.state.status });
+  });
+
+  app.post("/:id/badges", async (c) => {
+    const accountId = c.req.param("id");
+    const body = await c.req.json();
+    const badgeKey = readAccountBadgeKey(body.badgeKey);
+    if (!badgeKey) {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+        },
+      }, 400);
+    }
+
+    const result = await services.commandHandler({
+      streamId: `identity.account-${accountId}`,
+      command: {
+        type: "AssignAccountBadge",
+        badgeKey,
+      },
+      context: c.get("context"),
+    });
+    return c.json({
+      id: accountId,
+      version: result.version,
+      status: result.state.status,
+      badges: result.state.badges,
+    });
+  });
+
+  app.delete("/:id/badges/:badgeKey", async (c) => {
+    const accountId = c.req.param("id");
+    const badgeKey = readAccountBadgeKey(c.req.param("badgeKey"));
+    if (!badgeKey) {
+      return c.json({
+        error: {
+          code: "validation_failed",
+          message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+        },
+      }, 400);
+    }
+
+    const result = await services.commandHandler({
+      streamId: `identity.account-${accountId}`,
+      command: {
+        type: "RemoveAccountBadge",
+        badgeKey,
+      },
+      context: c.get("context"),
+    });
+    return c.json({
+      id: accountId,
+      version: result.version,
+      status: result.state.status,
+      badges: result.state.badges,
+    });
   });
 
   app.get("/", async (c) => {

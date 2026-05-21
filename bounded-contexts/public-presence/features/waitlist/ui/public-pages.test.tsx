@@ -70,14 +70,16 @@ describe("public presence homepage", () => {
     expect(screen.getAllByRole("button", { name: "Join the beta waitlist" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Answer three quick questions so early invites reach the accounts most likely to use the beta.").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Lock 0% seller fees on beta listings" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Get in before Founding Account badges are assigned" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "A visible reason to join before launch" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Pick the workflow you want prioritized" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Make set completion feel predictable" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Trust and status before early access" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Prelaunch only. Joining does not require buying, listing, or payment.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("No live marketplace transactions are available during prelaunch.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Built for cards other marketplaces make hard to sell profitably: seller fee locks, no separate seller processing line, repeat listing work, and buyer-visible order costs.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Beta listings keep 0% seller fees until sold while unchanged").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("The first invited accounts can receive a Founding Account badge that stays visible beside their account.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("The first invited accounts can receive a Founding Account badge displayed beside their marketplace account.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("No separate 2.9% plus $0.30 payment-processing line for sellers").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$13.20 plus quoted processing").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Quoted before payment").length).toBeGreaterThan(0);

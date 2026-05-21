@@ -72,6 +72,29 @@ export function createIdentityApiClient({
         await client.accounts[":id"].$get({ param: { id }, header: headers }),
       );
     },
+    async assignAccountBadge<T = { badges: readonly string[] }>(
+      id: string,
+      badgeKey: string,
+    ): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":id"].badges.$post({
+          param: { id },
+          json: { badgeKey },
+          header: headers,
+        }),
+      );
+    },
+    async removeAccountBadge<T = { badges: readonly string[] }>(
+      id: string,
+      badgeKey: string,
+    ): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":id"].badges[":badgeKey"].$delete({
+          param: { id, badgeKey },
+          header: headers,
+        }),
+      );
+    },
     async listShippingAddresses<T>(accountId: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"].$get({
