@@ -38,6 +38,8 @@ Preview app components:
 - `platform-worker`: full-system background workers and worker health.
 - `platform-bootstrap`: `PRE_DEPLOY` schema, seed, control-plane, and platform-admin reconciliation.
 
+In staging and production, `platform-bootstrap` runs only the long-lived data profiles: `critical-bootstrap` and `catalog-integration-bootstrap`. Bootstrap reconciles schemas, required operating data, Catalog integration structure, and bootstrap-required projection groups. It does not run open-ended full-runtime projection, subscription, outbox, or job drains in these long-lived environments; worker components own that catch-up after deployment. Preview keeps the full bootstrap drain because `scenario-seed` depends on cross-context scenario projections.
+
 Preview environments are disposable and intentionally `noindex,nofollow` for landing and marketplace.
 
 ## Staging Hosts
