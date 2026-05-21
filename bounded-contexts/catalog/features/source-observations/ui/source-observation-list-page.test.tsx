@@ -13,11 +13,13 @@ const {
   mockImportTcgdexSet,
   mockPreviewBulkPromoteSourceObservations,
   mockRevalidate,
+  mockUseActiveSourceObservationBulkJobs,
   mockUseTcgdexExpansions,
   mockUseTcgdexLanguages,
   mockUseTcgdexSeries,
   mockUseNavigation,
   mockUseSearchParams,
+  mockWatchSourceObservationBulkJob,
 } = vi.hoisted(() => ({
   mockBulkRejectSourceObservationsByScope: vi.fn(),
   mockBulkRejectSourceObservations: vi.fn(),
@@ -26,11 +28,13 @@ const {
   mockImportTcgdexSet: vi.fn(),
   mockPreviewBulkPromoteSourceObservations: vi.fn(),
   mockRevalidate: vi.fn(),
+  mockUseActiveSourceObservationBulkJobs: vi.fn(),
   mockUseTcgdexExpansions: vi.fn(),
   mockUseTcgdexLanguages: vi.fn(),
   mockUseTcgdexSeries: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
+  mockWatchSourceObservationBulkJob: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
@@ -46,9 +50,11 @@ vi.mock("./use-source-observations", () => ({
   bulkPromoteSourceObservations: mockBulkPromoteSourceObservations,
   importTcgdexSet: mockImportTcgdexSet,
   previewBulkPromoteSourceObservations: mockPreviewBulkPromoteSourceObservations,
+  useActiveSourceObservationBulkJobs: mockUseActiveSourceObservationBulkJobs,
   useTcgdexExpansions: mockUseTcgdexExpansions,
   useTcgdexLanguages: mockUseTcgdexLanguages,
   useTcgdexSeries: mockUseTcgdexSeries,
+  watchSourceObservationBulkJob: mockWatchSourceObservationBulkJob,
 }));
 
 const query: CatalogListQuery = {
@@ -116,6 +122,12 @@ describe("SourceObservationListPage", () => {
         total: 1,
         count: 1,
       },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseActiveSourceObservationBulkJobs.mockReturnValue({
+      data: { items: [], total: 0, count: 0 },
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -332,6 +344,99 @@ describe("SourceObservationListPage", () => {
       ),
     );
     expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("resumes progress for an active bulk review job after page refresh", async () => {
+    const refreshActiveJobs = vi.fn();
+    let resolveWatch:
+      | ((value: {
+          requested: number;
+          promoted: number;
+          skipped: number;
+          failed: number;
+          outcomes: never[];
+        }) => void)
+      | null = null;
+    mockUseActiveSourceObservationBulkJobs.mockReturnValue({
+      data: {
+        items: [
+          {
+            jobId: "job_active",
+            action: "promote",
+            selectionMode: "filter",
+            observationIds: [],
+            scope: { status: "observed" },
+            reason: null,
+            status: "running",
+            progress: {
+              phase: "processing",
+              completed: 10,
+              total: 100,
+              currentName: "Charmander",
+              status: "promoted",
+            },
+            result: null,
+            errorMessage: null,
+            createdAt: "2026-05-21T00:00:00.000Z",
+            startedAt: "2026-05-21T00:00:01.000Z",
+            completedAt: null,
+            updatedAt: "2026-05-21T00:00:02.000Z",
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: refreshActiveJobs,
+    });
+    mockWatchSourceObservationBulkJob.mockImplementation(
+      async (
+        _jobId,
+        options?: {
+          onProgress?: (progress: unknown) => void;
+        },
+      ) => {
+        options?.onProgress?.({
+          phase: "processing",
+          completed: 41,
+          total: 100,
+          currentName: "Charizard",
+          status: "promoted",
+        });
+
+        return new Promise((resolve) => {
+          resolveWatch = resolve;
+        });
+      },
+    );
+
+    render(
+      <SourceObservationListPage
+        data={{ items: [observed], total: 100, count: 1 }}
+        query={{ ...query, status: "observed" }}
+      />,
+    );
+
+    expect(await screen.findByText("41 of 100 processed.")).toBeTruthy();
+    expect(screen.getByText("Promoting Source Observations")).toBeTruthy();
+    expect(mockWatchSourceObservationBulkJob).toHaveBeenCalledWith(
+      "job_active",
+      expect.objectContaining({
+        onProgress: expect.any(Function),
+        signal: expect.any(Object),
+      }),
+    );
+
+    resolveWatch?.({
+      requested: 100,
+      promoted: 100,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    });
+    await waitFor(() => expect(mockRevalidate).toHaveBeenCalled());
+    expect(refreshActiveJobs).toHaveBeenCalled();
   });
 });
 

@@ -681,4 +681,55 @@ describe("source observation routes", () => {
       context,
     });
   });
+
+  it("lists active bulk review jobs for the current request context", async () => {
+    const activeJob = {
+      jobId: "job_active",
+      action: "promote",
+      selectionMode: "filter",
+      observationIds: [],
+      scope: { status: "observed" },
+      reason: null,
+      status: "running",
+      progress: {
+        phase: "processing",
+        completed: 12,
+        total: 100,
+        currentName: "Pikachu",
+        status: "promoted",
+      },
+      result: null,
+      errorMessage: null,
+      createdAt: "2026-05-21T00:00:00.000Z",
+      startedAt: "2026-05-21T00:00:01.000Z",
+      completedAt: null,
+      updatedAt: "2026-05-21T00:00:02.000Z",
+    } as const;
+    const listActiveBulkReviewJobs = vi.fn(async () => [activeJob]);
+    const services = {
+      listActiveBulkReviewJobs,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-jobs/active");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [
+        {
+          jobId: "job_active",
+          action: "promote",
+          selectionMode: "filter",
+          status: "running",
+          progress: {
+            completed: 12,
+            total: 100,
+          },
+        },
+      ],
+      total: 1,
+      count: 1,
+    });
+    expect(listActiveBulkReviewJobs).toHaveBeenCalledWith({ context });
+  });
 });
