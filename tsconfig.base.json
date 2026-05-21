@@ -384,6 +384,9 @@
       "@chase-sets/primitives/*": [
         "./contracts/primitives/*.ts"
       ],
+      "@chase-sets/product-measures": [
+        "./contracts/product-measures/index.ts"
+      ],
       "@chase-sets/provider-webhook-inbox": [
         "./infrastructure/provider-webhook-inbox/index.ts"
       ],

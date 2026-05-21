@@ -28,7 +28,8 @@ type CatalogItemRow = Readonly<{
   catalog_item_id: string;
   blueprint_id: string | null;
   category_ids: unknown;
-  product_schema: unknown;
+  dimension_rules: unknown;
+  canonical_dimension_order: unknown;
 }>;
 
 type ResolvedMeasureRow = Readonly<{
@@ -67,7 +68,7 @@ function createMeasureDb(item: CatalogItemRow) {
         return { rows: [] as T[] };
       }
 
-      if (sql.includes("FROM catalog_items") && sql.includes("WHERE catalog_item_id = $1")) {
+      if (sql.includes("FROM catalog_items") && sql.includes("catalog_item_id = $1")) {
         return { rows: [item] as T[] };
       }
 
@@ -143,14 +144,12 @@ describe("product measure runtime", () => {
       catalog_item_id: "cat_1",
       blueprint_id: "bp_card",
       category_ids: ["cat_pokemon"],
-      product_schema: {
-        canonicalDimensionOrder: ["form"],
-        dimensions: [{
+      canonical_dimension_order: ["form"],
+      dimension_rules: [{
           dimensionId: "form",
           required: true,
           allowedOptions: [{ optionId: "raw" }, { optionId: "graded-psa" }],
-        }],
-      },
+      }],
     });
     const { eventStore, appended } = createEventStore();
     const services = createProductMeasureRuntime({

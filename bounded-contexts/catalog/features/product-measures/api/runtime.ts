@@ -34,7 +34,8 @@ type CatalogProductRow = Readonly<{
   catalog_item_id: string;
   blueprint_id: string | null;
   category_ids: unknown;
-  product_schema: unknown;
+  dimension_rules: unknown;
+  canonical_dimension_order: unknown;
 }>;
 
 type ProductSchema = Readonly<{
@@ -50,6 +51,8 @@ type ProductSchema = Readonly<{
     }>[];
   }>[];
 }>;
+
+type ProductDimension = NonNullable<ProductSchema["dimensions"]>[number];
 
 export type ProductMeasureServices = Readonly<{
   upsertProfile: (profile: ProductMeasureProfileInput) => Promise<void>;
@@ -226,19 +229,22 @@ async function loadCatalogProductRow(
   catalogItemId: string,
 ): Promise<CatalogProductRow | null> {
   const result = await db.query<CatalogProductRow>(
-    `SELECT catalog_item_id, blueprint_id, category_ids, product_schema
-     FROM catalog_items
-     WHERE catalog_item_id = $1`,
+    `SELECT item.catalog_item_id,
+       item.blueprint_id,
+       item.category_ids,
+       COALESCE(blueprint.dimension_rules, '[]'::jsonb) AS dimension_rules,
+       COALESCE(blueprint.canonical_dimension_order, '[]'::jsonb) AS canonical_dimension_order
+     FROM catalog_items AS item
+     LEFT JOIN catalog_blueprints AS blueprint
+       ON blueprint.blueprint_id = item.blueprint_id
+     WHERE item.catalog_item_id = $1`,
     [catalogItemId],
   );
   return result.rows[0] ?? null;
 }
 
 function enumerateProducts(item: CatalogProductRow) {
-  const schema =
-    typeof item.product_schema === "object" && item.product_schema !== null
-      ? (item.product_schema as ProductSchema)
-      : null;
+  const schema = productSchemaFromCatalogProduct(item);
   if (!schema?.dimensions || schema.dimensions.length === 0) {
     return [{
       productId: `${item.catalog_item_id}::`,
@@ -307,6 +313,21 @@ function enumerateProducts(item: CatalogProductRow) {
 
   visit(0, []);
   return products;
+}
+
+function productSchemaFromCatalogProduct(item: CatalogProductRow): ProductSchema {
+  return {
+    canonicalDimensionOrder: Array.isArray(item.canonical_dimension_order)
+      ? item.canonical_dimension_order.map(String)
+      : [],
+    dimensions: Array.isArray(item.dimension_rules)
+      ? item.dimension_rules.map((dimension) =>
+          typeof dimension === "object" && dimension !== null
+            ? (dimension as ProductDimension)
+            : ({} as ProductDimension),
+        )
+      : [],
+  };
 }
 
 function dimensionActive(
