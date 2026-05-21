@@ -1,10 +1,11 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { FieldChrome, type BaseInputProps } from "./shared";
 
 export interface FileDropzoneProps extends BaseInputProps {
   id?: string;
+  name?: string;
   accept?: string;
   multiple?: boolean;
   onFilesChange?: (files: FileList | null) => void;
@@ -14,6 +15,7 @@ export interface FileDropzoneProps extends BaseInputProps {
 
 export function FileDropzone({
   id,
+  name,
   label,
   description,
   error,
@@ -27,6 +29,7 @@ export function FileDropzone({
 }: FileDropzoneProps) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
+  const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
   function handleDragOver(event: React.DragEvent) {
@@ -45,6 +48,9 @@ export function FileDropzone({
     event.preventDefault();
     event.stopPropagation();
     setDragging(false);
+    if (inputRef.current) {
+      inputRef.current.files = event.dataTransfer.files;
+    }
     onFilesChange?.(event.dataTransfer.files);
   }
 
@@ -74,7 +80,9 @@ export function FileDropzone({
           <div className="text-xs text-secondary">{browseLabel}</div>
         </div>
         <input
+          ref={inputRef}
           id={inputId}
+          name={name}
           accept={accept}
           multiple={multiple}
           required={required}

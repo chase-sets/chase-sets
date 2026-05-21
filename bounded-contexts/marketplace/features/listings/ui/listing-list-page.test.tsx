@@ -35,6 +35,7 @@ const listing: MarketplaceListingListItem = {
   terms_resolved_at: "2026-05-01T00:00:00.000Z",
   fee_quote_fingerprint: "fee_1",
   quantity_cap: 1,
+  listing_photos: [],
   status: "active",
   created_at: "2026-05-01T00:00:00.000Z",
   updated_at: "2026-05-01T00:00:00.000Z",

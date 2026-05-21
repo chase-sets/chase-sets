@@ -5,6 +5,10 @@ import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  createFilesystemObjectStorage,
+  createS3ObjectStorage,
+} from "@chase-sets/object-storage";
 import { createPlatformApiHost } from "./app";
 import { loadBootstrapConfig } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
@@ -21,6 +25,9 @@ async function bootstrap() {
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),
         moneyMovementGateway: createFakeMoneyMovementGateway(),
+        listingPhotoStorage: config.listingPhotoStorage.kind === "s3"
+          ? createS3ObjectStorage(config.listingPhotoStorage)
+          : createFilesystemObjectStorage(config.listingPhotoStorage),
       },
     });
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {

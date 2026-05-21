@@ -119,6 +119,32 @@ function shipFromAddressFromForm(formData: FormData) {
   return address;
 }
 
+function listingPhotoFilesFromForm(formData: FormData) {
+  return formData.getAll("listingPhotos").filter(
+    (entry): entry is File => entry instanceof File && entry.size > 0,
+  );
+}
+
+function createListingApiForm(
+  listingBody: Record<string, unknown>,
+  listingPhotoFiles: readonly File[],
+) {
+  const apiForm = new FormData();
+  for (const [key, value] of Object.entries(listingBody)) {
+    apiForm.set(
+      key,
+      typeof value === "object" && value !== null
+        ? JSON.stringify(value)
+        : String(value ?? ""),
+    );
+  }
+  for (const file of listingPhotoFiles) {
+    apiForm.append("listingPhotos", file);
+  }
+
+  return apiForm;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
@@ -226,6 +252,7 @@ export async function action({ request }: ActionFunctionArgs) {
         maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
         maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
       };
+      const listingPhotoFiles = listingPhotoFilesFromForm(formData);
       const quantityCap = Number(createForm.quantityCap ?? 0);
       const listingBody = createForm.inventoryItemId
         ? {
@@ -248,7 +275,11 @@ export async function action({ request }: ActionFunctionArgs) {
               })
             ).snapshot,
           };
-      const result = await api.createListing(listingBody) as { id: string; feeQuoteFingerprint?: string };
+      const result = (listingPhotoFiles.length > 0
+        ? await api.createListingWithPhotos(
+            createListingApiForm(listingBody, listingPhotoFiles),
+          )
+        : await api.createListing(listingBody)) as { id: string; feeQuoteFingerprint?: string };
 
       if (intent === "create-and-publish-listing") {
         await api.publishListing(result.id, {

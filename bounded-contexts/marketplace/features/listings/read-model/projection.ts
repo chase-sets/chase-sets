@@ -32,6 +32,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     max_units_per_order: number | null;
     max_units_per_day: number | null;
     max_units_per_customer_account: number | null;
+    listing_photos: unknown;
     status: string;
     created_at: string;
     updated_at: string;
@@ -46,6 +47,7 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
           typeof row.graded_card === "object" && row.graded_card !== null
             ? row.graded_card
             : null,
+        listing_photos: Array.isArray(row.listing_photos) ? row.listing_photos : [],
       }
     : null;
 }
@@ -106,6 +108,7 @@ export function buildMarketplaceListingProjectionHandlers(
           maxUnitsPerDay: number | null;
           maxUnitsPerCustomerAccount: number | null;
         };
+        listingPhotos?: unknown;
       };
 
       await db.query(
@@ -136,11 +139,12 @@ export function buildMarketplaceListingProjectionHandlers(
           max_units_per_order,
           max_units_per_day,
           max_units_per_customer_account,
+          listing_photos,
           status,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 'draft', $27, $27
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'draft', $28, $28
         )
         ON CONFLICT (listing_id) DO UPDATE SET
           account_id = EXCLUDED.account_id,
@@ -168,6 +172,7 @@ export function buildMarketplaceListingProjectionHandlers(
           max_units_per_order = EXCLUDED.max_units_per_order,
           max_units_per_day = EXCLUDED.max_units_per_day,
           max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
+          listing_photos = EXCLUDED.listing_photos,
           updated_at = EXCLUDED.updated_at`,
         [
           data.listingId,
@@ -198,10 +203,28 @@ export function buildMarketplaceListingProjectionHandlers(
           data.purchaseLimits?.maxUnitsPerOrder ?? null,
           data.purchaseLimits?.maxUnitsPerDay ?? null,
           data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+          JSON.stringify(Array.isArray(data.listingPhotos) ? data.listingPhotos : []),
           event.timing.recordedAt,
         ],
       );
       await emitListingPatch(db, event, data.listingId);
+    },
+    "marketplace.listing.photos-added": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const { listingPhotos } = event.data as { listingPhotos: unknown };
+
+      await db.query(
+        `UPDATE marketplace_listing_pages
+         SET listing_photos = $2,
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [
+          listingId,
+          JSON.stringify(Array.isArray(listingPhotos) ? listingPhotos : []),
+          event.timing.recordedAt,
+        ],
+      );
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.price-updated": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");

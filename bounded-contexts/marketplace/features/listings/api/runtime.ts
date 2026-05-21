@@ -21,11 +21,14 @@ import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
+  requiresListingPhotoEvidence,
+  type MarketplaceListingPhoto,
   type MarketplaceListingPurchaseLimits,
   type MarketplaceListingCommand,
   type MarketplaceListingEvent,
   type MarketplaceListingState,
 } from "../domain/domain";
+import { normalizeListingPhoto } from "./listing-photo-normalization";
 import {
   decideSellerListingAvailability,
   evolveSellerListingAvailability,
@@ -51,6 +54,12 @@ import {
 
 const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as never;
 const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as never;
+const MAX_LISTING_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
+const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 function createMarketplaceSystemContext(accountId: string): EventStoreContext {
   return {
@@ -93,6 +102,7 @@ export type MarketplaceListingServices = Readonly<{
       priceAmount: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
@@ -117,6 +127,7 @@ export type MarketplaceListingServices = Readonly<{
       priceAmount: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
@@ -137,10 +148,19 @@ export type MarketplaceListingServices = Readonly<{
       priceAmount: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
+  addListingPhotos: (
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      listingPhotoUploads: readonly MarketplaceListingPhotoUpload[];
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ listingId: string; version: number }>;
   previewListingTerms: (
     params: Readonly<{ accountId: string; priceAmount: string }>,
   ) => Promise<MarketplaceListingTermsPreview>;
@@ -228,6 +248,13 @@ export type MarketplaceListingServices = Readonly<{
 
 type ListingRuntimeDeps = MarketplaceRuntimeDeps & Readonly<{
   commercialTermsResolver: CommercialTermsResolver;
+}>;
+
+export type MarketplaceListingPhotoUpload = Readonly<{
+  body: Uint8Array;
+  contentType: string;
+  originalFilename: string | null;
+  altText?: string | null;
 }>;
 
 export function createMarketplaceListingRuntime(
@@ -330,6 +357,52 @@ export function createMarketplaceListingRuntime(
     if (providedFingerprint !== currentQuote.fee_quote_fingerprint) {
       throw new MarketplaceSalesFeeQuoteStaleError(currentQuote);
     }
+  }
+
+  async function normalizePhotoUploads(params: Readonly<{
+    accountId: string;
+    listingId: string;
+    listingPhotoUploads: readonly MarketplaceListingPhotoUpload[];
+    existingPhotoCount?: number;
+  }>): Promise<MarketplaceListingPhoto[]> {
+    if (params.listingPhotoUploads.length === 0) {
+      return [];
+    }
+    assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
+
+    const generatedAt = new Date().toISOString();
+    const photos: MarketplaceListingPhoto[] = [];
+    for (const [index, upload] of params.listingPhotoUploads.entries()) {
+      const contentType = upload.contentType.toLowerCase();
+      assert(
+        LISTING_PHOTO_UPLOAD_CONTENT_TYPES.has(contentType),
+        "Listing photos must be JPEG, PNG, or WebP images.",
+      );
+      assert(
+        upload.body.byteLength > 0,
+        "Listing photo uploads cannot be empty.",
+      );
+      assert(
+        upload.body.byteLength <= MAX_LISTING_PHOTO_UPLOAD_BYTES,
+        "Listing photo uploads cannot exceed 10 MB.",
+      );
+
+      const photoId = createId("lpho");
+      photos.push(
+        await normalizeListingPhoto({
+          sourceBody: upload.body,
+          storageBaseKey: `marketplace/listings/${params.accountId}/${params.listingId}/${photoId}`,
+          photoId,
+          originalFilename: upload.originalFilename,
+          altText: upload.altText ?? null,
+          sortOrder: (params.existingPhotoCount ?? 0) + index,
+          generatedAt,
+          photoStorage: deps.listingPhotoStorage,
+        }),
+      );
+    }
+
+    return photos;
   }
 
   async function upsertBatchInventorySnapshot(params: Readonly<{
@@ -462,6 +535,7 @@ export function createMarketplaceListingRuntime(
       priceAmount: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+      listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
       listingIdOverride?: ListingId;
     }>,
     context: EventStoreContext,
@@ -478,6 +552,22 @@ export function createMarketplaceListingRuntime(
     const streamId = `marketplace.listing-${listingId}`;
     const existing = await repository.load(streamId);
     if (existing.state.listingId !== null) {
+      if (params.listingPhotoUploads?.length) {
+        const photoResult = await addListingPhotos(
+          {
+            accountId: params.accountId,
+            listingId,
+            listingPhotoUploads: params.listingPhotoUploads,
+          },
+          context,
+        );
+        return {
+          listingId,
+          version: photoResult.version,
+          feeQuoteFingerprint:
+            existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
+        };
+      }
       return {
         listingId,
         version: existing.version,
@@ -485,6 +575,11 @@ export function createMarketplaceListingRuntime(
           existing.state.feeQuoteFingerprint ?? quote.fee_quote_fingerprint,
       };
     }
+    const listingPhotos = await normalizePhotoUploads({
+      accountId: params.accountId,
+      listingId,
+      listingPhotoUploads: params.listingPhotoUploads ?? [],
+    });
 
     const result = await commandHandler({
       streamId,
@@ -514,11 +609,40 @@ export function createMarketplaceListingRuntime(
         feeQuoteFingerprint: quote.fee_quote_fingerprint,
         quantityCap: params.quantityCap,
         purchaseLimits: params.purchaseLimits,
+        listingPhotos,
       },
       context,
     });
 
     return { listingId, version: result.version, feeQuoteFingerprint: quote.fee_quote_fingerprint };
+  }
+
+  async function addListingPhotos(
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      listingPhotoUploads: readonly MarketplaceListingPhotoUpload[];
+    }>,
+    context: EventStoreContext,
+  ) {
+    const listing = await loadOwnedListingState(params.listingId, params.accountId);
+    const listingPhotos = await normalizePhotoUploads({
+      accountId: params.accountId,
+      listingId: params.listingId,
+      listingPhotoUploads: params.listingPhotoUploads,
+      existingPhotoCount: listing.listingPhotos.length,
+    });
+
+    const result = await commandHandler({
+      streamId: `marketplace.listing-${params.listingId}`,
+      command: {
+        type: "AddListingPhotos",
+        photos: listingPhotos,
+      },
+      context,
+    });
+
+    return { listingId: params.listingId, version: result.version };
   }
 
   return {
@@ -539,6 +663,7 @@ export function createMarketplaceListingRuntime(
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
+          listingPhotoUploads: params.listingPhotoUploads,
         },
         context,
       );
@@ -557,10 +682,12 @@ export function createMarketplaceListingRuntime(
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
+          listingPhotoUploads: params.listingPhotoUploads,
         },
         context,
       );
     },
+    addListingPhotos,
     previewListingTerms: async (params) => {
       return quoteListingTerms(params.accountId, params.priceAmount);
     },
@@ -639,6 +766,10 @@ export function createMarketplaceListingRuntime(
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
       assert(listing.inventoryItemId, "Listing inventory item is missing.");
       assert(listing.priceAmount, "Listing price is missing.");
+      assert(
+        !requiresListingPhotoEvidence(listing) || listing.listingPhotos.length > 0,
+        "Pristine and Mint listings require at least one listing photo before publication.",
+      );
       const quote = await quoteListingTerms(params.accountId, listing.priceAmount);
       assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
 
