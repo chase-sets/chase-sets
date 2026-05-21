@@ -27,4 +27,30 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
       'simple',
       coalesce(normalized->>'name', '') || ' ' || coalesce(normalized->>'expansionName', normalized->>'setName', '') || ' ' || external_key
     )
-  );`;
+  );
+
+CREATE TABLE IF NOT EXISTS catalog_source_observation_bulk_jobs (
+  job_id text PRIMARY KEY,
+  action text NOT NULL CHECK (action IN ('promote', 'reject')),
+  selection_mode text NOT NULL CHECK (selection_mode IN ('ids', 'filter')),
+  observation_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  scope jsonb NOT NULL DEFAULT '{}'::jsonb,
+  reason text NULL,
+  event_context jsonb NOT NULL,
+  status text NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+  progress jsonb NOT NULL,
+  result jsonb NULL,
+  error_message text NULL,
+  claim_owner_id text NULL,
+  claim_expires_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  started_at timestamptz NULL,
+  completed_at timestamptz NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS catalog_source_observation_bulk_jobs_status_idx
+  ON catalog_source_observation_bulk_jobs (status, created_at);
+CREATE INDEX IF NOT EXISTS catalog_source_observation_bulk_jobs_claim_idx
+  ON catalog_source_observation_bulk_jobs (claim_expires_at)
+  WHERE status = 'running';`;

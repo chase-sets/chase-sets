@@ -150,6 +150,7 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
 
 const runners = [
   ...collectWorkerRunners(runtime),
+  ...createCatalogBulkJobRunners(runtime.services, config),
   ...createNotificationDispatchRunners(
     runtime,
     config.workerId,
@@ -316,6 +317,42 @@ function createScheduledJobRunners(
   }
 
   return runners;
+}
+
+function createCatalogBulkJobRunners(
+  services: Readonly<Record<string, unknown>>,
+  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+): readonly WorkerRunner[] {
+  const catalog = services.catalog as
+    | {
+        sourceObservations?: {
+          processNextBulkReviewJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const processNextBulkReviewJob =
+    catalog?.sourceObservations?.processNextBulkReviewJob;
+
+  if (!processNextBulkReviewJob) {
+    return [];
+  }
+
+  return [
+    {
+      name: "catalog.source-observation-bulk-jobs",
+      kind: "job",
+      runOnce: async () => ({
+        processed: await processNextBulkReviewJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+        }),
+        lastGlobalPosition: "0" as never,
+      }),
+    },
+  ];
 }
 
 function createTransactionalEmailDispatchRunners(
