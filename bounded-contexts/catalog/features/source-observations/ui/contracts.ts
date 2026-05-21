@@ -94,6 +94,13 @@ export interface SourceObservationPromotionPreview {
   scope: Required<SourceObservationPromotionScope>;
 }
 
+export interface SourceObservationReapplyPreview {
+  matched: number;
+  eligible: number;
+  ineligible: number;
+  scope: Required<SourceObservationPromotionScope>;
+}
+
 export type BulkSourceObservationPromotionStatus = "promoted" | "rejected" | "skipped" | "failed";
 
 export interface BulkSourceObservationPromotionOutcome {
@@ -110,4 +117,21 @@ export interface BulkSourceObservationPromotionResult {
   skipped: number;
   failed: number;
   outcomes: BulkSourceObservationPromotionOutcome[];
+}
+
+export type BulkSourceObservationReapplyStatus = "reapplied" | "skipped" | "failed";
+
+export interface BulkSourceObservationReapplyOutcome {
+  observationId: string;
+  status: BulkSourceObservationReapplyStatus;
+  catalogItemId: string | null;
+  reason: string | null;
+}
+
+export interface BulkSourceObservationReapplyResult {
+  requested: number;
+  reapplied: number;
+  skipped: number;
+  failed: number;
+  outcomes: BulkSourceObservationReapplyOutcome[];
 }

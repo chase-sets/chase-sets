@@ -122,6 +122,64 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(result);
   });
 
+  app.post("/reapply/preview", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      scope?: unknown;
+    };
+    const result = await services.previewReapplyObservationScope({
+      scope: parsePromotionScope(body.scope),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/reapply", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+    };
+
+    if (body.scope) {
+      const result = await services.reapplyObservationScope({
+        scope: parsePromotionScope(body.scope),
+        context: c.get("context"),
+      });
+
+      return c.json(result);
+    }
+
+    const result = await services.reapplyObservations({
+      observationIds: parseObservationIds(body.observationIds),
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/reapply/progress", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+    };
+    const context = c.get("context");
+
+    return streamReapplyNdjson(
+      async (onProgress) =>
+        body.scope
+          ? services.reapplyObservationScope({
+              scope: parsePromotionScope(body.scope),
+              context,
+              onProgress,
+            })
+          : services.reapplyObservations({
+              observationIds: parseObservationIds(body.observationIds),
+              context,
+              onProgress,
+            }),
+      c.req.raw.signal,
+    );
+  });
+
   app.post("/bulk-promote/jobs", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
@@ -433,6 +491,55 @@ function streamBulkJobNdjson(
           }
 
           await sleep(500);
+        }
+      } finally {
+        controller.close();
+      }
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function streamReapplyNdjson(
+  run: (
+    onProgress: NonNullable<Parameters<SourceObservationServices["reapplyObservationScope"]>[0]["onProgress"]>,
+  ) => Promise<unknown>,
+  signal?: AbortSignal,
+) {
+  const encoder = new TextEncoder();
+  let closed = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (event: unknown) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
+
+      try {
+        const result = await run((progress) => {
+          if (!closed && !signal?.aborted) {
+            write({ type: "progress", progress });
+          }
+        });
+        if (!closed && !signal?.aborted) {
+          write({ type: "result", result });
+        }
+      } catch (error) {
+        if (!closed && !signal?.aborted) {
+          write({
+            type: "error",
+            message: error instanceof Error ? error.message : "Source Observation reapply failed.",
+          });
         }
       } finally {
         controller.close();

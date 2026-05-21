@@ -26,14 +26,17 @@ import {
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
 import {
   getSourceObservationDetail,
+  listSourceObservationIdsForReapply,
   listSourceObservationIdsForPromotion,
   listSourceObservationIntegrationScopes,
   listSourceObservations,
+  previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
   type SourceObservationDetailRow,
   type SourceObservationFilterScope,
   type SourceObservationIntegrationScopeRow,
   type SourceObservationPromotionPreview,
+  type SourceObservationReapplyPreview,
 } from "../read-model/queries";
 import {
   fetchTcgdexExpansionOptions,
@@ -66,12 +69,27 @@ export type BulkSourceObservationPromotionResult = Readonly<{
   outcomes: readonly BulkSourceObservationPromotionOutcome[];
 }>;
 
+export type BulkSourceObservationReapplyOutcome = Readonly<{
+  observationId: string;
+  status: "reapplied" | "skipped" | "failed";
+  catalogItemId: CatalogItemId | null;
+  reason: string | null;
+}>;
+
+export type BulkSourceObservationReapplyResult = Readonly<{
+  requested: number;
+  reapplied: number;
+  skipped: number;
+  failed: number;
+  outcomes: readonly BulkSourceObservationReapplyOutcome[];
+}>;
+
 export type BulkSourceObservationProgress = Readonly<{
   phase: "queued" | "processing" | "completed" | "failed";
   completed: number;
   total: number;
   currentName: string | null;
-  status: BulkSourceObservationPromotionOutcome["status"] | null;
+  status: BulkSourceObservationPromotionOutcome["status"] | BulkSourceObservationReapplyOutcome["status"] | null;
 }>;
 
 export type SourceObservationBulkJobAction = "promote" | "reject";
@@ -143,6 +161,19 @@ export type SourceObservationServices = Readonly<{
     context: EventStoreContext;
     onProgress?: (progress: BulkSourceObservationProgress) => void;
   }) => Promise<BulkSourceObservationPromotionResult>;
+  previewReapplyObservationScope: (input: {
+    scope: SourceObservationFilterScope;
+  }) => Promise<SourceObservationReapplyPreview>;
+  reapplyObservations: (input: {
+    observationIds: readonly string[];
+    context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
+  }) => Promise<BulkSourceObservationReapplyResult>;
+  reapplyObservationScope: (input: {
+    scope: SourceObservationFilterScope;
+    context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
+  }) => Promise<BulkSourceObservationReapplyResult>;
   rejectObservations: (input: {
     observationIds: readonly string[];
     reason: string;
@@ -340,6 +371,100 @@ export function createSourceObservationRuntime(
     input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
+  }
+
+  async function reapplyObservationFromRow(input: {
+    observation: SourceObservationDetailRow;
+    context: EventStoreContext;
+  }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
+    if (input.observation.status !== "promoted") {
+      throw new Error("Only promoted source observations can be reapplied.");
+    }
+
+    const catalogItemId = input.observation.promoted_catalog_item_id as CatalogItemId | null;
+    if (!catalogItemId) {
+      throw new Error("Promoted source observation is missing its Catalog Item.");
+    }
+
+    await refreshCatalogItemFromObservation({
+      items,
+      referenceData,
+      deps,
+      catalogItemId,
+      normalized: input.observation.normalized,
+      providerKey: input.observation.provider_key,
+      externalKey: input.observation.external_key,
+      context: input.context,
+    });
+
+    return {
+      observationId: input.observation.observation_id,
+      catalogItemId,
+    };
+  }
+
+  async function reapplyObservationIds(input: {
+    observationIds: readonly string[];
+    context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
+  }): Promise<BulkSourceObservationReapplyResult> {
+    const requestedIds = uniqueObservationIds(input.observationIds);
+    const outcomes: BulkSourceObservationReapplyOutcome[] = [];
+    input.onProgress?.(bulkProgress(0, requestedIds.length));
+
+    for (const observationId of requestedIds) {
+      let currentName: string | null = null;
+      try {
+        const observation = await getSourceObservationDetail(deps.db, observationId);
+        currentName = observation?.normalized.name ?? null;
+
+        if (!observation) {
+          outcomes.push({
+            observationId,
+            status: "failed",
+            catalogItemId: null,
+            reason: "Source observation was not found.",
+          });
+          continue;
+        }
+
+        if (observation.status !== "promoted") {
+          outcomes.push({
+            observationId,
+            status: "skipped",
+            catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+            reason: `Source observation is ${observation.status}.`,
+          });
+          continue;
+        }
+
+        const reapplied = await reapplyObservationFromRow({
+          observation,
+          context: input.context,
+        });
+        outcomes.push({
+          observationId,
+          status: "reapplied",
+          catalogItemId: reapplied.catalogItemId,
+          reason: null,
+        });
+      } catch (error) {
+        outcomes.push({
+          observationId,
+          status: "failed",
+          catalogItemId: null,
+          reason: error instanceof Error ? error.message : "Reapply failed.",
+        });
+      } finally {
+        const outcome = outcomes[outcomes.length - 1];
+        input.onProgress?.(bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null));
+      }
+    }
+
+    await drainRuntimeProjectors(items.projectors);
+    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
+
+    return summarizeReapplyOutcomes(requestedIds.length, outcomes);
   }
 
   async function rejectObservationIds(input: {
@@ -579,6 +704,16 @@ export function createSourceObservationRuntime(
     promoteObservationScope: async ({ scope, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
       return promoteObservationIds({
+        observationIds,
+        context,
+        onProgress,
+      });
+    },
+    previewReapplyObservationScope: async ({ scope }) => previewSourceObservationReapplyScope(deps.db, scope),
+    reapplyObservations: reapplyObservationIds,
+    reapplyObservationScope: async ({ scope, context, onProgress }) => {
+      const observationIds = await listSourceObservationIdsForReapply(deps.db, scope);
+      return reapplyObservationIds({
         observationIds,
         context,
         onProgress,
@@ -1659,11 +1794,24 @@ function summarizePromotionOutcomes(
   };
 }
 
+function summarizeReapplyOutcomes(
+  requested: number,
+  outcomes: readonly BulkSourceObservationReapplyOutcome[],
+): BulkSourceObservationReapplyResult {
+  return {
+    requested,
+    reapplied: outcomes.filter((outcome) => outcome.status === "reapplied").length,
+    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
+    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
+    outcomes,
+  };
+}
+
 function bulkProgress(
   completed: number,
   total: number,
   currentName: string | null = null,
-  status: BulkSourceObservationPromotionOutcome["status"] | null = null,
+  status: BulkSourceObservationProgress["status"] = null,
   phase: BulkSourceObservationProgress["phase"] = "processing",
 ): BulkSourceObservationProgress {
   return {

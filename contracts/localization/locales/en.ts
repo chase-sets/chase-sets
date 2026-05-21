@@ -270,6 +270,15 @@ export const englishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.promoted": "Promoted",
   "catalog.features.sourceObservations.ui.integrations.provider": "Provider",
   "catalog.features.sourceObservations.ui.integrations.provider.tcgdex": "TCGdex",
+  "catalog.features.sourceObservations.ui.integrations.reapply.confirm": "Reapply mapping",
+  "catalog.features.sourceObservations.ui.integrations.reapply.confirm.body":
+    "{eligible} promoted observations will be reapplied. {ineligible} of {matched} matching observations are not promoted and will be skipped.",
+  "catalog.features.sourceObservations.ui.integrations.reapply.confirm.scope": "Scope: {scope}",
+  "catalog.features.sourceObservations.ui.integrations.reapply.confirm.title": "Reapply integration mapping",
+  "catalog.features.sourceObservations.ui.integrations.reapply.completed":
+    "{reapplied} observations reapplied, {skipped} skipped, {failed} failed.",
+  "catalog.features.sourceObservations.ui.integrations.reapply.failed": "Source Observation reapply failed.",
+  "catalog.features.sourceObservations.ui.integrations.reapply.promoted": "Reapply promoted",
   "catalog.features.sourceObservations.ui.integrations.rejected": "Rejected",
   "catalog.features.sourceObservations.ui.integrations.review": "Review",
   "catalog.features.sourceObservations.ui.integrations.scopes": "Scopes",

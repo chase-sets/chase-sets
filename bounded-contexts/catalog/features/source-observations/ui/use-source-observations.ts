@@ -8,10 +8,12 @@ import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type {
   BulkSourceObservationPromotionResult,
+  BulkSourceObservationReapplyResult,
   SourceObservationIntegrationScope,
   SourceObservationIntegrationOption,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
+  SourceObservationReapplyPreview,
   SourceObservationDetail,
   SourceObservationListItem,
   TcgdexExpansionOption,
@@ -118,6 +120,24 @@ export function bulkPromoteSourceObservationsByScope(
   options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
 ) {
   return api.bulkPromoteSourceObservationsByScope<BulkSourceObservationPromotionResult>(scope, options);
+}
+
+export function previewReapplySourceObservations(scope: SourceObservationPromotionScope) {
+  return api.previewReapplySourceObservations<SourceObservationReapplyPreview>(scope);
+}
+
+export function reapplySourceObservations(
+  observationIds: string[],
+  options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
+) {
+  return api.reapplySourceObservations<BulkSourceObservationReapplyResult>(observationIds, options);
+}
+
+export function reapplySourceObservationsByScope(
+  scope: SourceObservationPromotionScope,
+  options: { onProgress?: (progress: CatalogBulkActionProgress) => void } = {},
+) {
+  return api.reapplySourceObservationsByScope<BulkSourceObservationReapplyResult>(scope, options);
 }
 
 export function bulkRejectSourceObservations(

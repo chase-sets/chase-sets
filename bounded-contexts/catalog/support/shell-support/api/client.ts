@@ -978,6 +978,55 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewReapplySourceObservations<T>(scope: unknown): Promise<T> {
+      const response = await client["source-observations"].reapply.preview.$post({
+        json: { scope },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async reapplySourceObservations<T>(
+      observationIds: string[],
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      if (options.onProgress) {
+        return streamSourceObservationReapply<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          body: { observationIds },
+          onProgress: options.onProgress,
+          signal: options.signal,
+        });
+      }
+
+      const response = await client["source-observations"].reapply.$post({
+        json: { observationIds },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async reapplySourceObservationsByScope<T>(
+      scope: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      if (options.onProgress) {
+        return streamSourceObservationReapply<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          body: { scope },
+          onProgress: options.onProgress,
+          signal: options.signal,
+        });
+      }
+
+      const response = await client["source-observations"].reapply.$post({
+        json: { scope },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async promoteSourceObservation<T>(id: string): Promise<T> {
       const response = await client["source-observations"][":id"].promote.$post({
         param: { id },
@@ -1149,6 +1198,81 @@ async function streamImportTcgdexSet<T>(input: {
 
   if (!result) {
     throw new Error("TCGdex import finished without a result.");
+  }
+
+  return result;
+}
+
+async function streamSourceObservationReapply<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  body: unknown;
+  onProgress: (progress: CatalogBulkActionProgress) => void;
+  signal?: AbortSignal;
+}): Promise<T> {
+  const response = await input.fetch(`${input.baseUrl.replace(/\/$/, "")}/source-observations/reapply/progress`, {
+    method: "POST",
+    signal: input.signal,
+    headers: {
+      "content-type": "application/json",
+      ...headersToRecord(input.headers),
+    },
+    body: JSON.stringify(input.body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new ApiError(response.status, errorBody);
+  }
+
+  if (!response.body) {
+    throw new Error("Source Observation reapply progress stream was not available.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: T | null = null;
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+
+      const event = JSON.parse(line) as {
+        type?: string;
+        progress?: CatalogBulkActionProgress;
+        result?: T;
+        message?: string;
+      };
+
+      if (event.type === "progress" && event.progress) {
+        input.onProgress(event.progress);
+      }
+
+      if (event.type === "result" && event.result) {
+        result = event.result;
+      }
+
+      if (event.type === "error") {
+        throw new Error(event.message ?? "Source Observation reapply failed.");
+      }
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (!result) {
+    throw new Error("Source Observation reapply finished without a result.");
   }
 
   return result;
