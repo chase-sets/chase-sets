@@ -237,7 +237,7 @@ describe("platform host api registry", () => {
     ).toThrow(/missing a pool for context 'auth'/);
   });
 
-  it("keeps production-like bootstrap bounded to seeded contexts", async () => {
+  it("keeps production-like bootstrap out of host-level projection drains", async () => {
     const identityProjector = createCountingProjector();
     const catalogProjector = createCountingProjector();
     const checkoutProjector = createCountingProjector();
@@ -293,7 +293,7 @@ describe("platform host api registry", () => {
     });
 
     expect(identityProjector.runOnce).not.toHaveBeenCalled();
-    expect(catalogProjector.runOnce).toHaveBeenCalledTimes(2);
+    expect(catalogProjector.runOnce).not.toHaveBeenCalled();
     expect(checkoutProjector.runOnce).not.toHaveBeenCalled();
   });
 
