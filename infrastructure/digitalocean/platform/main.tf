@@ -1337,6 +1337,10 @@ resource "digitalocean_app" "platform" {
     }
   }
 
+  timeouts {
+    create = "90m"
+  }
+
   depends_on = [
     digitalocean_database_db.contexts,
     digitalocean_database_user.contexts,
