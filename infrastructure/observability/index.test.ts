@@ -98,6 +98,8 @@ describe("public presence waitlist analytics observability", () => {
       publicPresenceWaitlistAnalyticsAttributes({
         event: "cta clicked!",
         section: "hero",
+        target: "waitlist_form",
+        field: "consent",
         role: "sell",
         interest: "low-sales-fees",
         variant: "landing-audit-remediation",
@@ -107,6 +109,8 @@ describe("public presence waitlist analytics observability", () => {
       context: "public-presence",
       event: "cta_clicked_",
       section: "hero",
+      target: "waitlist_form",
+      field: "consent",
       role: "sell",
       interest: "low-sales-fees",
       variant: "landing-audit-remediation",

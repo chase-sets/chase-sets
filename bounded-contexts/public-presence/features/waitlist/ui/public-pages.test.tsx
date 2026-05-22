@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { PublicPresenceHomePage } from "./public-pages";
+import SalesFeesRoute from "../../../routes/marketplace/sales-fees";
 
 const source = {
   pagePath: "/",
@@ -67,7 +68,7 @@ describe("public presence homepage", () => {
       screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("heading", { name: "First signups get Founding Account status" }).length,
+      screen.getAllByRole("heading", { name: "Early signups can earn Founding Account status" }).length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "A visible reason to be first" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Pick the workflow you want prioritized" }).length).toBeGreaterThan(
@@ -88,17 +89,20 @@ describe("public presence homepage", () => {
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "The first accounts to sign up get a Founding Account badge and founders circle access on Discord.",
+        "The earliest qualified beta accounts get a Founding Account badge and founders circle access on Discord.",
       ).length,
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "The first accounts to sign up get a Founding Account badge displayed beside their marketplace account.",
+        "The earliest qualified beta accounts get a Founding Account badge displayed beside their marketplace account.",
       ).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByText("First signups get a Founding Account badge plus founders circle access on Discord.").length,
+      screen.getAllByText(
+        "Earliest qualified beta accounts get Founding Account badge eligibility plus founders circle access on Discord.",
+      ).length,
     ).toBeGreaterThan(0);
+    expect(screen.getAllByText("Founder badge eligibility").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText("No separate 2.9% plus $0.30 payment-processing line for sellers").length,
     ).toBeGreaterThan(0);
@@ -110,6 +114,11 @@ describe("public presence homepage", () => {
     const priorities = [...container.querySelectorAll('form select[name="interests"]')] as HTMLSelectElement[];
     expect(priorities.map((priority) => priority.value)).toEqual(["low-sales-fees"]);
     expect(container.querySelector('[id="waitlist-form"]')).toBeTruthy();
+
+    const pageText = container.textContent ?? "";
+    expect(pageText.indexOf("Pick the workflow you want prioritized")).toBeLessThan(
+      pageText.indexOf("Why join before launch"),
+    );
   });
 
   it("lets visitors choose a hero intent before submitting the compact form", async () => {
@@ -239,5 +248,19 @@ describe("public presence homepage", () => {
     expect(discordLinks.map((link) => link.getAttribute("target"))).toEqual(["_blank"]);
     expect(discordLinks.map((link) => link.getAttribute("rel"))).toEqual(["noopener noreferrer"]);
     expect(screen.getAllByText("You are on the list").length).toBeGreaterThan(0);
+  });
+
+  it("explains seller fee terms, buyer cost visibility, and founder feedback", () => {
+    render(
+      <MemoryRouter>
+        <SalesFeesRoute />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Marketplace sales fees" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Buyer-side cost visibility" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Founder feedback loop" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Questions before listing" })).toBeTruthy();
+    expect(screen.getByText(/Founding Account badge eligibility/)).toBeTruthy();
   });
 });

@@ -254,6 +254,8 @@ describe("design-system", () => {
         imageAlt="Pikachu VMAX card"
         imageLoading="lazy"
         imageDecoding="async"
+        imageWidth={420}
+        imageHeight={587}
         price="$1,250.00"
         priceDetail="Free insured shipping"
         condition="PSA 10"
@@ -273,6 +275,8 @@ describe("design-system", () => {
     expect(markup).toContain("2020 Pikachu VMAX");
     expect(markup).toContain("Pikachu VMAX card");
     expect(markup).toContain('loading="lazy"');
+    expect(markup).toContain('width="420"');
+    expect(markup).toContain('height="587"');
     expect(markup).toContain("$1,250.00");
     expect(markup).toContain("Verified account");
     expect(markup).toContain("Order protected");

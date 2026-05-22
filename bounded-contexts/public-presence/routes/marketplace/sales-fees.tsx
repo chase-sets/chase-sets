@@ -24,8 +24,20 @@ export default function SalesFeesRoute() {
             body: [t("publicPresence.info.sellerFees.lowValue.body")],
           },
           {
+            title: t("publicPresence.info.sellerFees.buyerVisibility.title"),
+            body: [t("publicPresence.info.sellerFees.buyerVisibility.body")],
+          },
+          {
+            title: t("publicPresence.info.sellerFees.founders.title"),
+            body: [t("publicPresence.info.sellerFees.founders.body")],
+          },
+          {
             title: t("publicPresence.info.sellerFees.prelaunch.title"),
             body: [t("publicPresence.info.sellerFees.prelaunch.body")],
+          },
+          {
+            title: t("publicPresence.info.sellerFees.questions.title"),
+            body: [t("publicPresence.info.sellerFees.questions.body")],
           },
         ],
       }}

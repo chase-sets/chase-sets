@@ -564,6 +564,8 @@ export interface ListingCardProps {
   imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
   imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
   imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
+  imageWidth?: ImgHTMLAttributes<HTMLImageElement>["width"];
+  imageHeight?: ImgHTMLAttributes<HTMLImageElement>["height"];
   imageFallbackSrc?: string;
   imageFallbackAlt?: string;
   imageFallbackSrcSet?: string;
@@ -615,6 +617,8 @@ export function ListingCard({
   imageFetchPriority = "auto",
   imageLoading = "lazy",
   imageDecoding = "async",
+  imageWidth,
+  imageHeight,
   imageFallbackSrc,
   imageFallbackAlt,
   imageFallbackSrcSet,
@@ -733,6 +737,8 @@ export function ListingCard({
               alt={imageFallbackAlt ?? imageAlt ?? title}
               srcSet={imageFallbackSrcSet}
               sizes={imageFallbackSizes}
+              width={imageWidth}
+              height={imageHeight}
               fetchPriority={imageFetchPriority}
               loading={imageLoading}
               decoding={imageDecoding}
@@ -746,6 +752,8 @@ export function ListingCard({
               alt={resolvedImageAlt}
               srcSet={resolvedImageSrcSet}
               sizes={resolvedImageSizes}
+              width={imageWidth}
+              height={imageHeight}
               loading={imageLoading}
               decoding={imageDecoding}
               fetchPriority={imageFetchPriority}

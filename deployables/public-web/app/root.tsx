@@ -30,6 +30,14 @@ export const waitlistAnalyticsBridgeScript = `
     return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
   }
 
+  function readAttribution(value) {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const text = value.trim();
+    return text.length > 0 && text.length <= 120 && /^[a-zA-Z0-9][a-zA-Z0-9 _%+.-]*$/.test(text) ? text : null;
+  }
+
   function readPath(value) {
     if (typeof value !== "string") {
       return null;
@@ -56,9 +64,9 @@ export const waitlistAnalyticsBridgeScript = `
       variant: readBounded(detail.variant),
       status: readBounded(detail.status),
       page_path: readPath(detail.page_path),
-      utm_source: readBounded(detail.utm_source),
-      utm_medium: readBounded(detail.utm_medium),
-      utm_campaign: readBounded(detail.utm_campaign),
+      utm_source: readAttribution(detail.utm_source),
+      utm_medium: readAttribution(detail.utm_medium),
+      utm_campaign: readAttribution(detail.utm_campaign),
       checked: typeof detail.checked === "boolean" ? detail.checked : null,
     };
     const body = JSON.stringify(payload);

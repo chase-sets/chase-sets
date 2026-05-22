@@ -37,6 +37,7 @@ describe("public web deployable", () => {
     expect(waitlistAnalyticsBridgeScript).toContain("/analytics/waitlist");
     expect(waitlistAnalyticsBridgeScript).toContain("page_path");
     expect(waitlistAnalyticsBridgeScript).toContain("utm_source");
+    expect(waitlistAnalyticsBridgeScript).toContain("readAttribution");
     expect(waitlistAnalyticsBridgeScript).not.toContain("email");
   });
 
@@ -132,7 +133,7 @@ describe("public web deployable", () => {
           page_path: "/?utm_source=launch&utm_campaign=beta",
           utm_source: "launch",
           utm_medium: "social",
-          utm_campaign: "beta",
+          utm_campaign: "founder wave",
         }),
       }),
       params: {},
@@ -195,6 +196,26 @@ describe("public web deployable", () => {
           event: "landing_page_view",
           page_path: "https://evil.example/?email=seller@example.com",
           utm_source: "launch",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.status).toBe(400);
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects source attribution that looks like private contact data", async () => {
+    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
+    const response = await waitlistAnalyticsAction({
+      request: new Request("https://chasesets.com/analytics/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "landing_page_view",
+          page_path: "/?utm_source=seller@example.com",
+          utm_source: "seller@example.com",
         }),
       }),
       params: {},
