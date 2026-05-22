@@ -10,6 +10,56 @@ function event() {
   } as never;
 }
 
+function delayedAdminQuery(itemIds: readonly string[] = ["cat_1"]) {
+  let activeQueries = 0;
+  let maxActiveQueries = 0;
+
+  const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+    activeQueries += 1;
+    maxActiveQueries = Math.max(maxActiveQueries, activeQueries);
+
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    activeQueries -= 1;
+
+    if (sql.includes("FROM catalog_items WHERE catalog_item_id = $1")) {
+      return {
+        rows: [
+          {
+            catalog_item_id: params?.[0] as string,
+            language_code: "en",
+            title_i18n: { defaultLocale: "en", values: { en: "Pikachu" } },
+            title: "Pikachu",
+            subtitle_i18n: null,
+            subtitle: null,
+            description_i18n: { defaultLocale: "en", values: { en: "Mouse Pokemon" } },
+            description: "Mouse Pokemon",
+            blueprint_id: null,
+            status: "draft",
+            field_values: [],
+            category_ids: [],
+            tags: [],
+            image_urls: [],
+            product_asset_sets: [],
+            image_fallback: null,
+            updated_at: "2026-05-17T00:00:00.000Z",
+          },
+        ],
+      };
+    }
+
+    if (sql.includes("FROM catalog_items WHERE category_ids")) {
+      return { rows: itemIds.map((catalog_item_id) => ({ catalog_item_id })) };
+    }
+
+    return { rows: [] };
+  });
+
+  return {
+    query,
+    maxActiveQueries: () => maxActiveQueries,
+  };
+}
+
 describe("Catalog Item projections", () => {
   it("deletes removed drafts from the base read model", async () => {
     const query = vi.fn(async () => ({ rows: [] }));
@@ -33,5 +83,26 @@ describe("Catalog Item projections", () => {
       "DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1",
       ["cat_1"],
     );
+  });
+
+  it("refreshes admin item pages with database backpressure", async () => {
+    const { query, maxActiveQueries } = delayedAdminQuery();
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+
+    await handlers["catalog.catalog-item.field-value-set"]?.(event());
+
+    expect(maxActiveQueries()).toBe(1);
+  });
+
+  it("refreshes dependent admin item pages one item at a time", async () => {
+    const { query, maxActiveQueries } = delayedAdminQuery(["cat_1", "cat_2"]);
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+
+    await handlers["catalog.category.published"]?.({
+      ...event(),
+      streamId: "catalog.category-cat_category_1",
+    });
+
+    expect(maxActiveQueries()).toBe(1);
   });
 });

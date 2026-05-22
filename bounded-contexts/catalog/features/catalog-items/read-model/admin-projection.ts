@@ -150,14 +150,12 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
     [itemId],
   );
 
-  const [fieldNames, categoryNames, blueprintNames, references] = await Promise.all([
-    loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds),
-    loadNameMap(db, "catalog_categories", "category_id", "name", categoryIds),
-    item.blueprint_id
-      ? loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
-      : Promise.resolve(new Map<string, string>()),
-    loadReferenceRecordMap(db, referenceIds),
-  ]);
+  const fieldNames = await loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds);
+  const categoryNames = await loadNameMap(db, "catalog_categories", "category_id", "name", categoryIds);
+  const blueprintNames = item.blueprint_id
+    ? await loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
+    : new Map<string, string>();
+  const references = await loadReferenceRecordMap(db, referenceIds);
 
   const namedFieldValues = fieldValues.map((entry) => ({
     fieldId: entry.fieldId,
@@ -248,10 +246,8 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
 }
 
 export async function refreshCatalogAdminCatalogItemPages(db: PgQueryable, itemId: string): Promise<void> {
-  await Promise.all([
-    refreshCatalogAdminCatalogItemListPage(db, itemId),
-    refreshCatalogAdminCatalogItemDetailPage(db, itemId),
-  ]);
+  await refreshCatalogAdminCatalogItemListPage(db, itemId);
+  await refreshCatalogAdminCatalogItemDetailPage(db, itemId);
 }
 
 async function findCatalogItemIdsByField(db: PgQueryable, fieldId: string): Promise<string[]> {
@@ -294,11 +290,12 @@ async function findReferenceRecordIdsByRelatedReferenceGraph(
   let frontier = [referenceRecordId];
 
   for (let depth = 0; depth < MAX_REFERENCE_EXPANSION_DEPTH && frontier.length > 0; depth++) {
-    const next = [
-      ...new Set(
-        (await Promise.all(frontier.map((recordId) => findReferenceRecordIdsByRelatedReference(db, recordId)))).flat(),
-      ),
-    ].filter((recordId) => !visited.has(recordId));
+    const relatedRecordIds: string[] = [];
+    for (const recordId of frontier) {
+      relatedRecordIds.push(...(await findReferenceRecordIdsByRelatedReference(db, recordId)));
+    }
+
+    const next = [...new Set(relatedRecordIds)].filter((recordId) => !visited.has(recordId));
 
     for (const recordId of next) {
       visited.add(recordId);
@@ -329,7 +326,9 @@ async function findCatalogItemIdsByCategory(db: PgQueryable, categoryId: string)
 }
 
 async function refreshCatalogItemIds(db: PgQueryable, itemIds: readonly string[]): Promise<void> {
-  await Promise.all(itemIds.map((itemId) => refreshCatalogAdminCatalogItemPages(db, itemId)));
+  for (const itemId of new Set(itemIds)) {
+    await refreshCatalogAdminCatalogItemPages(db, itemId);
+  }
 }
 
 export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -347,14 +346,11 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
 
   async function refreshReferenceDependents(referenceRecordId: string) {
     const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(db, referenceRecordId);
-    const itemIds = [
-      ...(await findCatalogItemIdsByReferenceRecord(db, referenceRecordId)),
-      ...(
-        await Promise.all(
-          relatedRecordIds.map((relatedRecordId) => findCatalogItemIdsByReferenceRecord(db, relatedRecordId)),
-        )
-      ).flat(),
-    ];
+    const itemIds = await findCatalogItemIdsByReferenceRecord(db, referenceRecordId);
+
+    for (const relatedRecordId of relatedRecordIds) {
+      itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, relatedRecordId)));
+    }
 
     await refreshCatalogItemIds(db, [...new Set(itemIds)]);
   }
@@ -414,10 +410,8 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     "catalog.catalog-item.draft-removed": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await Promise.all([
-        db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1`, [itemId]),
-        db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`, [itemId]),
-      ]);
+      await db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1`, [itemId]);
+      await db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`, [itemId]);
     },
 
     "catalog.blueprint.revised": async (event) => {
