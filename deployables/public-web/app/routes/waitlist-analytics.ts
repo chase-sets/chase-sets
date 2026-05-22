@@ -50,6 +50,8 @@ export async function action({ request }: ActionFunctionArgs) {
   recordPublicPresenceWaitlistAnalytics({
     event: payload.event,
     section: payload.section,
+    target: payload.target,
+    field: payload.field,
     role: payload.role,
     interest: payload.interest,
     variant: payload.variant,
@@ -110,9 +112,9 @@ function parsePayload(text: string): WaitlistAnalyticsPayload | null {
   const variant = readOptionalBoundedString(body.variant);
   const status = readOptionalBoundedString(body.status);
   const pagePath = readOptionalPath(body.page_path);
-  const utmSource = readOptionalBoundedString(body.utm_source);
-  const utmMedium = readOptionalBoundedString(body.utm_medium);
-  const utmCampaign = readOptionalBoundedString(body.utm_campaign);
+  const utmSource = readOptionalAttributionString(body.utm_source);
+  const utmMedium = readOptionalAttributionString(body.utm_medium);
+  const utmCampaign = readOptionalAttributionString(body.utm_campaign);
   if (
     section === invalidAnalyticsLabel ||
     target === invalidAnalyticsLabel ||
@@ -166,6 +168,21 @@ function readOptionalBoundedString(value: unknown) {
 
   const text = value.trim();
   return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : invalidAnalyticsLabel;
+}
+
+function readOptionalAttributionString(value: unknown) {
+  if (typeof value === "undefined" || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return invalidAnalyticsLabel;
+  }
+
+  const text = value.trim();
+  return text.length > 0 && text.length <= 120 && /^[a-zA-Z0-9][a-zA-Z0-9 _%+.-]*$/.test(text)
+    ? text
+    : invalidAnalyticsLabel;
 }
 
 function readOptionalPath(value: unknown) {

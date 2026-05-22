@@ -197,44 +197,71 @@ export function PublicPresencePageShell({ children }: { children: ReactNode }) {
   return (
     <ChaseRoot colorMode="system">
       <SkipLink />
-      <Container width="wide">
-        <Stack gap={4}>
-          <Surface element="nav" tone="subtle" padding={2}>
-            <Cluster gap={2}>
-              <Inline gap={3} align="center">
-                <BrandLink label={t("publicPresence.brand")} />
-              </Inline>
-              <LinkButton
-                href="#waitlist-form"
-                tone="primary"
-                size="sm"
-                leadingIcon="rocket"
-                onClick={() => trackCtaClick("nav", "waitlist_form")}
-              >
-                {t("publicPresence.nav.waitlist")}
-              </LinkButton>
-            </Cluster>
-          </Surface>
-          <main id="main-content">{children}</main>
-          <Surface element="footer" tone="subtle">
-            <Stack gap={3}>
-              <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
-              <Inline gap={3}>
-                {policyLinks.map((link) => (
-                  <LinkText key={link.href} href={link.href}>
-                    {link.label}
-                  </LinkText>
-                ))}
-                <LinkText href="/contact">{t("publicPresence.nav.contact")}</LinkText>
-              </Inline>
-              <Text size="sm" tone="secondary">
-                {t("publicPresence.footer.description")}
-              </Text>
-            </Stack>
-          </Surface>
-        </Stack>
-      </Container>
+      <div className="pb-24 md:pb-0">
+        <Container width="wide">
+          <Stack gap={4}>
+            <Surface element="nav" tone="subtle" padding={2}>
+              <Cluster gap={2}>
+                <Inline gap={3} align="center">
+                  <BrandLink label={t("publicPresence.brand")} />
+                </Inline>
+                <LinkButton
+                  href="#waitlist-form"
+                  tone="primary"
+                  size="sm"
+                  leadingIcon="rocket"
+                  onClick={() => trackCtaClick("nav", "waitlist_form")}
+                >
+                  {t("publicPresence.nav.waitlist")}
+                </LinkButton>
+              </Cluster>
+            </Surface>
+            <main id="main-content">{children}</main>
+            <Surface element="footer" tone="subtle">
+              <Stack gap={3}>
+                <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
+                <Inline gap={3}>
+                  {policyLinks.map((link) => (
+                    <LinkText key={link.href} href={link.href}>
+                      {link.label}
+                    </LinkText>
+                  ))}
+                  <LinkText href="/contact">{t("publicPresence.nav.contact")}</LinkText>
+                </Inline>
+                <Text size="sm" tone="secondary">
+                  {t("publicPresence.footer.description")}
+                </Text>
+              </Stack>
+            </Surface>
+          </Stack>
+        </Container>
+      </div>
+      <MobileStickyWaitlistCta />
     </ChaseRoot>
+  );
+}
+
+function MobileStickyWaitlistCta() {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden">
+      <Container width="wide">
+        <Cluster gap={2}>
+          <Text size="sm" weight="semibold">
+            {t("publicPresence.home.stickyCta.label")}
+          </Text>
+          <LinkButton
+            href="#waitlist-form"
+            tone="primary"
+            size="sm"
+            block
+            leadingIcon="rocket"
+            onClick={() => trackCtaClick("mobile_sticky", "waitlist_form")}
+          >
+            {t("publicPresence.home.stickyCta.action")}
+          </LinkButton>
+        </Cluster>
+      </Container>
+    </div>
   );
 }
 
@@ -346,19 +373,19 @@ export function PublicPresenceHomePage({
 
         <SellerEconomicsSection />
 
-        <TrustBeforeTransactionsSection />
+        <AudiencePathSection onIntentSelect={selectIntent} />
+
+        <LaunchPriorityPanel />
 
         <WhyJoinNow />
+
+        <TrustBeforeTransactionsSection />
 
         <BuyerBundleProofSection />
 
         <ProductSignalPreview />
 
         <MarketplaceModelSection />
-
-        <AudiencePathSection onIntentSelect={selectIntent} />
-
-        <LaunchPriorityPanel />
 
         <SignupExpectationSection />
 
@@ -820,6 +847,8 @@ function ProductSignalPreview() {
           imageLoading="lazy"
           imageFetchPriority="low"
           imageDecoding="async"
+          imageWidth={420}
+          imageHeight={587}
           promotion={t("publicPresence.preview.listing.badge")}
           price={t("publicPresence.preview.listing.price.value")}
           priceDetail={t("publicPresence.preview.listing.price.detail")}

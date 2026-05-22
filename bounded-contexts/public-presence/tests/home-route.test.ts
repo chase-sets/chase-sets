@@ -9,7 +9,7 @@ describe("public presence home route", () => {
         {
           name: "description",
           content:
-            "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, Founding Account status, and buyer-visible delivered totals.",
+            "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
         },
         { property: "og:url", content: "https://chasesets.com/" },
       ]),

@@ -97,6 +97,8 @@ const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_publi
 export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   event: string;
   section?: string | null;
+  target?: string | null;
+  field?: string | null;
   role?: string | null;
   interest?: string | null;
   variant?: string | null;
@@ -587,6 +589,8 @@ export function publicPresenceWaitlistAnalyticsAttributes(event: PublicPresenceW
     context: "public-presence",
     event: boundedMetricLabel(event.event),
     section: boundedMetricLabel(event.section),
+    target: boundedMetricLabel(event.target),
+    field: boundedMetricLabel(event.field),
     role: boundedMetricLabel(event.role),
     interest: boundedMetricLabel(event.interest),
     variant: boundedMetricLabel(event.variant),
