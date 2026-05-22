@@ -15,7 +15,7 @@ describe("public presence home route SEO", () => {
     expect(descriptors).toContainEqual({
       name: "description",
       content:
-        "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, bulk card workflows, and buyer-visible delivered totals.",
+        "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, Founding Account status, and buyer-visible delivered totals.",
     });
     expect(descriptors).not.toContainEqual(expect.objectContaining({ rel: "canonical" }));
     expect(descriptors).toContainEqual({ property: "og:url", content: "https://chasesets.com/" });

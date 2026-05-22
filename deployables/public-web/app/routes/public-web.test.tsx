@@ -35,6 +35,8 @@ describe("public web deployable", () => {
   it("installs a bounded waitlist analytics bridge script", () => {
     expect(waitlistAnalyticsBridgeScript).toContain("chase-sets:waitlist-analytics");
     expect(waitlistAnalyticsBridgeScript).toContain("/analytics/waitlist");
+    expect(waitlistAnalyticsBridgeScript).toContain("page_path");
+    expect(waitlistAnalyticsBridgeScript).toContain("utm_source");
     expect(waitlistAnalyticsBridgeScript).not.toContain("email");
   });
 
@@ -127,6 +129,10 @@ describe("public web deployable", () => {
           role: "sell",
           interest: "low-sales-fees",
           variant: "landing-audit-remediation",
+          page_path: "/?utm_source=launch&utm_campaign=beta",
+          utm_source: "launch",
+          utm_medium: "social",
+          utm_campaign: "beta",
         }),
       }),
       params: {},
@@ -169,6 +175,26 @@ describe("public web deployable", () => {
           section: "seller@example.com",
           target: "waitlist form",
           role: "sell",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.status).toBe(400);
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects unbounded analytics source fields before logging", async () => {
+    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
+    const response = await waitlistAnalyticsAction({
+      request: new Request("https://chasesets.com/analytics/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "landing_page_view",
+          page_path: "https://evil.example/?email=seller@example.com",
+          utm_source: "launch",
         }),
       }),
       params: {},

@@ -36,7 +36,7 @@ describe("public presence homepage", () => {
         name: "Sell cards without giving up margin.",
       }),
     ).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Join Discord" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Join the founders circle on Discord" })).toBeNull();
   });
 
   it("renders an index-route-aware waitlist form target", () => {
@@ -67,11 +67,9 @@ describe("public presence homepage", () => {
       screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("heading", { name: "Get in before Founding Account badges are assigned" }).length,
+      screen.getAllByRole("heading", { name: "First signups get Founding Account status" }).length,
     ).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "A visible reason to join before launch" }).length).toBeGreaterThan(
-      0,
-    );
+    expect(screen.getAllByRole("heading", { name: "A visible reason to be first" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Pick the workflow you want prioritized" }).length).toBeGreaterThan(
       0,
     );
@@ -90,13 +88,16 @@ describe("public presence homepage", () => {
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "The first invited accounts can receive a Founding Account badge that stays visible beside their account.",
+        "The first accounts to sign up get a Founding Account badge and founders circle access on Discord.",
       ).length,
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "The first invited accounts can receive a Founding Account badge displayed beside their marketplace account.",
+        "The first accounts to sign up get a Founding Account badge displayed beside their marketplace account.",
       ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("First signups get a Founding Account badge plus founders circle access on Discord.").length,
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText("No separate 2.9% plus $0.30 payment-processing line for sellers").length,
@@ -109,6 +110,36 @@ describe("public presence homepage", () => {
     const priorities = [...container.querySelectorAll('form select[name="interests"]')] as HTMLSelectElement[];
     expect(priorities.map((priority) => priority.value)).toEqual(["low-sales-fees"]);
     expect(container.querySelector('[id="waitlist-form"]')).toBeTruthy();
+  });
+
+  it("lets visitors choose a hero intent before submitting the compact form", async () => {
+    const user = userEvent.setup();
+    const events: unknown[] = [];
+    window.addEventListener("chase-sets:waitlist-analytics", (event) => {
+      events.push((event as CustomEvent).detail);
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getAllByRole("tab", { name: "Buy" })[0]);
+
+    const heroForm = container.querySelector("#waitlist-form form");
+    expect((heroForm as HTMLElement).querySelector<HTMLInputElement>('input[name="role"]')?.value).toBe("buy");
+    expect((heroForm as HTMLElement).querySelector<HTMLInputElement>('input[name="interests"]')?.value).toBe(
+      "set-completion",
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "waitlist_role_selected",
+        role: "buy",
+        interest: "set-completion",
+        section: "hero",
+      }),
+    );
   });
 
   it("prefills the final form from audience-path CTAs and emits analytics", async () => {
@@ -184,7 +215,7 @@ describe("public presence homepage", () => {
     }) as HTMLInputElement;
 
     expect(consent.checked).toBe(false);
-    expect(form?.querySelector('input[name="emailConsent"]')).toBeNull();
+    expect(form?.querySelector('input[name="emailConsent"]')?.getAttribute("value")).toBe("yes");
 
     await user.click(consent);
 
@@ -203,7 +234,7 @@ describe("public presence homepage", () => {
       </MemoryRouter>,
     );
 
-    const discordLinks = screen.getAllByRole("link", { name: "Join Discord" });
+    const discordLinks = screen.getAllByRole("link", { name: "Join the founders circle on Discord" });
     expect(discordLinks.map((link) => link.getAttribute("href"))).toEqual(["https://discord.example/invite"]);
     expect(discordLinks.map((link) => link.getAttribute("target"))).toEqual(["_blank"]);
     expect(discordLinks.map((link) => link.getAttribute("rel"))).toEqual(["noopener noreferrer"]);

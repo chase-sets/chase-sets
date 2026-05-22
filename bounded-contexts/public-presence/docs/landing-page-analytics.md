@@ -25,7 +25,7 @@ Event details include:
 - `event`: one of the event names above
 - bounded-cardinality details such as `section`, `target`, `field`, `role`, `interest`, `checked`, `page_path`, `utm_source`, `utm_medium`, `utm_campaign`, or `variant`
 
-Keep event properties free of email addresses, account identifiers, user identifiers, raw URLs, and unbounded text. UTM parameters and referrer capture remain server-submitted waitlist source fields rather than operational analytics labels.
+Keep event properties free of email addresses, account identifiers, user identifiers, raw URLs, and unbounded text. The public-web bridge may forward only bounded source fields for funnel analysis: `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`. Referrer, `utm_content`, and `utm_term` remain durable waitlist source fields rather than operational analytics labels.
 
 The OpenTelemetry bridge is directional funnel observability, not transactional truth. It may duplicate client events and must never block the landing page or waitlist submission. Durable signup truth remains the Public Presence waitlist domain and read model.
 
