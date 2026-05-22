@@ -1,15 +1,37 @@
 import { t } from "@chase-sets/localization";
+import { Button, Inline } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { ApiKey } from "./contracts";
 
 export function ApiKeyDetailPage({ data }: { data: ApiKey }) {
+  const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
   return (
     <AdminDetailPage
       title={data.name}
       status={data.status}
+      actions={
+        <Inline gap={2}>
+          {data.status === "active" ? (
+            <>
+              <form method="post">
+                <input type="hidden" name="intent" value="rotate" readOnly />
+                <Button type="submit" tone="secondary">
+                  {t("identity.features.apiKeys.ui.apiKeyDetailPage.rotate")}
+                </Button>
+              </form>
+              <form method="post">
+                <input type="hidden" name="intent" value="revoke" readOnly />
+                <Button type="submit" tone="danger">
+                  {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke")}
+                </Button>
+              </form>
+            </>
+          ) : null}
+        </Inline>
+      }
       sections={[
         { label: t("identity.features.apiKeys.ui.apiKeyDetailPage.api.key.id"), value: data.api_key_id },
-        { label: t("identity.features.apiKeys.ui.apiKeyDetailPage.user.id"), value: data.user_id },
+        { label: t("identity.features.apiKeys.ui.apiKeyDetailPage.user"), value: user },
         { label: t("identity.features.apiKeys.ui.apiKeyDetailPage.key.prefix"), value: data.key_prefix },
         {
           label: t("identity.features.apiKeys.ui.apiKeyDetailPage.last.used"),

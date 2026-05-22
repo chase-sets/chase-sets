@@ -147,6 +147,12 @@ export function createAuthApiClient({
         }),
       );
     },
+    async switchSessionAccount<T>(id: string, accountId: string): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl(`sessions/${id}/switch-account`), { accountId }, headers);
+    },
+    async revokeSession<T>(id: string): Promise<T> {
+      return postJson<T>(configuredFetch, buildUrl(`sessions/${id}/revoke`), {}, headers);
+    },
     async signOutCurrentSession<T>(): Promise<T> {
       return parseJsonResponse<T>(
         await configuredFetch(buildUrl("sign-out"), {

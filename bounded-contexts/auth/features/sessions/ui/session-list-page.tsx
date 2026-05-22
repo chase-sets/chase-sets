@@ -3,10 +3,17 @@ import { type DataColumn } from "@chase-sets/design-system";
 import { AdminListPage } from "./admin-pages";
 import type { Session } from "./contracts";
 
+function userLabel(session: Session) {
+  return session.user_display_name ?? session.user_primary_email ?? session.user_id;
+}
+
+function accountLabel(session: Session) {
+  return session.account_display_name ?? session.account_name ?? session.account_id;
+}
+
 const columns: DataColumn<Session>[] = [
-  { key: "session_id", header: t("auth.features.sessions.ui.sessionListPage.session"), cell: (row) => row.session_id },
-  { key: "user_id", header: t("auth.features.sessions.ui.sessionListPage.user"), cell: (row) => row.user_id },
-  { key: "account_id", header: t("auth.features.sessions.ui.sessionListPage.account"), cell: (row) => row.account_id },
+  { key: "user_id", header: t("auth.features.sessions.ui.sessionListPage.user"), cell: userLabel },
+  { key: "account_id", header: t("auth.features.sessions.ui.sessionListPage.account"), cell: accountLabel },
   {
     key: "authentication_method",
     header: t("auth.features.sessions.ui.sessionListPage.method"),
@@ -15,14 +22,20 @@ const columns: DataColumn<Session>[] = [
   { key: "status", header: t("auth.features.sessions.ui.sessionListPage.status"), cell: (row) => row.status },
 ];
 
-export function SessionListPage({ initialData }: { initialData: { items: Session[] } }) {
+export function SessionListPage({
+  hrefBase = "/identity/sessions",
+  initialData,
+}: {
+  hrefBase?: string;
+  initialData: { items: Session[] };
+}) {
   return (
     <AdminListPage
       title={t("auth.features.sessions.ui.sessionListPage.sessions")}
       items={initialData.items}
       columns={columns}
       emptyMessage={t("auth.features.sessions.ui.sessionListPage.no.sessions.yet")}
-      getHref={(row) => `/identity/sessions/${row.session_id}`}
+      getHref={(row) => `${hrefBase}/${row.session_id}`}
     />
   );
 }

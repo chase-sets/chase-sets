@@ -1,5 +1,5 @@
 import { Button, Card, Stack, Text, TextInput, PasswordInput } from "@chase-sets/design-system";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 export function AuthFormPage({
   title,
@@ -89,7 +89,7 @@ export function CustomerSummaryPage({
 }: {
   title: string;
   description: string;
-  sections: readonly { title: string; body: string }[];
+  sections: readonly { title: string; body: string; action?: ReactNode }[];
 }) {
   return (
     <Stack gap={4}>
@@ -104,6 +104,7 @@ export function CustomerSummaryPage({
           <Stack gap={2}>
             <Text weight="semibold">{section.title}</Text>
             <Text tone="secondary">{section.body}</Text>
+            {section.action}
           </Stack>
         </Card>
       ))}

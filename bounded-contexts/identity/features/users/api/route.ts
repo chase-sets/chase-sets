@@ -2,8 +2,20 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
-import { hasPermission } from "../../../support/request-support/permissions";
 import type { UserServices } from "./runtime";
+
+function canManageUser(actor: IdentityApiEnv["Variables"]["actor"], userId: string) {
+  return !actor || actor.roleKey === "platform-admin" || actor.userId === userId;
+}
+
+function forbidden() {
+  return {
+    error: {
+      code: "authorization_forbidden",
+      message: t("identity.features.users.api.route.forbidden"),
+    },
+  };
+}
 
 export function userRoutes(services: UserServices) {
   const app = new Hono<IdentityApiEnv>();
@@ -28,6 +40,9 @@ export function userRoutes(services: UserServices) {
 
   app.put("/:id", async (c) => {
     const userId = c.req.param("id");
+    if (!canManageUser(c.var.actor, userId)) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
@@ -44,6 +59,9 @@ export function userRoutes(services: UserServices) {
 
   app.post("/:id/contact-methods", async (c) => {
     const userId = c.req.param("id");
+    if (!canManageUser(c.var.actor, userId)) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
@@ -60,6 +78,9 @@ export function userRoutes(services: UserServices) {
 
   app.post("/:id/contact-methods/:contactMethodId/verify", async (c) => {
     const userId = c.req.param("id");
+    if (!canManageUser(c.var.actor, userId)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
       command: {
@@ -74,6 +95,9 @@ export function userRoutes(services: UserServices) {
 
   app.post("/:id/auth-methods", async (c) => {
     const userId = c.req.param("id");
+    if (!canManageUser(c.var.actor, userId)) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
@@ -85,6 +109,9 @@ export function userRoutes(services: UserServices) {
 
   app.post("/:id/suspend", async (c) => {
     const userId = c.req.param("id");
+    if (!canManageUser(c.var.actor, userId)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
       command: { type: "SuspendUser" },
@@ -95,6 +122,9 @@ export function userRoutes(services: UserServices) {
 
   app.post("/:id/reactivate", async (c) => {
     const userId = c.req.param("id");
+    if (!canManageUser(c.var.actor, userId)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.user-${userId}`,
       command: { type: "ReactivateUser" },
@@ -106,7 +136,7 @@ export function userRoutes(services: UserServices) {
   app.get("/", async (c) => {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
-    if (actor && !hasPermission(actor, "security.manage")) {
+    if (actor && actor.roleKey !== "platform-admin") {
       const user = await services.getUser(actor.userId);
       const items = user ? [user] : [];
       return c.json({ items, total: items.length, count: items.length });
@@ -124,11 +154,8 @@ export function userRoutes(services: UserServices) {
   app.get("/:id", async (c) => {
     const actor = c.var.actor;
     const userId = c.req.param("id");
-    if (actor && !hasPermission(actor, "security.manage") && actor.userId !== userId) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("identity.features.users.api.route.forbidden") } },
-        403,
-      );
+    if (actor && !canManageUser(actor, userId)) {
+      return c.json(forbidden(), 403);
     }
 
     const user = await services.getUser(userId);

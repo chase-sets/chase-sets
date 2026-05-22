@@ -1,6 +1,8 @@
 export type ApiKey = Readonly<{
   api_key_id: string;
   user_id: string;
+  user_display_name?: string | null;
+  user_primary_email?: string | null;
   name: string;
   key_prefix: string;
   status: string;

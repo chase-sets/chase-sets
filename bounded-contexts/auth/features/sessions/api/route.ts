@@ -4,11 +4,42 @@ import type { AuthApiEnv } from "../../../api";
 import { toSessionStreamId } from "../domain/auth-flow";
 import type { SessionServices } from "./runtime";
 
+function canManageSession(
+  actor: AuthApiEnv["Variables"]["actor"],
+  session: Readonly<{ session_id: string; user_id: string }>,
+) {
+  return (
+    !actor ||
+    actor.roleKey === "platform-admin" ||
+    actor.sessionId === session.session_id ||
+    actor.userId === session.user_id
+  );
+}
+
+function forbidden() {
+  return {
+    error: {
+      code: "authorization_forbidden",
+      message: t("auth.features.sessions.api.route.forbidden"),
+    },
+  };
+}
+
 export function sessionRoutes(services: SessionServices) {
   const app = new Hono<AuthApiEnv>();
 
   app.post("/:id/switch-account", async (c) => {
     const sessionId = c.req.param("id");
+    const session = await services.getSession(sessionId);
+    if (!session) {
+      return c.json(
+        { error: { code: "not_found", message: t("auth.features.sessions.api.route.session.not.found") } },
+        404,
+      );
+    }
+    if (!canManageSession(c.var.actor, session)) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: toSessionStreamId(sessionId),
@@ -23,6 +54,16 @@ export function sessionRoutes(services: SessionServices) {
 
   app.post("/:id/revoke", async (c) => {
     const sessionId = c.req.param("id");
+    const session = await services.getSession(sessionId);
+    if (!session) {
+      return c.json(
+        { error: { code: "not_found", message: t("auth.features.sessions.api.route.session.not.found") } },
+        404,
+      );
+    }
+    if (!canManageSession(c.var.actor, session)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: toSessionStreamId(sessionId),
       command: { type: "RevokeSession" },
@@ -32,9 +73,10 @@ export function sessionRoutes(services: SessionServices) {
   });
 
   app.get("/", async (c) => {
+    const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listSessions({
-      search,
+      search: actor && actor.roleKey !== "platform-admin" ? actor.userId : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
@@ -49,6 +91,9 @@ export function sessionRoutes(services: SessionServices) {
         { error: { code: "not_found", message: t("auth.features.sessions.api.route.session.not.found") } },
         404,
       );
+    }
+    if (!canManageSession(c.var.actor, session)) {
+      return c.json(forbidden(), 403);
     }
     return c.json(session);
   });

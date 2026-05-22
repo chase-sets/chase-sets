@@ -19,6 +19,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const intent = String(formData.get("intent") ?? "");
   const accountId = params.id!;
 
+  if (intent === "update-profile") {
+    await api.updateAccount(accountId, {
+      name: String(formData.get("name") ?? ""),
+      displayName: String(formData.get("displayName") ?? ""),
+    });
+  }
+
+  if (intent === "suspend") {
+    await api.suspendAccount(accountId);
+  }
+
+  if (intent === "reactivate") {
+    await api.reactivateAccount(accountId);
+  }
+
+  if (intent === "close") {
+    await api.closeAccount(accountId);
+  }
+
   if (intent === "assign-founding-account-badge") {
     await api.assignAccountBadge(accountId, "founding-account");
   }

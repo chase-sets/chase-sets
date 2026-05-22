@@ -28,7 +28,11 @@ describe("marketplace auth host", () => {
         session: {
           session_id: "ses_1",
           user_id: "usr_1",
+          user_display_name: null,
+          user_primary_email: null,
           account_id: "acc_1",
+          account_display_name: null,
+          account_name: null,
           available_account_ids: ["acc_1"],
           authentication_method: "password",
           status: "active",

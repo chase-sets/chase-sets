@@ -4,12 +4,31 @@ import type { InvitationId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import type { InvitationServices } from "./runtime";
 
+function canManageInvitation(
+  actor: IdentityApiEnv["Variables"]["actor"],
+  invitation: Readonly<{ account_id: string }>,
+) {
+  return !actor || actor.roleKey === "platform-admin" || actor.accountId === invitation.account_id;
+}
+
+function forbidden() {
+  return {
+    error: {
+      code: "authorization_forbidden",
+      message: t("identity.features.invitations.api.route.forbidden"),
+    },
+  };
+}
+
 export function invitationRoutes(services: InvitationServices) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
     const body = await c.req.json();
     const invitationId = body.invitationId as InvitationId;
+    if (!canManageInvitation(c.var.actor, { account_id: String(body.accountId ?? "") })) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: {
@@ -27,6 +46,16 @@ export function invitationRoutes(services: InvitationServices) {
 
   app.post("/:id/resend", async (c) => {
     const invitationId = c.req.param("id");
+    const invitation = await services.getInvitation(invitationId);
+    if (!invitation) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
+        404,
+      );
+    }
+    if (!canManageInvitation(c.var.actor, invitation)) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
@@ -38,6 +67,16 @@ export function invitationRoutes(services: InvitationServices) {
 
   app.post("/:id/cancel", async (c) => {
     const invitationId = c.req.param("id");
+    const invitation = await services.getInvitation(invitationId);
+    if (!invitation) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
+        404,
+      );
+    }
+    if (!canManageInvitation(c.var.actor, invitation)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: { type: "CancelInvitation" },
@@ -48,6 +87,16 @@ export function invitationRoutes(services: InvitationServices) {
 
   app.post("/:id/decline", async (c) => {
     const invitationId = c.req.param("id");
+    const invitation = await services.getInvitation(invitationId);
+    if (!invitation) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
+        404,
+      );
+    }
+    if (!canManageInvitation(c.var.actor, invitation)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.invitation-${invitationId}`,
       command: { type: "DeclineInvitation" },
@@ -57,9 +106,10 @@ export function invitationRoutes(services: InvitationServices) {
   });
 
   app.get("/", async (c) => {
+    const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listInvitations({
-      search,
+      search: actor && actor.roleKey !== "platform-admin" ? actor.accountId : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
@@ -74,6 +124,9 @@ export function invitationRoutes(services: InvitationServices) {
         { error: { code: "not_found", message: t("identity.features.invitations.api.route.invitation.not.found") } },
         404,
       );
+    }
+    if (!canManageInvitation(c.var.actor, invitation)) {
+      return c.json(forbidden(), 403);
     }
     return c.json(invitation);
   });

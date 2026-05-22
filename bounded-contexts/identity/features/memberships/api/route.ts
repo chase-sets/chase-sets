@@ -2,8 +2,23 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MembershipId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
-import { hasPermission } from "../../../support/request-support/permissions";
 import type { MembershipServices } from "./runtime";
+
+function canManageMembership(
+  actor: IdentityApiEnv["Variables"]["actor"],
+  membership: Readonly<{ user_id: string; account_id: string }>,
+) {
+  return !actor || actor.roleKey === "platform-admin" || actor.accountId === membership.account_id;
+}
+
+function forbidden() {
+  return {
+    error: {
+      code: "authorization_forbidden",
+      message: t("identity.features.memberships.api.route.forbidden"),
+    },
+  };
+}
 
 export function membershipRoutes(services: MembershipServices) {
   const app = new Hono<IdentityApiEnv>();
@@ -11,6 +26,14 @@ export function membershipRoutes(services: MembershipServices) {
   app.post("/", async (c) => {
     const body = await c.req.json();
     const membershipId = body.membershipId as MembershipId;
+    if (
+      !canManageMembership(c.var.actor, {
+        user_id: String(body.userId ?? ""),
+        account_id: String(body.accountId ?? ""),
+      })
+    ) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: {
@@ -27,6 +50,16 @@ export function membershipRoutes(services: MembershipServices) {
 
   app.put("/:id/role", async (c) => {
     const membershipId = c.req.param("id");
+    const membership = await services.getMembership(membershipId);
+    if (!membership) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.memberships.api.route.membership.not.found") } },
+        404,
+      );
+    }
+    if (!canManageMembership(c.var.actor, membership)) {
+      return c.json(forbidden(), 403);
+    }
     const body = await c.req.json();
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
@@ -38,6 +71,16 @@ export function membershipRoutes(services: MembershipServices) {
 
   app.post("/:id/revoke", async (c) => {
     const membershipId = c.req.param("id");
+    const membership = await services.getMembership(membershipId);
+    if (!membership) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.memberships.api.route.membership.not.found") } },
+        404,
+      );
+    }
+    if (!canManageMembership(c.var.actor, membership)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: { type: "RevokeMembership" },
@@ -48,6 +91,16 @@ export function membershipRoutes(services: MembershipServices) {
 
   app.post("/:id/reinstate", async (c) => {
     const membershipId = c.req.param("id");
+    const membership = await services.getMembership(membershipId);
+    if (!membership) {
+      return c.json(
+        { error: { code: "not_found", message: t("identity.features.memberships.api.route.membership.not.found") } },
+        404,
+      );
+    }
+    if (!canManageMembership(c.var.actor, membership)) {
+      return c.json(forbidden(), 403);
+    }
     const result = await services.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: { type: "ReinstateMembership" },
@@ -60,7 +113,7 @@ export function membershipRoutes(services: MembershipServices) {
     const actor = c.var.actor;
     const { search, status, limit, offset } = c.req.query();
     const result = await services.listMemberships({
-      search: actor && !hasPermission(actor, "memberships.manage") ? actor.userId : search,
+      search: actor && actor.roleKey !== "platform-admin" ? actor.accountId : search,
       status,
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
@@ -77,11 +130,8 @@ export function membershipRoutes(services: MembershipServices) {
       );
     }
     const actor = c.var.actor;
-    if (actor && !hasPermission(actor, "memberships.manage") && membership.user_id !== actor.userId) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("identity.features.memberships.api.route.forbidden") } },
-        403,
-      );
+    if (actor && !canManageMembership(actor, membership)) {
+      return c.json(forbidden(), 403);
     }
     return c.json(membership);
   });

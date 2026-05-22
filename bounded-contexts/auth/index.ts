@@ -9,6 +9,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildAuthApi } from "./api";
 import {
+  buildAuthIdentityAccountProjectionHandlers,
   buildAuthIdentityInvitationProjectionHandlers,
   buildAuthIdentityMembershipProjectionHandlers,
   buildAuthIdentityUserProjectionHandlers,
@@ -46,11 +47,22 @@ export const module: BcApiModule<AuthServices, PgTransactionalPool, AuthHostPort
   buildApis: (services) => [buildAuthApi(services)],
   projectors: (services) => services.projectors,
   buildSubscriptions: (services) => {
+    const accountSubscription = getEventSubscription("identity", "auth-identity-account-projection");
     const userSubscription = getEventSubscription("identity", "auth-identity-user-projection");
     const membershipSubscription = getEventSubscription("identity", "auth-identity-membership-projection");
     const invitationSubscription = getEventSubscription("identity", "auth-identity-invitation-projection");
 
     return [
+      {
+        subscriptionName: "auth.identity-account-projection",
+        sourceContextName: "identity",
+        projectionName: accountSubscription.projectionName,
+        subscriptionVersion: accountSubscription.subscriptionVersion,
+        handlers: buildAuthIdentityAccountProjectionHandlers(services.db),
+        eventTypes: accountSubscription.eventTypes,
+        streamPrefixes: accountSubscription.streamPrefixes,
+        order: accountSubscription.order,
+      },
       {
         subscriptionName: "auth.identity-user-projection",
         sourceContextName: "identity",
