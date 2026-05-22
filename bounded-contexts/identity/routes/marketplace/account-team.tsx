@@ -1,10 +1,11 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromIdentityApi } from "../../support/route-support/identity-request";
-import type { Membership } from "../../support/request-support/api-client";
+import type { Invitation, Membership } from "../../support/request-support/api-client";
 import { TeamPage } from "../../features/memberships/ui/account-team-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 
@@ -14,9 +15,54 @@ export async function loader({ request }: LoaderFunctionArgs) {
     permission: "memberships.view",
   });
   const api = createIdentityRequestApiClient(request);
-  const response = await api.listMemberships<ListResponse<Membership>>(`search=${encodeURIComponent(actor.userId)}`);
+  const [memberships, invitations] = await Promise.all([
+    api.listMemberships<ListResponse<Membership>>(`search=${encodeURIComponent(actor.accountId)}`),
+    api.listInvitations<ListResponse<Invitation>>(`search=${encodeURIComponent(actor.accountId)}`),
+  ]);
 
-  return { memberships: response.items };
+  return { invitations: invitations.items, memberships: memberships.items };
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  const actor = await requireActorFromIdentityApi({
+    request,
+    permission: "memberships.manage",
+  });
+  const api = createIdentityRequestApiClient(request);
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+
+  if (intent === "create-invitation") {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    await api.createInvitation({
+      invitationId: createId("ivt"),
+      accountId: actor.accountId,
+      email: String(formData.get("email") ?? ""),
+      roleKey: String(formData.get("roleKey") ?? "viewer"),
+      expiresAt,
+    });
+  }
+
+  if (intent === "change-role") {
+    await api.changeMembershipRole(
+      String(formData.get("membershipId") ?? ""),
+      String(formData.get("roleKey") ?? "viewer"),
+    );
+  }
+
+  if (intent === "revoke") {
+    await api.revokeMembership(String(formData.get("membershipId") ?? ""));
+  }
+
+  if (intent === "reinstate") {
+    await api.reinstateMembership(String(formData.get("membershipId") ?? ""));
+  }
+
+  if (intent === "cancel-invitation") {
+    await api.cancelInvitation(String(formData.get("invitationId") ?? ""));
+  }
+
+  return redirect("/account/team");
 }
 
 export const meta: MetaFunction = () =>
@@ -24,5 +70,5 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountTeamRoute() {
   const data = useLoaderData<typeof loader>();
-  return <TeamPage memberships={data.memberships} />;
+  return <TeamPage invitations={data.invitations} memberships={data.memberships} />;
 }

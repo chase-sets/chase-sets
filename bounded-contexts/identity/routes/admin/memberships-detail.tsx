@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useLoaderData } from "react-router";
 import type { Membership } from "../../support/request-support/api-client";
 import { MembershipDetailPage } from "../../features/memberships/ui/membership-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -11,6 +11,27 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     id: params.id!,
     data: await api.getMembership<Membership>(params.id!),
   };
+}
+
+export async function action({ request, params }: ActionFunctionArgs) {
+  const api = createIdentityRequestApiClient(request);
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") ?? "");
+  const membershipId = params.id!;
+
+  if (intent === "change-role") {
+    await api.changeMembershipRole(membershipId, String(formData.get("roleKey") ?? ""));
+  }
+
+  if (intent === "revoke") {
+    await api.revokeMembership(membershipId);
+  }
+
+  if (intent === "reinstate") {
+    await api.reinstateMembership(membershipId);
+  }
+
+  return redirect(`/identity/memberships/${membershipId}`);
 }
 
 export const meta: MetaFunction = () => [

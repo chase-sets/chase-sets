@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, Inline } from "@chase-sets/design-system";
+import { Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import { AccountBadgeList, accountBadgeLabel } from "./account-badges";
 import type { Account } from "./contracts";
@@ -16,19 +16,65 @@ export function AccountDetailPage({ data }: { data: Account }) {
       }
       status={data.status}
       actions={
-        <form method="post">
-          <input
-            type="hidden"
-            name="intent"
-            value={hasFoundingBadge ? "remove-founding-account-badge" : "assign-founding-account-badge"}
-            readOnly
-          />
-          <Button type="submit" tone={hasFoundingBadge ? "secondary" : "primary"}>
-            {hasFoundingBadge
-              ? t("identity.features.accounts.ui.accountDetailPage.remove.founding.account.badge")
-              : t("identity.features.accounts.ui.accountDetailPage.assign.founding.account.badge")}
-          </Button>
-        </form>
+        <Inline gap={2}>
+          <form method="post">
+            <Stack direction="row" align="end" gap={2}>
+              <input type="hidden" name="intent" value="update-profile" readOnly />
+              <TextInput
+                name="name"
+                label={t("identity.features.accounts.ui.accountDetailPage.legal.name")}
+                defaultValue={data.name}
+                required
+              />
+              <TextInput
+                name="displayName"
+                label={t("identity.features.accounts.ui.accountDetailPage.display.name")}
+                defaultValue={data.display_name}
+                required
+              />
+              <Button type="submit" tone="secondary">
+                {t("identity.features.accounts.ui.accountDetailPage.update.profile")}
+              </Button>
+            </Stack>
+          </form>
+          <form method="post">
+            <input
+              type="hidden"
+              name="intent"
+              value={hasFoundingBadge ? "remove-founding-account-badge" : "assign-founding-account-badge"}
+              readOnly
+            />
+            <Button type="submit" tone={hasFoundingBadge ? "secondary" : "primary"}>
+              {hasFoundingBadge
+                ? t("identity.features.accounts.ui.accountDetailPage.remove.founding.account.badge")
+                : t("identity.features.accounts.ui.accountDetailPage.assign.founding.account.badge")}
+            </Button>
+          </form>
+          {data.status === "active" ? (
+            <form method="post">
+              <input type="hidden" name="intent" value="suspend" readOnly />
+              <Button type="submit" tone="danger">
+                {t("identity.features.accounts.ui.accountDetailPage.suspend")}
+              </Button>
+            </form>
+          ) : null}
+          {data.status === "suspended" ? (
+            <form method="post">
+              <input type="hidden" name="intent" value="reactivate" readOnly />
+              <Button type="submit" tone="primary">
+                {t("identity.features.accounts.ui.accountDetailPage.reactivate")}
+              </Button>
+            </form>
+          ) : null}
+          {data.status !== "closed" ? (
+            <form method="post">
+              <input type="hidden" name="intent" value="close" readOnly />
+              <Button type="submit" tone="danger">
+                {t("identity.features.accounts.ui.accountDetailPage.close")}
+              </Button>
+            </form>
+          ) : null}
+        </Inline>
       }
       sections={[
         { label: t("identity.features.accounts.ui.accountDetailPage.account.id"), value: data.account_id },

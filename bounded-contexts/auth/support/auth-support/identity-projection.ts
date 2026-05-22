@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS auth_identity_users (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS auth_identity_accounts (
+  account_id text PRIMARY KEY,
+  name text NOT NULL,
+  display_name text NOT NULL,
+  account_type text NOT NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 ALTER TABLE auth_identity_users
   ADD COLUMN IF NOT EXISTS social_login_links jsonb NOT NULL DEFAULT '[]'::jsonb;
 
@@ -103,6 +112,15 @@ export type AuthIdentityUserRow = Readonly<{
   updated_at: string;
 }>;
 
+export type AuthIdentityAccountRow = Readonly<{
+  account_id: string;
+  name: string;
+  display_name: string;
+  account_type: string;
+  status: string;
+  updated_at: string;
+}>;
+
 export type AuthIdentityMembershipRow = Readonly<{
   membership_id: string;
   user_id: string;
@@ -152,6 +170,79 @@ function extractIdFromStreamId(streamId: string, prefix: string): string {
   }
 
   return streamId.slice(prefix.length);
+}
+
+export function buildAuthIdentityAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    "identity.account.created": async (event) => {
+      const { accountId, name, displayName, accountType } = event.data as {
+        accountId: string;
+        name: string;
+        displayName: string;
+        accountType: string;
+      };
+      await db.query(
+        `INSERT INTO auth_identity_accounts (
+           account_id,
+           name,
+           display_name,
+           account_type,
+           status,
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, 'active', $5)
+         ON CONFLICT (account_id) DO UPDATE
+         SET name = $2,
+             display_name = $3,
+             account_type = $4,
+             status = 'active',
+             updated_at = $5`,
+        [accountId, name, displayName, accountType, event.timing.recordedAt],
+      );
+    },
+    "identity.account.profile-updated": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      const { name, displayName } = event.data as { name: string; displayName: string };
+      await db.query(
+        `UPDATE auth_identity_accounts
+         SET name = $2,
+             display_name = $3,
+             updated_at = $4
+         WHERE account_id = $1`,
+        [accountId, name, displayName, event.timing.recordedAt],
+      );
+    },
+    "identity.account.suspended": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      await db.query(
+        `UPDATE auth_identity_accounts
+         SET status = 'suspended',
+             updated_at = $2
+         WHERE account_id = $1`,
+        [accountId, event.timing.recordedAt],
+      );
+    },
+    "identity.account.reactivated": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      await db.query(
+        `UPDATE auth_identity_accounts
+         SET status = 'active',
+             updated_at = $2
+         WHERE account_id = $1`,
+        [accountId, event.timing.recordedAt],
+      );
+    },
+    "identity.account.closed": async (event) => {
+      const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
+      await db.query(
+        `UPDATE auth_identity_accounts
+         SET status = 'closed',
+             updated_at = $2
+         WHERE account_id = $1`,
+        [accountId, event.timing.recordedAt],
+      );
+    },
+  };
 }
 
 export function normalizeAuthEmail(value: string): string {

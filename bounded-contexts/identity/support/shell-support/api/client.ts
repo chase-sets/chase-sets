@@ -68,6 +68,24 @@ export function createIdentityApiClient({
     async getAccount<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(await client.accounts[":id"].$get({ param: { id }, header: headers }));
     },
+    async updateAccount<T>(id: string, body: Record<string, unknown>): Promise<T> {
+      return parseJsonResponse<T>(await client.accounts[":id"].$put({ param: { id }, json: body, header: headers }));
+    },
+    async suspendAccount<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":id"].suspend.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
+    async reactivateAccount<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":id"].reactivate.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
+    async closeAccount<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.accounts[":id"].close.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
     async assignAccountBadge<T = { badges: readonly string[] }>(id: string, badgeKey: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.accounts[":id"].badges.$post({
@@ -147,6 +165,19 @@ export function createIdentityApiClient({
     async getUser<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(await client.users[":id"].$get({ param: { id }, header: headers }));
     },
+    async updateUser<T>(id: string, body: Record<string, unknown>): Promise<T> {
+      return parseJsonResponse<T>(await client.users[":id"].$put({ param: { id }, json: body, header: headers }));
+    },
+    async suspendUser<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.users[":id"].suspend.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
+    async reactivateUser<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.users[":id"].reactivate.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
     async listMemberships<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
         await client.memberships.$get({
@@ -157,6 +188,24 @@ export function createIdentityApiClient({
     },
     async getMembership<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(await client.memberships[":id"].$get({ param: { id }, header: headers }));
+    },
+    async createMembership<T>(body: Record<string, unknown>): Promise<T> {
+      return parseJsonResponse<T>(await client.memberships.$post({ json: body, header: headers }));
+    },
+    async changeMembershipRole<T>(id: string, roleKey: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.memberships[":id"].role.$put({ param: { id }, json: { roleKey }, header: headers }),
+      );
+    },
+    async revokeMembership<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.memberships[":id"].revoke.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
+    async reinstateMembership<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.memberships[":id"].reinstate.$post({ param: { id }, json: {}, header: headers }),
+      );
     },
     async listInvitations<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
@@ -169,6 +218,24 @@ export function createIdentityApiClient({
     async getInvitation<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(await client.invitations[":id"].$get({ param: { id }, header: headers }));
     },
+    async createInvitation<T>(body: Record<string, unknown>): Promise<T> {
+      return parseJsonResponse<T>(await client.invitations.$post({ json: body, header: headers }));
+    },
+    async resendInvitation<T>(id: string, expiresAt: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.invitations[":id"].resend.$post({ param: { id }, json: { expiresAt }, header: headers }),
+      );
+    },
+    async cancelInvitation<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.invitations[":id"].cancel.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
+    async declineInvitation<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client.invitations[":id"].decline.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
     async listApiKeys<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
         await client["api-keys"].$get({
@@ -179,6 +246,19 @@ export function createIdentityApiClient({
     },
     async getApiKey<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(await client["api-keys"][":id"].$get({ param: { id }, header: headers }));
+    },
+    async createApiKey<T>(body: Record<string, unknown>): Promise<T> {
+      return parseJsonResponse<T>(await client["api-keys"].$post({ json: body, header: headers }));
+    },
+    async revokeApiKey<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client["api-keys"][":id"].revoke.$post({ param: { id }, json: {}, header: headers }),
+      );
+    },
+    async rotateApiKey<T>(id: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await client["api-keys"][":id"].rotate.$post({ param: { id }, json: {}, header: headers }),
+      );
     },
     async listConsents<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(

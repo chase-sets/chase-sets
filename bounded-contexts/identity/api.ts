@@ -684,6 +684,19 @@ export function buildIdentityApi(services: IdentityServices) {
 
   app.post("/api-keys", async (c) => {
     const body = await c.req.json();
+    const actor = c.var.actor;
+    const userId = String(body.userId ?? "") as UserId;
+    if (actor && actor.roleKey !== "platform-admin" && actor.userId !== userId) {
+      return c.json(
+        {
+          error: {
+            code: "authorization_forbidden",
+            message: "Forbidden.",
+          },
+        },
+        403,
+      );
+    }
     const context = getRequiredContext(c);
     const apiKeyId = createId("key") as ApiKeyId;
     const secret = services.auth.issueOpaqueToken("key");
@@ -693,7 +706,7 @@ export function buildIdentityApi(services: IdentityServices) {
       command: {
         type: "CreateApiKey",
         apiKeyId,
-        userId: body.userId,
+        userId,
         name: body.name,
         keyPrefix,
       },
@@ -701,7 +714,7 @@ export function buildIdentityApi(services: IdentityServices) {
     });
     await upsertApiKeySecret(services.db, {
       apiKeyId,
-      userId: body.userId,
+      userId,
       keyPrefix,
       secretHash: services.auth.hashSecret(secret),
     });
@@ -730,6 +743,18 @@ export function buildIdentityApi(services: IdentityServices) {
           },
         },
         404,
+      );
+    }
+    const actor = c.var.actor;
+    if (actor && actor.roleKey !== "platform-admin" && actor.userId !== apiKey.user_id) {
+      return c.json(
+        {
+          error: {
+            code: "authorization_forbidden",
+            message: "Forbidden.",
+          },
+        },
+        403,
       );
     }
     const context = getRequiredContext(c);

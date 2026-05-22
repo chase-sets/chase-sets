@@ -271,7 +271,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["accounts", "consents", "memberships", "shipping-addresses", "users"],
+      "expectedConsumers": ["accounts", "consents", "shipping-addresses"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",

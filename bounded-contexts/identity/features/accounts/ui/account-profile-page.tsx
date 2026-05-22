@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   ActorIdentityCue,
+  Button,
   LinkButton,
   MarketplaceDashboardPanel,
   PlatformCredibilityCue,
@@ -9,6 +10,7 @@ import {
   UiPage,
   UiPageHeader,
   UiPageSection,
+  TextInput,
 } from "@chase-sets/design-system";
 import type { Account } from "./contracts";
 import type { CurrentActorDisplay } from "../../../support/request-support/current-actor-display";
@@ -56,9 +58,31 @@ export function AccountProfilePage({
         title={<AccountNameWithBadges name={account.display_name} badges={account.badges} />}
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
         actions={
-          <LinkButton href="/account/shipping-addresses" tone="secondary">
-            {t("identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses")}
-          </LinkButton>
+          <Stack direction="row" gap={2}>
+            <form method="post">
+              <Stack direction="row" align="end" gap={2}>
+                <input type="hidden" name="intent" value="update-profile" readOnly />
+                <TextInput
+                  name="name"
+                  label={t("identity.features.accounts.ui.accountProfilePage.legal.name")}
+                  defaultValue={account.name}
+                  required
+                />
+                <TextInput
+                  name="displayName"
+                  label={t("identity.features.accounts.ui.accountProfilePage.marketplace.name")}
+                  defaultValue={account.display_name}
+                  required
+                />
+                <Button type="submit" tone="secondary">
+                  {t("identity.features.accounts.ui.accountProfilePage.update.profile")}
+                </Button>
+              </Stack>
+            </form>
+            <LinkButton href="/account/shipping-addresses" tone="secondary">
+              {t("identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses")}
+            </LinkButton>
+          </Stack>
         }
       />
       {actorDisplay ? (

@@ -12,35 +12,6 @@ type ListResult<T> = Readonly<{
   total: number;
 }>;
 
-function buildFilteredQuery(baseTable: string, params: ListParams, searchColumns: readonly string[], orderBy: string) {
-  const conditions: string[] = [];
-  const values: unknown[] = [];
-  let paramIndex = 1;
-
-  if (params.status) {
-    conditions.push(`status = $${paramIndex}`);
-    values.push(params.status);
-    paramIndex += 1;
-  }
-
-  if (params.search) {
-    const clauses = searchColumns.map((column) => `${column} ILIKE $${paramIndex}`);
-    conditions.push(`(${clauses.join(" OR ")})`);
-    values.push(`%${params.search}%`);
-    paramIndex += 1;
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = params.limit ?? 50;
-  const offset = params.offset ?? 0;
-
-  return {
-    countSql: `SELECT COUNT(*) AS count FROM ${baseTable} ${where}`,
-    listSql: `SELECT * FROM ${baseTable} ${where} ORDER BY ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
-    values,
-  };
-}
-
 async function executeListQuery<T>(
   db: PgQueryable,
   countSql: string,
@@ -61,7 +32,11 @@ async function executeListQuery<T>(
 export type SessionRow = Readonly<{
   session_id: string;
   user_id: string;
+  user_display_name: string | null;
+  user_primary_email: string | null;
   account_id: string;
+  account_display_name: string | null;
+  account_name: string | null;
   available_account_ids: readonly string[];
   authentication_method: string;
   status: string;
@@ -70,16 +45,79 @@ export type SessionRow = Readonly<{
 }>;
 
 export async function listSessions(db: PgQueryable, params: ListParams = {}) {
-  const query = buildFilteredQuery(
-    "identity_sessions",
-    params,
-    ["session_id", "user_id", "account_id", "authentication_method"],
-    "updated_at DESC",
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (params.status) {
+    conditions.push(`sessions.status = $${paramIndex}`);
+    values.push(params.status);
+    paramIndex += 1;
+  }
+
+  if (params.search) {
+    conditions.push(`(
+      sessions.session_id ILIKE $${paramIndex}
+      OR sessions.user_id ILIKE $${paramIndex}
+      OR users.display_name ILIKE $${paramIndex}
+      OR users.primary_email ILIKE $${paramIndex}
+      OR sessions.account_id ILIKE $${paramIndex}
+      OR accounts.display_name ILIKE $${paramIndex}
+      OR accounts.name ILIKE $${paramIndex}
+      OR sessions.authentication_method ILIKE $${paramIndex}
+    )`);
+    values.push(`%${params.search}%`);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const from = `FROM identity_sessions AS sessions
+     LEFT JOIN auth_identity_users AS users ON users.user_id = sessions.user_id
+     LEFT JOIN auth_identity_accounts AS accounts ON accounts.account_id = sessions.account_id`;
+  const limit = params.limit ?? 50;
+  const offset = params.offset ?? 0;
+
+  return executeListQuery<SessionRow>(
+    db,
+    `SELECT COUNT(*) AS count ${from} ${where}`,
+    `SELECT sessions.session_id,
+            sessions.user_id,
+            users.display_name AS user_display_name,
+            users.primary_email AS user_primary_email,
+            sessions.account_id,
+            accounts.display_name AS account_display_name,
+            accounts.name AS account_name,
+            sessions.available_account_ids,
+            sessions.authentication_method,
+            sessions.status,
+            sessions.expires_at,
+            sessions.updated_at
+     ${from}
+     ${where}
+     ORDER BY sessions.updated_at DESC
+     LIMIT ${limit} OFFSET ${offset}`,
+    values,
   );
-  return executeListQuery<SessionRow>(db, query.countSql, query.listSql, query.values);
 }
 
 export async function getSession(db: PgQueryable, sessionId: string) {
-  const result = await db.query<SessionRow>(`SELECT * FROM identity_sessions WHERE session_id = $1`, [sessionId]);
+  const result = await db.query<SessionRow>(
+    `SELECT sessions.session_id,
+            sessions.user_id,
+            users.display_name AS user_display_name,
+            users.primary_email AS user_primary_email,
+            sessions.account_id,
+            accounts.display_name AS account_display_name,
+            accounts.name AS account_name,
+            sessions.available_account_ids,
+            sessions.authentication_method,
+            sessions.status,
+            sessions.expires_at,
+            sessions.updated_at
+     FROM identity_sessions AS sessions
+     LEFT JOIN auth_identity_users AS users ON users.user_id = sessions.user_id
+     LEFT JOIN auth_identity_accounts AS accounts ON accounts.account_id = sessions.account_id
+     WHERE sessions.session_id = $1`,
+    [sessionId],
+  );
   return result.rows[0] ?? null;
 }

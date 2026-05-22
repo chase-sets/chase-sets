@@ -1,0 +1,21 @@
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
+import type { ListResponse } from "@chase-sets/http/responses";
+import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import { t } from "@chase-sets/localization";
+import { createAuthRequestApiClient } from "../../support/request-support/api-client";
+import type { Session } from "../../features/sessions/ui/contracts";
+import { SessionListPage } from "../../features/sessions/ui/session-list-page";
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  const api = createAuthRequestApiClient(request);
+  return api.listSessions<ListResponse<Session>>("limit=50&offset=0");
+}
+
+export const meta: MetaFunction = () =>
+  buildOpenGraphMeta({ title: t("auth.features.sessions.ui.sessionListPage.sessions") });
+
+export default function MarketplaceAccountSessionsRoute() {
+  const data = useLoaderData<typeof loader>();
+  return <SessionListPage hrefBase="/account/sessions" initialData={data} />;
+}

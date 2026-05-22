@@ -1,15 +1,51 @@
 import { t } from "@chase-sets/localization";
+import { Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
 import { AdminDetailPage } from "./admin-pages";
 import type { Session } from "./contracts";
 
 export function SessionDetailPage({ data }: { data: Session }) {
+  const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
+  const account = data.account_display_name ?? data.account_name ?? data.account_id;
+
   return (
     <AdminDetailPage
-      title={data.session_id}
+      title={t("auth.features.sessions.ui.sessionDetailPage.title", { user })}
       status={data.status}
+      actions={
+        <Inline gap={2}>
+          {data.status === "active" ? (
+            <>
+              <form method="post">
+                <Stack direction="row" align="end" gap={2}>
+                  <input type="hidden" name="intent" value="switch-account" readOnly />
+                  <NativeSelect
+                    name="accountId"
+                    label={t("auth.features.sessions.ui.sessionDetailPage.active.account")}
+                    defaultValue={data.account_id}
+                    items={data.available_account_ids.map((accountId) => ({
+                      value: accountId,
+                      label: accountId === data.account_id ? account : accountId,
+                    }))}
+                  />
+                  <Button type="submit" tone="secondary">
+                    {t("auth.features.sessions.ui.sessionDetailPage.switch.account")}
+                  </Button>
+                </Stack>
+              </form>
+              <form method="post">
+                <input type="hidden" name="intent" value="revoke" readOnly />
+                <Button type="submit" tone="danger">
+                  {t("auth.features.sessions.ui.sessionDetailPage.revoke")}
+                </Button>
+              </form>
+            </>
+          ) : null}
+        </Inline>
+      }
       sections={[
-        { label: t("auth.features.sessions.ui.sessionDetailPage.user.id"), value: data.user_id },
-        { label: t("auth.features.sessions.ui.sessionDetailPage.active.account"), value: data.account_id },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.session.id"), value: data.session_id },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.user"), value: user },
+        { label: t("auth.features.sessions.ui.sessionDetailPage.active.account"), value: account },
         {
           label: t("auth.features.sessions.ui.sessionDetailPage.available.accounts"),
           value: data.available_account_ids.join(", "),

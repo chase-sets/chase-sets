@@ -1,5 +1,15 @@
 import { t } from "@chase-sets/localization";
-import { Card, DataTable, LinkButton, Stack, StatusPill, Text, type DataColumn } from "@chase-sets/design-system";
+import type { ReactNode } from "react";
+import {
+  ActionBar,
+  Card,
+  DataTable,
+  LinkButton,
+  Stack,
+  StatusPill,
+  Text,
+  type DataColumn,
+} from "@chase-sets/design-system";
 
 export function AdminListPage<T>({
   title,
@@ -50,21 +60,26 @@ export function AdminListPage<T>({
 }
 
 export function AdminDetailPage({
+  actions,
   title,
   status,
   sections,
 }: {
+  actions?: ReactNode;
   title: string;
   status?: string | null;
   sections: readonly { label: string; value: string }[];
 }) {
   return (
     <Stack gap={4}>
-      <Stack direction="row" align="center" gap={3}>
-        <Text size="lg" weight="semibold">
-          {title}
-        </Text>
-        {status ? <StatusPill>{status}</StatusPill> : null}
+      <Stack direction="row" align="center" justify="between" gap={3}>
+        <Stack direction="row" align="center" gap={3}>
+          <Text size="lg" weight="semibold">
+            {title}
+          </Text>
+          {status ? <StatusPill>{status}</StatusPill> : null}
+        </Stack>
+        {actions ? <ActionBar>{actions}</ActionBar> : null}
       </Stack>
       <Card>
         <Stack gap={3}>

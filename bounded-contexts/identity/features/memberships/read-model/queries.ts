@@ -1,10 +1,14 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
+import { executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type MembershipRow = Readonly<{
   membership_id: string;
   user_id: string;
+  user_display_name: string | null;
+  user_primary_email: string | null;
   account_id: string;
+  account_display_name: string | null;
+  account_name: string | null;
   role_key: string;
   role_permissions: readonly string[];
   status: string;
@@ -12,28 +16,99 @@ export type MembershipRow = Readonly<{
 }>;
 
 export async function listMemberships(db: PgQueryable, params: ListParams = {}) {
-  const query = buildFilteredQuery(
-    "identity_memberships",
-    params,
-    ["membership_id", "user_id", "account_id", "role_key"],
-    "updated_at DESC",
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (params.status) {
+    conditions.push(`memberships.status = $${paramIndex}`);
+    values.push(params.status);
+    paramIndex += 1;
+  }
+
+  if (params.search) {
+    conditions.push(`(
+      memberships.membership_id ILIKE $${paramIndex}
+      OR memberships.user_id ILIKE $${paramIndex}
+      OR users.display_name ILIKE $${paramIndex}
+      OR users.primary_email ILIKE $${paramIndex}
+      OR memberships.account_id ILIKE $${paramIndex}
+      OR accounts.display_name ILIKE $${paramIndex}
+      OR accounts.name ILIKE $${paramIndex}
+      OR memberships.role_key ILIKE $${paramIndex}
+    )`);
+    values.push(`%${params.search}%`);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const from = `FROM identity_memberships AS memberships
+     LEFT JOIN identity_users AS users ON users.user_id = memberships.user_id
+     LEFT JOIN identity_accounts AS accounts ON accounts.account_id = memberships.account_id`;
+  const limit = params.limit ?? 50;
+  const offset = params.offset ?? 0;
+
+  return executeListQuery<MembershipRow>(
+    db,
+    `SELECT COUNT(*) AS count ${from} ${where}`,
+    `SELECT memberships.membership_id,
+            memberships.user_id,
+            users.display_name AS user_display_name,
+            users.primary_email AS user_primary_email,
+            memberships.account_id,
+            accounts.display_name AS account_display_name,
+            accounts.name AS account_name,
+            memberships.role_key,
+            memberships.role_permissions,
+            memberships.status,
+            memberships.updated_at
+     ${from}
+     ${where}
+     ORDER BY memberships.updated_at DESC
+     LIMIT ${limit} OFFSET ${offset}`,
+    values,
   );
-  return executeListQuery<MembershipRow>(db, query.countSql, query.listSql, query.values);
 }
 
 export async function getMembership(db: PgQueryable, membershipId: string) {
-  const result = await db.query<MembershipRow>(`SELECT * FROM identity_memberships WHERE membership_id = $1`, [
-    membershipId,
-  ]);
+  const result = await db.query<MembershipRow>(
+    `SELECT memberships.membership_id,
+            memberships.user_id,
+            users.display_name AS user_display_name,
+            users.primary_email AS user_primary_email,
+            memberships.account_id,
+            accounts.display_name AS account_display_name,
+            accounts.name AS account_name,
+            memberships.role_key,
+            memberships.role_permissions,
+            memberships.status,
+            memberships.updated_at
+     FROM identity_memberships AS memberships
+     LEFT JOIN identity_users AS users ON users.user_id = memberships.user_id
+     LEFT JOIN identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.membership_id = $1`,
+    [membershipId],
+  );
   return result.rows[0] ?? null;
 }
 
 export async function listMembershipsForUser(db: PgQueryable, userId: string) {
   const result = await db.query<MembershipRow>(
-    `SELECT membership_id, user_id, account_id, role_key, '[]'::jsonb AS role_permissions, status, updated_at
-     FROM identity_user_memberships
-     WHERE user_id = $1
-     ORDER BY updated_at DESC`,
+    `SELECT memberships.membership_id,
+            memberships.user_id,
+            users.display_name AS user_display_name,
+            users.primary_email AS user_primary_email,
+            memberships.account_id,
+            accounts.display_name AS account_display_name,
+            accounts.name AS account_name,
+            memberships.role_key,
+            '[]'::jsonb AS role_permissions,
+            memberships.status,
+            memberships.updated_at
+     FROM identity_user_memberships AS memberships
+     LEFT JOIN identity_users AS users ON users.user_id = memberships.user_id
+     LEFT JOIN identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+     ORDER BY memberships.updated_at DESC`,
     [userId],
   );
   return result.rows;
@@ -41,11 +116,24 @@ export async function listMembershipsForUser(db: PgQueryable, userId: string) {
 
 export async function getActiveMembershipForUserAccount(db: PgQueryable, userId: string, accountId: string) {
   const result = await db.query<MembershipRow>(
-    `SELECT * FROM identity_memberships
-     WHERE user_id = $1
-       AND account_id = $2
-       AND status = 'active'
-     ORDER BY updated_at DESC
+    `SELECT memberships.membership_id,
+            memberships.user_id,
+            users.display_name AS user_display_name,
+            users.primary_email AS user_primary_email,
+            memberships.account_id,
+            accounts.display_name AS account_display_name,
+            accounts.name AS account_name,
+            memberships.role_key,
+            memberships.role_permissions,
+            memberships.status,
+            memberships.updated_at
+     FROM identity_memberships AS memberships
+     LEFT JOIN identity_users AS users ON users.user_id = memberships.user_id
+     LEFT JOIN identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+       AND memberships.account_id = $2
+       AND memberships.status = 'active'
+     ORDER BY memberships.updated_at DESC
      LIMIT 1`,
     [userId, accountId],
   );

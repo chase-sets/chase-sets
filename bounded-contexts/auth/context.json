@@ -22,6 +22,20 @@
   "eventSubscriptions": [
     {
       "sourceContextName": "identity",
+      "projectionName": "auth-identity-account-projection",
+      "subscriptionVersion": 1,
+      "projectorNames": ["auth-identity-account-projection"],
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "order": 5
+    },
+    {
+      "sourceContextName": "identity",
       "projectionName": "auth-identity-user-projection",
       "subscriptionVersion": 1,
       "projectorNames": ["auth-identity-user-projection"],
@@ -69,6 +83,12 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "auth-identity-account-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["auth_identity_accounts"],
+      "requiredDuringBootstrap": true
+    },
     {
       "projectionName": "auth-identity-user-projection",
       "sourceContextNames": ["identity"],
@@ -212,6 +232,20 @@
           "fileExport": "./routes/marketplace/sign-out",
           "routeType": "route",
           "sourceContext": "auth"
+        },
+        {
+          "routeId": "account-sessions",
+          "routePath": "account/sessions",
+          "fileExport": "./routes/marketplace/account-sessions",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
+          "routeId": "account-sessions-detail",
+          "routePath": "account/sessions/:id",
+          "fileExport": "./routes/marketplace/account-sessions-detail",
+          "routeType": "route",
+          "sourceContext": "auth"
         }
       ]
     }
@@ -227,6 +261,17 @@
       "order": 50,
       "visibility": "signed-in",
       "requiredPermissions": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "account-sessions",
+      "label": "Sessions",
+      "icon": "clock",
+      "href": "/account/sessions",
+      "order": 205,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"]
     },
     {
       "deployable": "marketplace-web",
