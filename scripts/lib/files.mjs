@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 
 export const defaultSkippedDirectories = new Set([
+  ".codex",
   ".git",
   ".react-router",
   "build",
