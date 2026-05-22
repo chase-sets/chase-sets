@@ -38,6 +38,7 @@ import {
   Package,
   Pencil,
   Plus,
+  RefreshCcw,
   Rocket,
   Search,
   Settings,
@@ -117,6 +118,7 @@ export type IconName =
   | "chart"
   | "users"
   | "rocket"
+  | "refreshCcw"
   | "externalLink"
   | "moreVertical"
   | "badgeCheck"
@@ -193,6 +195,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   chart: BarChart3,
   users: Users,
   rocket: Rocket,
+  refreshCcw: RefreshCcw,
   externalLink: ExternalLink,
   moreVertical: MoreVertical,
   badgeCheck: BadgeCheck,

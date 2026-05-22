@@ -1,6 +1,6 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { useRevalidator } from "react-router";
 import {
   AlertDialog,
@@ -237,7 +237,12 @@ function isLifecycleOperation(action: CatalogItemBulkOperation): action is "arch
   return action === "archive";
 }
 
-export function CatalogItemListPage({ data, query }: CatalogListRouteData<CatalogItemListItem>) {
+type CatalogItemListPageProps = CatalogListRouteData<CatalogItemListItem> &
+  Readonly<{
+    realtimeReloadActionBar?: ReactNode;
+  }>;
+
+export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: CatalogItemListPageProps) {
   const listControls = useCatalogListQueryControls(query);
   const revalidator = useRevalidator();
   const columns = useMemo(() => buildColumns(), []);
@@ -750,6 +755,7 @@ export function CatalogItemListPage({ data, query }: CatalogListRouteData<Catalo
             />
           ) : null
         }
+        realtimeReloadActionBar={realtimeReloadActionBar}
         page={listControls.page}
         pageSize={listControls.pageSize}
         onPageChange={listControls.setPage}

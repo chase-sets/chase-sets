@@ -6,6 +6,7 @@ import { CatalogItemListPage } from "../../features/catalog-items/ui/catalog-ite
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
+import { CatalogRealtimeReloadActionBar } from "../../support/shell-support/ui/realtime-reload-action-bar";
 import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -17,6 +18,22 @@ export const meta: MetaFunction = () => [{ title: t("catalog.routes.admin.catalo
 
 export default function CatalogItemsRoute() {
   const routeData = useLoaderData<typeof loader>();
-  useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.catalogItems());
-  return <CatalogItemListPage data={routeData.data} query={routeData.query} />;
+  const realtimeReload = useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.catalogItems(), { mode: "manual" });
+
+  return (
+    <CatalogItemListPage
+      data={routeData.data}
+      query={routeData.query}
+      realtimeReloadActionBar={
+        realtimeReload.hasPendingChanges ? (
+          <CatalogRealtimeReloadActionBar
+            pendingChangeCount={realtimeReload.pendingChangeCount}
+            syncRequired={realtimeReload.syncRequired}
+            reload={realtimeReload.reload}
+            entityName={t("catalog.features.catalogItems.ui.catalogItemListPage.catalog.items")}
+          />
+        ) : null
+      }
+    />
+  );
 }

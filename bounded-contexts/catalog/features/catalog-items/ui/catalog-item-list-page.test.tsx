@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CatalogRealtimeReloadActionBar } from "../../../support/shell-support/ui/realtime-reload-action-bar";
 import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogItemListItem } from "./contracts";
 
@@ -311,6 +312,36 @@ describe("CatalogItemListPage", () => {
 
     expect(screen.getAllByText("1 Catalog Items selected").length).toBeGreaterThan(0);
     expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+  });
+
+  it("prioritizes the realtime reload action bar over matching bulk actions", () => {
+    const reload = vi.fn();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        realtimeReloadActionBar={
+          <CatalogRealtimeReloadActionBar
+            pendingChangeCount={3}
+            syncRequired={false}
+            reload={reload}
+            entityName="Catalog Items"
+          />
+        }
+      />,
+    );
+
+    expect(screen.getByText("3 Catalog Items changed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+    expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+
+    expect(reload).toHaveBeenCalledOnce();
   });
 
   it("previews matching bulk edits from a single side-panel action surface", async () => {

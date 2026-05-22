@@ -6,6 +6,7 @@ import { SourceObservationListPage } from "../../features/source-observations/ui
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
+import { CatalogRealtimeReloadActionBar } from "../../support/shell-support/ui/realtime-reload-action-bar";
 import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -19,6 +20,24 @@ export const meta: MetaFunction = () => [
 
 export default function SourceObservationsRoute() {
   const routeData = useLoaderData<typeof loader>();
-  useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.sourceObservations());
-  return <SourceObservationListPage data={routeData.data} query={routeData.query} />;
+  const realtimeReload = useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.sourceObservations(), {
+    mode: "manual",
+  });
+
+  return (
+    <SourceObservationListPage
+      data={routeData.data}
+      query={routeData.query}
+      realtimeReloadActionBar={
+        realtimeReload.hasPendingChanges ? (
+          <CatalogRealtimeReloadActionBar
+            pendingChangeCount={realtimeReload.pendingChangeCount}
+            syncRequired={realtimeReload.syncRequired}
+            reload={realtimeReload.reload}
+            entityName={t("catalog.features.sourceObservations.ui.list.source.observations")}
+          />
+        ) : null
+      }
+    />
+  );
 }

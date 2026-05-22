@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import { catalogRealtimeRouteTopics } from "../../realtime-support/topics";
@@ -27,6 +27,19 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
 function Probe() {
   useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.catalogItems(), 25);
   return <div />;
+}
+
+function ManualProbe() {
+  const realtime = useCatalogRealtimeRevalidation(catalogRealtimeRouteTopics.catalogItems(), {
+    debounceMs: 25,
+    mode: "manual",
+  });
+
+  return (
+    <button type="button" onClick={realtime.reload}>
+      {realtime.pendingChangeCount}:{realtime.syncRequired ? "sync" : "fresh"}
+    </button>
+  );
 }
 
 describe("useCatalogRealtimeRevalidation", () => {
@@ -142,5 +155,64 @@ describe("useCatalogRealtimeRevalidation", () => {
 
     expect(mocks.revalidate).not.toHaveBeenCalled();
     expect(nextRevalidate).toHaveBeenCalledOnce();
+  });
+
+  it("can collect route changes for an explicit reload instead of auto revalidating", () => {
+    render(<ManualProbe />);
+    const options = mocks.subscribeRealtimePatches.mock.calls[0]?.[0];
+
+    act(() => {
+      options.onPatch({
+        kind: "projection.patch",
+        context: "catalog",
+        projection: "catalog-admin-catalog-item-projection",
+        topics: ["catalog:admin:catalog-items"],
+        changes: [
+          {
+            op: "summary",
+            entity: "catalog.adminProjection",
+            id: "catalog-items:catalog.item-cat_1",
+            value: {},
+          },
+          {
+            op: "summary",
+            entity: "catalog.adminProjection",
+            id: "catalog-items:catalog.item-cat_1",
+            value: {},
+          },
+          {
+            op: "summary",
+            entity: "catalog.adminProjection",
+            id: "catalog-items:catalog.item-cat_2",
+            value: {},
+          },
+        ],
+      } satisfies RealtimeProjectionPatch);
+      vi.advanceTimersByTime(25);
+    });
+
+    expect(mocks.revalidate).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "2:fresh" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "2:fresh" }));
+
+    expect(mocks.revalidate).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "0:fresh" })).toBeTruthy();
+  });
+
+  it("prompts for an explicit reload when realtime requires a full sync in manual mode", () => {
+    render(<ManualProbe />);
+    const options = mocks.subscribeRealtimePatches.mock.calls[0]?.[0];
+
+    act(() => {
+      options.onSyncRequired({
+        kind: "sync.required",
+        reason: "cursor-expired",
+        contexts: ["catalog"],
+      } satisfies RealtimeSyncRequired);
+    });
+
+    expect(mocks.revalidate).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "0:sync" })).toBeTruthy();
   });
 });
