@@ -18,6 +18,10 @@ type WaitlistAnalyticsPayload = Readonly<{
   interest?: string | null;
   variant?: string | null;
   status?: string | null;
+  page_path?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
   checked?: boolean | null;
 }>;
 
@@ -62,6 +66,10 @@ export async function action({ request }: ActionFunctionArgs) {
     interest: payload.interest,
     variant: payload.variant,
     status: payload.status,
+    page_path: payload.page_path,
+    utm_source: payload.utm_source,
+    utm_medium: payload.utm_medium,
+    utm_campaign: payload.utm_campaign,
     checked: payload.checked,
   });
 
@@ -101,6 +109,10 @@ function parsePayload(text: string): WaitlistAnalyticsPayload | null {
   const interest = readOptionalBoundedString(body.interest);
   const variant = readOptionalBoundedString(body.variant);
   const status = readOptionalBoundedString(body.status);
+  const pagePath = readOptionalPath(body.page_path);
+  const utmSource = readOptionalBoundedString(body.utm_source);
+  const utmMedium = readOptionalBoundedString(body.utm_medium);
+  const utmCampaign = readOptionalBoundedString(body.utm_campaign);
   if (
     section === invalidAnalyticsLabel ||
     target === invalidAnalyticsLabel ||
@@ -108,7 +120,11 @@ function parsePayload(text: string): WaitlistAnalyticsPayload | null {
     role === invalidAnalyticsLabel ||
     interest === invalidAnalyticsLabel ||
     variant === invalidAnalyticsLabel ||
-    status === invalidAnalyticsLabel
+    status === invalidAnalyticsLabel ||
+    pagePath === invalidAnalyticsLabel ||
+    utmSource === invalidAnalyticsLabel ||
+    utmMedium === invalidAnalyticsLabel ||
+    utmCampaign === invalidAnalyticsLabel
   ) {
     return null;
   }
@@ -122,6 +138,10 @@ function parsePayload(text: string): WaitlistAnalyticsPayload | null {
     interest,
     variant,
     status,
+    page_path: pagePath,
+    utm_source: utmSource,
+    utm_medium: utmMedium,
+    utm_campaign: utmCampaign,
     checked: typeof body.checked === "boolean" ? body.checked : null,
   };
 }
@@ -146,6 +166,21 @@ function readOptionalBoundedString(value: unknown) {
 
   const text = value.trim();
   return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : invalidAnalyticsLabel;
+}
+
+function readOptionalPath(value: unknown) {
+  if (typeof value === "undefined" || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return invalidAnalyticsLabel;
+  }
+
+  const text = value.trim();
+  return text.length > 0 && text.length <= 160 && text.startsWith("/") && /^[/a-zA-Z0-9_.~%=&?-]+$/.test(text)
+    ? text
+    : invalidAnalyticsLabel;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

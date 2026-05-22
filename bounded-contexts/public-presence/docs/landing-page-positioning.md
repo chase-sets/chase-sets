@@ -14,6 +14,8 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 - visible support contact
 - waitlist consent and removal language
 - beta fee-lock terms
+- Founding Account badge access for first signups
+- founders circle access on Discord for first signups
 - sample product previews
 - provider-backed payment and visible-total language already present in Public Presence copy
 
@@ -27,4 +29,4 @@ Promote new trust proof only when all of these are true:
 - stale or unavailable proof can be removed without changing the offer
 - the proof reinforces seller economics or buyer confidence without replacing the seller-first first screen
 
-The primary conversion action is joining the beta waitlist. The embedded hero form should remain compact, seller-first, and explicit that joining does not require buying, listing, or payment.
+The primary conversion action is joining the beta waitlist. The embedded hero form should remain compact, seller-first, and explicit that joining does not require buying, listing, or payment. It should also let visitors choose seller, buyer, or both intent before submitting so early invite signals are obvious inside the first screen.

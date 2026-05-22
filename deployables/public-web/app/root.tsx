@@ -30,6 +30,16 @@ export const waitlistAnalyticsBridgeScript = `
     return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
   }
 
+  function readPath(value) {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const text = value.trim();
+    return text.length > 0 && text.length <= 160 && text.startsWith("/") && /^[/a-zA-Z0-9_.~%=&?-]+$/.test(text)
+      ? text
+      : null;
+  }
+
   window.addEventListener("chase-sets:waitlist-analytics", (event) => {
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (!detail || typeof detail.event !== "string" || !allowedEvents.has(detail.event)) {
@@ -45,6 +55,10 @@ export const waitlistAnalyticsBridgeScript = `
       interest: readBounded(detail.interest),
       variant: readBounded(detail.variant),
       status: readBounded(detail.status),
+      page_path: readPath(detail.page_path),
+      utm_source: readBounded(detail.utm_source),
+      utm_medium: readBounded(detail.utm_medium),
+      utm_campaign: readBounded(detail.utm_campaign),
       checked: typeof detail.checked === "boolean" ? detail.checked : null,
     };
     const body = JSON.stringify(payload);

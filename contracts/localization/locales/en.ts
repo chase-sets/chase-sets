@@ -4424,7 +4424,7 @@ export const englishTranslations = {
     "See shipping estimates, return eligibility, and order protection before payment.",
   "publicPresence.home.buying.title": "For collectors filling sets, decks, and wishlists",
   "publicPresence.home.description":
-    "Join the seller-first beta for 0% seller fee locks, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
+    "Join the seller-first beta for 0% seller fee locks, no separate seller processing fee, bulk-friendly listing, buyer-visible totals, and early Founding Account status.",
   "publicPresence.home.buyerProof.badge": "Set-completion proof",
   "publicPresence.home.buyerProof.description":
     "The buyer promise is not only cheaper-looking prices. It is seeing the delivered total, shipping credit, account signal, and protection before a small card order becomes a surprise.",
@@ -4455,7 +4455,7 @@ export const englishTranslations = {
   "publicPresence.home.buyerProof.workflow.point.review":
     "Review order processing, protection, returns, and support coverage before checkout.",
   "publicPresence.home.buyerProof.workflow.title": "From wishlist gaps to a confident order",
-  "publicPresence.home.discordCta": "Join Discord",
+  "publicPresence.home.discordCta": "Join the founders circle on Discord",
   "publicPresence.home.economics.description":
     "The marketplace is designed to protect seller margin first, then make buyer totals clear enough for small-card orders to convert.",
   "publicPresence.home.economics.fees.description":
@@ -4472,9 +4472,9 @@ export const englishTranslations = {
   "publicPresence.home.finalCta.action": "Join the beta waitlist",
   "publicPresence.home.finalCta.badge": "Takes under a minute",
   "publicPresence.home.finalCta.description":
-    "Tell us whether selling, buying, or both matters most. Founding seller supply and collector demand both shape who gets invited first.",
+    "Tell us whether selling, buying, or both matters most. The first signups help shape launch, get Founding Account status, and join the founders circle on Discord.",
   "publicPresence.home.finalCta.point.foundingBadge":
-    "The first invited accounts can receive a Founding Account badge displayed beside their marketplace account.",
+    "The first accounts to sign up get a Founding Account badge displayed beside their marketplace account.",
   "publicPresence.home.finalCta.point.buyers":
     "Collectors get clearer item, account, shipping, return, order processing, support, and shipping-credit details before checkout.",
   "publicPresence.home.finalCta.point.sellers":
@@ -4505,12 +4505,12 @@ export const englishTranslations = {
   "publicPresence.home.audience.title": "Built for full marketplace participation",
   "publicPresence.home.launchPriority.badge": "Founding accounts",
   "publicPresence.home.launchPriority.description":
-    "Early access is not open yet. The waitlist is where we identify the first accounts that should help shape launch and carry Founding Account status.",
-  "publicPresence.home.launchPriority.title": "Get in before Founding Account badges are assigned",
+    "Early access is not open yet. The first accounts to sign up should help shape launch, carry Founding Account status, and get founders circle access on Discord.",
+  "publicPresence.home.launchPriority.title": "First signups get Founding Account status",
   "publicPresence.home.promise.earlyAccess":
     "Your priorities help rank the buying, listing, and fulfillment tools that should open first.",
   "publicPresence.home.promise.foundingBadge":
-    "The first invited accounts can receive a Founding Account badge that stays visible beside their account.",
+    "The first accounts to sign up get a Founding Account badge and founders circle access on Discord.",
   "publicPresence.home.promise.lowValue":
     "Built so bulk, raw, graded, chase, and everyday cards can be worth listing, buying, and shipping.",
   "publicPresence.home.promise.sellerTools":
@@ -4537,14 +4537,14 @@ export const englishTranslations = {
   "publicPresence.home.betaFee.scope": "Early listings",
   "publicPresence.home.betaFee.scopeLabel": "Eligible listings",
   "publicPresence.home.betaFee.title": "Lock 0% seller fees on beta listings",
-  "publicPresence.home.foundingBadge.assignment": "Assigned after invite",
-  "publicPresence.home.foundingBadge.assignmentLabel": "Account-owned badge",
+  "publicPresence.home.foundingBadge.assignment": "Founder circle",
+  "publicPresence.home.foundingBadge.assignmentLabel": "Discord access",
   "publicPresence.home.foundingBadge.badge": "Founding Account badge",
-  "publicPresence.home.foundingBadge.criteria": "First group",
-  "publicPresence.home.foundingBadge.criteriaLabel": "Prioritized from waitlist fit",
+  "publicPresence.home.foundingBadge.criteria": "First signups",
+  "publicPresence.home.foundingBadge.criteriaLabel": "Reserved for early accounts",
   "publicPresence.home.foundingBadge.description":
-    "Founding Account status is reserved for early accounts that help prove seller supply, buyer demand, pricing workflow, and low-value card economics before launch opens wider.",
-  "publicPresence.home.foundingBadge.title": "A visible reason to join before launch",
+    "Founding Account status is reserved for the first accounts that help prove seller supply, buyer demand, pricing workflow, and low-value card economics before launch opens wider. Those accounts also get access to a founders circle on Discord to help pave the way for the platform.",
+  "publicPresence.home.foundingBadge.title": "A visible reason to be first",
   "publicPresence.home.foundingBadge.visibility": "Visible",
   "publicPresence.home.foundingBadge.visibilityLabel": "Beside the account",
   "publicPresence.home.model.economics.description":
@@ -4729,7 +4729,7 @@ export const englishTranslations = {
   "publicPresence.nav.sellerFees": "Marketplace sales fees",
   "publicPresence.nav.terms": "Terms",
   "publicPresence.preview.section.description":
-    "Price, account history, condition, shipping, earned shipping credit, order processing, returns, and order protection stay together before checkout.",
+    "Sample UI showing how price, account signal, condition, shipping, earned shipping credit, order processing, returns, and order protection stay together before checkout.",
   "publicPresence.preview.section.title": "Preview the buying experience",
   "publicPresence.preview.status": "Sample marketplace preview",
   "publicPresence.preview.listing.badge": "Sample listing",
@@ -4748,9 +4748,9 @@ export const englishTranslations = {
   "publicPresence.preview.listing.price.value": "$83.40",
   "publicPresence.preview.listing.seller.label": "Account signal",
   "publicPresence.preview.listing.returnPolicy.value": "Return eligibility shown before payment",
-  "publicPresence.preview.listing.seller.meta": "Example profile, 418 sales",
-  "publicPresence.preview.listing.seller.trust": "Verification shown",
-  "publicPresence.preview.listing.seller.value": "North Star Cards",
+  "publicPresence.preview.listing.seller.meta": "Sample profile data",
+  "publicPresence.preview.listing.seller.trust": "Verification placement shown",
+  "publicPresence.preview.listing.seller.value": "Sample card account",
   "publicPresence.preview.listing.fulfillment.label": "Fulfillment",
   "publicPresence.preview.listing.fulfillment.value": "Tracked card mailer, $0.48 after shipping credit",
   "publicPresence.preview.listing.protection.label": "Risk reduction",
@@ -4799,7 +4799,7 @@ export const englishTranslations = {
     "Answers about Chase Sets launch timing, beta seller fees, order processing, shipping, and safety.",
   "publicPresence.routes.faq.meta.title": "FAQ | Chase Sets",
   "publicPresence.routes.home.meta.description":
-    "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, bulk card workflows, and buyer-visible delivered totals.",
+    "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, Founding Account status, and buyer-visible delivered totals.",
   "publicPresence.routes.home.meta.title": "Chase Sets Seller Beta Waitlist | Trading Card Marketplace",
   "publicPresence.routes.home.waitlist.failed": "We could not join the waitlist. Please check the form and try again.",
   "publicPresence.routes.privacy.meta.description": "Read the Chase Sets prelaunch privacy policy.",
@@ -4813,7 +4813,7 @@ export const englishTranslations = {
   "publicPresence.routes.terms.meta.title": "Terms | Chase Sets",
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. Joining does not require buying, listing, or payment.",
-  "publicPresence.waitlist.compactTitle": "Reserve a founding seller spot",
+  "publicPresence.waitlist.compactTitle": "Get Founding Account access",
   "publicPresence.waitlist.consent": "Email me early access updates.",
   "publicPresence.waitlist.consent.description":
     "Ask support@chasesets.com to remove you from prelaunch updates or waitlist records.",
@@ -4854,11 +4854,17 @@ export const englishTranslations = {
   "publicPresence.waitlist.role.both": "Purchase and sell",
   "publicPresence.waitlist.role.buy": "Purchase cards",
   "publicPresence.waitlist.role.sell": "List cards",
+  "publicPresence.waitlist.heroFoundersCircle":
+    "First signups get a Founding Account badge plus founders circle access on Discord.",
+  "publicPresence.waitlist.heroIntent.label": "What should Chase Sets prioritize for you?",
+  "publicPresence.waitlist.heroIntent.both": "Both",
+  "publicPresence.waitlist.heroIntent.buy": "Buy",
+  "publicPresence.waitlist.heroIntent.sell": "Sell",
   "publicPresence.waitlist.promise":
-    "One signup helps shape the first buyer and seller tools, including Founding Account badge eligibility.",
+    "One signup helps shape the first buyer and seller tools and reserves Founding Account badge eligibility for the earliest accounts.",
   "publicPresence.waitlist.submit": "Join the beta waitlist",
   "publicPresence.waitlist.success.description":
-    "You are on the Chase Sets early access list. We will use your priorities to shape beta invites and product updates.",
+    "You are on the Chase Sets early access list. We will use your priorities to shape beta invites, Founding Account status, and founders circle product feedback.",
   "publicPresence.waitlist.success.title": "You are on the list",
   "publicPresence.waitlist.title": "Get notified when Chase Sets early access opens",
   "publicPresence.waitlist.trust.noTransactions": "No live marketplace transactions are available during prelaunch.",

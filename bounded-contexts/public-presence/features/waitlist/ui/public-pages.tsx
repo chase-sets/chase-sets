@@ -22,6 +22,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  SegmentedControl,
   SkipLink,
   Stack,
   Surface,
@@ -94,6 +95,36 @@ const buyerIntent: WaitlistIntent = {
   role: "buy",
   interest: "set-completion",
 };
+
+const heroIntentItems = [
+  { value: "sell", label: t("publicPresence.waitlist.heroIntent.sell"), icon: "store" as const },
+  { value: "buy", label: t("publicPresence.waitlist.heroIntent.buy"), icon: "cart" as const },
+  { value: "both", label: t("publicPresence.waitlist.heroIntent.both"), icon: "users" as const },
+];
+
+function heroIntentValue(intent: WaitlistIntent) {
+  if (intent.role === "sell") {
+    return "sell";
+  }
+
+  if (intent.role === "buy") {
+    return "buy";
+  }
+
+  return "both";
+}
+
+function resolveHeroIntent(value: string): WaitlistIntent {
+  if (value === "sell") {
+    return sellerIntent;
+  }
+
+  if (value === "buy") {
+    return buyerIntent;
+  }
+
+  return defaultIntent;
+}
 
 const policyLinks = [
   { href: "/terms", label: t("publicPresence.nav.terms") },
@@ -269,8 +300,13 @@ export function PublicPresenceHomePage({
       variant: "landing-audit-remediation",
     });
 
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     document.getElementById("waitlist-form-final")?.scrollIntoView?.({
-      behavior: "smooth",
+      behavior: prefersReducedMotion ? "auto" : "smooth",
       block: "start",
     });
   }
@@ -788,8 +824,6 @@ function ProductSignalPreview() {
           price={t("publicPresence.preview.listing.price.value")}
           priceDetail={t("publicPresence.preview.listing.price.detail")}
           priceExplanation={t("publicPresence.preview.listing.price.explanation")}
-          rating={4.9}
-          reviewCount="126"
           sellerName={t("publicPresence.preview.listing.seller.value")}
           sellerTrustLabel={t("publicPresence.preview.listing.seller.trust")}
           sellerMeta={t("publicPresence.preview.listing.seller.meta")}
@@ -982,12 +1016,25 @@ function WaitlistSignupPanel({
     });
   }
 
+  function trackHeroIntentSelected(value: string) {
+    const nextIntent = resolveHeroIntent(value);
+    trackFormStart("role");
+    onIntentChange(nextIntent);
+    trackWaitlistEvent("waitlist_role_selected", {
+      section,
+      role: nextIntent.role,
+      interest: nextIntent.interest,
+      variant: "landing-audit-remediation",
+    });
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     const formData = new FormData(event.currentTarget);
     trackWaitlistEvent("waitlist_form_submitted", {
       section,
       role: String(formData.get("role") ?? intent.role),
       interest: String(formData.get("interests") ?? intent.interest),
+      page_path: source.pagePath,
       utm_source: source.utmSource,
       utm_medium: source.utmMedium,
       utm_campaign: source.utmCampaign,
@@ -1003,6 +1050,9 @@ function WaitlistSignupPanel({
             <Text weight="semibold">{t("publicPresence.waitlist.compactTitle")}</Text>
             <Text size="sm" tone="secondary">
               {t("publicPresence.waitlist.compactDescription")}
+            </Text>
+            <Text size="sm" tone="secondary">
+              {t("publicPresence.waitlist.heroFoundersCircle")}
             </Text>
           </Stack>
         ) : (
@@ -1029,6 +1079,20 @@ function WaitlistSignupPanel({
         ) : null}
         <form method="post" action="?index" onSubmit={handleSubmit}>
           <Stack gap={isHero ? 2 : 4}>
+            {isHero ? (
+              <Stack gap={1}>
+                <Text size="sm" weight="semibold">
+                  {t("publicPresence.waitlist.heroIntent.label")}
+                </Text>
+                <SegmentedControl
+                  aria-label={t("publicPresence.waitlist.heroIntent.label")}
+                  items={heroIntentItems}
+                  value={heroIntentValue(intent)}
+                  fullWidth
+                  onValueChange={trackHeroIntentSelected}
+                />
+              </Stack>
+            ) : null}
             <TextInput
               label={t("publicPresence.waitlist.email")}
               name="email"
@@ -1069,6 +1133,8 @@ function WaitlistSignupPanel({
             <Checkbox
               label={t("publicPresence.waitlist.consent")}
               description={t("publicPresence.waitlist.consent.description")}
+              name="emailConsent"
+              value="yes"
               checked={emailConsent}
               onCheckedChange={(checked) => {
                 const consentChecked = checked === true;
@@ -1084,7 +1150,6 @@ function WaitlistSignupPanel({
               }}
               required
             />
-            {emailConsent ? <input type="hidden" name="emailConsent" value="yes" readOnly /> : null}
             <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" hidden />
             <input type="hidden" name="pagePath" value={source.pagePath} readOnly />
             <input type="hidden" name="referrer" value={source.referrer ?? ""} readOnly />

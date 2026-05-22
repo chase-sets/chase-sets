@@ -11,6 +11,8 @@ export interface CheckboxProps extends BaseInputProps {
   defaultChecked?: CheckedState;
   onCheckedChange?: (checked: CheckedState) => void;
   disabled?: boolean;
+  name?: string;
+  value?: string;
 }
 
 export function Checkbox({
@@ -23,6 +25,8 @@ export function Checkbox({
   defaultChecked,
   onCheckedChange,
   disabled = false,
+  name,
+  value,
 }: CheckboxProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,6 +62,8 @@ export function Checkbox({
           id={inputId}
           ref={inputRef}
           type="checkbox"
+          name={name}
+          value={value}
           className="peer sr-only"
           disabled={disabled}
           required={required}
