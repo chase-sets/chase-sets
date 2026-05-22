@@ -1,5 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRevalidator } from "react-router";
 import {
   BulkActionBar,
@@ -82,7 +82,12 @@ const ALL_LANGUAGES = "__all__";
 
 type RunningBulkAction = "selected-promote" | "selected-reject" | "matching-promote" | "matching-reject";
 
-export function SourceObservationListPage({ data, query }: CatalogListRouteData<SourceObservationListItem>) {
+type SourceObservationListPageProps = CatalogListRouteData<SourceObservationListItem> &
+  Readonly<{
+    realtimeReloadActionBar?: ReactNode;
+  }>;
+
+export function SourceObservationListPage({ data, query, realtimeReloadActionBar }: SourceObservationListPageProps) {
   const listControls = useCatalogListQueryControls(query);
   const columns = useMemo(() => buildColumns(), []);
   const revalidator = useRevalidator();
@@ -595,6 +600,7 @@ export function SourceObservationListPage({ data, query }: CatalogListRouteData<
             />
           ) : null)
         }
+        realtimeReloadActionBar={resumedBulkJobId ? null : realtimeReloadActionBar}
         extraFilters={
           <>
             <Select

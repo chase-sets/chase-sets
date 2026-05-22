@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
+import { CatalogRealtimeReloadActionBar } from "../../../support/shell-support/ui/realtime-reload-action-bar";
 import { SourceObservationListPage } from "./source-observation-list-page";
 import type { SourceObservationListItem } from "./contracts";
 
@@ -229,6 +230,33 @@ describe("SourceObservationListPage", () => {
       ),
     );
     expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("prioritizes the realtime reload action bar over matching bulk actions", () => {
+    const reload = vi.fn();
+
+    render(
+      <SourceObservationListPage
+        data={{ items: [observed], total: 125, count: 1 }}
+        query={{ ...query, status: "observed", source: "tcgdex", language: "en", setId: "base1" }}
+        realtimeReloadActionBar={
+          <CatalogRealtimeReloadActionBar
+            pendingChangeCount={7}
+            syncRequired={false}
+            reload={reload}
+            entityName="Source Observations"
+          />
+        }
+      />,
+    );
+
+    expect(screen.getByText("7 Source Observations changed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+    expect(screen.queryByText("125 matching Source Observations")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+
+    expect(reload).toHaveBeenCalledOnce();
   });
 
   it("shows determinate progress while promoting all matching observations", async () => {

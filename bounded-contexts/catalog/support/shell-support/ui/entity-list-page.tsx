@@ -56,6 +56,7 @@ interface EntityListPageProps<T> {
   onSelectionChange?: (keys: Set<string>) => void;
   isRowSelectable?: (row: T, index: number) => boolean;
   bulkActionBar?: ReactNode;
+  realtimeReloadActionBar?: ReactNode;
   page?: number;
   pageSize?: number;
   onPageChange?: (page: number) => void;
@@ -83,6 +84,7 @@ export function EntityListPage<T>({
   onSelectionChange,
   isRowSelectable,
   bulkActionBar,
+  realtimeReloadActionBar,
   page = 0,
   pageSize = 50,
   onPageChange,
@@ -184,7 +186,9 @@ export function EntityListPage<T>({
               isRowSelectable={isRowSelectable}
               emptyTitle={t("catalog.support.shellSupport.ui.entityListPage.no.title", { title: title.toLowerCase() })}
             />
-            {bulkActionBar ? <BulkActionSurface>{bulkActionBar}</BulkActionSurface> : null}
+            {realtimeReloadActionBar || bulkActionBar ? (
+              <BulkActionSurface>{realtimeReloadActionBar ?? bulkActionBar}</BulkActionSurface>
+            ) : null}
             {showPagination && (
               <Inline gap={2} align="center">
                 <Button tone="secondary" size="sm" onClick={() => onPageChange?.(page - 1)} disabled={page === 0}>
