@@ -305,7 +305,7 @@ function reviewableStatusesForScope(scope: SourceObservationFilterScope): readon
     return ["observed", "changed"];
   }
 
-  return scope.status === "observed" || scope.status === "changed" ? [scope.status] : [];
+  return scope.status === "observed" || scope.status === "changed" || scope.status === "promoted" ? [scope.status] : [];
 }
 
 function reapplyStatusesForScope(scope: SourceObservationFilterScope): readonly string[] {

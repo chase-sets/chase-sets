@@ -9,8 +9,8 @@ import {
 } from "./queries";
 
 describe("source observation read-model queries", () => {
-  it("previews no eligible observations when the current status filter is terminal", async () => {
-    const db = queryable([{ count: "7" }]);
+  it("previews promoted observations as eligible for explicit promotion resync", async () => {
+    const db = queryableSequence([[{ count: "7" }], [{ count: "7" }]]);
 
     const preview = await previewSourceObservationPromotionScope(db, {
       status: "promoted",
@@ -20,15 +20,16 @@ describe("source observation read-model queries", () => {
 
     expect(preview).toMatchObject({
       matched: 7,
-      eligible: 0,
-      terminal: 7,
+      eligible: 7,
+      terminal: 0,
       scope: {
         status: "promoted",
         language: "en",
         setId: "base1",
       },
     });
-    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("status = ANY"), ["en", "base1", ["promoted"]]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("status = $3"), ["en", "base1", "promoted"]);
   });
 
   it("lists eligible observed and changed IDs across the whole matching filter scope", async () => {
@@ -59,6 +60,18 @@ describe("source observation read-model queries", () => {
 
     expect(ids).toEqual(["obs_changed"]);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), ["en", ["changed"]]);
+  });
+
+  it("lists promoted IDs when the current status filter is promoted", async () => {
+    const db = queryable([{ observation_id: "obs_promoted" }]);
+
+    const ids = await listSourceObservationIdsForPromotion(db, {
+      status: "promoted",
+      language: "en",
+    });
+
+    expect(ids).toEqual(["obs_promoted"]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), ["en", ["promoted"]]);
   });
 
   it("does not query IDs when the current status filter is terminal", async () => {
