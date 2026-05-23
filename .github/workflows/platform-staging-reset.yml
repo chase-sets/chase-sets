@@ -320,6 +320,27 @@ jobs:
         working-directory: infrastructure/digitalocean/catalog-assets
         run: terraform fmt -check -recursive
 
+      - name: Reconcile missing staging catalog CDN state
+        working-directory: infrastructure/digitalocean/catalog-assets
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          cdn_id="$(terraform state show -no-color digitalocean_cdn.catalog_assets 2>/dev/null | awk -F'= ' '$1 ~ /^id[[:space:]]*$/ { print $2; exit }' || true)"
+          if [ -z "$cdn_id" ]; then
+            echo "No catalog CDN resource is present in Terraform state."
+            exit 0
+          fi
+
+          if doctl compute cdn get "$cdn_id" >/dev/null 2>&1; then
+            echo "Catalog CDN ${cdn_id} exists in DigitalOcean."
+            exit 0
+          fi
+
+          echo "Catalog CDN ${cdn_id} is missing in DigitalOcean; removing stale Terraform state before destroy."
+          terraform state rm digitalocean_cdn.catalog_assets
+
       - name: Terraform destroy staging catalog assets
         working-directory: infrastructure/digitalocean/catalog-assets
         env:
