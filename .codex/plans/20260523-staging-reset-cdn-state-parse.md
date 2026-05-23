@@ -7,7 +7,7 @@ Fix the Platform Staging Reset workflow so stale DigitalOcean CDN state is remov
 ## Worktree
 
 - Path: `.codex/worktrees/20260523-staging-reset-cdn-state-parse`
-- Branch: `codex/staging-reset-cdn-state-parse`
+- Branch: `codex/staging-domain-wait`
 - Sandbox id: not created; no runtime sandbox needed for a workflow-only change
 - Dependency setup status: not needed unless verification requires workspace scripts
 - pnpm store path: default worktree store if dependencies are installed
@@ -16,6 +16,7 @@ Fix the Platform Staging Reset workflow so stale DigitalOcean CDN state is remov
 ## Owning Contexts
 
 - Operational surface: `.github/workflows/platform-staging-reset.yml`
+- Operational surface: `.github/workflows/platform-production.yml`
 - Infrastructure surface: `infrastructure/digitalocean/catalog-assets`
 - Catalog asset infrastructure serves Catalog-owned provider imagery, but this change does not alter Catalog domain behavior.
 
@@ -25,10 +26,12 @@ Fix the Platform Staging Reset workflow so stale DigitalOcean CDN state is remov
 - Preserve the existing destructive reset sequence.
 - Treat DigitalOcean 404 for the CDN as stale Terraform state and remove only `digitalocean_cdn.catalog_assets` before destroy.
 - Read the CDN ID from structured Terraform state via `terraform state pull | jq` instead of scraping `terraform state show` output.
+- Keep `staging.chasesets.com` out of required staging reset/deploy domain waits and smoke checks until the documented root-domain DNS issue is resolved; `marketplace.staging.chasesets.com` remains the required staging marketplace host.
 
 ## Implementation Checklist
 
 - Update stale CDN state reconciliation. Done.
+- Stop blocking staging reset/deploy on the unresolved staging root marketplace host. Done.
 - Verify workflow syntax/static checks.
 - Push a PR for review/CI.
 
