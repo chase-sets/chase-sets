@@ -89,7 +89,11 @@ export type BulkSourceObservationProgress = Readonly<{
   completed: number;
   total: number;
   currentName: string | null;
-  status: BulkSourceObservationPromotionOutcome["status"] | BulkSourceObservationReapplyOutcome["status"] | null;
+  status:
+    | BulkSourceObservationPromotionOutcome["status"]
+    | BulkSourceObservationReapplyOutcome["status"]
+    | "imported"
+    | null;
 }>;
 
 export type SourceObservationBulkJobAction = "promote" | "reject";
@@ -106,6 +110,49 @@ export type SourceObservationBulkJob = Readonly<{
   status: SourceObservationBulkJobStatus;
   progress: BulkSourceObservationProgress;
   result: BulkSourceObservationPromotionResult | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}>;
+
+export type SourceObservationIntegrationJobAction = "import" | "reapply";
+
+export type SourceObservationIntegrationJobScope = Readonly<{
+  provider?: string;
+  language?: string;
+  seriesId?: string;
+  setId?: string;
+}>;
+
+export type SourceObservationIntegrationJobOutcome = Readonly<{
+  providerKey: string;
+  languageCode: string;
+  expansionId: string | null;
+  status: "imported" | "reapplied" | "skipped" | "failed";
+  observed: number;
+  reapplied: number;
+  reason: string | null;
+}>;
+
+export type SourceObservationIntegrationJobResult = Readonly<{
+  requested: number;
+  imported: number;
+  observed: number;
+  reapplied: number;
+  skipped: number;
+  failed: number;
+  outcomes: readonly SourceObservationIntegrationJobOutcome[];
+}>;
+
+export type SourceObservationIntegrationJob = Readonly<{
+  jobId: string;
+  action: SourceObservationIntegrationJobAction;
+  scope: SourceObservationIntegrationJobScope;
+  status: SourceObservationBulkJobStatus;
+  progress: BulkSourceObservationProgress;
+  result: SourceObservationIntegrationJobResult | null;
   errorMessage: string | null;
   createdAt: string;
   startedAt: string | null;
@@ -201,6 +248,16 @@ export type SourceObservationServices = Readonly<{
   getBulkReviewJob: (jobId: string) => Promise<SourceObservationBulkJob | null>;
   listActiveBulkReviewJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationBulkJob[]>;
   processNextBulkReviewJob: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
+  enqueueIntegrationJob: (input: {
+    action: SourceObservationIntegrationJobAction;
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  getIntegrationJob: (jobId: string) => Promise<SourceObservationIntegrationJob | null>;
+  listActiveIntegrationJobs: (input: {
+    context: EventStoreContext;
+  }) => Promise<readonly SourceObservationIntegrationJob[]>;
+  processNextIntegrationJob: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
@@ -548,6 +605,53 @@ export function createSourceObservationRuntime(
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
 
+  async function importTcgdexSetScope(input: {
+    languageCode: string;
+    setId: string;
+    context: EventStoreContext;
+    onProgress?: (progress: TcgdexSetImportProgress) => void;
+  }): Promise<TcgdexSetImportResult> {
+    const observations = await fetchTcgdexSetObservations({
+      languageCode: input.languageCode,
+      setId: input.setId,
+      onProgress: input.onProgress,
+    });
+
+    if (observations[0]) {
+      await ensurePokemonReferenceHierarchy({
+        deps,
+        referenceData,
+        normalized: observations[0].normalized,
+        context: input.context,
+      });
+    }
+
+    for (const [index, observation] of observations.entries()) {
+      await recordObservation(observation, input.context);
+      input.onProgress?.({
+        phase: "recording",
+        completed: index + 1,
+        total: observations.length,
+        currentName: observation.normalized.name,
+      });
+    }
+    await drainRuntimeProjectors(projectors);
+    input.onProgress?.({
+      phase: "completed",
+      completed: observations.length,
+      total: observations.length,
+      currentName: null,
+    });
+
+    return {
+      setId: input.setId,
+      expansionId: input.setId,
+      languageCode: input.languageCode,
+      observed: observations.length,
+      observationIds: observations.map((observation) => observation.observationId),
+    };
+  }
+
   async function enqueueBulkReviewJob(input: {
     action: SourceObservationBulkJobAction;
     observationIds?: readonly string[];
@@ -649,49 +753,172 @@ export function createSourceObservationRuntime(
     }
   }
 
+  async function enqueueIntegrationJob(input: {
+    action: SourceObservationIntegrationJobAction;
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const scope = normalizeIntegrationJobScope(input.scope);
+    const jobId = createId("job");
+    const progress = bulkProgress(0, 0, null, null, "queued");
+
+    await deps.db.query(
+      `INSERT INTO catalog_source_observation_integration_jobs (
+         job_id,
+         action,
+         scope,
+         event_context,
+         status,
+         progress,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3::jsonb, $4::jsonb, 'queued', $5::jsonb, now(), now())`,
+      [jobId, input.action, JSON.stringify(scope), JSON.stringify(input.context), JSON.stringify(progress)],
+    );
+
+    const job = await getIntegrationJob(deps.db, jobId);
+    if (!job) {
+      throw new Error("Integration job was not created.");
+    }
+
+    return job;
+  }
+
+  async function processNextIntegrationJob(input: { claimOwnerId: string; claimTtlMs: number }): Promise<number> {
+    const claimed = await claimNextIntegrationJob(deps.db, input);
+    if (!claimed) {
+      return 0;
+    }
+
+    try {
+      let progressWrite = Promise.resolve();
+      const progressHandler = (progress: BulkSourceObservationProgress) => {
+        progressWrite = progressWrite.then(() =>
+          updateIntegrationJobProgress(deps.db, claimed.jobId, progress, input.claimTtlMs),
+        );
+      };
+      const result =
+        claimed.action === "import"
+          ? await processIntegrationImportJob({
+              scope: claimed.scope,
+              context: claimed.eventContext,
+              onProgress: progressHandler,
+            })
+          : await processIntegrationReapplyJob({
+              scope: claimed.scope,
+              context: claimed.eventContext,
+              onProgress: progressHandler,
+            });
+
+      await progressWrite;
+      await completeIntegrationJob(deps.db, claimed.jobId, result);
+      return 1;
+    } catch (error) {
+      await failIntegrationJob(
+        deps.db,
+        claimed.jobId,
+        error instanceof Error ? error.message : "Integration job failed.",
+      );
+      return 1;
+    }
+  }
+
+  async function processIntegrationImportJob(input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
+  }): Promise<SourceObservationIntegrationJobResult> {
+    const scope = normalizeIntegrationJobScope(input.scope);
+    if (scope.provider && scope.provider !== "tcgdex") {
+      throw new Error(`Provider '${scope.provider}' does not support background import.`);
+    }
+
+    const languageCode = scope.language || "en";
+    const expansions = scope.setId
+      ? [
+          {
+            expansionId: scope.setId,
+            name: scope.setId,
+          },
+        ]
+      : await fetchTcgdexExpansionOptions({
+          languageCode,
+          seriesId: scope.seriesId || null,
+        });
+    const outcomes: SourceObservationIntegrationJobOutcome[] = [];
+    input.onProgress?.(bulkProgress(0, expansions.length));
+
+    for (const expansion of expansions) {
+      try {
+        const result = await importTcgdexSetScope({
+          languageCode,
+          setId: expansion.expansionId,
+          context: input.context,
+        });
+        outcomes.push({
+          providerKey: "tcgdex",
+          languageCode,
+          expansionId: expansion.expansionId,
+          status: "imported",
+          observed: result.observed,
+          reapplied: 0,
+          reason: null,
+        });
+      } catch (error) {
+        outcomes.push({
+          providerKey: "tcgdex",
+          languageCode,
+          expansionId: expansion.expansionId,
+          status: "failed",
+          observed: 0,
+          reapplied: 0,
+          reason: error instanceof Error ? error.message : "Import failed.",
+        });
+      } finally {
+        const outcome = outcomes[outcomes.length - 1];
+        input.onProgress?.(bulkProgress(outcomes.length, expansions.length, expansion.name, outcome?.status ?? null));
+      }
+    }
+
+    input.onProgress?.(bulkProgress(expansions.length, expansions.length, null, null, "completed"));
+
+    return summarizeIntegrationJobOutcomes(expansions.length, outcomes);
+  }
+
+  async function processIntegrationReapplyJob(input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+    onProgress?: (progress: BulkSourceObservationProgress) => void;
+  }): Promise<SourceObservationIntegrationJobResult> {
+    const scope = integrationScopeToObservationScope(input.scope);
+    const result = await reapplyObservationIds({
+      observationIds: await listSourceObservationIdsForReapply(deps.db, scope),
+      context: input.context,
+      onProgress: input.onProgress,
+    });
+
+    return {
+      requested: result.requested,
+      imported: 0,
+      observed: 0,
+      reapplied: result.reapplied,
+      skipped: result.skipped,
+      failed: result.failed,
+      outcomes: result.outcomes.map((outcome) => ({
+        providerKey: input.scope.provider || "tcgdex",
+        languageCode: input.scope.language || "",
+        expansionId: input.scope.setId || null,
+        status: outcome.status,
+        observed: 0,
+        reapplied: outcome.status === "reapplied" ? 1 : 0,
+        reason: outcome.reason,
+      })),
+    };
+  }
+
   return {
     commandHandler,
-    importTcgdexSet: async ({ languageCode, setId, context, onProgress }) => {
-      const observations = await fetchTcgdexSetObservations({
-        languageCode,
-        setId,
-        onProgress,
-      });
-
-      if (observations[0]) {
-        await ensurePokemonReferenceHierarchy({
-          deps,
-          referenceData,
-          normalized: observations[0].normalized,
-          context,
-        });
-      }
-
-      for (const [index, observation] of observations.entries()) {
-        await recordObservation(observation, context);
-        onProgress?.({
-          phase: "recording",
-          completed: index + 1,
-          total: observations.length,
-          currentName: observation.normalized.name,
-        });
-      }
-      await drainRuntimeProjectors(projectors);
-      onProgress?.({
-        phase: "completed",
-        completed: observations.length,
-        total: observations.length,
-        currentName: null,
-      });
-
-      return {
-        setId,
-        expansionId: setId,
-        languageCode,
-        observed: observations.length,
-        observationIds: observations.map((observation) => observation.observationId),
-      };
-    },
+    importTcgdexSet: importTcgdexSetScope,
     listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
     listTcgdexSeries: async ({ languageCode }) => fetchTcgdexSeriesOptions({ languageCode }),
     listTcgdexExpansions: async ({ languageCode, seriesId }) => fetchTcgdexExpansionOptions({ languageCode, seriesId }),
@@ -758,6 +985,10 @@ export function createSourceObservationRuntime(
     getBulkReviewJob: (jobId) => getBulkReviewJob(deps.db, jobId),
     listActiveBulkReviewJobs: ({ context }) => listActiveBulkReviewJobs(deps.db, context),
     processNextBulkReviewJob,
+    enqueueIntegrationJob,
+    getIntegrationJob: (jobId) => getIntegrationJob(deps.db, jobId),
+    listActiveIntegrationJobs: ({ context }) => listActiveIntegrationJobs(deps.db, context),
+    processNextIntegrationJob,
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
     getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
@@ -1599,6 +1830,26 @@ type ClaimedSourceObservationBulkJob = SourceObservationBulkJob &
     eventContext: EventStoreContext;
   }>;
 
+type SourceObservationIntegrationJobRow = Readonly<{
+  job_id: string;
+  action: SourceObservationIntegrationJobAction;
+  scope: unknown;
+  event_context: unknown;
+  status: SourceObservationBulkJobStatus;
+  progress: unknown;
+  result: unknown;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+}>;
+
+type ClaimedSourceObservationIntegrationJob = SourceObservationIntegrationJob &
+  Readonly<{
+    eventContext: EventStoreContext;
+  }>;
+
 async function getBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string): Promise<SourceObservationBulkJob | null> {
   const result = await db.query<SourceObservationBulkJobRow>(
     `SELECT
@@ -1792,6 +2043,190 @@ function mapBulkReviewJobRow(row: SourceObservationBulkJobRow): SourceObservatio
   };
 }
 
+async function getIntegrationJob(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+): Promise<SourceObservationIntegrationJob | null> {
+  const result = await db.query<SourceObservationIntegrationJobRow>(
+    `SELECT
+       job_id,
+       action,
+       scope,
+       event_context,
+       status,
+       progress,
+       result,
+       error_message,
+       created_at::text,
+       started_at::text,
+       completed_at::text,
+       updated_at::text
+     FROM catalog_source_observation_integration_jobs
+     WHERE job_id = $1`,
+    [jobId],
+  );
+
+  return result.rows[0] ? mapIntegrationJobRow(result.rows[0]) : null;
+}
+
+async function listActiveIntegrationJobs(
+  db: CatalogRuntimeDeps["db"],
+  context: EventStoreContext,
+): Promise<readonly SourceObservationIntegrationJob[]> {
+  const result = await db.query<SourceObservationIntegrationJobRow>(
+    `SELECT
+       job_id,
+       action,
+       scope,
+       event_context,
+       status,
+       progress,
+       result,
+       error_message,
+       created_at::text,
+       started_at::text,
+       completed_at::text,
+       updated_at::text
+     FROM catalog_source_observation_integration_jobs
+     WHERE status IN ('queued', 'running')
+       AND event_context ->> 'tenantId' = $1
+       AND event_context #>> '{audit,performedByUserId}' = $2
+     ORDER BY created_at ASC`,
+    [context.tenantId, context.audit.performedByUserId],
+  );
+
+  return result.rows.map(mapIntegrationJobRow);
+}
+
+async function claimNextIntegrationJob(
+  db: CatalogRuntimeDeps["db"],
+  input: { claimOwnerId: string; claimTtlMs: number },
+): Promise<ClaimedSourceObservationIntegrationJob | null> {
+  const result = await db.query<SourceObservationIntegrationJobRow>(
+    `WITH next_job AS (
+       SELECT job_id
+       FROM catalog_source_observation_integration_jobs
+       WHERE status = 'queued'
+          OR (status = 'running' AND claim_expires_at < now())
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED
+     )
+     UPDATE catalog_source_observation_integration_jobs AS job
+     SET
+       status = 'running',
+       claim_owner_id = $1,
+       claim_expires_at = now() + ($2::integer * interval '1 millisecond'),
+       started_at = coalesce(job.started_at, now()),
+       updated_at = now()
+     FROM next_job
+     WHERE job.job_id = next_job.job_id
+     RETURNING
+       job.job_id,
+       job.action,
+       job.scope,
+       job.event_context,
+       job.status,
+       job.progress,
+       job.result,
+       job.error_message,
+       job.created_at::text,
+       job.started_at::text,
+       job.completed_at::text,
+       job.updated_at::text`,
+    [input.claimOwnerId, Math.max(1_000, Math.floor(input.claimTtlMs))],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...mapIntegrationJobRow(row),
+    eventContext: parseJsonField<EventStoreContext>(row.event_context, "event_context"),
+  };
+}
+
+async function updateIntegrationJobProgress(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  progress: BulkSourceObservationProgress,
+  claimTtlMs: number,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_integration_jobs
+     SET
+       progress = $2::jsonb,
+       claim_expires_at = now() + ($3::integer * interval '1 millisecond'),
+       updated_at = now()
+     WHERE job_id = $1
+       AND status = 'running'`,
+    [jobId, JSON.stringify(progress), Math.max(1_000, Math.floor(claimTtlMs))],
+  );
+}
+
+async function completeIntegrationJob(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  result: SourceObservationIntegrationJobResult,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_integration_jobs
+     SET
+       status = 'completed',
+       progress = $2::jsonb,
+       result = $3::jsonb,
+       error_message = NULL,
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       completed_at = now(),
+       updated_at = now()
+     WHERE job_id = $1`,
+    [
+      jobId,
+      JSON.stringify(bulkProgress(result.requested, result.requested, null, null, "completed")),
+      JSON.stringify(result),
+    ],
+  );
+}
+
+async function failIntegrationJob(db: CatalogRuntimeDeps["db"], jobId: string, message: string): Promise<void> {
+  const current = await getIntegrationJob(db, jobId);
+  const progress = {
+    ...(current?.progress ?? bulkProgress(0, 0)),
+    phase: "failed" as const,
+  };
+  await db.query(
+    `UPDATE catalog_source_observation_integration_jobs
+     SET
+       status = 'failed',
+       progress = $2::jsonb,
+       error_message = $3,
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       completed_at = now(),
+       updated_at = now()
+     WHERE job_id = $1`,
+    [jobId, JSON.stringify(progress), message],
+  );
+}
+
+function mapIntegrationJobRow(row: SourceObservationIntegrationJobRow): SourceObservationIntegrationJob {
+  return {
+    jobId: row.job_id,
+    action: row.action,
+    scope: normalizeIntegrationJobScope(parseJsonField<SourceObservationIntegrationJobScope>(row.scope, "scope")),
+    status: row.status,
+    progress: parseJsonField<BulkSourceObservationProgress>(row.progress, "progress"),
+    result: row.result ? parseJsonField<SourceObservationIntegrationJobResult>(row.result, "result") : null,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function parseJsonField<T>(value: unknown, fieldName: string): T {
   if (typeof value === "string") {
     return JSON.parse(value) as T;
@@ -1808,6 +2243,25 @@ function normalizeBulkJobScope(scope: SourceObservationFilterScope): SourceObser
   return {
     search: scope.search?.trim() || undefined,
     status: scope.status?.trim() || undefined,
+    provider: scope.provider?.trim() || undefined,
+    language: scope.language?.trim() || undefined,
+    setId: scope.setId?.trim() || undefined,
+  };
+}
+
+function normalizeIntegrationJobScope(
+  scope: SourceObservationIntegrationJobScope,
+): SourceObservationIntegrationJobScope {
+  return {
+    provider: scope.provider?.trim() || undefined,
+    language: scope.language?.trim() || undefined,
+    seriesId: scope.seriesId?.trim() || undefined,
+    setId: scope.setId?.trim() || undefined,
+  };
+}
+
+function integrationScopeToObservationScope(scope: SourceObservationIntegrationJobScope): SourceObservationFilterScope {
+  return {
     provider: scope.provider?.trim() || undefined,
     language: scope.language?.trim() || undefined,
     setId: scope.setId?.trim() || undefined,
@@ -1843,6 +2297,21 @@ function summarizeReapplyOutcomes(
   return {
     requested,
     reapplied: outcomes.filter((outcome) => outcome.status === "reapplied").length,
+    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
+    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
+    outcomes,
+  };
+}
+
+function summarizeIntegrationJobOutcomes(
+  requested: number,
+  outcomes: readonly SourceObservationIntegrationJobOutcome[],
+): SourceObservationIntegrationJobResult {
+  return {
+    requested,
+    imported: outcomes.filter((outcome) => outcome.status === "imported").length,
+    observed: outcomes.reduce((total, outcome) => total + outcome.observed, 0),
+    reapplied: outcomes.reduce((total, outcome) => total + outcome.reapplied, 0),
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,

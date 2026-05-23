@@ -6,20 +6,26 @@ import { IntegrationManagementPage } from "./integration-management-page";
 import type { SourceObservationIntegrationScope } from "./contracts";
 
 const {
-  mockImportTcgdexSet,
+  mockBulkPromoteSourceObservationsByScope,
+  mockEnqueueSourceObservationIntegrationJob,
+  mockPreviewBulkPromoteSourceObservations,
   mockPreviewReapplySourceObservations,
-  mockReapplySourceObservationsByScope,
   mockRevalidate,
   mockUseSourceObservationIntegrationOptions,
+  mockUseActiveSourceObservationIntegrationJobs,
+  mockWatchSourceObservationIntegrationJob,
   mockSetSearchParams,
   mockUseNavigation,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
-  mockImportTcgdexSet: vi.fn(),
+  mockBulkPromoteSourceObservationsByScope: vi.fn(),
+  mockEnqueueSourceObservationIntegrationJob: vi.fn(),
+  mockPreviewBulkPromoteSourceObservations: vi.fn(),
   mockPreviewReapplySourceObservations: vi.fn(),
-  mockReapplySourceObservationsByScope: vi.fn(),
   mockRevalidate: vi.fn(),
   mockUseSourceObservationIntegrationOptions: vi.fn(),
+  mockUseActiveSourceObservationIntegrationJobs: vi.fn(),
+  mockWatchSourceObservationIntegrationJob: vi.fn(),
   mockSetSearchParams: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -32,10 +38,13 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./use-source-observations", () => ({
-  importTcgdexSet: mockImportTcgdexSet,
+  bulkPromoteSourceObservationsByScope: mockBulkPromoteSourceObservationsByScope,
+  enqueueSourceObservationIntegrationJob: mockEnqueueSourceObservationIntegrationJob,
+  previewBulkPromoteSourceObservations: mockPreviewBulkPromoteSourceObservations,
   previewReapplySourceObservations: mockPreviewReapplySourceObservations,
-  reapplySourceObservationsByScope: mockReapplySourceObservationsByScope,
+  useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
   useSourceObservationIntegrationOptions: mockUseSourceObservationIntegrationOptions,
+  watchSourceObservationIntegrationJob: mockWatchSourceObservationIntegrationJob,
 }));
 
 const query: CatalogListQuery = {
@@ -54,6 +63,22 @@ describe("IntegrationManagementPage", () => {
     mockUseSourceObservationIntegrationOptions.mockImplementation((input: { queryKind: string }) =>
       integrationOptionsResult(input.queryKind),
     );
+    mockUseActiveSourceObservationIntegrationJobs.mockReturnValue({
+      data: { items: [], total: 0, count: 0 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockEnqueueSourceObservationIntegrationJob.mockResolvedValue({ jobId: "job_integration" });
+    mockWatchSourceObservationIntegrationJob.mockResolvedValue({
+      requested: 1,
+      imported: 1,
+      observed: 102,
+      reapplied: 0,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    });
   });
 
   afterEach(() => {
@@ -81,34 +106,28 @@ describe("IntegrationManagementPage", () => {
     );
   });
 
-  it("imports a TCGdex expansion and scopes the integration view to the result", async () => {
+  it("enqueues a TCGdex pull for the selected language and optional series", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
-    mockImportTcgdexSet.mockResolvedValue({
-      setId: "base1",
-      expansionId: "base1",
-      languageCode: "en",
-      observed: 102,
-      observationIds: [],
-    });
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Import TCGdex Expansion/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull TCGdex Sets/i })[0]);
     expect(screen.queryByLabelText("TCGdex Expansion ID")).toBeNull();
     const importButton = screen.getByRole("button", { name: /^Import$/i });
     await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(importButton);
 
     await waitFor(() =>
-      expect(mockImportTcgdexSet).toHaveBeenCalledWith(
-        {
-          languageCode: "en",
-          setId: "base1",
-        },
-        { onProgress: expect.any(Function) },
-      ),
+      expect(mockEnqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+        provider: "tcgdex",
+        language: "en",
+        seriesId: undefined,
+      }),
     );
+    expect(mockWatchSourceObservationIntegrationJob).toHaveBeenCalledWith("job_integration", {
+      onProgress: expect.any(Function),
+    });
     expect(mockSetSearchParams).toHaveBeenCalled();
     expect(mockRevalidate).toHaveBeenCalled();
   });
@@ -131,8 +150,10 @@ describe("IntegrationManagementPage", () => {
         setId: "base1",
       },
     });
-    mockReapplySourceObservationsByScope.mockResolvedValue({
+    mockWatchSourceObservationIntegrationJob.mockResolvedValue({
       requested: 2,
+      imported: 0,
+      observed: 0,
       reapplied: 2,
       skipped: 0,
       failed: 0,
@@ -146,9 +167,47 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Reapply mapping$/i }));
 
     await waitFor(() =>
-      expect(mockReapplySourceObservationsByScope).toHaveBeenCalledWith(
+      expect(mockEnqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("reapply", {
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      }),
+    );
+    expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("previews and promotes all reviewable observations for a row scope", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockPreviewBulkPromoteSourceObservations.mockResolvedValue({
+      matched: 100,
+      eligible: 100,
+      terminal: 0,
+      scope: {
+        search: "",
+        status: "",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+    });
+    mockBulkPromoteSourceObservationsByScope.mockResolvedValue({
+      requested: 100,
+      promoted: 100,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    });
+
+    render(<IntegrationManagementPage data={{ items: [integrationScope()], total: 1, count: 1 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Promote all$/i })[0]);
+    await screen.findByText(/100 eligible observations will be promoted/i);
+    fireEvent.click(screen.getByRole("button", { name: /^Promote all matching$/i }));
+
+    await waitFor(() =>
+      expect(mockBulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(
         {
-          search: "",
           provider: "tcgdex",
           language: "en",
           setId: "base1",

@@ -1,6 +1,7 @@
 import type { CommandResponse, ListResponse } from "@chase-sets/http/responses";
 import type {
   CatalogBulkActionProgress,
+  CatalogIntegrationJob,
   CatalogBulkReviewJob,
   CatalogImportProgress,
 } from "../../../support/shell-support/api/client";
@@ -10,6 +11,8 @@ import type {
   BulkSourceObservationPromotionResult,
   BulkSourceObservationReapplyResult,
   SourceObservationIntegrationScope,
+  SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationJobScope,
   SourceObservationIntegrationOption,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
@@ -174,6 +177,36 @@ export function watchSourceObservationBulkJob(
   } = {},
 ) {
   return api.watchSourceObservationBulkJob<BulkSourceObservationPromotionResult>(jobId, options);
+}
+
+export function enqueueSourceObservationIntegrationJob(
+  action: "import" | "reapply",
+  scope: SourceObservationIntegrationJobScope,
+) {
+  return api.enqueueSourceObservationIntegrationJob<CatalogIntegrationJob<SourceObservationIntegrationJobResult>>(
+    action,
+    scope,
+  );
+}
+
+export function useActiveSourceObservationIntegrationJobs() {
+  return useFetch(
+    () =>
+      api.listActiveSourceObservationIntegrationJobs<
+        ListResponse<CatalogIntegrationJob<SourceObservationIntegrationJobResult>>
+      >(),
+    [],
+  );
+}
+
+export function watchSourceObservationIntegrationJob(
+  jobId: string,
+  options: {
+    onProgress?: (progress: CatalogBulkActionProgress) => void;
+    signal?: AbortSignal;
+  } = {},
+) {
+  return api.watchSourceObservationIntegrationJob<SourceObservationIntegrationJobResult>(jobId, options);
 }
 
 export function promoteSourceObservation(id: string) {

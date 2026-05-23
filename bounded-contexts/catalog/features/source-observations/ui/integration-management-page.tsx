@@ -26,22 +26,28 @@ import {
 import type { CatalogBulkActionProgress } from "../../../support/shell-support/api/client";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type {
-  BulkSourceObservationReapplyResult,
   SourceObservationIntegrationOption,
+  SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationJobScope,
   SourceObservationIntegrationScope,
+  SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationReapplyPreview,
 } from "./contracts";
 import {
-  importTcgdexSet,
+  bulkPromoteSourceObservationsByScope,
+  enqueueSourceObservationIntegrationJob,
+  previewBulkPromoteSourceObservations,
   previewReapplySourceObservations,
-  reapplySourceObservationsByScope,
+  useActiveSourceObservationIntegrationJobs,
   useSourceObservationIntegrationOptions,
+  watchSourceObservationIntegrationJob,
 } from "./use-source-observations";
 
 const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
 const ALL_EXPANSIONS = "__all__";
+const ALL_SERIES = "__all__";
 
 const providerOptions = [
   { label: t("catalog.features.sourceObservations.ui.integrations.provider.tcgdex"), value: "tcgdex" },
@@ -54,17 +60,32 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
   const [seriesId, setSeriesId] = useState("");
-  const [expansionId, setExpansionId] = useState("");
   const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState(0);
+  const [integrationProgress, setIntegrationProgress] = useState<CatalogBulkActionProgress | null>(null);
   const [showReapply, setShowReapply] = useState(false);
   const [reapplyScope, setReapplyScope] = useState<SourceObservationPromotionScope>({});
   const [reapplyPreview, setReapplyPreview] = useState<SourceObservationReapplyPreview | null>(null);
   const [previewingReapply, setPreviewingReapply] = useState(false);
   const [reapplying, setReapplying] = useState(false);
   const [reapplyProgress, setReapplyProgress] = useState<CatalogBulkActionProgress | null>(null);
+  const [showPromoteAll, setShowPromoteAll] = useState(false);
+  const [promoteAllScope, setPromoteAllScope] = useState<SourceObservationPromotionScope>({});
+  const [promoteAllPreview, setPromoteAllPreview] = useState<SourceObservationPromotionPreview | null>(null);
+  const [previewingPromoteAll, setPreviewingPromoteAll] = useState(false);
+  const [promoteAllRunning, setPromoteAllRunning] = useState(false);
+  const [promoteAllProgress, setPromoteAllProgress] = useState<CatalogBulkActionProgress | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
-  const columns = useMemo(() => buildColumns(), []);
+  const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
+  const columns = useMemo(
+    () =>
+      buildColumns({
+        onPromoteAll: (scope) => void handlePreviewPromoteAll(scope),
+        onResync: (scope) => void runIntegrationJob("import", scope),
+        onReapply: (scope) => void handlePreviewReapply(scope),
+        busy: importing || reapplying || promoteAllRunning || previewingPromoteAll || previewingReapply,
+      }),
+    [importing, previewingPromoteAll, previewingReapply, promoteAllRunning, reapplying],
+  );
   const importLanguages = useSourceObservationIntegrationOptions({
     providerKey: "tcgdex",
     queryKind: "languages",
@@ -73,13 +94,6 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     providerKey: "tcgdex",
     queryKind: "series",
     languageCode,
-  });
-  const importExpansions = useSourceObservationIntegrationOptions({
-    providerKey: "tcgdex",
-    queryKind: "expansions",
-    languageCode,
-    parentValue: seriesId,
-    enabled: !!seriesId,
   });
   const filterExpansionLanguage = listControls.language || languageCode || "en";
   const filterExpansions = useSourceObservationIntegrationOptions({
@@ -97,7 +111,6 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     [importLanguages.data],
   );
   const seriesOptions = useMemo(() => toSelectItems(importSeries.data?.items ?? []), [importSeries.data]);
-  const expansionOptions = useMemo(() => toSelectItems(importExpansions.data?.items ?? []), [importExpansions.data]);
   const filterExpansionOptions = useMemo(
     () => toSelectItems(filterExpansions.data?.items ?? []),
     [filterExpansions.data],
@@ -110,68 +123,32 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   }, [languageOptions, languageCode]);
 
   useEffect(() => {
-    setSeriesId("");
-    setExpansionId("");
+    setSeriesId(ALL_SERIES);
   }, [languageCode]);
 
   useEffect(() => {
     if (seriesOptions.length === 0) {
-      setSeriesId("");
+      setSeriesId(ALL_SERIES);
       return;
     }
 
-    if (!seriesOptions.some((item) => item.value === seriesId)) {
-      setSeriesId(seriesOptions[0].value);
+    if (seriesId !== ALL_SERIES && !seriesOptions.some((item) => item.value === seriesId)) {
+      setSeriesId(ALL_SERIES);
     }
   }, [seriesOptions, seriesId]);
 
-  useEffect(() => {
-    if (expansionOptions.length === 0) {
-      setExpansionId("");
-      return;
-    }
-
-    if (!expansionOptions.some((item) => item.value === expansionId)) {
-      setExpansionId(expansionOptions[0].value);
-    }
-  }, [expansionOptions, expansionId]);
-
   async function handleImport() {
-    if (!expansionId) {
-      return;
-    }
-
-    setImporting(true);
-    setImportProgress(0);
-
-    try {
-      const result = await importTcgdexSet(
-        { languageCode, setId: expansionId },
-        { onProgress: (progress) => setImportProgress(importProgressPercent(progress)) },
-      );
-      addToast(
-        t("catalog.features.sourceObservations.ui.list.import.completed", {
-          count: String(result.observed),
-        }),
-        "success",
-      );
-      setShowImport(false);
-      setExpansionId("");
-      listControls.setFilters({
-        source: "tcgdex",
-        language: result.languageCode,
-        setId: result.expansionId ?? result.setId,
-      });
-      revalidator.revalidate();
-    } catch (error) {
-      addToast(
-        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.integrations.import.failed"),
-        "danger",
-      );
-    } finally {
-      setImporting(false);
-      setImportProgress(0);
-    }
+    await runIntegrationJob("import", {
+      provider: "tcgdex",
+      language: languageCode,
+      seriesId: seriesId === ALL_SERIES ? undefined : seriesId,
+    });
+    setShowImport(false);
+    listControls.setFilters({
+      source: "tcgdex",
+      language: languageCode,
+      setId: "",
+    });
   }
 
   function currentReapplyScope(): SourceObservationPromotionScope {
@@ -183,8 +160,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     };
   }
 
-  async function handlePreviewReapply() {
-    const scope = currentReapplyScope();
+  async function handlePreviewReapply(scope = currentReapplyScope()) {
     setPreviewingReapply(true);
 
     try {
@@ -209,10 +185,11 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     setReapplyProgress(null);
 
     try {
-      const result = await reapplySourceObservationsByScope(reapplyScope, {
-        onProgress: setReapplyProgress,
+      const result = await runIntegrationJob("reapply", {
+        provider: reapplyScope.provider,
+        language: reapplyScope.language,
+        setId: reapplyScope.setId,
       });
-      addReapplyCompletionToast(result, addToast);
       setShowReapply(false);
       setReapplyPreview(null);
       revalidator.revalidate();
@@ -229,20 +206,101 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     }
   }
 
+  async function handlePreviewPromoteAll(scope: SourceObservationPromotionScope) {
+    setPreviewingPromoteAll(true);
+
+    try {
+      const preview = await previewBulkPromoteSourceObservations(scope);
+      setPromoteAllScope(scope);
+      setPromoteAllPreview(preview);
+      setShowPromoteAll(true);
+    } catch (error) {
+      addToast(
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        "danger",
+      );
+    } finally {
+      setPreviewingPromoteAll(false);
+    }
+  }
+
+  async function handlePromoteAllMatching() {
+    setPromoteAllRunning(true);
+    setPromoteAllProgress(null);
+
+    try {
+      const result = await bulkPromoteSourceObservationsByScope(promoteAllScope, {
+        onProgress: setPromoteAllProgress,
+      });
+      addToast(
+        t("catalog.features.sourceObservations.ui.list.bulk.promote.completed", {
+          promoted: String(result.promoted),
+          skipped: String(result.skipped),
+          failed: String(result.failed),
+        }),
+        result.failed > 0 ? "warning" : "success",
+      );
+      setShowPromoteAll(false);
+      setPromoteAllPreview(null);
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.list.bulk.promote.failed"),
+        "danger",
+      );
+    } finally {
+      setPromoteAllRunning(false);
+      setPromoteAllProgress(null);
+    }
+  }
+
+  async function runIntegrationJob(
+    action: "import" | "reapply",
+    scope: SourceObservationIntegrationJobScope,
+  ): Promise<SourceObservationIntegrationJobResult> {
+    setImporting(action === "import");
+    setIntegrationProgress(queuedProgress());
+
+    try {
+      const job = await enqueueSourceObservationIntegrationJob(action, scope);
+      const result = await watchSourceObservationIntegrationJob(job.jobId, {
+        onProgress: (progress) => {
+          setIntegrationProgress(progress);
+          if (action === "reapply") {
+            setReapplyProgress(progress);
+          }
+        },
+      });
+      addIntegrationJobCompletionToast(action, result, addToast);
+      revalidator.revalidate();
+      activeIntegrationJobs.refresh();
+      return result;
+    } catch (error) {
+      addToast(
+        error instanceof Error ? error.message : t("catalog.features.sourceObservations.ui.integrations.job.failed"),
+        "danger",
+      );
+      throw error;
+    } finally {
+      setImporting(false);
+      setIntegrationProgress(null);
+    }
+  }
+
   return (
     <Page>
       <PageHeader title={t("catalog.features.sourceObservations.ui.integrations.title")} />
       <Stack gap={4}>
         <ActionBar>
           <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
-            {t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
+            {t("catalog.features.sourceObservations.ui.integrations.pull.tcgdex.sets")}
           </Button>
           <Button
             tone="secondary"
             leadingIcon="badgeCheck"
             loading={previewingReapply}
             disabled={previewingReapply || reapplying || summary.promoted === 0}
-            onClick={handlePreviewReapply}
+            onClick={() => void handlePreviewReapply()}
           >
             {t("catalog.features.sourceObservations.ui.integrations.reapply.promoted")}
           </Button>
@@ -328,7 +386,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
       <Dialog
         open={showImport}
         onOpenChange={setShowImport}
-        title={t("catalog.features.sourceObservations.ui.list.import.tcgdex.expansion")}
+        title={t("catalog.features.sourceObservations.ui.integrations.pull.tcgdex.sets")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setShowImport(false)} disabled={importing}>
@@ -337,15 +395,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
             <Button
               onClick={handleImport}
               loading={importing}
-              disabled={
-                !languageCode ||
-                !seriesId ||
-                !expansionId ||
-                importing ||
-                importLanguages.loading ||
-                importSeries.loading ||
-                importExpansions.loading
-              }
+              disabled={!languageCode || importing || importLanguages.loading || importSeries.loading}
             >
               {t("catalog.features.sourceObservations.ui.list.import")}
             </Button>
@@ -364,23 +414,23 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
           <Select
             label={t("catalog.features.sourceObservations.ui.list.series")}
             value={seriesId}
-            onValueChange={(value) => {
-              setSeriesId(value);
-              setExpansionId("");
-            }}
-            items={seriesOptions}
+            onValueChange={setSeriesId}
+            items={[
+              {
+                label: t("catalog.features.sourceObservations.ui.integrations.all.series"),
+                value: ALL_SERIES,
+              },
+              ...seriesOptions,
+            ]}
             disabled={importSeries.loading || seriesOptions.length === 0}
             error={importSeries.error ?? undefined}
           />
-          <Select
-            label={t("catalog.features.sourceObservations.ui.list.expansion")}
-            value={expansionId}
-            onValueChange={setExpansionId}
-            items={expansionOptions}
-            disabled={!seriesId || importExpansions.loading || expansionOptions.length === 0}
-            error={importExpansions.error ?? undefined}
-          />
-          {importing ? <ProgressBar value={importProgress} /> : null}
+          {integrationProgress ? (
+            <ProgressBar
+              value={bulkActionProgressPercent(integrationProgress)}
+              formatLabel={() => formatBulkActionProgress(integrationProgress)}
+            />
+          ) : null}
         </Stack>
       </Dialog>
       <Dialog
@@ -426,11 +476,61 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
           </Stack>
         ) : null}
       </Dialog>
+      <Dialog
+        open={showPromoteAll}
+        onOpenChange={setShowPromoteAll}
+        title={t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm.title")}
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setShowPromoteAll(false)} disabled={promoteAllRunning}>
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
+            </Button>
+            <Button
+              leadingIcon="badgeCheck"
+              onClick={handlePromoteAllMatching}
+              disabled={promoteAllRunning || !promoteAllPreview || promoteAllPreview.eligible === 0}
+              loading={promoteAllRunning}
+            >
+              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm")}
+            </Button>
+          </Inline>
+        }
+      >
+        {promoteAllPreview ? (
+          <Stack gap={3}>
+            <p>
+              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm.body", {
+                eligible: String(promoteAllPreview.eligible),
+                terminal: String(promoteAllPreview.terminal),
+                matched: String(promoteAllPreview.matched),
+              })}
+            </p>
+            <p>
+              {t("catalog.features.sourceObservations.ui.list.bulk.promote.all.confirm.scope", {
+                scope: formatReapplyScope(promoteAllPreview.scope),
+              })}
+            </p>
+            {promoteAllProgress ? (
+              <ProgressBar
+                value={bulkActionProgressPercent(promoteAllProgress)}
+                formatLabel={() => formatBulkActionProgress(promoteAllProgress)}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+      </Dialog>
     </Page>
   );
 }
 
-function buildColumns(): DataColumn<SourceObservationIntegrationScope>[] {
+type IntegrationRowActions = Readonly<{
+  onPromoteAll: (scope: SourceObservationPromotionScope) => void;
+  onResync: (scope: SourceObservationIntegrationJobScope) => void;
+  onReapply: (scope: SourceObservationPromotionScope) => void;
+  busy: boolean;
+}>;
+
+function buildColumns(actions: IntegrationRowActions): DataColumn<SourceObservationIntegrationScope>[] {
   return [
     {
       key: "provider",
@@ -476,12 +576,57 @@ function buildColumns(): DataColumn<SourceObservationIntegrationScope>[] {
       key: "review",
       header: "",
       cell: (row) => (
-        <LinkButton href={sourceObservationScopeHref(row)} size="sm" tone="secondary">
-          {t("catalog.features.sourceObservations.ui.integrations.review")}
-        </LinkButton>
+        <Inline gap={2} align="end">
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="badgeCheck"
+            disabled={actions.busy || reviewableObservationCount(row) === 0}
+            onClick={() => actions.onPromoteAll(rowPromotionScope(row))}
+          >
+            {t("catalog.features.sourceObservations.ui.integrations.promote.all")}
+          </Button>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="refreshCcw"
+            disabled={actions.busy}
+            onClick={() => actions.onResync(rowIntegrationScope(row))}
+          >
+            {t("catalog.features.sourceObservations.ui.integrations.resync.set")}
+          </Button>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="badgeCheck"
+            disabled={actions.busy || row.promoted_observations === 0}
+            onClick={() => actions.onReapply(rowPromotionScope(row))}
+          >
+            {t("catalog.features.sourceObservations.ui.integrations.sync.promoted")}
+          </Button>
+          <LinkButton href={sourceObservationScopeHref(row)} size="sm" tone="secondary">
+            {t("catalog.features.sourceObservations.ui.integrations.review")}
+          </LinkButton>
+        </Inline>
       ),
     },
   ];
+}
+
+function rowPromotionScope(scope: SourceObservationIntegrationScope): SourceObservationPromotionScope {
+  return {
+    provider: scope.provider_key,
+    language: scope.language_code,
+    setId: scope.expansion_id,
+  };
+}
+
+function rowIntegrationScope(scope: SourceObservationIntegrationScope): SourceObservationIntegrationJobScope {
+  return {
+    provider: scope.provider_key,
+    language: scope.language_code,
+    setId: scope.expansion_id,
+  };
 }
 
 function summarizeScopes(scopes: readonly SourceObservationIntegrationScope[]) {
@@ -549,20 +694,6 @@ function formatCount(value: number) {
   return new Intl.NumberFormat().format(value);
 }
 
-function importProgressPercent(progress: { phase: string; completed: number; total: number }): number {
-  if (progress.phase === "completed") {
-    return 100;
-  }
-
-  if (progress.total <= 0) {
-    return 5;
-  }
-
-  const base = progress.phase === "recording" ? 80 : 5;
-  const span = progress.phase === "recording" ? 15 : 75;
-  return base + (progress.completed / progress.total) * span;
-}
-
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
     return "";
@@ -572,6 +703,16 @@ function formatDateTime(value: string | null | undefined) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function queuedProgress(): CatalogBulkActionProgress {
+  return {
+    phase: "queued",
+    completed: 0,
+    total: 0,
+    currentName: null,
+    status: null,
+  };
 }
 
 function bulkActionProgressPercent(progress: CatalogBulkActionProgress): number {
@@ -633,10 +774,23 @@ function formatReapplyScope(scope: Required<SourceObservationPromotionScope>): s
     : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
 }
 
-function addReapplyCompletionToast(
-  result: BulkSourceObservationReapplyResult,
+function addIntegrationJobCompletionToast(
+  action: "import" | "reapply",
+  result: SourceObservationIntegrationJobResult,
   addToast: (message: string, tone: "success" | "warning" | "danger") => void,
 ) {
+  if (action === "import") {
+    addToast(
+      t("catalog.features.sourceObservations.ui.integrations.import.completed", {
+        imported: String(result.imported),
+        observed: String(result.observed),
+        failed: String(result.failed),
+      }),
+      result.failed > 0 ? "warning" : "success",
+    );
+    return;
+  }
+
   addToast(
     t("catalog.features.sourceObservations.ui.integrations.reapply.completed", {
       reapplied: String(result.reapplied),
