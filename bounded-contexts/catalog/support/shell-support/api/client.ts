@@ -67,6 +67,20 @@ export type CatalogBulkReviewJob<T = unknown> = Readonly<{
   updatedAt: string;
 }>;
 
+export type CatalogIntegrationJob<T = unknown> = Readonly<{
+  jobId: string;
+  action: "import" | "reapply";
+  scope: Readonly<Record<string, string | undefined>>;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: CatalogBulkActionProgress;
+  result: T | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}>;
+
 function queryFromString(query: string) {
   return Object.fromEntries(new URLSearchParams(query).entries());
 }
@@ -1122,6 +1136,41 @@ export function createCatalogApiClient({
         errorMessage: "Bulk Source Observation job failed.",
       });
     },
+    async enqueueSourceObservationIntegrationJob<T>(action: "import" | "reapply", scope: unknown): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify({ action, scope }),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async listActiveSourceObservationIntegrationJobs<T>(): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/active`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async watchSourceObservationIntegrationJob<T>(
+      jobId: string,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      return streamIntegrationJob<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        onProgress: options.onProgress ?? (() => {}),
+        signal: options.signal,
+        errorMessage: "Source Observation integration job failed.",
+      });
+    },
   };
 }
 
@@ -1354,6 +1403,76 @@ async function streamBulkJob<T>(input: {
       }
 
       const job = JSON.parse(line.slice("data:".length).trim()) as CatalogBulkReviewJob<T>;
+      input.onProgress(job.progress);
+
+      if (job.status === "completed" && job.result) {
+        result = job.result;
+      }
+
+      if (job.status === "failed") {
+        throw new Error(job.errorMessage ?? input.errorMessage);
+      }
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (!result) {
+    throw new Error(`${input.errorMessage} Finished without a result.`);
+  }
+
+  return result;
+}
+
+async function streamIntegrationJob<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  jobId: string;
+  onProgress: (progress: CatalogBulkActionProgress) => void;
+  signal?: AbortSignal;
+  errorMessage: string;
+}): Promise<T> {
+  const response = await input.fetch(
+    `${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/${encodeURIComponent(input.jobId)}/events`,
+    {
+      method: "GET",
+      signal: input.signal,
+      headers: {
+        accept: "text/event-stream",
+        ...headersToRecord(input.headers),
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new ApiError(response.status, errorBody);
+  }
+
+  if (!response.body) {
+    throw new Error(`${input.errorMessage} Status stream was not available.`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: T | null = null;
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim() || !line.startsWith("data:")) {
+        continue;
+      }
+
+      const job = JSON.parse(line.slice("data:".length).trim()) as CatalogIntegrationJob<T>;
       input.onProgress(job.progress);
 
       if (job.status === "completed" && job.result) {

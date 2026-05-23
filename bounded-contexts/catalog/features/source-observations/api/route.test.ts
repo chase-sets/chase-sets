@@ -320,6 +320,74 @@ describe("source observation routes", () => {
     });
   });
 
+  it("enqueues provider integration jobs with normalized scope aliases", async () => {
+    const job = integrationJob({ status: "queued" });
+    const enqueueIntegrationJob = vi.fn(async () => job);
+    const services = {
+      enqueueIntegrationJob,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "import",
+        scope: { source: "tcgdex", languageCode: "en", expansionId: "base1", seriesId: "base" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({ jobId: "job_integration", action: "import" });
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "import",
+      scope: {
+        provider: "tcgdex",
+        language: "en",
+        seriesId: "base",
+        setId: "base1",
+      },
+      context,
+    });
+  });
+
+  it("lists active provider integration jobs for the current request context", async () => {
+    const activeJob = integrationJob({ status: "running" });
+    const listActiveIntegrationJobs = vi.fn(async () => [activeJob]);
+    const services = {
+      listActiveIntegrationJobs,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs/active");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      total: 1,
+      count: 1,
+      items: [{ jobId: "job_integration", action: "import", status: "running" }],
+    });
+    expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
+  });
+
+  it("streams provider integration job status events until completion", async () => {
+    const completedJob = integrationJob({ status: "completed" });
+    const getIntegrationJob = vi.fn(async () => completedJob);
+    const services = {
+      getIntegrationJob,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs/job_integration/events");
+
+    expect(response.status).toBe(200);
+    const events = await response.text();
+    expect(events).toContain("event: status");
+    expect(events).toContain('"jobId":"job_integration"');
+    expect(events).toContain('"status":"completed"');
+    expect(getIntegrationJob).toHaveBeenCalledWith("job_integration");
+  });
+
   it("bulk promotes observations matching an explicit filter scope", async () => {
     const promoteObservationScope = vi.fn(async () => ({
       requested: 100,
@@ -881,3 +949,36 @@ describe("source observation routes", () => {
     expect(listActiveBulkReviewJobs).toHaveBeenCalledWith({ context });
   });
 });
+
+function integrationJob(input: { status: "queued" | "running" | "completed" | "failed" }) {
+  return {
+    jobId: "job_integration",
+    action: "import",
+    scope: { provider: "tcgdex", language: "en", seriesId: "base" },
+    status: input.status,
+    progress: {
+      phase: input.status === "completed" ? "completed" : "processing",
+      completed: input.status === "completed" ? 1 : 0,
+      total: 1,
+      currentName: "Base Set",
+      status: input.status === "completed" ? "imported" : null,
+    },
+    result:
+      input.status === "completed"
+        ? {
+            requested: 1,
+            imported: 1,
+            observed: 102,
+            reapplied: 0,
+            skipped: 0,
+            failed: 0,
+            outcomes: [],
+          }
+        : null,
+    errorMessage: null,
+    createdAt: "2026-05-23T00:00:00.000Z",
+    startedAt: input.status === "queued" ? null : "2026-05-23T00:00:01.000Z",
+    completedAt: input.status === "completed" ? "2026-05-23T00:00:02.000Z" : null,
+    updatedAt: "2026-05-23T00:00:02.000Z",
+  } as const;
+}

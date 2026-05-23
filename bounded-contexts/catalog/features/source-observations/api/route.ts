@@ -375,6 +375,77 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return streamBulkJobEvents(services, jobId, c.req.raw.signal);
   });
 
+  app.post("/integration-jobs", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      action?: unknown;
+      scope?: unknown;
+    };
+    const action = String(body.action ?? "");
+
+    if (action !== "import" && action !== "reapply") {
+      return c.json(
+        {
+          error: {
+            code: "invalid_action",
+            message: t("catalog.features.sourceObservations.api.route.integration.job.invalid.action"),
+          },
+        },
+        400,
+      );
+    }
+
+    const job = await services.enqueueIntegrationJob({
+      action,
+      scope: parseIntegrationJobScope(body.scope),
+      context: c.get("context"),
+    });
+
+    return c.json(job, 202);
+  });
+
+  app.get("/integration-jobs/active", async (c) => {
+    const items = await services.listActiveIntegrationJobs({
+      context: c.get("context"),
+    });
+
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/integration-jobs/:jobId", async (c) => {
+    const job = await services.getIntegrationJob(c.req.param("jobId"));
+    if (!job) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.features.sourceObservations.api.route.integration.job.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return c.json(job);
+  });
+
+  app.get("/integration-jobs/:jobId/events", async (c) => {
+    const jobId = c.req.param("jobId");
+    const job = await services.getIntegrationJob(jobId);
+    if (!job) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.features.sourceObservations.api.route.integration.job.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return streamIntegrationJobEvents(services, jobId, c.req.raw.signal);
+  });
+
   app.get("/:id", async (c) => {
     const observation = await services.getSourceObservationDetail(c.req.param("id"));
     if (!observation) {
@@ -427,6 +498,21 @@ function parsePromotionScope(input: unknown): SourceObservationFilterScope {
     status: stringField(record.status),
     provider: stringField(record.provider) ?? stringField(record.source),
     language: stringField(record.language),
+    setId: stringField(record.expansionId) ?? stringField(record.setId),
+  };
+}
+
+function parseIntegrationJobScope(input: unknown) {
+  if (!input || typeof input !== "object") {
+    return {};
+  }
+
+  const record = input as Record<string, unknown>;
+
+  return {
+    provider: stringField(record.provider) ?? stringField(record.source),
+    language: stringField(record.language) ?? stringField(record.languageCode),
+    seriesId: stringField(record.seriesId),
     setId: stringField(record.expansionId) ?? stringField(record.setId),
   };
 }
@@ -580,6 +666,63 @@ function streamBulkJobEvents(services: SourceObservationServices, jobId: string,
           if (!job) {
             write("error", {
               message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
+              jobId,
+            });
+            break;
+          }
+
+          const statusKey = JSON.stringify(job);
+          if (statusKey !== lastStatus) {
+            write("status", job);
+            lastStatus = statusKey;
+          }
+
+          if (job.status === "completed" || job.status === "failed") {
+            break;
+          }
+
+          await sleep(500);
+        }
+      } finally {
+        controller.close();
+      }
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-store",
+      connection: "keep-alive",
+    },
+  });
+}
+
+function streamIntegrationJobEvents(services: SourceObservationServices, jobId: string, signal?: AbortSignal) {
+  const encoder = new TextEncoder();
+  let closed = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (event: string, data: unknown) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+      let lastStatus = "";
+
+      try {
+        for (;;) {
+          if (signal?.aborted || closed) {
+            break;
+          }
+
+          const job = await services.getIntegrationJob(jobId);
+          if (!job) {
+            write("error", {
+              message: t("catalog.features.sourceObservations.api.route.integration.job.not.found"),
               jobId,
             });
             break;

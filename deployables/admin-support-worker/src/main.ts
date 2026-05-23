@@ -113,17 +113,21 @@ function createCatalogBulkJobRunners(
     | {
         sourceObservations?: {
           processNextBulkReviewJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
+          processNextIntegrationJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
         };
       }
     | undefined;
   const processNextBulkReviewJob = catalog?.sourceObservations?.processNextBulkReviewJob;
+  const processNextIntegrationJob = catalog?.sourceObservations?.processNextIntegrationJob;
 
-  if (!processNextBulkReviewJob) {
+  if (!processNextBulkReviewJob && !processNextIntegrationJob) {
     return [];
   }
 
-  return [
-    {
+  const runners: WorkerRunner[] = [];
+
+  if (processNextBulkReviewJob) {
+    runners.push({
       name: "catalog.source-observation-bulk-jobs",
       kind: "job",
       runOnce: async () => ({
@@ -133,6 +137,22 @@ function createCatalogBulkJobRunners(
         }),
         lastGlobalPosition: "0" as never,
       }),
-    },
-  ];
+    });
+  }
+
+  if (processNextIntegrationJob) {
+    runners.push({
+      name: "catalog.source-observation-integration-jobs",
+      kind: "job",
+      runOnce: async () => ({
+        processed: await processNextIntegrationJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+        }),
+        lastGlobalPosition: "0" as never,
+      }),
+    });
+  }
+
+  return runners;
 }

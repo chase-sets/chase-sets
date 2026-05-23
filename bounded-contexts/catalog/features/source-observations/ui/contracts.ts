@@ -135,3 +135,32 @@ export interface BulkSourceObservationReapplyResult {
   failed: number;
   outcomes: BulkSourceObservationReapplyOutcome[];
 }
+
+export type SourceObservationIntegrationJobAction = "import" | "reapply";
+
+export interface SourceObservationIntegrationJobScope {
+  provider?: string;
+  language?: string;
+  seriesId?: string;
+  setId?: string;
+}
+
+export interface SourceObservationIntegrationJobOutcome {
+  providerKey: string;
+  languageCode: string;
+  expansionId: string | null;
+  status: "imported" | "reapplied" | "skipped" | "failed";
+  observed: number;
+  reapplied: number;
+  reason: string | null;
+}
+
+export interface SourceObservationIntegrationJobResult {
+  requested: number;
+  imported: number;
+  observed: number;
+  reapplied: number;
+  skipped: number;
+  failed: number;
+  outcomes: SourceObservationIntegrationJobOutcome[];
+}
