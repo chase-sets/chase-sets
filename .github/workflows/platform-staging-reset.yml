@@ -329,7 +329,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          cdn_id="$(terraform state show -no-color digitalocean_cdn.catalog_assets 2>/dev/null | awk -F'= ' '$1 ~ /^id[[:space:]]*$/ { print $2; exit }' || true)"
+          cdn_id="$(terraform state pull | jq -r '
+            first(
+              .resources[]
+              | select(.mode == "managed" and .type == "digitalocean_cdn" and .name == "catalog_assets")
+              | .instances[]
+              | .attributes.id // empty
+            ) // empty
+          ')"
           if [ -z "$cdn_id" ]; then
             echo "No catalog CDN resource is present in Terraform state."
             exit 0
