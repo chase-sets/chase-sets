@@ -130,6 +130,82 @@ describe("source observation runtime", () => {
     );
   });
 
+  it("promotes observed observations by refreshing an existing Catalog Item linked to the same source", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      reusableCatalogItemId: "cat_existing_source",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_source",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promoted",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing_source",
+        }),
+      }),
+    );
+  });
+
+  it("repromotes promoted observations by resyncing the linked Catalog Item", async () => {
+    const harness = createChangedObservationRefreshHarness({ status: "promoted" });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
   it("reapplies promoted observations by refreshing the linked Catalog Item without creating a replacement", async () => {
     const harness = createChangedObservationRefreshHarness({ status: "promoted" });
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
@@ -442,6 +518,7 @@ function createChangedObservationRefreshHarness(
     expansionAttributes?: Readonly<Record<string, JsonValue>>;
     status?: string;
     promotedCatalogItemId?: string | null;
+    reusableCatalogItemId?: string | null;
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -470,6 +547,46 @@ function createChangedObservationRefreshHarness(
     updated_at: "2026-05-20T00:00:00.000Z",
   };
   const streamId = "catalog.source-observation-obs_changed";
+  const observationStatus = input.status ?? "changed";
+  const sourceEvents = [
+    storedEvent(1, streamId, "catalog.source-observation.recorded", {
+      ...observationRow,
+      observationId: observationRow.observation_id,
+      providerKey: observationRow.provider_key,
+      externalKey: observationRow.external_key,
+      sourceUrl: observationRow.source_url,
+      languageCode: observationRow.language_code,
+      sourceRecordHash: observationStatus === "observed" ? observationRow.source_record_hash : "old-hash",
+      sourceUpdatedAt: observationStatus === "observed" ? observationRow.source_updated_at : null,
+      observedAt: observationStatus === "observed" ? observationRow.observed_at : "2026-05-19T00:00:00.000Z",
+      normalized,
+      sourcePayload: observationRow.source_payload,
+    }),
+    ...(observationStatus === "observed"
+      ? []
+      : [
+          storedEvent(2, streamId, "catalog.source-observation.promoted", {
+            catalogItemId: observationRow.promoted_catalog_item_id ?? "cat_existing",
+            promotedAt: "2026-05-19T00:00:00.000Z",
+          }),
+        ]),
+    ...(observationStatus === "changed"
+      ? [
+          storedEvent(3, streamId, "catalog.source-observation.changed", {
+            observationId: observationRow.observation_id,
+            providerKey: observationRow.provider_key,
+            externalKey: observationRow.external_key,
+            sourceUrl: observationRow.source_url,
+            languageCode: observationRow.language_code,
+            sourceRecordHash: observationRow.source_record_hash,
+            sourceUpdatedAt: observationRow.source_updated_at,
+            observedAt: observationRow.observed_at,
+            normalized,
+            sourcePayload: observationRow.source_payload,
+          }),
+        ]
+      : []),
+  ];
 
   const deps = {
     db: {
@@ -478,6 +595,14 @@ function createChangedObservationRefreshHarness(
           return {
             rowCount: 1,
             rows: [observationRow] as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_external_product_references")) {
+          const row = input.reusableCatalogItemId ? { catalog_item_id: input.reusableCatalogItemId } : null;
+          return {
+            rowCount: row ? 1 : 0,
+            rows: (row ? [row] : []) as T[],
           };
         }
 
@@ -518,37 +643,7 @@ function createChangedObservationRefreshHarness(
       },
     },
     eventStore: {
-      readStream: async () => [
-        storedEvent(1, streamId, "catalog.source-observation.recorded", {
-          ...observationRow,
-          observationId: observationRow.observation_id,
-          providerKey: observationRow.provider_key,
-          externalKey: observationRow.external_key,
-          sourceUrl: observationRow.source_url,
-          languageCode: observationRow.language_code,
-          sourceRecordHash: "old-hash",
-          sourceUpdatedAt: null,
-          observedAt: "2026-05-19T00:00:00.000Z",
-          normalized,
-          sourcePayload: observationRow.source_payload,
-        }),
-        storedEvent(2, streamId, "catalog.source-observation.promoted", {
-          catalogItemId: "cat_existing",
-          promotedAt: "2026-05-19T00:00:00.000Z",
-        }),
-        storedEvent(3, streamId, "catalog.source-observation.changed", {
-          observationId: observationRow.observation_id,
-          providerKey: observationRow.provider_key,
-          externalKey: observationRow.external_key,
-          sourceUrl: observationRow.source_url,
-          languageCode: observationRow.language_code,
-          sourceRecordHash: observationRow.source_record_hash,
-          sourceUpdatedAt: observationRow.source_updated_at,
-          observedAt: observationRow.observed_at,
-          normalized,
-          sourcePayload: observationRow.source_payload,
-        }),
-      ],
+      readStream: async () => sourceEvents,
       appendToStream: async (input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {

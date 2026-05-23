@@ -259,21 +259,31 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
     const existingCatalogItemId =
-      input.observation.status === "changed"
+      input.observation.status === "changed" || input.observation.status === "promoted"
         ? (input.observation.promoted_catalog_item_id as CatalogItemId | null)
         : null;
-    if (input.observation.status === "changed" && !existingCatalogItemId) {
-      throw new Error("Changed source observation is missing its promoted Catalog Item.");
+    if ((input.observation.status === "changed" || input.observation.status === "promoted") && !existingCatalogItemId) {
+      throw new Error(
+        `${capitalize(input.observation.status)} source observation is missing its promoted Catalog Item.`,
+      );
     }
 
-    const catalogItemId = existingCatalogItemId ?? (createId("cat") as CatalogItemId);
+    const sourceReferenceExternalKey = formatSourceReferenceExternalKey(input.observation);
+    const referencedCatalogItemId =
+      existingCatalogItemId ??
+      (await findReusableCatalogItemIdForSourceReference({
+        deps,
+        providerKey: input.observation.provider_key,
+        externalKey: sourceReferenceExternalKey,
+      }));
+    const catalogItemId = referencedCatalogItemId ?? (createId("cat") as CatalogItemId);
 
-    if (existingCatalogItemId) {
+    if (referencedCatalogItemId) {
       await refreshCatalogItemFromObservation({
         items,
         referenceData,
         deps,
-        catalogItemId: existingCatalogItemId,
+        catalogItemId: referencedCatalogItemId,
         normalized: input.observation.normalized,
         providerKey: input.observation.provider_key,
         externalKey: input.observation.external_key,
@@ -292,16 +302,18 @@ export function createSourceObservationRuntime(
       });
     }
 
-    const promotedAt = new Date().toISOString();
-    await commandHandler({
-      streamId: sourceObservationStreamId(input.observation.observation_id),
-      command: {
-        type: "PromoteSourceObservation",
-        catalogItemId,
-        promotedAt,
-      },
-      context: input.context,
-    });
+    if (input.observation.status !== "promoted") {
+      const promotedAt = new Date().toISOString();
+      await commandHandler({
+        streamId: sourceObservationStreamId(input.observation.observation_id),
+        command: {
+          type: "PromoteSourceObservation",
+          catalogItemId,
+          promotedAt,
+        },
+        context: input.context,
+      });
+    }
 
     return {
       observationId: input.observation.observation_id,
@@ -1161,7 +1173,37 @@ function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string
 }
 
 function isPromotableObservationStatus(status: string): boolean {
-  return status === "observed" || status === "changed";
+  return status === "observed" || status === "changed" || status === "promoted";
+}
+
+function formatSourceReferenceExternalKey(
+  observation: Pick<SourceObservationDetailRow, "normalized" | "external_key">,
+) {
+  return `${observation.normalized.languageCode}:${observation.external_key}`;
+}
+
+async function findReusableCatalogItemIdForSourceReference(input: {
+  deps: CatalogRuntimeDeps;
+  providerKey: string;
+  externalKey: string;
+}): Promise<CatalogItemId | null> {
+  const result = await input.deps.db.query<{ catalog_item_id: string }>(
+    `SELECT reference.catalog_item_id
+     FROM catalog_external_product_references AS reference
+     JOIN catalog_items AS item
+       ON item.catalog_item_id = reference.catalog_item_id
+     WHERE reference.provider_key = $1
+       AND reference.external_key = $2
+       AND item.status NOT IN ('archived', 'removed')
+     LIMIT 1`,
+    [input.providerKey, input.externalKey],
+  );
+
+  return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
+}
+
+function capitalize(value: string): string {
+  return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1);
 }
 
 function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStorage"]) {
