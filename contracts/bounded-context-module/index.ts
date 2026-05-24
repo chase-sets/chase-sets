@@ -1,4 +1,8 @@
-import type { Projector as EventProjector, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type {
+  ProjectionErrorPolicy,
+  Projector as EventProjector,
+  ProjectorHandlerMap,
+} from "@chase-sets/event-core/projector";
 
 /**
  * Framework-agnostic contract for a bounded-context module.
@@ -61,6 +65,7 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly projectorNames: readonly string[];
   readonly eventTypes?: readonly string[];
   readonly streamPrefixes?: readonly string[];
+  readonly errorPolicy?: ProjectionErrorPolicy;
   readonly order?: number;
 }>;
 
@@ -80,6 +85,7 @@ export type BcEventSubscription = Readonly<{
   readonly handlers: ProjectorHandlerMap;
   readonly eventTypes?: readonly string[];
   readonly streamPrefixes?: readonly string[];
+  readonly errorPolicy?: ProjectionErrorPolicy;
   readonly batchSize?: number;
   readonly order?: number;
 }>;

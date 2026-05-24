@@ -98,6 +98,50 @@ describe("worker runner loop", () => {
     );
   });
 
+  it("records degraded when a projection runner reports blocked streams", async () => {
+    const statuses: Array<Readonly<{ runnerName: string; state: string; lastError?: string | null }>> = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      recordRunnerStatus: async (status) => {
+        statuses.push(status);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "catalog-item-projection",
+      kind: "projector",
+      runOnce: async () => ({
+        processed: 4,
+        lastGlobalPosition: "4" as never,
+        state: "degraded",
+        blockedStreams: 1,
+        poisonEvents: 1,
+      }),
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(statuses).toContainEqual(
+          expect.objectContaining({
+            runnerName: "catalog-item-projection",
+            state: "degraded",
+            lastError: "Projection has 1 blocked stream(s) and 1 poison event(s).",
+          }),
+        );
+      });
+    } finally {
+      await loop.stop();
+    }
+  });
+
   it("collects projection group runners instead of raw subscription runners", () => {
     const subscriptionRunner = {
       targetContextName: "inventory",
@@ -198,6 +242,8 @@ function createProjectionGroup(
       caughtUp: false,
       state: "idle",
       lastError: null,
+      blockedStreamCount: 0,
+      poisonEventCount: 0,
       updatedAt: new Date(0).toISOString(),
       subscriptions: [],
     }),

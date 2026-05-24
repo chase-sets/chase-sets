@@ -57,3 +57,47 @@ CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   last_global_position bigint NOT NULL CHECK (last_global_position >= 0),
   updated_at timestamptz NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS event_projection_poison_events (
+  projection_key text NOT NULL,
+  event_id text NOT NULL,
+  projection_name text NOT NULL,
+  projection_kind text NOT NULL CHECK (projection_kind IN ('projector', 'subscription')),
+  target_context_name text NULL,
+  source_context_name text NULL,
+  projection_revision integer NULL CHECK (projection_revision IS NULL OR projection_revision >= 1),
+  subscription_version integer NULL CHECK (subscription_version IS NULL OR subscription_version >= 1),
+  stream_id text NOT NULL,
+  stream_version bigint NOT NULL CHECK (stream_version > 0),
+  event_type text NOT NULL,
+  global_position bigint NOT NULL CHECK (global_position >= 0),
+  failure_kind text NOT NULL CHECK (failure_kind IN ('poison', 'transient')),
+  error_message text NOT NULL,
+  error_stack text NULL,
+  state text NOT NULL CHECK (state IN ('blocked', 'retrying', 'resolved', 'ignored')),
+  retry_count integer NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+  first_seen_at timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL,
+  resolved_at timestamptz NULL,
+  PRIMARY KEY (projection_key, event_id)
+);
+
+CREATE INDEX IF NOT EXISTS event_projection_poison_events_active_idx
+  ON event_projection_poison_events (projection_key, state, global_position)
+  WHERE state IN ('blocked', 'retrying');
+
+CREATE TABLE IF NOT EXISTS event_projection_blocked_streams (
+  projection_key text NOT NULL,
+  stream_id text NOT NULL,
+  first_blocked_global_position bigint NOT NULL CHECK (first_blocked_global_position >= 0),
+  first_blocked_stream_version bigint NOT NULL CHECK (first_blocked_stream_version > 0),
+  last_seen_global_position bigint NOT NULL CHECK (last_seen_global_position >= 0),
+  deferred_event_count integer NOT NULL DEFAULT 0 CHECK (deferred_event_count >= 0),
+  state text NOT NULL CHECK (state IN ('blocked', 'retrying', 'resolved')),
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (projection_key, stream_id)
+);
+
+CREATE INDEX IF NOT EXISTS event_projection_blocked_streams_active_idx
+  ON event_projection_blocked_streams (projection_key, state, first_blocked_global_position)
+  WHERE state IN ('blocked', 'retrying');
