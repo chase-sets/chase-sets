@@ -1,13 +1,32 @@
 import { nowIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
-import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import type { GlobalPosition } from "@chase-sets/event-core/storage";
+import type {
+  ProjectionBlockedStream,
+  ProjectionBlockedStreamState,
+  ProjectionCheckpointStore,
+} from "@chase-sets/event-core/projector";
+import type { GlobalPosition, StreamVersion } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 
 type DbCheckpointRow = Readonly<{
   last_global_position: string | number | bigint;
+}>;
+
+type DbBlockedStreamRow = Readonly<{
+  projection_key: string;
+  stream_id: string;
+  first_blocked_global_position: string | number | bigint;
+  first_blocked_stream_version: string | number | bigint;
+  last_seen_global_position: string | number | bigint;
+  deferred_event_count: string | number;
+  state: string;
+}>;
+
+type DbProjectionErrorSummaryRow = Readonly<{
+  blocked_stream_count: string | number | bigint;
+  poison_event_count: string | number | bigint;
 }>;
 
 export type PostgresProjectionStoreConfig = Readonly<{
@@ -17,9 +36,13 @@ export type PostgresProjectionStoreConfig = Readonly<{
 }>;
 
 const DEFAULT_CHECKPOINTS_TABLE = "event_projection_checkpoints";
+const POISON_EVENTS_TABLE = "event_projection_poison_events";
+const BLOCKED_STREAMS_TABLE = "event_projection_blocked_streams";
 
 export function createPostgresProjectionStore(config: PostgresProjectionStoreConfig): ProjectionCheckpointStore {
   const tableName = assertSqlIdentifier(config.tableName ?? DEFAULT_CHECKPOINTS_TABLE);
+  const poisonEventsTable = assertSqlIdentifier(POISON_EVENTS_TABLE);
+  const blockedStreamsTable = assertSqlIdentifier(BLOCKED_STREAMS_TABLE);
   const now = config.now ?? nowIsoUtcTimestamp;
 
   const readCheckpointSql = `
@@ -40,6 +63,183 @@ export function createPostgresProjectionStore(config: PostgresProjectionStoreCon
       updated_at = EXCLUDED.updated_at
   `;
 
+  const readBlockedStreamSql = `
+    SELECT
+      projection_key,
+      stream_id,
+      first_blocked_global_position,
+      first_blocked_stream_version,
+      last_seen_global_position,
+      deferred_event_count,
+      state
+    FROM ${blockedStreamsTable}
+    WHERE projection_key = $1
+      AND stream_id = $2
+      AND state IN ('blocked', 'retrying')
+  `;
+
+  const listBlockedStreamsSql = `
+    SELECT
+      projection_key,
+      stream_id,
+      first_blocked_global_position,
+      first_blocked_stream_version,
+      last_seen_global_position,
+      deferred_event_count,
+      state
+    FROM ${blockedStreamsTable}
+    WHERE projection_key = $1
+      AND state IN ('blocked', 'retrying')
+    ORDER BY first_blocked_global_position ASC, stream_id ASC
+  `;
+
+  const upsertPoisonEventSql = `
+    INSERT INTO ${poisonEventsTable} (
+      projection_key,
+      event_id,
+      projection_name,
+      projection_kind,
+      target_context_name,
+      source_context_name,
+      projection_revision,
+      subscription_version,
+      stream_id,
+      stream_version,
+      event_type,
+      global_position,
+      failure_kind,
+      error_message,
+      error_stack,
+      state,
+      retry_count,
+      first_seen_at,
+      last_seen_at,
+      resolved_at
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::bigint, $11, $12::bigint, $13, $14, $15, 'blocked', 0, $16, $16, NULL
+    )
+    ON CONFLICT (projection_key, event_id)
+    DO UPDATE SET
+      projection_name = EXCLUDED.projection_name,
+      projection_kind = EXCLUDED.projection_kind,
+      target_context_name = EXCLUDED.target_context_name,
+      source_context_name = EXCLUDED.source_context_name,
+      projection_revision = EXCLUDED.projection_revision,
+      subscription_version = EXCLUDED.subscription_version,
+      stream_id = EXCLUDED.stream_id,
+      stream_version = EXCLUDED.stream_version,
+      event_type = EXCLUDED.event_type,
+      global_position = EXCLUDED.global_position,
+      failure_kind = EXCLUDED.failure_kind,
+      error_message = EXCLUDED.error_message,
+      error_stack = EXCLUDED.error_stack,
+      state = 'blocked',
+      last_seen_at = EXCLUDED.last_seen_at,
+      resolved_at = NULL
+  `;
+
+  const upsertBlockedStreamSql = `
+    INSERT INTO ${blockedStreamsTable} (
+      projection_key,
+      stream_id,
+      first_blocked_global_position,
+      first_blocked_stream_version,
+      last_seen_global_position,
+      deferred_event_count,
+      state,
+      updated_at
+    ) VALUES ($1, $2, $3::bigint, $4::bigint, $3::bigint, 0, 'blocked', $5)
+    ON CONFLICT (projection_key, stream_id)
+    DO UPDATE SET
+      first_blocked_global_position = LEAST(
+        ${blockedStreamsTable}.first_blocked_global_position,
+        EXCLUDED.first_blocked_global_position
+      ),
+      first_blocked_stream_version = LEAST(
+        ${blockedStreamsTable}.first_blocked_stream_version,
+        EXCLUDED.first_blocked_stream_version
+      ),
+      last_seen_global_position = GREATEST(
+        ${blockedStreamsTable}.last_seen_global_position,
+        EXCLUDED.last_seen_global_position
+      ),
+      state = 'blocked',
+      updated_at = EXCLUDED.updated_at
+  `;
+
+  const recordDeferredBlockedStreamSql = `
+    INSERT INTO ${blockedStreamsTable} (
+      projection_key,
+      stream_id,
+      first_blocked_global_position,
+      first_blocked_stream_version,
+      last_seen_global_position,
+      deferred_event_count,
+      state,
+      updated_at
+    ) VALUES ($1, $2, $3::bigint, $4::bigint, $3::bigint, 1, 'blocked', $5)
+    ON CONFLICT (projection_key, stream_id)
+    DO UPDATE SET
+      last_seen_global_position = GREATEST(
+        ${blockedStreamsTable}.last_seen_global_position,
+        EXCLUDED.last_seen_global_position
+      ),
+      deferred_event_count = ${blockedStreamsTable}.deferred_event_count + 1,
+      state = 'blocked',
+      updated_at = EXCLUDED.updated_at
+  `;
+
+  const projectionErrorSummarySql = `
+    SELECT
+      (
+        SELECT COUNT(*)
+        FROM ${blockedStreamsTable}
+        WHERE projection_key = $1
+          AND state IN ('blocked', 'retrying')
+      ) AS blocked_stream_count,
+      (
+        SELECT COUNT(*)
+        FROM ${poisonEventsTable}
+        WHERE projection_key = $1
+          AND state IN ('blocked', 'retrying')
+      ) AS poison_event_count
+  `;
+
+  const resolveBlockedStreamSql = `
+    UPDATE ${blockedStreamsTable}
+    SET state = 'resolved',
+        updated_at = $3
+    WHERE projection_key = $1
+      AND stream_id = $2
+  `;
+
+  const resolveBlockedStreamPoisonEventsSql = `
+    UPDATE ${poisonEventsTable}
+    SET state = 'resolved',
+        resolved_at = $3,
+        last_seen_at = $3
+    WHERE projection_key = $1
+      AND stream_id = $2
+      AND state IN ('blocked', 'retrying')
+  `;
+
+  const clearProjectionBlockedStreamsSql = `
+    UPDATE ${blockedStreamsTable}
+    SET state = 'resolved',
+        updated_at = $2
+    WHERE projection_key = $1
+      AND state IN ('blocked', 'retrying')
+  `;
+
+  const clearProjectionPoisonEventsSql = `
+    UPDATE ${poisonEventsTable}
+    SET state = 'resolved',
+        resolved_at = $2,
+        last_seen_at = $2
+    WHERE projection_key = $1
+      AND state IN ('blocked', 'retrying')
+  `;
+
   return {
     loadCheckpoint: async (projectorName) => {
       const result = await config.db.query<DbCheckpointRow>(readCheckpointSql, [projectorName]);
@@ -54,7 +254,106 @@ export function createPostgresProjectionStore(config: PostgresProjectionStoreCon
     saveCheckpoint: async (projectorName, globalPosition) => {
       await config.db.query(upsertCheckpointSql, [projectorName, globalPosition, now()]);
     },
+
+    loadBlockedStream: async (projectionKey, streamId) => {
+      const result = await config.db.query<DbBlockedStreamRow>(readBlockedStreamSql, [projectionKey, streamId]);
+      const row = result.rows[0];
+
+      return row ? mapBlockedStreamRow(row) : null;
+    },
+
+    recordPoisonEvent: async (input) => {
+      const timestamp = now();
+
+      await config.db.query(upsertPoisonEventSql, [
+        input.projectionKey,
+        input.eventId,
+        input.projectionName,
+        input.projectionKind,
+        input.targetContextName ?? null,
+        input.sourceContextName ?? null,
+        input.projectionRevision ?? null,
+        input.subscriptionVersion ?? null,
+        input.streamId,
+        input.streamVersion,
+        input.eventType,
+        input.globalPosition,
+        input.failureKind,
+        input.errorMessage,
+        input.errorStack ?? null,
+        timestamp,
+      ]);
+
+      await config.db.query(upsertBlockedStreamSql, [
+        input.projectionKey,
+        input.streamId,
+        input.globalPosition,
+        input.streamVersion,
+        timestamp,
+      ]);
+    },
+
+    recordDeferredBlockedStreamEvent: async (input) => {
+      await config.db.query(recordDeferredBlockedStreamSql, [
+        input.projectionKey,
+        input.streamId,
+        input.globalPosition,
+        input.streamVersion,
+        now(),
+      ]);
+    },
+
+    loadProjectionErrorSummary: async (projectionKey) => {
+      const result = await config.db.query<DbProjectionErrorSummaryRow>(projectionErrorSummarySql, [projectionKey]);
+      const row = result.rows[0];
+
+      return {
+        blockedStreamCount: row ? coerceDbCount(row.blocked_stream_count, "blocked_stream_count") : 0,
+        poisonEventCount: row ? coerceDbCount(row.poison_event_count, "poison_event_count") : 0,
+      };
+    },
+
+    listBlockedStreams: async (projectionKey) => {
+      const result = await config.db.query<DbBlockedStreamRow>(listBlockedStreamsSql, [projectionKey]);
+
+      return result.rows.map(mapBlockedStreamRow);
+    },
+
+    resolveBlockedStream: async (projectionKey, streamId) => {
+      const timestamp = now();
+      await config.db.query(resolveBlockedStreamSql, [projectionKey, streamId, timestamp]);
+      await config.db.query(resolveBlockedStreamPoisonEventsSql, [projectionKey, streamId, timestamp]);
+    },
+
+    clearProjectionErrors: async (projectionKey) => {
+      const timestamp = now();
+      await config.db.query(clearProjectionBlockedStreamsSql, [projectionKey, timestamp]);
+      await config.db.query(clearProjectionPoisonEventsSql, [projectionKey, timestamp]);
+    },
   };
+}
+
+function mapBlockedStreamRow(row: DbBlockedStreamRow): ProjectionBlockedStream {
+  return {
+    projectionKey: row.projection_key,
+    streamId: row.stream_id,
+    firstBlockedGlobalPosition: coerceDbGlobalPosition(
+      row.first_blocked_global_position,
+      "first_blocked_global_position",
+    ),
+    firstBlockedStreamVersion: coerceDbStreamVersion(row.first_blocked_stream_version, "first_blocked_stream_version"),
+    lastSeenGlobalPosition: coerceDbGlobalPosition(row.last_seen_global_position, "last_seen_global_position"),
+    deferredEventCount: coerceDbCount(row.deferred_event_count, "deferred_event_count"),
+    state: coerceBlockedStreamState(row.state),
+  };
+}
+
+function coerceBlockedStreamState(value: string): ProjectionBlockedStreamState {
+  if (value === "blocked" || value === "retrying" || value === "resolved") {
+    return value;
+  }
+
+  throw new Error(`Unexpected projection blocked stream state "${value}".`);
 }
 
 function coerceDbGlobalPosition(value: string | number | bigint, fieldName: string): GlobalPosition {
@@ -79,4 +378,24 @@ function coerceDbGlobalPosition(value: string | number | bigint, fieldName: stri
   }
 
   return globalPositionFromBigInt(BigInt(value));
+}
+
+function coerceDbStreamVersion(value: string | number | bigint, fieldName: string): StreamVersion {
+  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
+
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`Expected "${fieldName}" to be a positive safe integer.`);
+  }
+
+  return parsed;
+}
+
+function coerceDbCount(value: string | number | bigint, fieldName: string): number {
+  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
+
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`Expected "${fieldName}" to be a non-negative safe integer.`);
+  }
+
+  return parsed;
 }

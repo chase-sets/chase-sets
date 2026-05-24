@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BcApiModule, BcProjectionGroupDeclaration } from "@chase-sets/bounded-context-module";
 
 type MockStoredEvent = Readonly<{
+  eventId: string;
   globalPosition: string;
   streamId: string;
   streamVersion: number;
@@ -21,6 +22,18 @@ const sourceEventsByPool = new Map<object, MockStoredEvent[]>();
 const checkpointsByPool = new Map<object, Map<string, string>>();
 const projectionRevisionsByPool = new Map<object, Map<string, number>>();
 const truncatedTablesByPool = new Map<object, string[][]>();
+const blockedStreamsByPool = new Map<object, Map<string, MockBlockedStream>>();
+const poisonEventsByPool = new Map<object, Set<string>>();
+
+type MockBlockedStream = Readonly<{
+  projectionKey: string;
+  streamId: string;
+  firstBlockedGlobalPosition: string;
+  firstBlockedStreamVersion: number;
+  lastSeenGlobalPosition: string;
+  deferredEventCount: number;
+  state: "blocked" | "retrying" | "resolved";
+}>;
 
 function getCheckpointStore(pool: object) {
   let store = checkpointsByPool.get(pool);
@@ -52,6 +65,26 @@ function getTruncateLog(pool: object) {
   return log;
 }
 
+function getBlockedStreamStore(pool: object) {
+  let store = blockedStreamsByPool.get(pool);
+  if (!store) {
+    store = new Map();
+    blockedStreamsByPool.set(pool, store);
+  }
+
+  return store;
+}
+
+function getPoisonEventStore(pool: object) {
+  let store = poisonEventsByPool.get(pool);
+  if (!store) {
+    store = new Set();
+    poisonEventsByPool.set(pool, store);
+  }
+
+  return store;
+}
+
 function createMockPool(): MockPool {
   const pool = {
     query: async (sql: string, params: readonly unknown[] = []) => {
@@ -69,6 +102,51 @@ function createMockPool(): MockPool {
         const value = getCheckpointStore(pool).get(checkpointKey);
         return {
           rows: value ? [{ last_global_position: value }] : [],
+        };
+      }
+
+      if (
+        sql.includes("SELECT") &&
+        sql.includes("FROM event_projection_blocked_streams") &&
+        sql.includes("FROM event_projection_poison_events")
+      ) {
+        const projectionKey = String(params[0]);
+        const blockedStreamCount = [...getBlockedStreamStore(pool).values()].filter(
+          (stream) => stream.projectionKey === projectionKey && stream.state !== "resolved",
+        ).length;
+        const poisonEventCount = [...getPoisonEventStore(pool)].filter((key) =>
+          key.startsWith(`${projectionKey}:`),
+        ).length;
+
+        return {
+          rows: [
+            {
+              blocked_stream_count: blockedStreamCount,
+              poison_event_count: poisonEventCount,
+            },
+          ],
+        };
+      }
+
+      if (sql.includes("FROM event_projection_blocked_streams") && sql.includes("WHERE projection_key = $1")) {
+        const key = `${String(params[0])}:${String(params[1])}`;
+        const blockedStream = getBlockedStreamStore(pool).get(key);
+
+        return {
+          rows:
+            blockedStream && blockedStream.state !== "resolved"
+              ? [
+                  {
+                    projection_key: blockedStream.projectionKey,
+                    stream_id: blockedStream.streamId,
+                    first_blocked_global_position: blockedStream.firstBlockedGlobalPosition,
+                    first_blocked_stream_version: blockedStream.firstBlockedStreamVersion,
+                    last_seen_global_position: blockedStream.lastSeenGlobalPosition,
+                    deferred_event_count: blockedStream.deferredEventCount,
+                    state: blockedStream.state,
+                  },
+                ]
+              : [],
         };
       }
 
@@ -100,6 +178,48 @@ function createMockPool(): MockPool {
         return { rows: [] };
       }
 
+      if (sql.includes("UPDATE event_projection_blocked_streams")) {
+        const projectionKey = String(params[0]);
+        for (const [key, stream] of getBlockedStreamStore(pool)) {
+          if (stream.projectionKey === projectionKey) {
+            getBlockedStreamStore(pool).set(key, { ...stream, state: "resolved" });
+          }
+        }
+        return { rows: [] };
+      }
+
+      if (sql.includes("UPDATE event_projection_poison_events")) {
+        const projectionKey = String(params[0]);
+        for (const key of [...getPoisonEventStore(pool)]) {
+          if (key.startsWith(`${projectionKey}:`)) {
+            getPoisonEventStore(pool).delete(key);
+          }
+        }
+        return { rows: [] };
+      }
+
+      if (sql.includes("INSERT INTO event_projection_poison_events")) {
+        getPoisonEventStore(pool).add(`${String(params[0])}:${String(params[1])}`);
+        return { rows: [] };
+      }
+
+      if (sql.includes("INSERT INTO event_projection_blocked_streams")) {
+        const projectionKey = String(params[0]);
+        const streamId = String(params[1]);
+        const key = `${projectionKey}:${streamId}`;
+        const existing = getBlockedStreamStore(pool).get(key);
+        getBlockedStreamStore(pool).set(key, {
+          projectionKey,
+          streamId,
+          firstBlockedGlobalPosition: existing?.firstBlockedGlobalPosition ?? String(params[2]),
+          firstBlockedStreamVersion: existing?.firstBlockedStreamVersion ?? Number(params[3]),
+          lastSeenGlobalPosition: String(params[2]),
+          deferredEventCount: existing ? existing.deferredEventCount + 1 : 0,
+          state: "blocked",
+        });
+        return { rows: [] };
+      }
+
       if (sql.startsWith("TRUNCATE TABLE ")) {
         const tables = sql
           .replace("TRUNCATE TABLE ", "")
@@ -119,7 +239,9 @@ function createMockPool(): MockPool {
 
 vi.mock("@chase-sets/event-core", () => ({
   ZERO_GLOBAL_POSITION: "0",
+  isTransientProjectionError: () => false,
   toTransportEvent: (storedEvent: MockStoredEvent) => ({
+    id: storedEvent.eventId,
     type: storedEvent.eventType,
     data: storedEvent.payload,
     streamId: storedEvent.streamId,
@@ -160,10 +282,12 @@ function createStoredEvent(
   globalPosition: string,
   eventType: string,
   payload: Record<string, unknown>,
+  streamId = `${eventType}-${globalPosition}`,
 ): MockStoredEvent {
   return {
+    eventId: `evt_${globalPosition}`,
     globalPosition,
-    streamId: `${eventType}-${globalPosition}`,
+    streamId,
     streamVersion: Number(globalPosition),
     eventType,
     payload,
@@ -231,6 +355,8 @@ describe("bounded context projection replay", () => {
     checkpointsByPool.clear();
     projectionRevisionsByPool.clear();
     truncatedTablesByPool.clear();
+    blockedStreamsByPool.clear();
+    poisonEventsByPool.clear();
   });
 
   it("persists versioned checkpoints and replays a new subscription version from origin", async () => {
@@ -300,6 +426,7 @@ describe("bounded context projection replay", () => {
         },
       },
       eventTypes: ["inventory.item.created"],
+      errorPolicy: "global-strict",
       order: 10,
     });
 
@@ -323,6 +450,53 @@ describe("bounded context projection replay", () => {
 
     await resumedRunner.runOnce();
     expect(resumedPositions).toEqual(["2"]);
+  });
+
+  it("blocks only the poisoned stream while continuing unrelated subscription streams", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_good" }, "catalog.item-cat_good"),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+    ]);
+
+    const seen: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          if (event.streamId === "catalog.item-cat_bad") {
+            throw new Error("bad catalog item shape");
+          }
+
+          seen.push(`${event.streamId}:${event.globalPosition}`);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await expect(runner.runOnce()).resolves.toMatchObject({
+      processed: 3,
+      lastGlobalPosition: "3",
+      state: "degraded",
+      blockedStreams: 1,
+      poisonEvents: 1,
+    });
+
+    expect(seen).toEqual(["catalog.item-cat_good:2"]);
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("3");
+    expect(
+      getBlockedStreamStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:catalog.item-cat_bad"),
+    ).toMatchObject({
+      deferredEventCount: 1,
+      firstBlockedGlobalPosition: "1",
+      lastSeenGlobalPosition: "3",
+    });
   });
 
   it("resetting a projection group clears every contributing checkpoint", async () => {
@@ -543,6 +717,7 @@ describe("bounded context projection replay", () => {
         },
       },
       eventTypes: ["catalog.catalog-item.published"],
+      errorPolicy: "global-strict",
     });
     const runtime = createMountedRuntime(
       "inventory",

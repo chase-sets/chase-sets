@@ -240,14 +240,19 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
     }
 
     const result = await runner.runOnce();
+    const state = result.state === "degraded" ? "degraded" : result.processed > 0 ? "running" : "caught-up";
 
     await options.controlPlane.recordRunnerStatus({
       runnerName: runner.name,
       runnerKind: runner.kind,
-      state: result.processed > 0 ? "running" : "caught-up",
+      state,
       ownerId: lease.ownerId,
       fencingToken: lease.fencingToken,
       lastProcessed: result.processed,
+      lastError:
+        state === "degraded"
+          ? `Projection has ${result.blockedStreams ?? 0} blocked stream(s) and ${result.poisonEvents ?? 0} poison event(s).`
+          : null,
     });
   } catch (error) {
     await options.controlPlane.recordRunnerStatus({
@@ -289,14 +294,18 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
 
         let processed = 0;
         let lastGlobalPosition = ZERO_GLOBAL_POSITION;
+        let blockedStreams = 0;
+        let poisonEvents = 0;
 
         for (const runner of group.subscriptionRunners) {
           const result = await runner.runOnce();
           processed += result.processed;
           lastGlobalPosition = result.lastGlobalPosition;
+          blockedStreams += result.blockedStreams ?? 0;
+          poisonEvents += result.poisonEvents ?? 0;
         }
 
-        if (processed === 0) {
+        if (processed === 0 && blockedStreams === 0) {
           await group.markRevisionSynced();
           rebuildingRevision = null;
         }
@@ -304,6 +313,9 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
         return {
           processed,
           lastGlobalPosition,
+          state: blockedStreams > 0 ? "degraded" : processed > 0 ? "running" : "caught-up",
+          blockedStreams,
+          poisonEvents,
         };
       } catch (error) {
         rebuildingRevision = null;

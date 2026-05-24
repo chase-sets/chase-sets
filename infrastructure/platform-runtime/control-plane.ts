@@ -81,7 +81,7 @@ export type PlatformControlPlane = Readonly<{
     input: Readonly<{
       runnerName: string;
       runnerKind: string;
-      state: "idle" | "running" | "caught-up" | "error" | "skipped";
+      state: "idle" | "running" | "caught-up" | "degraded" | "error" | "skipped";
       ownerId?: string;
       fencingToken?: string;
       lastProcessed?: number;
