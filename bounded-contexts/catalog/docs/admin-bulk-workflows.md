@@ -1,6 +1,6 @@
 # Catalog Admin Bulk Workflows
 
-Catalog admin bulk workflows let operators act on explicit selected rows or on the current filtered list scope without moving Catalog behavior into a deployable. The Catalog bounded context owns the request contracts, scope resolution, command execution, projection refresh, and result reporting.
+Catalog admin bulk workflows let operators act on explicit selected rows or on the current filtered list scope without moving Catalog behavior into a deployable. The Catalog bounded context owns the request contracts, scope resolution, command execution, and result reporting. Projector consumers own projection refresh independently through worker runners.
 
 ## Selection Contract
 
@@ -18,7 +18,7 @@ Filtered selections are resolved server-side from the owning read model at previ
 
 ## Preview And Confirm
 
-Destructive, lifecycle, or partial-success actions use preview and confirm endpoints. Preview returns the current candidate set, ready/blocked counts, and per-record reasons. Confirm re-resolves the selection, runs the existing aggregate command for each ready record, drains the slice projectors, and returns succeeded/skipped/failed outcomes.
+Destructive, lifecycle, or partial-success actions use preview and confirm endpoints. Preview returns the current candidate set, ready/blocked counts, and per-record reasons. Confirm re-resolves the selection, runs the existing aggregate command for each ready record, and returns succeeded/skipped/failed outcomes after the command work is durable.
 
 This keeps event-sourced invariants authoritative. Bulk operations are orchestration over existing commands, not separate domain shortcuts.
 
@@ -43,7 +43,7 @@ Bulk results are intentionally mixed:
 
 - `ready`: preview says the row can receive the command.
 - `blocked`: preview says the row cannot receive the command and includes a reason.
-- `succeeded`: confirm applied the command and projectors were drained afterward.
+- `succeeded`: confirm applied the command. Projection surfaces catch up asynchronously through worker-owned projector consumers.
 - `skipped`: confirm rechecked the row and did not apply the command.
 - `failed`: the aggregate command or runtime operation failed and includes a reason.
 

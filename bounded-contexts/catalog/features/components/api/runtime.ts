@@ -97,7 +97,6 @@ export function createComponentRuntime(deps: CatalogRuntimeDeps): ComponentServi
     resolveIds: (selection: BulkSelection<ComponentListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listComponentIds(deps.db, selection.query),
     loadRows: (ids) => listComponentBulkRows(deps.db, ids),
-    projectors,
   });
 
   return {

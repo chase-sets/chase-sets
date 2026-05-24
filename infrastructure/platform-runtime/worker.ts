@@ -235,24 +235,19 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
       fencingToken: lease.fencingToken,
     });
 
-    let totalProcessed = 0;
-    let result: ProjectorRunResult;
-    do {
-      if (!leaseActive) {
-        throw new Error(`Lost lease '${lease.leaseName}'.`);
-      }
+    if (!leaseActive) {
+      throw new Error(`Lost lease '${lease.leaseName}'.`);
+    }
 
-      result = await runner.runOnce();
-      totalProcessed += result.processed;
-    } while (result.processed > 0);
+    const result = await runner.runOnce();
 
     await options.controlPlane.recordRunnerStatus({
       runnerName: runner.name,
       runnerKind: runner.kind,
-      state: "caught-up",
+      state: result.processed > 0 ? "running" : "caught-up",
       ownerId: lease.ownerId,
       fencingToken: lease.fencingToken,
-      lastProcessed: totalProcessed,
+      lastProcessed: result.processed,
     });
   } catch (error) {
     await options.controlPlane.recordRunnerStatus({

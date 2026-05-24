@@ -79,7 +79,6 @@ export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldServices {
     resolveIds: (selection: BulkSelection<FieldListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listFieldIds(deps.db, selection.query),
     loadRows: (ids) => listFieldBulkRows(deps.db, ids),
-    projectors,
   });
 
   return {
