@@ -97,7 +97,6 @@ export function createBlueprintRuntime(deps: CatalogRuntimeDeps): BlueprintServi
     resolveIds: (selection: BulkSelection<BlueprintListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listBlueprintIds(deps.db, selection.query),
     loadRows: (ids) => listBlueprintBulkRows(deps.db, ids),
-    projectors,
   });
 
   return {

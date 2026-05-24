@@ -194,7 +194,6 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
     resolveIds: (selection: BulkSelection<CatalogItemListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listCatalogItemIds(deps.db, selection.query),
     loadRows: (ids) => listCatalogItemBulkRows(deps.db, ids),
-    projectors,
   });
 
   return {
@@ -204,8 +203,7 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
     previewBulkPublish: async (selection) => previewBulkPublish(deps, selection),
     publishBulk: async (itemIds, context) => publishBulk(deps, commandHandler, itemIds, context),
     previewBulkEdit: async (selection, operation) => previewBulkEdit(deps, selection, operation),
-    editBulk: async (selection, operation, context) =>
-      editBulk(deps, commandHandler, projectors, selection, operation, context),
+    editBulk: async (selection, operation, context) => editBulk(deps, commandHandler, selection, operation, context),
     bulkLifecycle,
     projectors,
   };
@@ -392,7 +390,6 @@ async function previewBulkEdit(
 async function editBulk(
   deps: CatalogRuntimeDeps,
   commandHandler: CatalogItemServices["commandHandler"],
-  projectors: readonly Projector[],
   selection: BulkSelection<CatalogItemListParams>,
   operation: BulkEditCatalogItemOperation,
   context: EventStoreContext,
@@ -432,8 +429,6 @@ async function editBulk(
       });
     }
   }
-
-  await drainCatalogItemProjectors(projectors);
 
   return {
     action: normalizedOperation.action,
@@ -639,17 +634,4 @@ function normalizeRequestedBulkEditItemIds(itemIds: readonly string[]): string[]
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
-}
-
-async function drainCatalogItemProjectors(projectors: readonly Projector[]) {
-  for (;;) {
-    let processed = 0;
-    for (const projector of projectors) {
-      processed += (await projector.runOnce()).processed;
-    }
-
-    if (processed === 0) {
-      return;
-    }
-  }
 }

@@ -48,16 +48,13 @@ describe("bulk lifecycle operations", () => {
     expect(preview.candidates.map((candidate) => candidate.outcome)).toEqual(["ready", "blocked", "blocked"]);
   });
 
-  it("executes only ready candidates and drains projectors", async () => {
+  it("executes only ready candidates without running projectors inline", async () => {
     const commandHandler = vi.fn(async () => ({
       state: { status: "active" },
       version: 2,
       newEvents: [],
       storedEvents: [],
     }));
-    const projector = {
-      runOnce: vi.fn().mockResolvedValueOnce({ processed: 1 }).mockResolvedValueOnce({ processed: 0 }),
-    };
     const bulkLifecycle = createBulkLifecycleOperations<{ status?: string }, TestCommand, TestState, TestEvent>({
       actions: [
         {
@@ -75,7 +72,6 @@ describe("bulk lifecycle operations", () => {
         { id: "one", label: "One", status: "draft" },
         { id: "two", label: "Two", status: "active" },
       ],
-      projectors: [projector as never],
     });
 
     const result = await bulkLifecycle.execute({ mode: "filter", query: { status: "draft" } }, "publish", context);
@@ -86,7 +82,6 @@ describe("bulk lifecycle operations", () => {
       command: { type: "Publish" },
       context,
     });
-    expect(projector.runOnce).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
       action: "publish",
       ids: ["one", "two"],

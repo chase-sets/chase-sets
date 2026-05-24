@@ -148,7 +148,6 @@ export function createReferenceDataRuntime(deps: CatalogRuntimeDeps): ReferenceD
     resolveIds: (selection: BulkSelection<ReferenceTypeListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listReferenceTypeIds(deps.db, selection.query),
     loadRows: (ids) => listReferenceTypeBulkRows(deps.db, ids),
-    projectors,
   });
   const referenceRecordBulkLifecycle = createBulkLifecycleOperations<
     ReferenceRecordListParams,
@@ -183,7 +182,6 @@ export function createReferenceDataRuntime(deps: CatalogRuntimeDeps): ReferenceD
     resolveIds: (selection: BulkSelection<ReferenceRecordListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listReferenceRecordIds(deps.db, selection.query),
     loadRows: (ids) => listReferenceRecordBulkRows(deps.db, ids),
-    projectors,
   });
 
   return {

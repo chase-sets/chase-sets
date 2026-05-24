@@ -37,6 +37,67 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("runs one bounded batch per lease turn so busy runners do not monopolize the loop", async () => {
+    const calls: string[] = [];
+    const statuses: Array<Readonly<{ runnerName: string; state: string; lastProcessed?: number }>> = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      recordRunnerStatus: async (status) => {
+        statuses.push(status);
+      },
+    });
+    const busyRunner: WorkerRunner = {
+      name: "busy-projector",
+      kind: "projector",
+      runOnce: async () => {
+        calls.push("busy-projector");
+        return { processed: 1, lastGlobalPosition: String(calls.length) as never };
+      },
+    };
+    const readyRunner: WorkerRunner = {
+      name: "ready-projector",
+      kind: "projector",
+      runOnce: async () => {
+        calls.push("ready-projector");
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [busyRunner, readyRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toContain("ready-projector");
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(calls[0]).toBe("busy-projector");
+    expect(calls).toContain("ready-projector");
+    expect(statuses).toContainEqual(
+      expect.objectContaining({
+        runnerName: "busy-projector",
+        state: "running",
+        lastProcessed: 1,
+      }),
+    );
+    expect(statuses).toContainEqual(
+      expect.objectContaining({
+        runnerName: "ready-projector",
+        state: "caught-up",
+        lastProcessed: 0,
+      }),
+    );
+  });
+
   it("collects projection group runners instead of raw subscription runners", () => {
     const subscriptionRunner = {
       targetContextName: "inventory",
@@ -149,7 +210,9 @@ function createProjectionGroup(
   };
 }
 
-function createAlwaysLeasedControlPlane(): PlatformControlPlane {
+function createAlwaysLeasedControlPlane(
+  overrides: Partial<Pick<PlatformControlPlane, "recordRunnerStatus">> = {},
+): PlatformControlPlane {
   return {
     bootstrap: async () => {},
     acquireLease: async (input) => ({
@@ -161,7 +224,7 @@ function createAlwaysLeasedControlPlane(): PlatformControlPlane {
     renewLease: async () => true,
     releaseLease: async () => {},
     heartbeatWorker: async () => {},
-    recordRunnerStatus: async () => {},
+    recordRunnerStatus: overrides.recordRunnerStatus ?? (async () => {}),
     listWorkerHeartbeats: async () => [],
     listRunnerStatuses: async () => [],
     listLeases: async () => [],

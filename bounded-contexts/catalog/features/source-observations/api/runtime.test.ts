@@ -64,6 +64,7 @@ describe("source observation runtime", () => {
         (command) => command.typeKey === "expansion" && command.attributes?.["tcgdex-set-id"] === "me02.5",
       ),
     ).toHaveLength(1);
+    expect(harness.projectorRuns()).toBe(0);
   });
 
   it("promotes changed observations by refreshing the linked Catalog Item", async () => {
@@ -128,6 +129,7 @@ describe("source observation runtime", () => {
         }),
       }),
     );
+    expect(harness.projectorRuns()).toBe(0);
   });
 
   it("promotes observed observations by refreshing an existing Catalog Item linked to the same source", async () => {
@@ -434,6 +436,7 @@ function createReferencePreloadHarness() {
   const referenceTypes = new Map<string, ReferenceTypeRow>();
   const referenceRecords = new Map<string, ReferenceRecordRow>();
   const referenceRecordCreateCommands: Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>[] = [];
+  let projectorRuns = 0;
 
   const deps = {
     db: {
@@ -497,13 +500,21 @@ function createReferencePreloadHarness() {
         });
       }
     },
-    projectors: [{ runOnce: async () => ({ processed: 0 }) }],
+    projectors: [
+      {
+        runOnce: async () => {
+          projectorRuns += 1;
+          return { processed: 0 };
+        },
+      },
+    ],
   } as unknown as ReferenceDataServices;
 
   return {
     deps,
     referenceData,
     referenceRecordCreateCommands,
+    projectorRuns: () => projectorRuns,
     referenceRecordsByProviderAttribute(typeKey: string, attributeKey: string, attributeValue: string) {
       return Array.from(referenceRecords.values()).filter(
         (record) => record.type_key === typeKey && record.attributes[attributeKey] === attributeValue,
@@ -523,6 +534,8 @@ function createChangedObservationRefreshHarness(
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
+  let itemProjectorRuns = 0;
+  let referenceProjectorRuns = 0;
   const normalized =
     input.normalized ??
     pokemonObservation({
@@ -663,13 +676,27 @@ function createChangedObservationRefreshHarness(
       itemCommands.push(input);
       return { version: itemCommands.length, state: { status: "draft" } };
     },
-    projectors: [{ runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" }) }],
+    projectors: [
+      {
+        runOnce: async () => {
+          itemProjectorRuns += 1;
+          return { processed: 0, lastGlobalPosition: "0" };
+        },
+      },
+    ],
   } as unknown as CatalogItemServices;
 
   const referenceData = {
     referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
     referenceRecordCommandHandler: async () => ({ version: 1, state: {} }),
-    projectors: [{ runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" }) }],
+    projectors: [
+      {
+        runOnce: async () => {
+          referenceProjectorRuns += 1;
+          return { processed: 0, lastGlobalPosition: "0" };
+        },
+      },
+    ],
   } as unknown as ReferenceDataServices;
 
   return {
@@ -678,6 +705,7 @@ function createChangedObservationRefreshHarness(
     referenceData,
     itemCommands,
     appendedSourceEvents,
+    projectorRuns: () => itemProjectorRuns + referenceProjectorRuns,
   };
 }
 

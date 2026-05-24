@@ -436,7 +436,6 @@ export function createSourceObservationRuntime(
       }
     }
 
-    await drainRuntimeProjectors([...items.projectors, ...projectors]);
     input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
@@ -530,7 +529,6 @@ export function createSourceObservationRuntime(
       }
     }
 
-    await drainRuntimeProjectors(items.projectors);
     input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizeReapplyOutcomes(requestedIds.length, outcomes);
@@ -599,7 +597,6 @@ export function createSourceObservationRuntime(
       }
     }
 
-    await drainRuntimeProjectors(projectors);
     input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
@@ -635,7 +632,6 @@ export function createSourceObservationRuntime(
         currentName: observation.normalized.name,
       });
     }
-    await drainRuntimeProjectors(projectors);
     input.onProgress?.({
       phase: "completed",
       completed: observations.length,
@@ -934,7 +930,6 @@ export function createSourceObservationRuntime(
       }
 
       const result = await promoteObservationFromRow({ observation, context });
-      await drainRuntimeProjectors([...items.projectors, ...projectors]);
 
       return result;
     },
@@ -977,8 +972,6 @@ export function createSourceObservationRuntime(
         },
         context,
       });
-      await drainRuntimeProjectors(projectors);
-
       return { observationId, status: "rejected" };
     },
     enqueueBulkReviewJob,
@@ -1084,19 +1077,6 @@ function formatExpansionOptionDescription(item: TcgdexExpansionOption): string |
 
 function normalizeIntegrationKey(value: string): string {
   return value.trim().toLowerCase();
-}
-
-async function drainRuntimeProjectors(projectors: readonly Projector[]) {
-  for (;;) {
-    let processed = 0;
-    for (const projector of projectors) {
-      processed += (await projector.runOnce()).processed;
-    }
-
-    if (processed === 0) {
-      return;
-    }
-  }
 }
 
 async function createCatalogDraftFromObservation(input: {
@@ -1533,7 +1513,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
   });
   const seriesReferenceId = input.normalized.seriesName
     ? await ensureReferenceRecord(input, {
-        referenceRecordId: createId("ref") as ReferenceRecordId,
+        referenceRecordId: tcgdexReferenceRecordId("series", input.normalized.seriesId || input.normalized.seriesName),
         typeKey: "series",
         key: normalizeReferenceKey(input.normalized.seriesName),
         name: input.normalized.seriesName,
@@ -1564,7 +1544,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
   }
 
   return ensureReferenceRecord(input, {
-    referenceRecordId: createId("ref") as ReferenceRecordId,
+    referenceRecordId: tcgdexReferenceRecordId("expansion", input.normalized.expansionId),
     typeKey: "expansion",
     key: normalizeReferenceKey(input.normalized.expansionName),
     name: input.normalized.expansionName,
@@ -1598,24 +1578,25 @@ async function ensureReferenceType(
   }
 
   const streamId = `catalog.reference-type-${def.referenceTypeId}`;
-  await input.referenceData.referenceTypeCommandHandler({
-    streamId,
-    command: {
-      type: "CreateReferenceType",
-      referenceTypeId: def.referenceTypeId,
-      key: def.key,
-      name: localizedText(def.name),
-      description: localizedText(def.description),
-      attributeKeys: def.attributeKeys,
-    },
-    context: input.context,
-  });
-  await input.referenceData.referenceTypeCommandHandler({
-    streamId,
-    command: { type: "PublishReferenceType" },
-    context: input.context,
-  });
-  await drainRuntimeProjectors(input.referenceData.projectors);
+  try {
+    await input.referenceData.referenceTypeCommandHandler({
+      streamId,
+      command: {
+        type: "CreateReferenceType",
+        referenceTypeId: def.referenceTypeId,
+        key: def.key,
+        name: localizedText(def.name),
+        description: localizedText(def.description),
+        attributeKeys: def.attributeKeys,
+      },
+      context: input.context,
+    });
+  } catch (error) {
+    if (!isAlreadyCreatedReferenceError(error)) {
+      throw error;
+    }
+  }
+  await publishReferenceTypeIfDraft(input.referenceData, streamId, input.context);
 }
 
 async function ensureReferenceRecord(
@@ -1652,28 +1633,82 @@ async function ensureReferenceRecord(
   }
 
   const streamId = `catalog.reference-record-${def.referenceRecordId}`;
-  await input.referenceData.referenceRecordCommandHandler({
-    streamId,
-    command: {
-      type: "CreateReferenceRecord",
-      referenceRecordId: def.referenceRecordId,
-      typeKey: def.typeKey,
-      key: def.key,
-      name: localizedText(def.name),
-      description: localizedText(def.description),
-      attributes: def.attributes ?? {},
-      relationships: def.relationships ?? [],
-    },
-    context: input.context,
-  });
-  await input.referenceData.referenceRecordCommandHandler({
-    streamId,
-    command: { type: "PublishReferenceRecord" },
-    context: input.context,
-  });
-  await drainRuntimeProjectors(input.referenceData.projectors);
+  try {
+    await input.referenceData.referenceRecordCommandHandler({
+      streamId,
+      command: {
+        type: "CreateReferenceRecord",
+        referenceRecordId: def.referenceRecordId,
+        typeKey: def.typeKey,
+        key: def.key,
+        name: localizedText(def.name),
+        description: localizedText(def.description),
+        attributes: def.attributes ?? {},
+        relationships: def.relationships ?? [],
+      },
+      context: input.context,
+    });
+  } catch (error) {
+    if (!isAlreadyCreatedReferenceError(error)) {
+      throw error;
+    }
+  }
+  await publishReferenceRecordIfDraft(input.referenceData, streamId, input.context);
 
   return def.referenceRecordId;
+}
+
+async function publishReferenceTypeIfDraft(
+  referenceData: ReferenceDataServices,
+  streamId: string,
+  context: EventStoreContext,
+) {
+  try {
+    await referenceData.referenceTypeCommandHandler({
+      streamId,
+      command: { type: "PublishReferenceType" },
+      context,
+    });
+  } catch (error) {
+    if (!isAlreadyPublishedReferenceError(error)) {
+      throw error;
+    }
+  }
+}
+
+async function publishReferenceRecordIfDraft(
+  referenceData: ReferenceDataServices,
+  streamId: string,
+  context: EventStoreContext,
+) {
+  try {
+    await referenceData.referenceRecordCommandHandler({
+      streamId,
+      command: { type: "PublishReferenceRecord" },
+      context,
+    });
+  } catch (error) {
+    if (!isAlreadyPublishedReferenceError(error)) {
+      throw error;
+    }
+  }
+}
+
+function isAlreadyCreatedReferenceError(error: unknown): boolean {
+  return isConcurrencyConflict(error) || (error instanceof Error && error.message.includes("has already been created"));
+}
+
+function isAlreadyPublishedReferenceError(error: unknown): boolean {
+  return isConcurrencyConflict(error) || (error instanceof Error && error.message.includes("Only draft reference"));
+}
+
+function isConcurrencyConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "concurrency_conflict"
+  );
 }
 
 async function findReferenceRecordByProviderAttribute(
@@ -1788,6 +1823,10 @@ function normalizeReferenceKey(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+function tcgdexReferenceRecordId(typeKey: "series" | "expansion", providerId: string): ReferenceRecordId {
+  return `ref_tcgdex_${typeKey}_${normalizeReferenceKey(providerId).replace(/-/g, "_")}` as ReferenceRecordId;
 }
 
 function localizedJsonText(value: string): JsonObject {

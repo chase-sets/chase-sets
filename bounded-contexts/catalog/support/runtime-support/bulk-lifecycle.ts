@@ -1,7 +1,6 @@
 import type { DomainEvent } from "@chase-sets/event-core/domain";
 import type { CommandHandler, CommandHandlerInput } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { Projector } from "@chase-sets/event-core/projector";
 import { CatalogDomainError } from "./common";
 
 export type BulkSelection<Query> =
@@ -67,7 +66,6 @@ export function createBulkLifecycleOperations<Query, Command, State, Event exten
     commandHandler: CommandHandler<Command, State, Event>;
     resolveIds: (selection: BulkSelection<Query>) => Promise<readonly string[]>;
     loadRows: (ids: readonly string[]) => Promise<readonly BulkLifecycleRow[]>;
-    projectors?: readonly Projector[];
   }>,
 ): BulkLifecycleOperations<Query, Command, State, Event> {
   async function preview(selection: BulkSelection<Query>, action: string): Promise<BulkLifecyclePreview> {
@@ -125,10 +123,6 @@ export function createBulkLifecycleOperations<Query, Command, State, Event exten
           reason: error instanceof Error ? error.message : "Bulk action failed.",
         });
       }
-    }
-
-    if (config.projectors) {
-      await drainRuntimeProjectors(config.projectors);
     }
 
     return {
@@ -243,17 +237,4 @@ function stateStatus(state: unknown): string | null {
   }
 
   return null;
-}
-
-async function drainRuntimeProjectors(projectors: readonly Projector[]) {
-  for (;;) {
-    let processed = 0;
-    for (const projector of projectors) {
-      processed += (await projector.runOnce()).processed;
-    }
-
-    if (processed === 0) {
-      return;
-    }
-  }
 }

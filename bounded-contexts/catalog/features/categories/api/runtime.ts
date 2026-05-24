@@ -97,7 +97,6 @@ export function createCategoryRuntime(deps: CatalogRuntimeDeps): CategoryService
     resolveIds: (selection: BulkSelection<CategoryListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listCategoryIds(deps.db, selection.query),
     loadRows: (ids) => listCategoryBulkRows(deps.db, ids),
-    projectors,
   });
 
   return {

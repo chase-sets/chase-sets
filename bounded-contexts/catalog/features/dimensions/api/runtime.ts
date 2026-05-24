@@ -90,7 +90,6 @@ export function createDimensionRuntime(deps: CatalogRuntimeDeps): DimensionServi
     resolveIds: (selection: BulkSelection<DimensionListParams>) =>
       selection.mode === "ids" ? Promise.resolve(selection.ids) : listDimensionIds(deps.db, selection.query),
     loadRows: (ids) => listDimensionBulkRows(deps.db, ids),
-    projectors,
   });
 
   return {
