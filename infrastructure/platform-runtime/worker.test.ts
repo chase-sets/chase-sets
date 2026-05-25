@@ -98,6 +98,56 @@ describe("worker runner loop", () => {
     );
   });
 
+  it("prioritizes runners with outstanding backlog ahead of caught-up runners without duplicate same-runner execution", async () => {
+    const calls: string[] = [];
+    let releaseHighBacklogRunner: (() => void) | null = null;
+    const highBacklogRunnerBlocked = new Promise<void>((resolve) => {
+      releaseHighBacklogRunner = resolve;
+    });
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const caughtUpRunner: WorkerRunner = {
+      name: "caught-up-projection",
+      kind: "projection-group",
+      priority: () => 0n,
+      runOnce: async () => {
+        calls.push("caught-up-projection");
+        return { processed: 0, lastGlobalPosition: "1" as never };
+      },
+    };
+    const highBacklogRunner: WorkerRunner = {
+      name: "high-backlog-projection",
+      kind: "projection-group",
+      priority: () => 500n,
+      runOnce: async () => {
+        calls.push("high-backlog-projection");
+        await highBacklogRunnerBlocked;
+        return { processed: 1, lastGlobalPosition: "500" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [caughtUpRunner, highBacklogRunner],
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toContain("caught-up-projection");
+      });
+    } finally {
+      releaseHighBacklogRunner?.();
+      await loop.stop();
+    }
+
+    expect(calls[0]).toBe("high-backlog-projection");
+    expect(calls.filter((call) => call === "high-backlog-projection")).toHaveLength(1);
+  });
+
   it("records degraded when a projection runner reports blocked streams", async () => {
     const statuses: Array<Readonly<{ runnerName: string; state: string; lastError?: string | null }>> = [];
     const controlPlane = createAlwaysLeasedControlPlane({
@@ -241,6 +291,7 @@ function createProjectionGroup(
       initialized: true,
       caughtUp: false,
       state: "idle",
+      outstandingEventCount: "0",
       lastError: null,
       blockedStreamCount: 0,
       poisonEventCount: 0,

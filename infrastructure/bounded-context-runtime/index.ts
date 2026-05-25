@@ -31,6 +31,7 @@ import {
 
 const RETRY_DELAY_MS = 1_000;
 const MAX_RETRIES = 30;
+const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
 const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
 const PROJECTION_GROUP_REVISIONS_TABLE = "event_projection_group_revisions";
 const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -78,9 +79,26 @@ CREATE TABLE IF NOT EXISTS ${PROJECTION_GROUP_REVISIONS_TABLE} (
   projection_revision integer NOT NULL CHECK (projection_revision >= 1),
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (target_context_name, projection_name)
-);`;
+);
 
-export type SubscriptionReplayState = "idle" | "running" | "caught-up" | "degraded" | "error";
+CREATE TABLE IF NOT EXISTS event_subscription_applications (
+  projection_key text NOT NULL,
+  event_id text NOT NULL,
+  stream_id text NOT NULL,
+  stream_version bigint NOT NULL CHECK (stream_version > 0),
+  global_position bigint NOT NULL CHECK (global_position >= 0),
+  event_type text NOT NULL,
+  status text NOT NULL CHECK (status IN ('started', 'applied', 'poison', 'transient')),
+  error_message text NULL,
+  started_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (projection_key, event_id)
+);
+
+CREATE INDEX IF NOT EXISTS event_subscription_applications_projection_position_idx
+  ON event_subscription_applications (projection_key, global_position);`;
+
+export type SubscriptionReplayState = "idle" | "behind" | "running" | "caught-up" | "degraded" | "error";
 
 export type ContextSubscriptionStatus = Readonly<{
   checkpointKey: string;
@@ -171,6 +189,10 @@ type ProjectionGroupRevisionRow = Readonly<{
   projection_revision: string | number | bigint;
 }>;
 
+type SubscriptionApplicationRow = Readonly<{
+  status: string;
+}>;
+
 function assertSqlIdentifier(identifier: string): string {
   if (!SQL_IDENTIFIER_RE.test(identifier)) {
     throw new Error(`Invalid SQL identifier "${identifier}". Use letters, numbers, and underscores only.`);
@@ -243,6 +265,71 @@ async function saveSubscriptionCheckpoint(
   );
 }
 
+async function loadSubscriptionApplicationStatus(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  eventId: string,
+): Promise<"started" | "applied" | "poison" | "transient" | null> {
+  const result = await db.query<SubscriptionApplicationRow>(
+    `SELECT status
+     FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND event_id = $2`,
+    [projectionKey, eventId],
+  );
+  const status = result.rows[0]?.status;
+
+  return status === "started" || status === "applied" || status === "poison" || status === "transient" ? status : null;
+}
+
+async function recordSubscriptionApplicationStarted(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  event: Readonly<ReturnType<typeof toTransportEvent>>,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO event_subscription_applications (
+       projection_key,
+       event_id,
+       stream_id,
+       stream_version,
+       global_position,
+       event_type,
+       status,
+       error_message,
+       started_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4::bigint, $5::bigint, $6, 'started', NULL, now(), now())
+     ON CONFLICT (projection_key, event_id)
+     DO UPDATE SET
+       status = CASE
+         WHEN event_subscription_applications.status = 'applied' THEN event_subscription_applications.status
+         ELSE 'started'
+       END,
+       error_message = NULL,
+       updated_at = EXCLUDED.updated_at`,
+    [projectionKey, String(event.id), event.streamId, event.streamVersion, event.globalPosition, event.type],
+  );
+}
+
+async function recordSubscriptionApplicationCompleted(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  eventId: string,
+  status: "applied" | "poison" | "transient",
+  error: unknown = null,
+): Promise<void> {
+  await db.query(
+    `UPDATE event_subscription_applications
+     SET status = $3,
+         error_message = $4,
+         updated_at = now()
+     WHERE projection_key = $1
+       AND event_id = $2`,
+    [projectionKey, eventId, status, error instanceof Error ? error.message : error === null ? null : String(error)],
+  );
+}
+
 async function loadProjectionGroupRevision(
   db: PgTransactionalPool,
   targetContextName: string,
@@ -290,6 +377,11 @@ async function deleteSubscriptionCheckpoint(db: PgTransactionalPool, checkpointK
   await db.query(
     `DELETE FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
      WHERE checkpoint_key = $1`,
+    [checkpointKey],
+  );
+  await db.query(
+    `DELETE FROM event_subscription_applications
+     WHERE projection_key = $1`,
     [checkpointKey],
   );
   await clearProjectionErrors(db, checkpointKey);
@@ -643,6 +735,18 @@ function calculateOutstandingEventCount(
   return outstanding > 0n ? outstanding.toString() : "0";
 }
 
+function deriveSubscriptionReplayState(
+  checkpoint: GlobalPosition,
+  sourceHeadGlobalPosition: GlobalPosition,
+  errorSummary: Pick<ProjectionErrorSummary, "blockedStreamCount" | "poisonEventCount">,
+): SubscriptionReplayState {
+  if (errorSummary.blockedStreamCount > 0 || errorSummary.poisonEventCount > 0) {
+    return "degraded";
+  }
+
+  return checkpoint === sourceHeadGlobalPosition ? "caught-up" : "behind";
+}
+
 function sumDecimalCounts(counts: readonly string[]): string {
   return counts.reduce((total, count) => total + BigInt(count), 0n).toString();
 }
@@ -680,12 +784,7 @@ async function refreshSubscriptionStatus(
   status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
   status.blockedStreamCount = errorSummary.blockedStreamCount;
   status.poisonEventCount = errorSummary.poisonEventCount;
-  status.state =
-    errorSummary.blockedStreamCount > 0
-      ? "degraded"
-      : checkpoint === status.sourceHeadGlobalPosition
-        ? "caught-up"
-        : "idle";
+  status.state = deriveSubscriptionReplayState(checkpoint, status.sourceHeadGlobalPosition, errorSummary);
   status.updatedAt = new Date().toISOString();
 }
 
@@ -845,6 +944,7 @@ export function createSubscriptionRunner(
 ): ContextSubscriptionRunner {
   const sourceEventStore = createPostgresEventStore({ pool: sourcePool });
   const batchSize = subscription.batchSize ?? 100;
+  const checkpointBatchSize = Math.max(1, subscription.checkpointBatchSize ?? batchSize);
   const checkpointKey = createCheckpointKey(subscription);
   const status: {
     checkpointKey: string;
@@ -903,12 +1003,7 @@ export function createSubscriptionRunner(
       status.blockedStreamCount = errorSummary.blockedStreamCount;
       status.poisonEventCount = errorSummary.poisonEventCount;
       if (status.state !== "running" && status.state !== "error") {
-        status.state =
-          errorSummary.blockedStreamCount > 0
-            ? "degraded"
-            : checkpoint === status.sourceHeadGlobalPosition
-              ? "caught-up"
-              : "idle";
+        status.state = deriveSubscriptionReplayState(checkpoint, status.sourceHeadGlobalPosition, errorSummary);
       }
       status.updatedAt = new Date().toISOString();
       return { ...status };
@@ -974,9 +1069,22 @@ export function createSubscriptionRunner(
           }
 
           try {
+            const applicationStatus = await loadSubscriptionApplicationStatus(
+              targetPool,
+              checkpointKey,
+              String(event.id),
+            );
+            if (applicationStatus === "applied") {
+              appliedEvents += 1;
+              continue;
+            }
+
+            await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
             await handler(event);
+            await recordSubscriptionApplicationCompleted(targetPool, checkpointKey, String(event.id), "applied");
             appliedEvents += 1;
           } catch (error) {
+            await recordSubscriptionApplicationCompleted(targetPool, checkpointKey, String(event.id), "poison", error);
             await recordProjectionPoisonEvent(targetPool, {
               projectionKey: checkpointKey,
               projectionName: subscription.projectionName,
@@ -1052,24 +1160,31 @@ export function createSubscriptionRunner(
 
         const storedEvents = await sourceEventStore.readAll({
           afterGlobalPosition: checkpoint,
+          eventTypes: subscription.eventTypes,
+          streamPrefixes: subscription.streamPrefixes,
           limit: batchSize,
         });
 
         if (storedEvents.length === 0) {
+          if (checkpoint !== status.sourceHeadGlobalPosition) {
+            await saveSubscriptionCheckpoint(targetPool, subscription, status.sourceHeadGlobalPosition);
+          }
           const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
           status.blockedStreamCount = errorSummary.blockedStreamCount;
           status.poisonEventCount = errorSummary.poisonEventCount;
-          status.state =
-            errorSummary.blockedStreamCount > 0
-              ? "degraded"
-              : checkpoint === status.sourceHeadGlobalPosition
-                ? "caught-up"
-                : "idle";
+          status.initialized = true;
+          status.lastGlobalPosition = status.sourceHeadGlobalPosition;
+          status.outstandingEventCount = "0";
+          status.state = deriveSubscriptionReplayState(
+            status.sourceHeadGlobalPosition,
+            status.sourceHeadGlobalPosition,
+            errorSummary,
+          );
           status.updatedAt = new Date().toISOString();
 
           return {
             processed: 0,
-            lastGlobalPosition: checkpoint,
+            lastGlobalPosition: status.sourceHeadGlobalPosition,
             state: status.state === "degraded" ? "degraded" : "caught-up",
             blockedStreams: status.blockedStreamCount,
             poisonEvents: status.poisonEventCount,
@@ -1077,6 +1192,8 @@ export function createSubscriptionRunner(
         }
 
         let lastGlobalPosition = checkpoint;
+        let lastCheckpointedGlobalPosition = checkpoint;
+        let eventsSinceCheckpoint = 0;
         let processed = 0;
 
         for (const storedEvent of storedEvents) {
@@ -1097,15 +1214,49 @@ export function createSubscriptionRunner(
 
                 lastGlobalPosition = event.globalPosition;
                 processed += 1;
-                await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                eventsSinceCheckpoint += 1;
+                if (eventsSinceCheckpoint >= checkpointBatchSize) {
+                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                  lastCheckpointedGlobalPosition = lastGlobalPosition;
+                  eventsSinceCheckpoint = 0;
+                }
                 continue;
               }
             }
 
             try {
+              const applicationStatus = await loadSubscriptionApplicationStatus(
+                targetPool,
+                checkpointKey,
+                String(event.id),
+              );
+              if (applicationStatus === "applied") {
+                lastGlobalPosition = event.globalPosition;
+                processed += 1;
+                eventsSinceCheckpoint += 1;
+                if (eventsSinceCheckpoint >= checkpointBatchSize) {
+                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                  lastCheckpointedGlobalPosition = lastGlobalPosition;
+                  eventsSinceCheckpoint = 0;
+                }
+                continue;
+              }
+
+              await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
               await handler(event);
+              await recordSubscriptionApplicationCompleted(targetPool, checkpointKey, String(event.id), "applied");
             } catch (error) {
               if (errorPolicy === "global-strict" || isTransientProjectionError(error)) {
+                await recordSubscriptionApplicationCompleted(
+                  targetPool,
+                  checkpointKey,
+                  String(event.id),
+                  "transient",
+                  error,
+                );
+                if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
+                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                }
                 throw error;
               }
 
@@ -1122,11 +1273,32 @@ export function createSubscriptionRunner(
                 globalPosition: event.globalPosition,
                 error,
               });
+              await recordSubscriptionApplicationCompleted(
+                targetPool,
+                checkpointKey,
+                String(event.id),
+                "poison",
+                error,
+              );
             }
           }
 
           lastGlobalPosition = event.globalPosition;
           processed += 1;
+          eventsSinceCheckpoint += 1;
+          if (eventsSinceCheckpoint >= checkpointBatchSize) {
+            await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+            lastCheckpointedGlobalPosition = lastGlobalPosition;
+            eventsSinceCheckpoint = 0;
+          }
+        }
+
+        if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
+          await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+        }
+
+        if (storedEvents.length < batchSize && lastGlobalPosition !== status.sourceHeadGlobalPosition) {
+          lastGlobalPosition = status.sourceHeadGlobalPosition;
           await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
         }
 
@@ -1140,12 +1312,7 @@ export function createSubscriptionRunner(
         const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
         status.blockedStreamCount = errorSummary.blockedStreamCount;
         status.poisonEventCount = errorSummary.poisonEventCount;
-        status.state =
-          errorSummary.blockedStreamCount > 0
-            ? "degraded"
-            : lastGlobalPosition === status.sourceHeadGlobalPosition
-              ? "caught-up"
-              : "idle";
+        status.state = deriveSubscriptionReplayState(lastGlobalPosition, status.sourceHeadGlobalPosition, errorSummary);
         status.updatedAt = new Date().toISOString();
 
         return {
@@ -1369,7 +1536,7 @@ export function resolveModuleProjectionGroups(
                 ? "degraded"
                 : caughtUp
                   ? "caught-up"
-                  : "idle";
+                  : "behind";
           const updatedAt = subscriptions.reduce(
             (latest, subscription) => (latest > subscription.updatedAt ? latest : subscription.updatedAt),
             new Date(0).toISOString(),
@@ -1672,15 +1839,38 @@ export async function refreshProjectionGroupStatuses(
     ),
   );
 
-  for (const group of groups) {
+  await mapWithConcurrency(groups, PROJECTION_STATUS_REFRESH_CONCURRENCY, async (group) => {
     await group.refreshStatus();
 
-    for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
-      await runner.refreshStatus();
+    await mapWithConcurrency(
+      sortSubscriptionRunners(group.subscriptionRunners),
+      PROJECTION_STATUS_REFRESH_CONCURRENCY,
+      (runner) => runner.refreshStatus(),
+    );
+  });
+
+  return groups.map((group) => group.getStatus());
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex] as T);
     }
   }
 
-  return groups.map((group) => group.getStatus());
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+
+  return results;
 }
 
 export function summarizeProjectionReplayStatuses(

@@ -131,23 +131,6 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     LIMIT $3
   `;
 
-  const readAllSql = `
-    SELECT ${EVENT_COLUMNS}
-    FROM ${eventsTable}
-    WHERE global_position > $1::bigint
-    ORDER BY global_position ASC
-    LIMIT $2
-  `;
-
-  const readAllByTenantSql = `
-    SELECT ${EVENT_COLUMNS}
-    FROM ${eventsTable}
-    WHERE tenant_id = $1
-      AND global_position > $2::bigint
-    ORDER BY global_position ASC
-    LIMIT $3
-  `;
-
   return {
     appendToStream: async (input) => {
       if (input.events.length === 0) {
@@ -202,20 +185,24 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
 
       return observeEventStoreOperation(
         "read_all",
-        { limit, tenant_scope: input?.tenantId ? "tenant" : "all" },
+        {
+          limit,
+          tenant_scope: input?.tenantId ? "tenant" : "all",
+          event_type_filter: input?.eventTypes?.length ? "filtered" : "all",
+          stream_prefix_filter: input?.streamPrefixes?.length ? "filtered" : "all",
+        },
         async () => {
           try {
-            if (input?.tenantId) {
-              const result = await pool.query<DbEventRow>(readAllByTenantSql, [
-                input.tenantId,
+            const result = await pool.query<DbEventRow>(
+              buildReadAllSql(eventsTable, input),
+              buildReadAllParams({
                 afterGlobalPosition,
                 limit,
-              ]);
-
-              return result.rows.map(mapDbEventRow);
-            }
-
-            const result = await pool.query<DbEventRow>(readAllSql, [afterGlobalPosition, limit]);
+                tenantId: input?.tenantId,
+                eventTypes: input?.eventTypes,
+                streamPrefixes: input?.streamPrefixes,
+              }),
+            );
 
             return result.rows.map(mapDbEventRow);
           } catch (error) {
@@ -237,6 +224,65 @@ type AppendInTransactionArgs = Readonly<{
   insertEventSql: string;
   updateStreamVersionSql: string;
 }>;
+
+type ReadAllQueryInput = Readonly<{
+  afterGlobalPosition: GlobalPosition;
+  limit: number;
+  tenantId?: ReadAllInput["tenantId"];
+  eventTypes?: readonly string[];
+  streamPrefixes?: readonly string[];
+}>;
+
+function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): string {
+  const predicates = ["global_position > $1::bigint"];
+  let nextParam = 2;
+
+  if (input?.tenantId) {
+    predicates.push(`tenant_id = $${nextParam}`);
+    nextParam += 1;
+  }
+
+  if (input?.eventTypes?.length) {
+    predicates.push(`event_type = ANY($${nextParam}::text[])`);
+    nextParam += 1;
+  }
+
+  if (input?.streamPrefixes?.length) {
+    predicates.push(`EXISTS (
+      SELECT 1
+      FROM unnest($${nextParam}::text[]) AS prefix(value)
+      WHERE stream_id LIKE prefix.value || '%'
+    )`);
+    nextParam += 1;
+  }
+
+  return `
+    SELECT ${EVENT_COLUMNS}
+    FROM ${eventsTable}
+    WHERE ${predicates.join("\n      AND ")}
+    ORDER BY global_position ASC
+    LIMIT $${nextParam}
+  `;
+}
+
+function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
+  const params: unknown[] = [input.afterGlobalPosition];
+
+  if (input.tenantId) {
+    params.push(input.tenantId);
+  }
+
+  if (input.eventTypes?.length) {
+    params.push([...new Set(input.eventTypes)]);
+  }
+
+  if (input.streamPrefixes?.length) {
+    params.push([...new Set(input.streamPrefixes)]);
+  }
+
+  params.push(input.limit);
+  return params;
+}
 
 async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
   const now = args.now();

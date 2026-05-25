@@ -114,5 +114,7 @@ export type ReadStreamInput = Readonly<{
 export type ReadAllInput = Readonly<{
   afterGlobalPosition?: GlobalPosition;
   tenantId?: TenantId;
+  eventTypes?: readonly string[];
+  streamPrefixes?: readonly string[];
   limit?: number;
 }>;

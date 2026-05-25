@@ -17,6 +17,8 @@ export type AdminSupportWorkerConfig = Readonly<{
   port: number;
   workerId: string;
   maxConcurrentRunners: number;
+  projectionMaxConcurrentRunners: number;
+  jobMaxConcurrentRunners: number;
   pollIntervalMs: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
@@ -66,6 +68,8 @@ export function loadConfig(): AdminSupportWorkerConfig {
     );
   }
 
+  const maxConcurrentRunners = getPositiveNumberEnv("WORKER_MAX_CONCURRENT_RUNNERS", 4);
+
   return {
     sharedDatabaseUrl,
     controlDatabaseUrl,
@@ -77,7 +81,15 @@ export function loadConfig(): AdminSupportWorkerConfig {
     },
     port: Number(process.env.PORT ?? 6193),
     workerId: getOptionalEnv("WORKER_ID") ?? `admin-support-worker-${process.pid}-${Date.now().toString(36)}`,
-    maxConcurrentRunners: getPositiveNumberEnv("WORKER_MAX_CONCURRENT_RUNNERS", 4),
+    maxConcurrentRunners,
+    projectionMaxConcurrentRunners: getPositiveNumberEnv(
+      "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
+      maxConcurrentRunners,
+    ),
+    jobMaxConcurrentRunners: getPositiveNumberEnv(
+      "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
+      Math.min(2, maxConcurrentRunners),
+    ),
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),

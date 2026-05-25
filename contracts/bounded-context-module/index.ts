@@ -87,6 +87,7 @@ export type BcEventSubscription = Readonly<{
   readonly streamPrefixes?: readonly string[];
   readonly errorPolicy?: ProjectionErrorPolicy;
   readonly batchSize?: number;
+  readonly checkpointBatchSize?: number;
   readonly order?: number;
 }>;
 

@@ -20,10 +20,13 @@ type MockPool = {
 
 const sourceEventsByPool = new Map<object, MockStoredEvent[]>();
 const checkpointsByPool = new Map<object, Map<string, string>>();
+const checkpointWriteCountsByPool = new Map<object, Map<string, number>>();
 const projectionRevisionsByPool = new Map<object, Map<string, number>>();
 const truncatedTablesByPool = new Map<object, string[][]>();
 const blockedStreamsByPool = new Map<object, Map<string, MockBlockedStream>>();
 const poisonEventsByPool = new Map<object, Set<string>>();
+const applicationStatusByPool = new Map<object, Map<string, string>>();
+const readAllCallsByPool = new Map<object, Record<string, unknown>[]>();
 
 type MockBlockedStream = Readonly<{
   projectionKey: string;
@@ -50,6 +53,16 @@ function getProjectionRevisionStore(pool: object) {
   if (!store) {
     store = new Map();
     projectionRevisionsByPool.set(pool, store);
+  }
+
+  return store;
+}
+
+function getCheckpointWriteCountStore(pool: object) {
+  let store = checkpointWriteCountsByPool.get(pool);
+  if (!store) {
+    store = new Map();
+    checkpointWriteCountsByPool.set(pool, store);
   }
 
   return store;
@@ -83,6 +96,26 @@ function getPoisonEventStore(pool: object) {
   }
 
   return store;
+}
+
+function getApplicationStatusStore(pool: object) {
+  let store = applicationStatusByPool.get(pool);
+  if (!store) {
+    store = new Map();
+    applicationStatusByPool.set(pool, store);
+  }
+
+  return store;
+}
+
+function getReadAllCalls(pool: object) {
+  let calls = readAllCallsByPool.get(pool);
+  if (!calls) {
+    calls = [];
+    readAllCallsByPool.set(pool, calls);
+  }
+
+  return calls;
 }
 
 function createMockPool(): MockPool {
@@ -158,12 +191,37 @@ function createMockPool(): MockPool {
         };
       }
 
+      if (sql.includes("SELECT") && sql.includes("FROM event_subscription_applications")) {
+        const key = `${String(params[0])}:${String(params[1])}`;
+        const status = getApplicationStatusStore(pool).get(key);
+        return {
+          rows: status ? [{ status }] : [],
+        };
+      }
+
+      if (sql.includes("INSERT INTO event_subscription_applications")) {
+        const key = `${String(params[0])}:${String(params[1])}`;
+        const existing = getApplicationStatusStore(pool).get(key);
+        getApplicationStatusStore(pool).set(key, existing === "applied" ? existing : "started");
+        return { rows: [] };
+      }
+
+      if (sql.includes("UPDATE event_subscription_applications")) {
+        const key = `${String(params[0])}:${String(params[1])}`;
+        getApplicationStatusStore(pool).set(key, String(params[2]));
+        return { rows: [] };
+      }
+
       if (sql.includes("INSERT INTO event_subscription_checkpoints")) {
         const checkpointKey = String(params[0]);
         const lastGlobalPosition = String(params[4]);
         const store = getCheckpointStore(pool);
         const previous = store.get(checkpointKey) ?? "0";
         store.set(checkpointKey, Number(lastGlobalPosition) > Number(previous) ? lastGlobalPosition : previous);
+        getCheckpointWriteCountStore(pool).set(
+          checkpointKey,
+          (getCheckpointWriteCountStore(pool).get(checkpointKey) ?? 0) + 1,
+        );
         return { rows: [] };
       }
 
@@ -175,6 +233,16 @@ function createMockPool(): MockPool {
 
       if (sql.includes("DELETE FROM event_subscription_checkpoints")) {
         getCheckpointStore(pool).delete(String(params[0]));
+        return { rows: [] };
+      }
+
+      if (sql.includes("DELETE FROM event_subscription_applications")) {
+        const projectionKey = String(params[0]);
+        for (const key of [...getApplicationStatusStore(pool).keys()]) {
+          if (key.startsWith(`${projectionKey}:`)) {
+            getApplicationStatusStore(pool).delete(key);
+          }
+        }
         return { rows: [] };
       }
 
@@ -270,10 +338,32 @@ vi.mock("@chase-sets/event-core", () => ({
 
 vi.mock("@chase-sets/event-core-postgres", () => ({
   createPostgresEventStore: ({ pool }: { pool: object }) => ({
-    readAll: async ({ afterGlobalPosition, limit }: { afterGlobalPosition: string; limit: number }) =>
-      (sourceEventsByPool.get(pool) ?? [])
+    readAll: async ({
+      afterGlobalPosition,
+      limit,
+      eventTypes,
+      streamPrefixes,
+    }: {
+      afterGlobalPosition: string;
+      limit: number;
+      eventTypes?: readonly string[];
+      streamPrefixes?: readonly string[];
+    }) => {
+      getReadAllCalls(pool).push({
+        afterGlobalPosition,
+        limit,
+        eventTypes: eventTypes ? [...eventTypes] : undefined,
+        streamPrefixes: streamPrefixes ? [...streamPrefixes] : undefined,
+      });
+
+      return (sourceEventsByPool.get(pool) ?? [])
         .filter((event) => Number(event.globalPosition) > Number(afterGlobalPosition))
-        .slice(0, limit),
+        .filter((event) => !eventTypes?.length || eventTypes.includes(event.eventType))
+        .filter(
+          (event) => !streamPrefixes?.length || streamPrefixes.some((prefix) => event.streamId.startsWith(prefix)),
+        )
+        .slice(0, limit);
+    },
     readStream: async ({
       streamId,
       fromVersion = 1,
@@ -385,9 +475,12 @@ describe("bounded context projection replay", () => {
     sourceEventsByPool.clear();
     checkpointsByPool.clear();
     projectionRevisionsByPool.clear();
+    checkpointWriteCountsByPool.clear();
     truncatedTablesByPool.clear();
     blockedStreamsByPool.clear();
     poisonEventsByPool.clear();
+    applicationStatusByPool.clear();
+    readAllCallsByPool.clear();
   });
 
   it("persists versioned checkpoints and replays a new subscription version from origin", async () => {
@@ -658,6 +751,117 @@ describe("bounded context projection replay", () => {
         }),
       ],
     });
+  });
+
+  it("passes subscription filters to readAll and advances past irrelevant source tail", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "marketplace.listing.created", { listingId: "lst_1" }, "marketplace.listing-lst_1"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-cat_1"),
+      createStoredEvent("3", "pricing.price.changed", { itemId: "cat_1" }, "pricing.item-cat_1"),
+    ]);
+
+    const seenPositions: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          seenPositions.push(event.globalPosition);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      batchSize: 100,
+    });
+
+    await runner.runOnce();
+
+    expect(getReadAllCalls(sourcePool)).toEqual([
+      {
+        afterGlobalPosition: "0",
+        limit: 100,
+        eventTypes: ["catalog.catalog-item.published"],
+        streamPrefixes: ["catalog.item-"],
+      },
+    ]);
+    expect(seenPositions).toEqual(["2"]);
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("3");
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "3",
+      sourceHeadGlobalPosition: "3",
+      outstandingEventCount: "0",
+      state: "caught-up",
+    });
+  });
+
+  it("writes checkpoints by configured chunks instead of every applied event", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" }),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_3" }),
+      createStoredEvent("4", "catalog.catalog-item.published", { itemId: "cat_4" }),
+      createStoredEvent("5", "catalog.catalog-item.published", { itemId: "cat_5" }),
+    ]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      batchSize: 100,
+      checkpointBatchSize: 2,
+    });
+
+    await runner.runOnce();
+
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("5");
+    expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(3);
+  });
+
+  it("skips already applied subscription events through the application ledger", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" }),
+    ]);
+    getApplicationStatusStore(targetPool).set("inventory-catalog-item-projection:catalog:v1:evt_1", "applied");
+
+    const seenPositions: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          seenPositions.push(event.globalPosition);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      batchSize: 100,
+    });
+
+    await runner.runOnce();
+
+    expect(seenPositions).toEqual(["2"]);
+    expect(getApplicationStatusStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:evt_1")).toBe(
+      "applied",
+    );
+    expect(getApplicationStatusStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:evt_2")).toBe(
+      "applied",
+    );
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("2");
   });
 
   it("lists blocked stream details for operator projection views", async () => {
