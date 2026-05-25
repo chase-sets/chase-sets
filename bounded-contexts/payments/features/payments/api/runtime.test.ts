@@ -73,7 +73,7 @@ function createUnusedEventStore(): EventStore {
 function createCheckpointStore(): ProjectionCheckpointStore {
   return {
     loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
-    saveCheckpoint: vi.fn(async (_projectorName: string, _checkpoint: GlobalPosition) => {}),
+    saveCheckpoint: vi.fn(async (_projectionName: string, _checkpoint: GlobalPosition) => {}),
   };
 }
 

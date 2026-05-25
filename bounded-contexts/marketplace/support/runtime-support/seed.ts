@@ -595,16 +595,7 @@ async function buildSeedListingPhotoUpload(listing: ListingSeed): Promise<readon
 }
 
 async function drainProjectors(projectors: ReturnType<typeof createMarketplaceServices>["projectors"]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+  void projectors;
 }
 
 async function getProductId(

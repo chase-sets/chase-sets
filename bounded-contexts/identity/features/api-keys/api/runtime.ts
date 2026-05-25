@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideApiKey,
@@ -18,7 +18,7 @@ export type ApiKeyServices = Readonly<{
   commandHandler: CommandHandler<ApiKeyCommand, ApiKeyState, ApiKeyEvent>;
   listApiKeys: (params?: Parameters<typeof listApiKeys>[1]) => ReturnType<typeof listApiKeys>;
   getApiKey: (apiKeyId: string) => ReturnType<typeof getApiKey>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createApiKeyRuntime(deps: IdentityRuntimeDeps): ApiKeyServices {
@@ -38,10 +38,8 @@ export function createApiKeyRuntime(deps: IdentityRuntimeDeps): ApiKeyServices {
     listApiKeys: (params) => listApiKeys(deps.db, params),
     getApiKey: (apiKeyId) => getApiKey(deps.db, apiKeyId),
     projectors: [
-      createProjector({
-        projectorName: "identity-api-key-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "identity-api-key-projection",
         handlers: buildApiKeyProjectionHandlers(deps.db),
       }),
     ],

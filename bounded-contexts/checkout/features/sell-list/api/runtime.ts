@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -14,7 +14,6 @@ import {
   createCheckoutProductDescriptor,
   type CheckoutVersionSchema,
 } from "../../../support/runtime-support/common";
-import { drainOwnedProjector } from "../../../support/runtime-support/projectors";
 import {
   decideCheckoutSellList,
   evolveCheckoutSellList,
@@ -61,7 +60,7 @@ export type CheckoutSellListServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ lineId: SellListLineId; version: number }>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps): CheckoutSellListServices {
@@ -75,10 +74,8 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     evolve: evolveCheckoutSellList,
     decide: decideCheckoutSellList,
   });
-  const sellListProjector = createProjector({
-    projectorName: "checkout.sell-list-projection",
-    eventStore: deps.eventStore,
-    checkpointStore: deps.checkpointStore,
+  const sellListProjector = createProjectionHandlerSet({
+    projectionName: "checkout.sell-list-projection",
     handlers: buildCheckoutSellListProjectionHandlers(deps.db),
   });
 
@@ -157,7 +154,6 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
           },
           context,
         });
-        await drainOwnedProjector(sellListProjector);
 
         return { lineId: existingLine.line_id as SellListLineId, version: result.version, status: "merged" };
       }
@@ -175,7 +171,6 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       },
       context,
     });
-    await drainOwnedProjector(sellListProjector);
 
     return { lineId, version: result.version, status: "added" };
   };
@@ -192,7 +187,6 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         },
         context,
       });
-      await drainOwnedProjector(sellListProjector);
 
       return { lineId: params.lineId, version: result.version };
     },

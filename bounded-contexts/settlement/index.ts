@@ -45,7 +45,7 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, Settle
   projectionGroups,
   createServices: (pool, ports) => createSettlementServices(pool, ports),
   buildApis: (services) => [buildSettlementApi(services), buildSettlementMoneyMovementWebhookApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const paymentsSubscription = getEventSubscription("payments", "settlement-payment-input-projection");
     const supportSubscription = getEventSubscription("support", "settlement-support-hold-projection");

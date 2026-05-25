@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS event_store_events (
   stream_id text NOT NULL,
   stream_version bigint NOT NULL CHECK (stream_version > 0),
   tenant_id text NOT NULL,
+  stream_context_name text NOT NULL,
+  stream_category text NOT NULL,
   event_type text NOT NULL,
   payload jsonb NOT NULL,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -32,6 +34,8 @@ CREATE TABLE IF NOT EXISTS event_store_events (
 );
 
 ALTER TABLE event_store_events
+  ADD COLUMN IF NOT EXISTS stream_context_name text NULL,
+  ADD COLUMN IF NOT EXISTS stream_category text NULL,
   ADD COLUMN IF NOT EXISTS trace_id text NULL,
   ADD COLUMN IF NOT EXISTS span_id text NULL,
   ADD COLUMN IF NOT EXISTS parent_span_id text NULL,
@@ -39,6 +43,16 @@ ALTER TABLE event_store_events
   DROP COLUMN IF EXISTS correlation_id,
   DROP COLUMN IF EXISTS causation_id,
   DROP COLUMN IF EXISTS command_id;
+
+UPDATE event_store_events
+SET stream_context_name = split_part(stream_id, '.', 1),
+    stream_category = regexp_replace(stream_id, '-[^-]*$', '')
+WHERE stream_context_name IS NULL
+   OR stream_category IS NULL;
+
+ALTER TABLE event_store_events
+  ALTER COLUMN stream_context_name SET NOT NULL,
+  ALTER COLUMN stream_category SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS event_store_events_stream_idx
   ON event_store_events (stream_id, stream_version ASC);
@@ -60,6 +74,9 @@ CREATE INDEX IF NOT EXISTS event_store_events_tenant_type_global_idx
 
 CREATE INDEX IF NOT EXISTS event_store_events_stream_prefix_global_idx
   ON event_store_events (stream_id text_pattern_ops, global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_context_category_type_global_idx
+  ON event_store_events (stream_context_name, stream_category, event_type, global_position ASC);
 
 CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   projector_name text PRIMARY KEY,

@@ -24,6 +24,8 @@ type DbEventRow = Readonly<{
   stream_version: number | string;
   global_position: string | number | bigint;
   tenant_id: string;
+  stream_context_name: string;
+  stream_category: string;
   event_type: string;
   payload: unknown;
   metadata: unknown;
@@ -98,6 +100,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       stream_id,
       stream_version,
       tenant_id,
+      stream_context_name,
+      stream_category,
       event_type,
       payload,
       metadata,
@@ -111,7 +115,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       trace_state
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
     )
     RETURNING ${EVENT_COLUMNS}
   `;
@@ -248,6 +252,11 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
   }
 
   if (input?.streamPrefixes?.length) {
+    const streamCategories = normalizedStreamCategories(input.streamPrefixes);
+    if (streamCategories.length > 0) {
+      predicates.push(`stream_category = ANY($${nextParam}::text[])`);
+      nextParam += 1;
+    }
     const prefixPredicates = [...new Set(input.streamPrefixes)].map((_, index) => {
       const prefixParam = nextParam + index;
       return `stream_id LIKE $${prefixParam} || '%'`;
@@ -277,11 +286,26 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
   }
 
   if (input.streamPrefixes?.length) {
+    const streamCategories = normalizedStreamCategories(input.streamPrefixes);
+    if (streamCategories.length > 0) {
+      params.push(streamCategories);
+    }
     params.push(...new Set(input.streamPrefixes));
   }
 
   params.push(input.limit);
   return params;
+}
+
+function normalizedStreamCategories(streamPrefixes: readonly string[]): readonly string[] {
+  return [
+    ...new Set(
+      streamPrefixes
+        .filter((prefix) => prefix.endsWith("-"))
+        .map((prefix) => prefix.slice(0, -1))
+        .filter(Boolean),
+    ),
+  ];
 }
 
 async function appendEventsToStream(args: AppendInTransactionArgs): Promise<readonly StoredEvent[]> {
@@ -345,6 +369,8 @@ async function insertSingleEvent(args: InsertSingleEventArgs): Promise<StoredEve
     args.streamId,
     args.streamVersion,
     args.context.tenantId,
+    streamContextName(args.streamId),
+    streamCategory(args.streamId),
     args.event.eventType,
     args.event.payload,
     args.event.metadata ?? {},
@@ -389,6 +415,16 @@ function assertExpectedVersion(streamId: string, expectedVersion: ExpectedStream
       currentVersion,
     });
   }
+}
+
+function streamContextName(streamId: string): string {
+  const separatorIndex = streamId.indexOf(".");
+  return separatorIndex > 0 ? streamId.slice(0, separatorIndex) : streamId;
+}
+
+function streamCategory(streamId: string): string {
+  const lastDashIndex = streamId.lastIndexOf("-");
+  return lastDashIndex > 0 ? streamId.slice(0, lastDashIndex) : streamId;
 }
 
 async function withTransaction<T>(pool: PgTransactionalPool, work: (client: PgPoolClient) => Promise<T>): Promise<T> {

@@ -341,8 +341,8 @@ describe("platform host api registry", () => {
       environmentName: "preview",
     });
 
-    expect(identityProjector.runOnce).toHaveBeenCalledTimes(5);
-    expect(authProjector.runOnce).toHaveBeenCalledTimes(5);
+    expect(identityProjector.runOnce).toHaveBeenCalledTimes(0);
+    expect(authProjector.runOnce).toHaveBeenCalledTimes(0);
   });
 });
 

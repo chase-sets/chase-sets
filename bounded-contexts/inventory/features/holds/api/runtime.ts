@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
@@ -39,7 +39,7 @@ export type InventoryHoldServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ holdId: string; version: number }>;
   getHold: (holdId: string, accountId: string) => ReturnType<typeof getInventoryHold>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): InventoryHoldServices {
@@ -108,10 +108,8 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     },
     getHold: (holdId, accountId) => getInventoryHold(deps.db, holdId, accountId),
     projectors: [
-      createProjector({
-        projectorName: "inventory-hold-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "inventory-hold-projection",
         handlers: buildInventoryHoldProjectionHandlers(deps.db),
       }),
     ],

@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideMembership,
@@ -28,7 +28,7 @@ export type MembershipServices = Readonly<{
     accountId: string,
   ) => ReturnType<typeof getActiveMembershipForUserAccount>;
   listMembershipsForUser: (userId: string) => ReturnType<typeof listMembershipsForUser>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createMembershipRuntime(deps: IdentityRuntimeDeps): MembershipServices {
@@ -51,10 +51,8 @@ export function createMembershipRuntime(deps: IdentityRuntimeDeps): MembershipSe
       getActiveMembershipForUserAccount(deps.db, userId, accountId),
     listMembershipsForUser: (userId) => listMembershipsForUser(deps.db, userId),
     projectors: [
-      createProjector({
-        projectorName: "identity-membership-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "identity-membership-projection",
         handlers: buildMembershipProjectionHandlers(deps.db),
       }),
     ],

@@ -1,4 +1,4 @@
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { DiscoveryRuntimeDeps } from "../runtime-support";
 import { buildDiscoveryMarketProjectionHandlers } from "./projection";
 import {
@@ -11,7 +11,7 @@ export type DiscoveryMarketServices = Readonly<{
   getPublicListingBySlug: (slug: string) => ReturnType<typeof getDiscoveryPublicListingBySlug>;
   getPublicAccountBySlug: (slug: string) => ReturnType<typeof getDiscoveryPublicAccountBySlug>;
   listPublicSitemapUrls: () => ReturnType<typeof listDiscoveryPublicSitemapUrls>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createDiscoveryMarketRuntime(deps: DiscoveryRuntimeDeps): DiscoveryMarketServices {
@@ -20,10 +20,8 @@ export function createDiscoveryMarketRuntime(deps: DiscoveryRuntimeDeps): Discov
     getPublicAccountBySlug: (slug) => getDiscoveryPublicAccountBySlug(deps.db, slug),
     listPublicSitemapUrls: () => listDiscoveryPublicSitemapUrls(deps.db),
     projectors: [
-      createProjector({
-        projectorName: "discovery-market-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "discovery-market-projection",
         handlers: buildDiscoveryMarketProjectionHandlers(deps.db),
       }),
     ],

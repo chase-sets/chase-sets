@@ -471,12 +471,6 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
-          key   = "WRITE_CONSISTENCY_DRAIN_ENABLED"
-          value = local.is_non_production ? "false" : "true"
-          scope = "RUN_TIME"
-        }
-
-        env {
           key   = "CATALOG_ASSET_STORAGE_KIND"
           value = "s3"
           scope = "RUN_TIME"

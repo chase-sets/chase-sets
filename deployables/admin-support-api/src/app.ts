@@ -4,8 +4,6 @@ import { module as identityModule } from "@chase-sets/identity";
 import {
   attachApiMountMiddleware,
   attachWriteConsistencyMiddleware,
-  attachWriteDrainMiddleware,
-  drainContextRuntime,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
 import { createHonoObservabilityMiddleware } from "@chase-sets/observability";
@@ -104,7 +102,6 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
-  attachWriteDrainMiddleware(app, apiMounts, () => drainContextRuntime(runtime));
   mountApiRouters(app, apiMounts);
 
   return app;

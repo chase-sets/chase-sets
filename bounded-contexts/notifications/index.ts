@@ -17,8 +17,7 @@ import {
 import {
   buildNotificationsFulfillmentProjectionHandlers,
   buildNotificationsOrderingProjectionHandlers,
-  NOTIFICATIONS_FULFILLMENT_PROJECTION,
-  NOTIFICATIONS_ORDERING_PROJECTION,
+  NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 } from "./features/notification-center/integrations/source-events/notification-projector";
 
 const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
@@ -51,10 +50,10 @@ export const module: BcApiModule<NotificationsServices, PgTransactionalPool, Not
   projectionGroups,
   createServices: (pool, ports) => createNotificationsServices(pool, ports),
   buildApis: (services) => [buildNotificationsApi(services), buildNotificationsMobileMessageWebhookApi(services)],
-  projectors: () => [],
+  projectionHandlerSets: () => [],
   buildSubscriptions: (services) => {
-    const orderingSubscription = getEventSubscription("ordering", NOTIFICATIONS_ORDERING_PROJECTION);
-    const fulfillmentSubscription = getEventSubscription("fulfillment", NOTIFICATIONS_FULFILLMENT_PROJECTION);
+    const orderingSubscription = getEventSubscription("ordering", NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION);
+    const fulfillmentSubscription = getEventSubscription("fulfillment", NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION);
 
     return [
       {

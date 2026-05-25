@@ -4,7 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
@@ -18,7 +18,7 @@ export type MarketplaceServiceOptions = Readonly<{
 export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

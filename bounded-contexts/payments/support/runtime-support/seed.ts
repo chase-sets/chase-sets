@@ -7,7 +7,7 @@ import { createPaymentsServices } from "./services";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { RefundId } from "./common";
 import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
 
@@ -47,16 +47,8 @@ function createSeedContext(accountId: string, userId: string): EventStoreContext
   };
 }
 
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+async function drainProjectors(projectors: readonly ProjectionHandlerSet[]) {
+  void projectors;
 }
 
 async function getSeedOrder(pool: PgTransactionalPool, orderId: string, buyerAccountId: string): Promise<OrderRow> {

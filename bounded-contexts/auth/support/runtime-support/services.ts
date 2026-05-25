@@ -1,6 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import type { NotificationOutbox } from "@chase-sets/notifications";
@@ -64,7 +64,7 @@ export type AuthServices = Readonly<{
   sessions: ReturnType<typeof createSessionRuntime>;
   notificationOutbox: NotificationOutbox;
   socialLoginProviders: readonly SocialLoginProvider[];
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export type AuthHostPorts = Readonly<{
@@ -115,16 +115,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
 }
 
 export async function drainAuthProjectors(services: AuthServices) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+  void services;
 }
 
 export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];

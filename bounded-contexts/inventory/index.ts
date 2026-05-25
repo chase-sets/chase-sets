@@ -45,7 +45,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, Invento
   projectionGroups,
   createServices: (pool, ports) => createInventoryServices(pool, ports),
   buildApis: (services) => [buildInventoryApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const catalogSubscription = getEventSubscription("catalog", "inventory-catalog-item-projection");
     const orderingReservationWorkflowSubscription = getEventSubscription(

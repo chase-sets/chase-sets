@@ -14,7 +14,6 @@
       "sourceContextName": "identity",
       "projectionName": "commercial-terms-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["commercial-terms-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -22,7 +21,8 @@
         "identity.account.reactivated",
         "identity.account.closed"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["commercial-terms-account-projection"]
     }
   ],
   "projectionGroups": [
@@ -39,8 +39,7 @@
     {
       "mountPath": "/api/commercial-terms",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

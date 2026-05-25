@@ -47,7 +47,7 @@ export const module: BcApiModule<CheckoutServices, PgTransactionalPool, Checkout
   projectionGroups,
   createServices: (pool, options) => createCheckoutServices(pool, options),
   buildApis: (services) => [buildCheckoutApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   seed: seedCheckoutDatabase,
   buildSubscriptions: (services) => {
     const catalogSubscription = getEventSubscription("catalog", "checkout-catalog-item-projection");

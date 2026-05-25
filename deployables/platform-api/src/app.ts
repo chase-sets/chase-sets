@@ -17,9 +17,7 @@ import { marketplaceRealtimeManifest, marketplaceRealtimeTopicPolicyManifest } f
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
-  attachWriteDrainMiddleware,
   attachWriteConsistencyMiddleware,
-  drainContextRuntime,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
 import { createHonoObservabilityMiddleware } from "@chase-sets/observability";
@@ -74,7 +72,6 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeStreamLimiter?: Parameters<typeof createRealtimeRoutes>[0]["streamLimiter"];
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
-  writeConsistencyDrainEnabled?: boolean;
   mcp?: CreateMcpRoutesOptions;
   ucp?: CreateUcpRoutesOptions;
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
@@ -282,9 +279,6 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
-  if (options.writeConsistencyDrainEnabled === true) {
-    attachWriteDrainMiddleware(app, apiMounts, () => drainContextRuntime(runtime));
-  }
   mountApiRouters(app, apiMounts);
 
   return app;

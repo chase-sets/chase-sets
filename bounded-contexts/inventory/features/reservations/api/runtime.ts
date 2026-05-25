@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideInventoryReservation,
@@ -18,7 +18,7 @@ export type InventoryReservationServices = Readonly<{
   commandHandler: CommandHandler<InventoryReservationCommand, InventoryReservationState, InventoryReservationEvent>;
   getReservation: (reservationRequestId: string) => ReturnType<typeof getInventoryReservation>;
   getReservationState: (reservationRequestId: string) => Promise<InventoryReservationState>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createInventoryReservationRuntime(deps: InventoryRuntimeDeps): InventoryReservationServices {
@@ -43,10 +43,8 @@ export function createInventoryReservationRuntime(deps: InventoryRuntimeDeps): I
       return aggregate.state;
     },
     projectors: [
-      createProjector({
-        projectorName: "inventory-reservation-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "inventory-reservation-projection",
         handlers: buildInventoryReservationProjectionHandlers(deps.db),
       }),
     ],

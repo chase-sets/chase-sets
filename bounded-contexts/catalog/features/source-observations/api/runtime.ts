@@ -1,7 +1,7 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -267,7 +267,7 @@ export type SourceObservationServices = Readonly<{
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createSourceObservationRuntime(
@@ -286,10 +286,8 @@ export function createSourceObservationRuntime(
     decide: decideSourceObservation,
   });
   const projectors = [
-    createProjector({
-      projectorName: "catalog-source-observation-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-source-observation-projection",
       handlers: withCatalogAdminRealtimeInvalidation(buildSourceObservationProjectionHandlers(deps.db), deps.db, {
         projectionName: "catalog-source-observation-projection",
         surface: "source-observations",

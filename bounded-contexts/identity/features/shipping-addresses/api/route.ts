@@ -77,17 +77,6 @@ function accountIdParam(c: { req: { param(name: string): string | undefined } })
   return String(c.req.param("accountId") ?? "");
 }
 
-async function drainShippingAddressProjectors(services: ShippingAddressServices) {
-  let processed = 0;
-  do {
-    processed = 0;
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 export function shippingAddressRoutes(services: ShippingAddressServices) {
   const app = new Hono<IdentityApiEnv>();
 
@@ -133,7 +122,6 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
       },
       context,
     });
-    await drainShippingAddressProjectors(services);
     return c.json(
       {
         id: shippingAddressId,
@@ -175,7 +163,6 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
       },
       context,
     });
-    await drainShippingAddressProjectors(services);
     return c.json({
       id: shippingAddressId,
       version: result.version,
@@ -210,7 +197,6 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
       },
       context,
     });
-    await drainShippingAddressProjectors(services);
     return c.json({
       id: shippingAddressId,
       version: result.version,
@@ -245,7 +231,6 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
       },
       context,
     });
-    await drainShippingAddressProjectors(services);
     return c.json({
       id: shippingAddressId,
       version: result.version,

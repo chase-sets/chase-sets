@@ -1,6 +1,6 @@
 import type {
+  ProjectionHandlerSet,
   ProjectionErrorPolicy,
-  Projector as EventProjector,
   ProjectorHandlerMap,
 } from "@chase-sets/event-core/projector";
 
@@ -10,7 +10,7 @@ import type {
  * Context packages expose either a `module` constant or a module factory for
  * cases that require runtime configuration.
  */
-export type BcProjector = EventProjector;
+export type BcProjectionHandlerSet = ProjectionHandlerSet;
 
 export type BcRouteType = "route" | "index";
 export type BcRoutePlacement = "root" | "layout";
@@ -55,14 +55,13 @@ export type BcApiMount = Readonly<{
   readonly mountPath: string;
   readonly kind: BcApiMountKind;
   readonly requiresAuth: boolean;
-  readonly drainProjectorsOnWrite: boolean;
 }>;
 
 export type BcEventSubscriptionDeclaration = Readonly<{
   readonly sourceContextName: string;
   readonly projectionName: string;
   readonly subscriptionVersion: number;
-  readonly projectorNames: readonly string[];
+  readonly projectionHandlerSetNames: readonly string[];
   readonly eventTypes?: readonly string[];
   readonly streamPrefixes?: readonly string[];
   readonly errorPolicy?: ProjectionErrorPolicy;
@@ -108,7 +107,7 @@ export interface BcApiModule<
   TPool = unknown,
   THostPorts = unknown,
   TRouter = unknown,
-  TProjector extends BcProjector = BcProjector,
+  TProjectionHandlerSet extends BcProjectionHandlerSet = BcProjectionHandlerSet,
 > {
   readonly contextName: string;
   readonly routePrefix: string;
@@ -118,7 +117,7 @@ export interface BcApiModule<
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
   createServices(pool: TPool, ports: THostPorts): TServices;
   buildApis(services: TServices): readonly TRouter[];
-  projectors(services: TServices): readonly TProjector[];
+  projectionHandlerSets?(services: TServices): readonly TProjectionHandlerSet[];
   buildSubscriptions?(services: TServices): readonly BcEventSubscription[];
   buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
   seedProfiles?: readonly EnvironmentDataProfile[];

@@ -59,7 +59,6 @@ function resetConfigEnv() {
   delete process.env.DATABASE_POOL_MAX;
   delete process.env.DATABASE_POOL_IDLE_TIMEOUT_MS;
   delete process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS;
-  delete process.env.WRITE_CONSISTENCY_DRAIN_ENABLED;
   delete process.env.REALTIME_CURSOR_SIGNING_SECRET;
   delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
   delete process.env.NODE_ENV;
@@ -513,7 +512,7 @@ describe("platform api config", () => {
     );
   });
 
-  it("allows single-connection staging to disable postgres realtime coordination and write drains", () => {
+  it("allows single-connection staging to disable postgres realtime coordination", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
@@ -521,20 +520,11 @@ describe("platform api config", () => {
     process.env.REALTIME_STREAM_LIMITER = "local";
     process.env.REALTIME_WAKE_SIGNAL_ENABLED = "false";
     process.env.REALTIME_BACKGROUND_MAINTENANCE_ENABLED = "false";
-    process.env.WRITE_CONSISTENCY_DRAIN_ENABLED = "false";
 
     const config = loadConfig();
 
     expect(config.realtime.streamLimiter).toEqual({ kind: "local" });
     expect(config.realtime.wakeSignalEnabled).toBe(false);
     expect(config.realtime.backgroundMaintenanceEnabled).toBe(false);
-    expect(config.writeConsistencyDrainEnabled).toBe(false);
-  });
-
-  it("keeps projection write drains disabled by default", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
-
-    expect(loadConfig().writeConsistencyDrainEnabled).toBe(false);
   });
 });

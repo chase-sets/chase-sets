@@ -14,19 +14,19 @@
       "sourceContextName": "public-presence",
       "projectionName": "public-presence-waitlist-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["public-presence-waitlist-projection"],
       "eventTypes": ["public-presence.waitlist-signup.recorded", "public-presence.waitlist-signup.updated"],
       "streamPrefixes": ["public-presence.waitlist-signup-"],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["public-presence-waitlist-projection"]
     },
     {
       "sourceContextName": "public-presence",
       "projectionName": "public-presence-waitlist-transactional-email-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["public-presence-waitlist-transactional-email-projection"],
       "eventTypes": ["public-presence.waitlist-signup.recorded"],
       "streamPrefixes": ["public-presence.waitlist-signup-"],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["public-presence-waitlist-transactional-email-projection"]
     }
   ],
   "projectionGroups": [
@@ -55,14 +55,12 @@
     {
       "mountPath": "/api/public-presence",
       "kind": "primary",
-      "requiresAuth": false,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": false
     },
     {
       "mountPath": "/api/public-presence/admin",
       "kind": "additional",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

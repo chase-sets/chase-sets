@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -141,7 +141,7 @@ export type FulfillmentShipmentServices = Readonly<{
     readyForFulfillmentAt: string;
     context: EventStoreContext;
   }) => Promise<{ shipmentId: ShipmentId | null }>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 async function findExistingShipmentIdForOrder(db: PgQueryable, orderId: string): Promise<string | null> {
@@ -606,10 +606,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     getSellerShipment: (shipmentId, sellerAccountId) => getSellerShipment(deps.db, shipmentId, sellerAccountId),
     listSellerPackingSlips: (params) => listSellerPackingSlips(deps.db, params),
     projectors: [
-      createProjector({
-        projectorName: "fulfillment-shipment-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "fulfillment-shipment-projection",
         handlers: buildFulfillmentShipmentProjectionHandlers(deps.db),
       }),
     ],

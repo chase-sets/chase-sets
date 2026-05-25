@@ -4,7 +4,7 @@ import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 type OrderSnapshot = Readonly<{
@@ -35,16 +35,8 @@ function createSeedContext(): EventStoreContext {
   };
 }
 
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+async function drainProjectors(projectors: readonly ProjectionHandlerSet[]) {
+  void projectors;
 }
 
 async function getShipmentStatus(pool: PgTransactionalPool, shipmentId: string): Promise<ShipmentStatus | null> {

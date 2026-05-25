@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -32,7 +32,7 @@ export type AgreementServices = Readonly<{
   ) => Promise<{ agreementId: string; version: number }>;
   listAgreements: (params: Readonly<{ limit?: number; offset?: number }>) => ReturnType<typeof listAgreements>;
   getAgreement: (agreementId: string) => ReturnType<typeof getAgreement>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementServices {
@@ -65,10 +65,8 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
     listAgreements: (params) => listAgreements(deps.db, params),
     getAgreement: (agreementId) => getAgreement(deps.db, agreementId),
     projectors: [
-      createProjector({
-        projectorName: "commercial-terms-agreement-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "commercial-terms-agreement-projection",
         handlers: buildAgreementProjectionHandlers(deps.db),
       }),
     ],

@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -86,7 +86,7 @@ export type PlatformFeedbackServices = Readonly<{
   listPlatformFeedback: (params: Parameters<typeof listPlatformFeedback>[1]) => ReturnType<typeof listPlatformFeedback>;
   getPlatformFeedback: (feedbackId: string) => ReturnType<typeof getPlatformFeedback>;
   getPlatformFeedbackMetrics: () => ReturnType<typeof getPlatformFeedbackMetrics>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -264,10 +264,8 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
     getPlatformFeedback: (feedbackId) => getPlatformFeedback(deps.db, feedbackId),
     getPlatformFeedbackMetrics: () => getPlatformFeedbackMetrics(deps.db),
     projectors: [
-      createProjector({
-        projectorName: "experience-platform-feedback-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "experience-platform-feedback-projection",
         handlers: buildPlatformFeedbackProjectionHandlers(deps.db),
       }),
     ],

@@ -19,30 +19,30 @@
       "sourceContextName": "ordering",
       "projectionName": "payments-order-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["payments-order-input-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
         "ordering.order.cancelled",
         "ordering.order.ready-for-fulfillment-recorded"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["payments-order-input-projection"]
     },
     {
       "sourceContextName": "support",
       "projectionName": "payments-support-refund-effect",
       "subscriptionVersion": 1,
-      "projectorNames": ["payments-support-refund-effect"],
       "eventTypes": ["support.support-request.resolved"],
-      "order": 70
+      "order": 70,
+      "projectionHandlerSetNames": ["payments-support-refund-effect"]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "payments-order-cancellation-refund-effect",
       "subscriptionVersion": 1,
-      "projectorNames": ["payments-order-cancellation-refund-effect"],
       "eventTypes": ["ordering.order.cancelled"],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["payments-order-cancellation-refund-effect"]
     }
   ],
   "projectionGroups": [
@@ -82,14 +82,12 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     },
     {
       "mountPath": "/api/payments/provider",
       "kind": "additional",
-      "requiresAuth": false,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": false
     }
   ],
   "deployableContributions": [

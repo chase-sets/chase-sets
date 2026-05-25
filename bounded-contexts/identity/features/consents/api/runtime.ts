@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideConsent,
@@ -17,7 +17,7 @@ import { buildConsentProjectionHandlers } from "../read-model/projection";
 export type ConsentServices = Readonly<{
   commandHandler: CommandHandler<ConsentCommand, ConsentState, ConsentEvent>;
   listConsents: (params?: ConsentListParams) => ReturnType<typeof listConsents>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices {
@@ -36,10 +36,8 @@ export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices
     commandHandler,
     listConsents: (params) => listConsents(deps.db, params),
     projectors: [
-      createProjector({
-        projectorName: "identity-consent-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "identity-consent-projection",
         handlers: buildConsentProjectionHandlers(deps.db),
       }),
     ],

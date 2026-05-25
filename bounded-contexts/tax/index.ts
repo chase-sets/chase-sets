@@ -17,5 +17,5 @@ export const module: BcApiModule<Readonly<Record<string, never>>, PgTransactiona
   projectionGroups: [],
   createServices: () => ({}),
   buildApis: () => [],
-  projectors: () => [],
+  projectionHandlerSets: () => [],
 };

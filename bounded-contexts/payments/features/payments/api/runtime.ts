@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -453,7 +453,7 @@ export type PaymentServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ received: boolean; ignored: boolean }>;
   publicConfig: PaymentProcessorPublicConfig;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices {
@@ -1090,10 +1090,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     },
     publicConfig,
     projectors: [
-      createProjector({
-        projectorName: "payments-payment-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "payments-payment-projection",
         handlers: buildPaymentProjectionHandlers(deps.db),
       }),
     ],

@@ -4,7 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
 import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
 import { createCheckoutSessionRuntime } from "../../features/sessions/api/runtime";
@@ -15,7 +15,7 @@ export type CheckoutServices = Readonly<{
   cart: ReturnType<typeof createCheckoutCartRuntime>;
   sellList: ReturnType<typeof createCheckoutSellListRuntime>;
   sessions: ReturnType<typeof createCheckoutSessionRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

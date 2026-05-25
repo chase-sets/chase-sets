@@ -3,7 +3,7 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { reputationReservedSeedIds } from "@chase-sets/reputation/seed-support/ids";
 import { createReputationServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 function createSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
@@ -15,16 +15,8 @@ function createSeedContext(accountId: string, userId: string): EventStoreContext
   };
 }
 
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+async function drainProjectors(projectors: readonly ProjectionHandlerSet[]) {
+  void projectors;
 }
 
 export async function seedReputationDatabase(pool: PgTransactionalPool) {

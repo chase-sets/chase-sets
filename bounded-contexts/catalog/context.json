@@ -51,8 +51,7 @@
     {
       "mountPath": "/api/catalog",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": false
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

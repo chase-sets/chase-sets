@@ -40,7 +40,7 @@ export const module: BcApiModule<CommercialTermsServices, PgTransactionalPool, v
   projectionGroups,
   createServices: (pool) => createCommercialTermsServices(pool),
   buildApis: (services) => [buildCommercialTermsApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const identitySubscription = getEventSubscription("identity", "commercial-terms-account-projection");
 

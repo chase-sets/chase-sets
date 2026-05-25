@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -131,7 +131,7 @@ export type SupportRequestServices = Readonly<{
     supportRequestId: string,
     accountId: string,
   ) => ReturnType<typeof getAccountSupportRequest>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 async function getOrderSource(db: PgQueryable, orderId: string): Promise<SupportOrderSource | null> {
@@ -371,10 +371,8 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     getAccountSupportRequest: (supportRequestId, accountId) =>
       getAccountSupportRequest(deps.db, supportRequestId, accountId),
     projectors: [
-      createProjector({
-        projectorName: "support-request-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "support-request-projection",
         handlers: buildSupportRequestProjectionHandlers(deps.db),
       }),
     ],

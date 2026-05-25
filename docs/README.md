@@ -11,6 +11,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
 - [Projection Rebuild Replay](./architecture/projection-rebuild-replay.md): projection revision policy and automatic read-model rebuild behavior.
+- [Event Projections](./architecture/event-projections.md): consumer-owned subscriptions, replay, lag metrics, and ownership rules.
 - [Event Projection Runtime](./architecture/event-projection-runtime.md): projection consumer states, scaling, idempotency, and poison-event behavior.
 - [Stream-Isolated Projection Errors](./architecture/stream-isolated-projection-errors.md): poison-event isolation, blocked-stream semantics, and degraded projection health.
 - [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification side sheet, settings, Product Alert placement, and Notifications bounded-context ownership.
@@ -72,6 +73,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0001: Platform API Observability](./adr/0001-platform-api-observability.md)
 - [ADR 0002: Adopt UCP For Agent Commerce](./adr/0002-adopt-ucp-for-agent-commerce.md)
 - [ADR 0003: Environment Bootstrap And Scenario Data](./adr/0003-environment-bootstrap-and-scenario-data.md)
+- [ADR 0004: Consumer-Owned Projection Subscriptions](./adr/0004-consumer-owned-projection-subscriptions.md)
 
 ## Maintenance
 

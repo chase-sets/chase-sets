@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { DiscoveryRuntimeDeps } from "../../../support/runtime-support";
@@ -38,7 +38,7 @@ export type ProductAlertServices = Readonly<{
   ) => Promise<Readonly<{ alertId: string; version: number }>>;
   listProductAlerts: (input: Readonly<{ accountId: string }>) => Promise<readonly ProductAlertPageRow[]>;
   getProductAlert: (input: Readonly<{ accountId: string; alertId: string }>) => Promise<ProductAlertPageRow | null>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAlertServices {
@@ -117,10 +117,8 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
     listProductAlerts: (input) => listProductAlerts(deps.db, input),
     getProductAlert: (input) => getProductAlert(deps.db, input),
     projectors: [
-      createProjector({
-        projectorName: "discovery-product-alert-page-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "discovery-product-alert-page-projection",
         handlers: buildProductAlertPageProjectionHandlers(deps.db),
       }),
     ],

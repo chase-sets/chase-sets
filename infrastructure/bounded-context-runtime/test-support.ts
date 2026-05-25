@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { BcApiModule, BcProjector } from "@chase-sets/bounded-context-module";
+import type { BcApiModule } from "@chase-sets/bounded-context-module";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   bootstrapContextDatabase,
+  createProjectionAwarePool,
   drainContextRuntime,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
@@ -132,7 +133,6 @@ export type MountedContextTestRuntime<
 > = Readonly<{
   mountedContexts: readonly MountedContextRuntimeEntry[];
   services: Readonly<Record<TDefinitions[number]["contextName"], unknown>>;
-  projectors: readonly BcProjector[];
   projectionGroups: readonly ContextProjectionGroup[];
   subscriptionRunners: readonly ContextSubscriptionRunner[];
 }>;
@@ -145,7 +145,7 @@ export function createMountedContextTestRuntime<const TDefinitions extends reado
 
   for (const definition of definitions) {
     const ports = typeof definition.ports === "function" ? definition.ports(resolvedServices) : definition.ports;
-    const services = definition.module.createServices(definition.pool, ports);
+    const services = definition.module.createServices(createProjectionAwarePool(definition.pool as never), ports);
     const mountRole = definition.mountRole ?? "active";
 
     resolvedServices[definition.contextName] = services;
@@ -155,7 +155,8 @@ export function createMountedContextTestRuntime<const TDefinitions extends reado
       module: definition.module,
       services,
       pool: definition.pool,
-      projectors: mountRole === "source-only" ? [] : definition.module.projectors(services),
+      projectionHandlerSets:
+        mountRole === "source-only" ? [] : (definition.module.projectionHandlerSets?.(services) ?? []),
     } satisfies MountedContextRuntimeEntry);
   }
 
@@ -165,9 +166,6 @@ export function createMountedContextTestRuntime<const TDefinitions extends reado
   return {
     mountedContexts,
     services: resolvedServices as Readonly<Record<TDefinitions[number]["contextName"], unknown>>,
-    projectors: mountedContexts
-      .filter((entry) => entry.mountRole !== "source-only")
-      .flatMap((entry) => entry.projectors),
     projectionGroups,
     subscriptionRunners,
   };

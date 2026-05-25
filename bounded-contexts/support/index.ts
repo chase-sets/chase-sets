@@ -43,7 +43,7 @@ export const module: BcApiModule<SupportServices, PgTransactionalPool, void> = {
   projectionGroups,
   createServices: (pool) => createSupportServices(pool),
   buildApis: (services) => [buildSupportApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const orderSubscription = getEventSubscription("ordering", "support-order-source-projection");
     const shipmentSubscription = getEventSubscription("fulfillment", "support-shipment-source-projection");

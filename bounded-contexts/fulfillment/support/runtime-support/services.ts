@@ -4,13 +4,13 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createFulfillmentShipmentRuntime } from "../../features/shipments/api/runtime";
 
 export type FulfillmentServices = Readonly<{
   shipments: ReturnType<typeof createFulfillmentShipmentRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

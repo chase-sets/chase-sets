@@ -45,7 +45,7 @@ export const module: BcApiModule<AuthServices, PgTransactionalPool, AuthHostPort
   projectionGroups,
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [buildAuthApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const accountSubscription = getEventSubscription("identity", "auth-identity-account-projection");
     const userSubscription = getEventSubscription("identity", "auth-identity-user-projection");

@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -78,7 +78,7 @@ export type ReviewServices = Readonly<{
   getPublicAccountSummary: (accountId: string) => ReturnType<typeof getPublicAccountSummary>;
   getOrderReviewOpportunity: (orderId: string, authorAccountId: string) => ReturnType<typeof getOrderReviewOpportunity>;
   recordDeliveredShipmentReviewEligibility: (params: { shipmentId: string; deliveredAt: string }) => Promise<void>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 function inferAuthorRoleFromEligibility(role: string): ReviewRole {
@@ -247,10 +247,8 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
     getOrderReviewOpportunity: (orderId, authorAccountId) =>
       getOrderReviewOpportunity(deps.db, { orderId, authorAccountId }),
     projectors: [
-      createProjector({
-        projectorName: "reputation-review-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "reputation-review-projection",
         handlers: buildReviewProjectionHandlers(deps.db),
       }),
     ],

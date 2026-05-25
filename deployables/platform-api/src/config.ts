@@ -88,7 +88,6 @@ export type PlatformApiBaseConfig = Readonly<{
   port: number;
   internalAuthSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
-  writeConsistencyDrainEnabled?: boolean;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
   payoutReconciliationIntervalMs?: number | null;
@@ -502,7 +501,6 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     },
     port: Number(process.env.PORT ?? 6182),
     internalAuthSecret: resolvePlatformInternalAuthSecret(),
-    writeConsistencyDrainEnabled: getBooleanEnv("WRITE_CONSISTENCY_DRAIN_ENABLED", false),
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),

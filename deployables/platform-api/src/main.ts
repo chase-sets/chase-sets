@@ -337,7 +337,6 @@ const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   controlPlane,
-  writeConsistencyDrainEnabled: config.writeConsistencyDrainEnabled,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readinessChecks: [
     {

@@ -97,14 +97,7 @@ async function reservePersonalAccountDisplayName(
 }
 
 async function drainProjectors(services: IdentityServices) {
-  let processed = 0;
-  do {
-    processed = 0;
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+  void services;
 }
 
 async function createPersonalIdentityForAuth(

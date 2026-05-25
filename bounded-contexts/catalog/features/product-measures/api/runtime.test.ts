@@ -187,6 +187,32 @@ describe("product measure runtime", () => {
       audit: { performedByUserId: "usr_test" as never },
     });
 
+    expect(resolved.size).toBe(0);
+    expect(eventStore.appendToStream).toHaveBeenCalledTimes(1);
+    expect(appended[0]?.events[0]?.eventType).toBe("catalog.catalog-item.product-measures-resolved");
+    expect(appended[0]?.events[0]?.payload).toMatchObject({
+      catalogItemId: "cat_1",
+    });
+
+    const appendedEvent = appended[0]?.events[0];
+    const handler = appendedEvent ? services.projectors[0]?.handlers[appendedEvent.eventType] : undefined;
+    await handler?.({
+      id: "evt_1",
+      type: appendedEvent?.eventType,
+      data: appendedEvent?.payload,
+      tenantId: "tnt_test",
+      streamId: appended[0]?.streamId,
+      streamVersion: 1,
+      globalPosition: "1",
+      trace: { traceId: null },
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: {
+        occurredAt: "2026-05-25T00:00:00.000Z",
+        recordedAt: "2026-05-25T00:00:00.000Z",
+      },
+      metadata: {},
+    } as never);
+
     expect(resolved.get("cat_1::form:raw")?.measure_snapshot).toMatchObject({
       productId: "cat_1::form:raw",
       physicalFlags: ["raw-card"],
@@ -196,11 +222,6 @@ describe("product measure runtime", () => {
       productId: "cat_1::form:graded-psa",
       physicalFlags: ["slab", "rigid"],
       unitWeightOunces: 2.1,
-    });
-    expect(eventStore.appendToStream).toHaveBeenCalledTimes(1);
-    expect(appended[0]?.events[0]?.eventType).toBe("catalog.catalog-item.product-measures-resolved");
-    expect(appended[0]?.events[0]?.payload).toMatchObject({
-      catalogItemId: "cat_1",
     });
   });
 });

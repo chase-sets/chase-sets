@@ -1234,8 +1234,11 @@ export async function runStructureCheck(options = {}) {
         addPathViolation(subscriptionLabel, "subscriptionVersion must be an integer >= 1");
       }
 
-      if (!isStringArray(subscription.projectorNames) || subscription.projectorNames.length === 0) {
-        addPathViolation(subscriptionLabel, "projectorNames must be a non-empty array of strings");
+      if (
+        !isStringArray(subscription.projectionHandlerSetNames) ||
+        subscription.projectionHandlerSetNames.length === 0
+      ) {
+        addPathViolation(subscriptionLabel, "projectionHandlerSetNames must be a non-empty array of strings");
       }
 
       if ("eventTypes" in subscription && !isStringArray(subscription.eventTypes)) {
@@ -1367,10 +1370,6 @@ export async function runStructureCheck(options = {}) {
 
       if (!isBoolean(mount.requiresAuth)) {
         addPathViolation(mountLabel, "requiresAuth must be a boolean");
-      }
-
-      if (!isBoolean(mount.drainProjectorsOnWrite)) {
-        addPathViolation(mountLabel, "drainProjectorsOnWrite must be a boolean");
       }
     }
 

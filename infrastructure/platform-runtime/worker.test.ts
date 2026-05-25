@@ -329,12 +329,11 @@ describe("worker runner loop", () => {
     const runners = collectWorkerRunners({
       mountedContexts: [],
       services: {},
-      projectors: [],
       projectionGroups: [group],
       subscriptionRunners: [subscriptionRunner],
     } as never);
 
-    expect(runners).toHaveLength(1);
+    expect(runners).toHaveLength(2);
     expect(runners[0]).toMatchObject({
       name: "inventory.inventory-catalog-item-projection",
       kind: "projection-group",

@@ -1,6 +1,5 @@
-import type { EventStore } from "./event-store";
 import type { GlobalPosition, StreamId, StreamVersion } from "./storage";
-import { toTransportEvent, type TransportEvent } from "./transport";
+import type { TransportEvent } from "./transport";
 
 export type ProjectionErrorPolicy = "strict-per-stream" | "global-strict";
 
@@ -76,8 +75,8 @@ export type RecordProjectionDeferredEventInput = Readonly<{
 }>;
 
 export type ProjectionCheckpointStore = Readonly<{
-  loadCheckpoint: (projectorName: string) => Promise<GlobalPosition>;
-  saveCheckpoint: (projectorName: string, globalPosition: GlobalPosition) => Promise<void>;
+  loadCheckpoint: (projectionName: string) => Promise<GlobalPosition>;
+  saveCheckpoint: (projectionName: string, globalPosition: GlobalPosition) => Promise<void>;
   loadBlockedStream?: (projectionKey: string, streamId: StreamId) => Promise<ProjectionBlockedStream | null>;
   recordPoisonEvent?: (input: RecordProjectionPoisonEventInput) => Promise<void>;
   recordDeferredBlockedStreamEvent?: (input: RecordProjectionDeferredEventInput) => Promise<void>;
@@ -121,15 +120,8 @@ export type ProjectionRunContext = Readonly<{
   throwIfLeaseLost?: () => void;
 }>;
 
-export type Projector = Readonly<{
-  projectorName?: string;
-  runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
-}>;
-
-export type ProjectorConfig = Readonly<{
-  projectorName: string;
-  eventStore: EventStore;
-  checkpointStore: ProjectionCheckpointStore;
+export type ProjectionHandlerSet = Readonly<{
+  projectionName: string;
   handlers: ProjectorHandlerMap;
   batchSize?: number;
   checkpointBatchSize?: number;
@@ -138,139 +130,22 @@ export type ProjectorConfig = Readonly<{
   errorPolicy?: ProjectionErrorPolicy;
 }>;
 
-export function createProjector(config: ProjectorConfig): Projector {
+export type ProjectionHandlerSetConfig = Omit<ProjectionHandlerSet, "projectionName"> &
+  Readonly<{
+    projectionName: string;
+  }>;
+
+export function createProjectionHandlerSet(config: ProjectionHandlerSetConfig): ProjectionHandlerSet {
   const batchSize = assertPositiveInteger(config.batchSize ?? 100, "batchSize");
   const checkpointBatchSize = assertPositiveInteger(config.checkpointBatchSize ?? batchSize, "checkpointBatchSize");
-  const eventTypes = config.eventTypes ?? Object.keys(config.handlers).sort();
-  const errorPolicy = config.errorPolicy ?? "strict-per-stream";
-
   return {
-    projectorName: config.projectorName,
-    runOnce: async (context) => {
-      context?.throwIfLeaseLost?.();
-      const checkpoint = await config.checkpointStore.loadCheckpoint(config.projectorName);
-      const storedEvents = await config.eventStore.readAll({
-        afterGlobalPosition: checkpoint,
-        eventTypes: eventTypes.length > 0 ? eventTypes : undefined,
-        streamPrefixes: config.streamPrefixes,
-        limit: batchSize,
-      });
-
-      if (storedEvents.length === 0) {
-        const errorSummary = await loadProjectionErrorSummary(config.checkpointStore, config.projectorName);
-
-        return {
-          processed: 0,
-          lastGlobalPosition: checkpoint,
-          state: errorSummary.blockedStreamCount > 0 ? "degraded" : "caught-up",
-          blockedStreams: errorSummary.blockedStreamCount,
-          poisonEvents: errorSummary.poisonEventCount,
-        };
-      }
-
-      let lastGlobalPosition = checkpoint;
-      let lastCheckpointedGlobalPosition = checkpoint;
-      let processed = 0;
-      let eventsSinceCheckpoint = 0;
-
-      for (const storedEvent of storedEvents) {
-        context?.throwIfLeaseLost?.();
-        const transportEvent = toTransportEvent(storedEvent);
-        const handler = (config.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[
-          transportEvent.type
-        ];
-
-        if (handler && errorPolicy === "strict-per-stream") {
-          const blockedStream = await config.checkpointStore.loadBlockedStream?.(
-            config.projectorName,
-            transportEvent.streamId,
-          );
-
-          if (blockedStream && blockedStream.state !== "resolved") {
-            await config.checkpointStore.recordDeferredBlockedStreamEvent?.({
-              projectionKey: config.projectorName,
-              streamId: transportEvent.streamId,
-              streamVersion: transportEvent.streamVersion,
-              globalPosition: transportEvent.globalPosition,
-            });
-
-            lastGlobalPosition = transportEvent.globalPosition;
-            processed += 1;
-            eventsSinceCheckpoint += 1;
-
-            if (eventsSinceCheckpoint >= checkpointBatchSize) {
-              context?.throwIfLeaseLost?.();
-              await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
-              lastCheckpointedGlobalPosition = lastGlobalPosition;
-              eventsSinceCheckpoint = 0;
-            }
-            continue;
-          }
-        }
-
-        if (handler) {
-          try {
-            await handler(transportEvent);
-          } catch (error) {
-            if (
-              errorPolicy === "global-strict" ||
-              isTransientProjectionError(error) ||
-              !canRecordProjectionPoison(config.checkpointStore)
-            ) {
-              if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
-                context?.throwIfLeaseLost?.();
-                await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
-              }
-              throw error;
-            }
-
-            await config.checkpointStore.recordPoisonEvent({
-              projectionKey: config.projectorName,
-              projectionName: config.projectorName,
-              projectionKind: "projector",
-              targetContextName: null,
-              sourceContextName: null,
-              projectionRevision: null,
-              subscriptionVersion: null,
-              streamId: transportEvent.streamId,
-              streamVersion: transportEvent.streamVersion,
-              eventId: String(transportEvent.id),
-              eventType: transportEvent.type,
-              globalPosition: transportEvent.globalPosition,
-              failureKind: "poison",
-              errorMessage: error instanceof Error ? error.message : String(error),
-              errorStack: error instanceof Error ? (error.stack ?? null) : null,
-            });
-          }
-        }
-
-        lastGlobalPosition = transportEvent.globalPosition;
-        processed += 1;
-        eventsSinceCheckpoint += 1;
-
-        if (eventsSinceCheckpoint >= checkpointBatchSize) {
-          context?.throwIfLeaseLost?.();
-          await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
-          lastCheckpointedGlobalPosition = lastGlobalPosition;
-          eventsSinceCheckpoint = 0;
-        }
-      }
-
-      if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
-        context?.throwIfLeaseLost?.();
-        await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
-      }
-
-      const errorSummary = await loadProjectionErrorSummary(config.checkpointStore, config.projectorName);
-
-      return {
-        processed,
-        lastGlobalPosition,
-        state: errorSummary.blockedStreamCount > 0 ? "degraded" : "running",
-        blockedStreams: errorSummary.blockedStreamCount,
-        poisonEvents: errorSummary.poisonEventCount,
-      };
-    },
+    projectionName: config.projectionName,
+    handlers: config.handlers,
+    batchSize,
+    checkpointBatchSize,
+    eventTypes: config.eventTypes ?? Object.keys(config.handlers).sort(),
+    streamPrefixes: config.streamPrefixes,
+    errorPolicy: config.errorPolicy ?? "strict-per-stream",
   };
 }
 
@@ -287,28 +162,6 @@ export function isTransientProjectionError(error: unknown): boolean {
     "projectionFailureKind" in error &&
     (error as { projectionFailureKind?: unknown }).projectionFailureKind === "transient"
   );
-}
-
-function canRecordProjectionPoison(
-  store: ProjectionCheckpointStore,
-): store is ProjectionCheckpointStore &
-  Required<
-    Pick<ProjectionCheckpointStore, "recordPoisonEvent" | "loadBlockedStream" | "recordDeferredBlockedStreamEvent">
-  > {
-  return (
-    typeof store.recordPoisonEvent === "function" &&
-    typeof store.loadBlockedStream === "function" &&
-    typeof store.recordDeferredBlockedStreamEvent === "function"
-  );
-}
-
-async function loadProjectionErrorSummary(
-  store: ProjectionCheckpointStore,
-  projectionKey: string,
-): Promise<ProjectionErrorSummary> {
-  return store.loadProjectionErrorSummary
-    ? store.loadProjectionErrorSummary(projectionKey)
-    : { blockedStreamCount: 0, poisonEventCount: 0 };
 }
 
 function assertPositiveInteger(value: number, fieldName: string): number {

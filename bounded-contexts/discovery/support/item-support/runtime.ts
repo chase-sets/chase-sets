@@ -1,4 +1,4 @@
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { DiscoveryRuntimeDeps } from "../runtime-support";
 import {
   createDiscoveryItemDetailRuntime,
@@ -11,7 +11,7 @@ export type DiscoveryItemsServices = Readonly<{
   market: DiscoveryMarketServices;
   search: DiscoveryItemSearchServices;
   detail: DiscoveryItemDetailServices;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createDiscoveryItemRuntime(deps: DiscoveryRuntimeDeps): DiscoveryItemsServices {

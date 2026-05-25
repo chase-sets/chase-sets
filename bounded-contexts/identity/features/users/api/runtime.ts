@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideUser,
@@ -21,7 +21,7 @@ export type UserServices = Readonly<{
   getUserByEmail: (email: string) => ReturnType<typeof getUserByEmail>;
   getUserByPhone: (phone: string) => ReturnType<typeof getUserByPhone>;
   getUserBySocialLogin: (params: Parameters<typeof getUserBySocialLogin>[1]) => ReturnType<typeof getUserBySocialLogin>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createUserRuntime(deps: IdentityRuntimeDeps): UserServices {
@@ -44,10 +44,8 @@ export function createUserRuntime(deps: IdentityRuntimeDeps): UserServices {
     getUserByPhone: (phone) => getUserByPhone(deps.db, phone),
     getUserBySocialLogin: (params) => getUserBySocialLogin(deps.db, params),
     projectors: [
-      createProjector({
-        projectorName: "identity-user-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "identity-user-projection",
         handlers: buildUserProjectionHandlers(deps.db),
       }),
     ],

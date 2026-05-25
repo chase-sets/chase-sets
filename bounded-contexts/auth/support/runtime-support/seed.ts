@@ -6,7 +6,6 @@ import { toSessionStreamId } from "../../features/sessions/domain/auth-flow";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { drainProjectors } from "@chase-sets/bounded-context-runtime";
 
 function createAuthSeedContext(): EventStoreContext {
   return {
@@ -103,5 +102,5 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     secretHash: auth.hashSecret("collector1234"),
   });
 
-  await drainProjectors(sessions.projectors);
+  void sessions.projectors;
 }

@@ -47,7 +47,7 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
   projectionGroups,
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const orderingSubscription = getEventSubscription("ordering", "payments-order-input-projection");
     const supportSubscription = getEventSubscription("support", "payments-support-refund-effect");

@@ -1,4 +1,4 @@
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
@@ -61,17 +61,8 @@ function createSeedContextFor(accountId: AccountId, userId: string) {
   };
 }
 
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+async function drainProjectors(projectors: readonly ProjectionHandlerSet[]) {
+  void projectors;
 }
 
 async function hasCartLines(db: PgQueryable, buyerAccountId: AccountId) {
