@@ -19,6 +19,7 @@ const OPERATION_LEASE_TTL_MS = 10 * 60 * 1_000;
 const BLOCKED_PROJECTION_DETAILS_CONCURRENCY = 4;
 const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
 const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
+const PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS = 2 * 60_000;
 
 type ProjectionOperationsRouteEnv = {
   Variables: {
@@ -43,8 +44,8 @@ export function createProjectionOperationsRoutes(
     }
 
     const snapshots = options.controlPlane ? await options.controlPlane.listProjectionStatusSnapshots() : [];
-    const projectionGroups =
-      snapshots.length > 0 ? readProjectionGroupSnapshots(snapshots) : listProjectionGroupStatuses(runtime);
+    const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
+    const projectionGroups = snapshotOverlay.projectionGroups;
     const blockedProjections = await listBlockedProjectionDetails(runtime, projectionGroups);
 
     const workers = options.controlPlane ? await options.controlPlane.listWorkerHeartbeats() : [];
@@ -53,7 +54,7 @@ export function createProjectionOperationsRoutes(
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
       blockedProjections,
-      projectionStatusSource: snapshots.length > 0 ? "worker-snapshot" : "runtime-memory",
+      projectionStatusSource: snapshotOverlay.source,
       workers: classifyWorkerHeartbeats(workers),
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
     });
@@ -251,6 +252,54 @@ function classifyWorkerHeartbeats(workers: readonly Record<string, unknown>[]): 
   });
 }
 
+function overlayProjectionGroupSnapshots(
+  runtimeProjectionGroups: readonly ContextProjectionGroupStatus[],
+  snapshots: readonly Record<string, unknown>[],
+): Readonly<{
+  projectionGroups: readonly ContextProjectionGroupStatus[];
+  source: "runtime-memory" | "worker-snapshot" | "mixed";
+}> {
+  if (snapshots.length === 0) {
+    return {
+      projectionGroups: runtimeProjectionGroups.map((group) => withProjectionStatusSource(group, "runtime-memory")),
+      source: "runtime-memory",
+    };
+  }
+
+  const snapshotsByProjectionKey = new Map(
+    readProjectionGroupSnapshots(snapshots).map((snapshot) => [
+      `${snapshot.targetContextName}.${snapshot.projectionName}`,
+      snapshot,
+    ]),
+  );
+  let freshSnapshotCount = 0;
+  const projectionGroups = runtimeProjectionGroups.map((runtimeGroup) => {
+    const projectionKey = `${runtimeGroup.targetContextName}.${runtimeGroup.projectionName}`;
+    const snapshot = snapshotsByProjectionKey.get(projectionKey);
+
+    if (snapshot && readSnapshotFreshness(snapshot) === "fresh-snapshot") {
+      freshSnapshotCount += 1;
+      return snapshot;
+    }
+
+    return withProjectionStatusSource(
+      runtimeGroup,
+      snapshot ? "stale-snapshot" : "runtime-memory",
+      snapshot ? readProjectionStatusSnapshotMetadata(snapshot) : undefined,
+    );
+  });
+
+  return {
+    projectionGroups,
+    source:
+      freshSnapshotCount === 0
+        ? "runtime-memory"
+        : freshSnapshotCount === projectionGroups.length
+          ? "worker-snapshot"
+          : "mixed",
+  };
+}
+
 function readProjectionGroupSnapshots(
   snapshots: readonly Record<string, unknown>[],
 ): readonly ContextProjectionGroupStatus[] {
@@ -260,6 +309,13 @@ function readProjectionGroupSnapshots(
       return [];
     }
 
+    const snapshotUpdatedAt = formatTimestamp(snapshot.updated_at);
+    const snapshotAgeMs = snapshotUpdatedAt ? Math.max(0, Date.now() - new Date(snapshotUpdatedAt).getTime()) : null;
+    const freshness =
+      snapshotAgeMs !== null && snapshotAgeMs <= PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS
+        ? "fresh-snapshot"
+        : "stale-snapshot";
+
     return [
       {
         ...status,
@@ -267,11 +323,47 @@ function readProjectionGroupSnapshots(
           projectionKey: String(snapshot.projection_key ?? ""),
           runnerName: String(snapshot.runner_name ?? ""),
           ownerId: String(snapshot.owner_id ?? ""),
-          updatedAt: formatTimestamp(snapshot.updated_at),
+          fencingToken:
+            snapshot.fencing_token === null || snapshot.fencing_token === undefined
+              ? null
+              : String(snapshot.fencing_token),
+          updatedAt: snapshotUpdatedAt,
+          ageMs: snapshotAgeMs,
+          freshness,
         },
+        projectionStatusSource: freshness,
       } as unknown as ContextProjectionGroupStatus,
     ];
   });
+}
+
+function readSnapshotFreshness(snapshot: ContextProjectionGroupStatus): string {
+  return String((snapshot as unknown as { projectionStatusSource?: string }).projectionStatusSource ?? "");
+}
+
+function readProjectionStatusSnapshotMetadata(
+  snapshot: ContextProjectionGroupStatus,
+): Record<string, unknown> | undefined {
+  return (snapshot as unknown as { snapshot?: Record<string, unknown> }).snapshot;
+}
+
+function withProjectionStatusSource(
+  group: ContextProjectionGroupStatus,
+  projectionStatusSource: "fresh-snapshot" | "stale-snapshot" | "runtime-memory",
+  snapshot?: Record<string, unknown>,
+): ContextProjectionGroupStatus {
+  return {
+    ...group,
+    projectionStatusSource,
+    ...(snapshot
+      ? {
+          snapshot: {
+            ...snapshot,
+            freshness: projectionStatusSource,
+          },
+        }
+      : {}),
+  } as unknown as ContextProjectionGroupStatus;
 }
 
 function readJsonRecord(value: unknown): Record<string, unknown> | null {

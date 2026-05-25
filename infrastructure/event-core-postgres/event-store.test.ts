@@ -26,13 +26,14 @@ describe("postgres event store", () => {
     expect(queries[0].sql).toContain("global_position > $1::bigint");
     expect(queries[0].sql).toContain("tenant_id = $2");
     expect(queries[0].sql).toContain("event_type = ANY($3::text[])");
-    expect(queries[0].sql).toContain("unnest($4::text[])");
-    expect(queries[0].sql).toContain("LIMIT $5");
+    expect(queries[0].sql).toContain("(stream_id LIKE $4 || '%' OR stream_id LIKE $5 || '%')");
+    expect(queries[0].sql).toContain("LIMIT $6");
     expect(queries[0].params).toEqual([
       "42",
       "tenant_1",
       ["catalog.catalog-item.published"],
-      ["catalog.item-", "catalog.category-"],
+      "catalog.item-",
+      "catalog.category-",
       25,
     ]);
   });

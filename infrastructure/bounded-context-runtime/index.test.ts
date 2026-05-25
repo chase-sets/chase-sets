@@ -198,6 +198,17 @@ function createMockPool(): MockPool {
         };
       }
 
+      if (sql.includes("SELECT event_id, status") && sql.includes("FROM event_subscription_applications")) {
+        const projectionKey = String(params[0]);
+        const eventIds = Array.isArray(params[1]) ? params[1].map(String) : [];
+        return {
+          rows: eventIds.flatMap((eventId) => {
+            const status = getApplicationStatusStore(pool).get(`${projectionKey}:${eventId}`);
+            return status ? [{ event_id: eventId, status }] : [];
+          }),
+        };
+      }
+
       if (sql.includes("SELECT") && sql.includes("FROM event_subscription_applications")) {
         const key = `${String(params[0])}:${String(params[1])}`;
         const status = getApplicationStatusStore(pool).get(key);

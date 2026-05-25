@@ -102,6 +102,10 @@ export type ProjectorHandler = (event: Readonly<TransportEvent>, context?: Proje
 
 export type ProjectorHandlerMap = Readonly<Record<string, ProjectorHandler>>;
 
+export function resolveProjectionDb<TDb>(context: ProjectorHandlerContext | undefined, fallbackDb: TDb): TDb {
+  return (context?.db as TDb | undefined) ?? fallbackDb;
+}
+
 export type ProjectorRunResult = Readonly<{
   processed: number;
   lastGlobalPosition: GlobalPosition;
@@ -110,9 +114,16 @@ export type ProjectorRunResult = Readonly<{
   poisonEvents?: number;
 }>;
 
+export type ProjectionRunContext = Readonly<{
+  ownerId?: string;
+  fencingToken?: string;
+  signal?: AbortSignal;
+  throwIfLeaseLost?: () => void;
+}>;
+
 export type Projector = Readonly<{
   projectorName?: string;
-  runOnce: () => Promise<ProjectorRunResult>;
+  runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
 }>;
 
 export type ProjectorConfig = Readonly<{
@@ -135,7 +146,8 @@ export function createProjector(config: ProjectorConfig): Projector {
 
   return {
     projectorName: config.projectorName,
-    runOnce: async () => {
+    runOnce: async (context) => {
+      context?.throwIfLeaseLost?.();
       const checkpoint = await config.checkpointStore.loadCheckpoint(config.projectorName);
       const storedEvents = await config.eventStore.readAll({
         afterGlobalPosition: checkpoint,
@@ -162,6 +174,7 @@ export function createProjector(config: ProjectorConfig): Projector {
       let eventsSinceCheckpoint = 0;
 
       for (const storedEvent of storedEvents) {
+        context?.throwIfLeaseLost?.();
         const transportEvent = toTransportEvent(storedEvent);
         const handler = (config.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[
           transportEvent.type
@@ -186,6 +199,7 @@ export function createProjector(config: ProjectorConfig): Projector {
             eventsSinceCheckpoint += 1;
 
             if (eventsSinceCheckpoint >= checkpointBatchSize) {
+              context?.throwIfLeaseLost?.();
               await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
               lastCheckpointedGlobalPosition = lastGlobalPosition;
               eventsSinceCheckpoint = 0;
@@ -204,6 +218,7 @@ export function createProjector(config: ProjectorConfig): Projector {
               !canRecordProjectionPoison(config.checkpointStore)
             ) {
               if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
+                context?.throwIfLeaseLost?.();
                 await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
               }
               throw error;
@@ -234,6 +249,7 @@ export function createProjector(config: ProjectorConfig): Projector {
         eventsSinceCheckpoint += 1;
 
         if (eventsSinceCheckpoint >= checkpointBatchSize) {
+          context?.throwIfLeaseLost?.();
           await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
           lastCheckpointedGlobalPosition = lastGlobalPosition;
           eventsSinceCheckpoint = 0;
@@ -241,6 +257,7 @@ export function createProjector(config: ProjectorConfig): Projector {
       }
 
       if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
+        context?.throwIfLeaseLost?.();
         await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
       }
 

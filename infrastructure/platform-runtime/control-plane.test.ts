@@ -15,6 +15,7 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_control_leases");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
+    expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
   });
 
   it("uses fenced lease ownership for acquire, renew, and release", async () => {
@@ -98,6 +99,7 @@ describe("platform control plane", () => {
       projectionName: "inventory-catalog-item-projection",
       runnerName: "inventory.inventory-catalog-item-projection",
       ownerId: "worker-a",
+      fencingToken: "8",
       status: {
         targetContextName: "inventory",
         projectionName: "inventory-catalog-item-projection",
@@ -106,11 +108,36 @@ describe("platform control plane", () => {
 
     await expect(controlPlane.listProjectionStatusSnapshots()).resolves.toHaveLength(1);
     expect(calls[0].sql).toContain("INSERT INTO platform_projection_status_snapshots");
-    expect(calls[0].params?.[5]).toBe(
+    expect(calls[0].sql).toContain("EXCLUDED.fencing_token >= platform_projection_status_snapshots.fencing_token");
+    expect(calls[0].params?.[5]).toBe("8");
+    expect(calls[0].params?.[6]).toBe(
       JSON.stringify({
         targetContextName: "inventory",
         projectionName: "inventory-catalog-item-projection",
       }),
     );
+  });
+
+  it("records runner status with monotonic fencing", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const controlPlane = createPostgresPlatformControlPlane({
+      connect: async () => {
+        throw new Error("not used");
+      },
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return { rows: [], rowCount: 1 };
+      },
+    });
+
+    await controlPlane.recordRunnerStatus({
+      runnerName: "inventory.inventory-catalog-item-projection",
+      runnerKind: "projection-group",
+      state: "running",
+      ownerId: "worker-a",
+      fencingToken: "9",
+    });
+
+    expect(calls[0].sql).toContain("EXCLUDED.fencing_token >= platform_runner_statuses.fencing_token");
   });
 });

@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 import {
@@ -12,7 +12,8 @@ const STREAM_PREFIX = "catalog.item-";
 
 export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "catalog.catalog-item.created": async (event) => {
+    "catalog.catalog-item.created": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const { itemId, languageCode, title, subtitle, description } = event.data as {
         itemId: string;
         languageCode?: string;
@@ -24,7 +25,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const subtitleI18n = subtitle ? coerceLocalizedTextMap(subtitle) : null;
       const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO catalog_items (
            catalog_item_id,
            language_code,
@@ -61,22 +62,23 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.blueprint-assigned": async (event) => {
+    "catalog.catalog-item.blueprint-assigned": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { blueprintId } = event.data as { blueprintId: string };
 
-      await db.query(`UPDATE catalog_items SET blueprint_id = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
-        itemId,
-        blueprintId,
-        event.timing.recordedAt,
-      ]);
+      await projectionDb.query(
+        `UPDATE catalog_items SET blueprint_id = $2, updated_at = $3 WHERE catalog_item_id = $1`,
+        [itemId, blueprintId, event.timing.recordedAt],
+      );
     },
 
-    "catalog.catalog-item.field-value-set": async (event) => {
+    "catalog.catalog-item.field-value-set": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { fieldId, value } = event.data as { fieldId: string; value: unknown };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE catalog_items
          SET field_values = (
            SELECT COALESCE(jsonb_agg(fv), '[]'::jsonb)
@@ -89,11 +91,12 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.field-value-cleared": async (event) => {
+    "catalog.catalog-item.field-value-cleared": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { fieldId } = event.data as { fieldId: string };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE catalog_items
          SET field_values = (
            SELECT COALESCE(jsonb_agg(fv), '[]'::jsonb)
@@ -105,11 +108,12 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.category-assigned": async (event) => {
+    "catalog.catalog-item.category-assigned": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE catalog_items
          SET category_ids = category_ids || $2::jsonb, updated_at = $3
          WHERE catalog_item_id = $1`,
@@ -117,11 +121,12 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.category-removed": async (event) => {
+    "catalog.catalog-item.category-removed": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE catalog_items
          SET category_ids = (
            SELECT COALESCE(jsonb_agg(cid), '[]'::jsonb)
@@ -133,16 +138,18 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.published": async (event) => {
+    "catalog.catalog-item.published": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(`UPDATE catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1`, [
-        itemId,
-        event.timing.recordedAt,
-      ]);
+      await projectionDb.query(
+        `UPDATE catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
     },
 
-    "catalog.catalog-item.metadata-revised": async (event) => {
+    "catalog.catalog-item.metadata-revised": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { languageCode, title, subtitle, description } = event.data as {
         languageCode?: string;
@@ -154,7 +161,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       const subtitleI18n = subtitle ? coerceLocalizedTextMap(subtitle) : null;
       const descriptionI18n = coerceLocalizedTextMap(description ?? "");
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE catalog_items
          SET language_code = $2,
              title_i18n = $3,
@@ -179,60 +186,64 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.tags-set": async (event) => {
+    "catalog.catalog-item.tags-set": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { tags } = event.data as { tags: string[] };
 
-      await db.query(`UPDATE catalog_items SET tags = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
+      await projectionDb.query(`UPDATE catalog_items SET tags = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
         itemId,
         JSON.stringify(tags),
         event.timing.recordedAt,
       ]);
     },
 
-    "catalog.catalog-item.image-urls-set": async (event) => {
+    "catalog.catalog-item.image-urls-set": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { imageUrls } = event.data as { imageUrls: string[] };
 
-      await db.query(`UPDATE catalog_items SET image_urls = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
+      await projectionDb.query(`UPDATE catalog_items SET image_urls = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
         itemId,
         JSON.stringify(imageUrls),
         event.timing.recordedAt,
       ]);
     },
 
-    "catalog.catalog-item.product-asset-sets-set": async (event) => {
+    "catalog.catalog-item.product-asset-sets-set": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { productAssetSets } = event.data as { productAssetSets: unknown };
 
-      await db.query(`UPDATE catalog_items SET product_asset_sets = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
-        itemId,
-        JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []),
-        event.timing.recordedAt,
-      ]);
+      await projectionDb.query(
+        `UPDATE catalog_items SET product_asset_sets = $2, updated_at = $3 WHERE catalog_item_id = $1`,
+        [itemId, JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []), event.timing.recordedAt],
+      );
     },
 
-    "catalog.catalog-item.image-fallback-set": async (event) => {
+    "catalog.catalog-item.image-fallback-set": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { imageFallback } = event.data as { imageFallback: unknown };
 
-      await db.query(`UPDATE catalog_items SET image_fallback = $2, updated_at = $3 WHERE catalog_item_id = $1`, [
-        itemId,
-        JSON.stringify(imageFallback),
-        event.timing.recordedAt,
-      ]);
+      await projectionDb.query(
+        `UPDATE catalog_items SET image_fallback = $2, updated_at = $3 WHERE catalog_item_id = $1`,
+        [itemId, JSON.stringify(imageFallback), event.timing.recordedAt],
+      );
     },
 
-    "catalog.catalog-item.image-fallback-cleared": async (event) => {
+    "catalog.catalog-item.image-fallback-cleared": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(`UPDATE catalog_items SET image_fallback = NULL, updated_at = $2 WHERE catalog_item_id = $1`, [
-        itemId,
-        event.timing.recordedAt,
-      ]);
+      await projectionDb.query(
+        `UPDATE catalog_items SET image_fallback = NULL, updated_at = $2 WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
     },
 
-    "catalog.catalog-item.external-product-reference-linked": async (event) => {
+    "catalog.catalog-item.external-product-reference-linked": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       const { providerKey, externalKey, selectedOptions } = event.data as {
         providerKey: string;
@@ -240,7 +251,7 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
         selectedOptions: unknown;
       };
 
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO catalog_external_product_references (
            provider_key,
            external_key,
@@ -262,13 +273,14 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
+    "catalog.catalog-item.external-product-reference-unlinked": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const { providerKey, externalKey } = event.data as {
         providerKey: string;
         externalKey: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `DELETE FROM catalog_external_product_references
          WHERE provider_key = $1
            AND external_key = $2`,
@@ -276,28 +288,31 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
-    "catalog.catalog-item.retired": async (event) => {
+    "catalog.catalog-item.retired": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(`UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`, [
-        itemId,
-        event.timing.recordedAt,
-      ]);
+      await projectionDb.query(
+        `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
     },
 
-    "catalog.catalog-item.archived": async (event) => {
+    "catalog.catalog-item.archived": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(`UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`, [
-        itemId,
-        event.timing.recordedAt,
-      ]);
+      await projectionDb.query(
+        `UPDATE catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1`,
+        [itemId, event.timing.recordedAt],
+      );
     },
 
-    "catalog.catalog-item.draft-removed": async (event) => {
+    "catalog.catalog-item.draft-removed": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
 
-      await db.query(`DELETE FROM catalog_items WHERE catalog_item_id = $1`, [itemId]);
+      await projectionDb.query(`DELETE FROM catalog_items WHERE catalog_item_id = $1`, [itemId]);
     },
   };
 }
