@@ -23,6 +23,7 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   const services = createCatalogServices(pool);
   const shouldSeedIntegrationProfile = profileEnabled(options, "catalog-integration-bootstrap");
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
+  const shouldDrainProjectors = shouldDrainCatalogSeedProjectors(options);
 
   if (!shouldSeedIntegrationProfile && !shouldSeedScenarioData) {
     console.log("Catalog seed skipped for selected data profiles.");
@@ -32,7 +33,7 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   console.log("Starting Pokemon TCG catalog integration profile seed...\n");
 
   const authoring = shouldSeedIntegrationProfile
-    ? await seedTcgdexCatalogIntegrationProfile(pool)
+    ? await seedTcgdexCatalogIntegrationProfile(pool, { drainProjectors: shouldDrainProjectors })
     : staticTcgdexCatalogIntegrationIds();
 
   if (shouldSeedScenarioData) {
@@ -50,13 +51,16 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
 
 export async function seedTcgdexCatalogIntegrationProfile(
   pool: PgTransactionalPool,
+  options: Readonly<{ drainProjectors?: boolean }> = {},
 ): Promise<TcgdexCatalogIntegrationIds> {
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_dimensions")) {
     console.log("Pokemon TCG catalog integration profile already exists. Reconciling fields.");
     const fields = await seedFields(services);
-    await drainProjectors("catalog", services.projectors);
+    if (options.drainProjectors) {
+      await drainProjectors("catalog", services.projectors);
+    }
     return {
       ...staticTcgdexCatalogIntegrationIds(),
       fields,
@@ -71,7 +75,9 @@ export async function seedTcgdexCatalogIntegrationProfile(
   const components = await seedComponents(services, dimensions, fields);
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
-  await drainProjectors("catalog", services.projectors);
+  if (options.drainProjectors) {
+    await drainProjectors("catalog", services.projectors);
+  }
 
   return {
     dimensions,
@@ -115,6 +121,10 @@ function profileEnabled(
   return (
     options?.enabledDataProfiles ?? ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]
   ).includes(profile);
+}
+
+export function shouldDrainCatalogSeedProjectors(options?: BcSeedOptions) {
+  return profileEnabled(options, "scenario-seed");
 }
 
 async function tableHasRows(
