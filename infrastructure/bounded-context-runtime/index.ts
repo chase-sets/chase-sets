@@ -92,6 +92,7 @@ export type ContextSubscriptionStatus = Readonly<{
   initialized: boolean;
   lastGlobalPosition: GlobalPosition;
   sourceHeadGlobalPosition: GlobalPosition;
+  outstandingEventCount: string;
   processedEvents: number;
   state: SubscriptionReplayState;
   lastError: string | null;
@@ -113,6 +114,7 @@ export type ContextProjectionGroupStatus = Readonly<{
   caughtUp: boolean;
   state: SubscriptionReplayState;
   lastError: string | null;
+  outstandingEventCount: string;
   blockedStreamCount: number;
   poisonEventCount: number;
   updatedAt: string;
@@ -129,6 +131,7 @@ export type ProjectionReplayContextSummary = Readonly<{
   staleGroups: number;
   runningGroups: number;
   errorGroups: number;
+  outstandingEventCount: string;
 }>;
 
 export type ProjectionReplaySummary = Readonly<{
@@ -141,6 +144,7 @@ export type ProjectionReplaySummary = Readonly<{
   staleGroups: number;
   runningGroups: number;
   errorGroups: number;
+  outstandingEventCount: string;
   contexts: readonly ProjectionReplayContextSummary[];
 }>;
 
@@ -631,6 +635,18 @@ function isGlobalPositionGreater(left: GlobalPosition, right: GlobalPosition): b
   return BigInt(left) > BigInt(right);
 }
 
+function calculateOutstandingEventCount(
+  lastGlobalPosition: GlobalPosition,
+  sourceHeadGlobalPosition: GlobalPosition,
+): string {
+  const outstanding = BigInt(sourceHeadGlobalPosition) - BigInt(lastGlobalPosition);
+  return outstanding > 0n ? outstanding.toString() : "0";
+}
+
+function sumDecimalCounts(counts: readonly string[]): string {
+  return counts.reduce((total, count) => total + BigInt(count), 0n).toString();
+}
+
 async function readSourceHeadGlobalPosition(pool: PgTransactionalPool): Promise<GlobalPosition> {
   const result = await pool.query<Readonly<{ head: string | number | bigint | null }>>(
     "SELECT COALESCE(MAX(global_position), 0) AS head FROM event_store_events",
@@ -647,6 +663,7 @@ async function refreshSubscriptionStatus(
     initialized: boolean;
     lastGlobalPosition: GlobalPosition;
     sourceHeadGlobalPosition: GlobalPosition;
+    outstandingEventCount: string;
     state: SubscriptionReplayState;
     blockedStreamCount: number;
     poisonEventCount: number;
@@ -660,6 +677,7 @@ async function refreshSubscriptionStatus(
   status.initialized = storedCheckpoint !== null;
   status.lastGlobalPosition = checkpoint;
   status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
+  status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
   status.blockedStreamCount = errorSummary.blockedStreamCount;
   status.poisonEventCount = errorSummary.poisonEventCount;
   status.state =
@@ -838,6 +856,7 @@ export function createSubscriptionRunner(
     initialized: boolean;
     lastGlobalPosition: GlobalPosition;
     sourceHeadGlobalPosition: GlobalPosition;
+    outstandingEventCount: string;
     processedEvents: number;
     state: SubscriptionReplayState;
     lastError: string | null;
@@ -854,6 +873,7 @@ export function createSubscriptionRunner(
     initialized: false,
     lastGlobalPosition: ZERO_GLOBAL_POSITION,
     sourceHeadGlobalPosition: ZERO_GLOBAL_POSITION,
+    outstandingEventCount: "0",
     processedEvents: 0,
     state: "idle",
     lastError: null,
@@ -879,6 +899,7 @@ export function createSubscriptionRunner(
       status.initialized = storedCheckpoint !== null;
       status.lastGlobalPosition = checkpoint;
       status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
+      status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
       status.blockedStreamCount = errorSummary.blockedStreamCount;
       status.poisonEventCount = errorSummary.poisonEventCount;
       if (status.state !== "running" && status.state !== "error") {
@@ -897,6 +918,7 @@ export function createSubscriptionRunner(
       status.initialized = false;
       status.lastGlobalPosition = ZERO_GLOBAL_POSITION;
       status.sourceHeadGlobalPosition = ZERO_GLOBAL_POSITION;
+      status.outstandingEventCount = "0";
       status.processedEvents = 0;
       status.state = "idle";
       status.lastError = null;
@@ -1026,6 +1048,7 @@ export function createSubscriptionRunner(
         status.initialized = storedCheckpoint !== null;
         status.lastGlobalPosition = checkpoint;
         status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
+        status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
 
         const storedEvents = await sourceEventStore.readAll({
           afterGlobalPosition: checkpoint,
@@ -1109,6 +1132,10 @@ export function createSubscriptionRunner(
 
         status.initialized = true;
         status.lastGlobalPosition = lastGlobalPosition;
+        status.outstandingEventCount = calculateOutstandingEventCount(
+          lastGlobalPosition,
+          status.sourceHeadGlobalPosition,
+        );
         status.processedEvents += processed;
         const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
         status.blockedStreamCount = errorSummary.blockedStreamCount;
@@ -1215,6 +1242,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
         caughtUp: sourceContextNames.length === 0,
         state: "caught-up",
         lastError: null,
+        outstandingEventCount: "0",
         blockedStreamCount: 0,
         poisonEventCount: 0,
         updatedAt: revisionState.updatedAt,
@@ -1240,6 +1268,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           caughtUp: sourceContextNames.length === 0,
           state: "caught-up",
           lastError: null,
+          outstandingEventCount: "0",
           blockedStreamCount: 0,
           poisonEventCount: 0,
           updatedAt: revisionState.updatedAt,
@@ -1329,6 +1358,9 @@ export function resolveModuleProjectionGroups(
             (total, subscription) => total + subscription.poisonEventCount,
             0,
           );
+          const outstandingEventCount = sumDecimalCounts(
+            subscriptions.map((subscription) => subscription.outstandingEventCount),
+          );
           const state: SubscriptionReplayState = subscriptions.some((subscription) => subscription.state === "error")
             ? "error"
             : subscriptions.some((subscription) => subscription.state === "running")
@@ -1357,6 +1389,7 @@ export function resolveModuleProjectionGroups(
             caughtUp,
             state,
             lastError,
+            outstandingEventCount,
             blockedStreamCount,
             poisonEventCount,
             updatedAt: updatedAt > baseStatus.updatedAt ? updatedAt : baseStatus.updatedAt,
@@ -1668,6 +1701,7 @@ export function summarizeProjectionReplayStatuses(
         staleGroups: contextStatuses.filter((status) => status.revisionStale).length,
         runningGroups: contextStatuses.filter((status) => status.state === "running").length,
         errorGroups: contextStatuses.filter((status) => status.state === "error").length,
+        outstandingEventCount: sumDecimalCounts(contextStatuses.map((status) => status.outstandingEventCount)),
       } satisfies ProjectionReplayContextSummary;
     });
 
@@ -1679,6 +1713,7 @@ export function summarizeProjectionReplayStatuses(
   const staleGroups = statuses.filter((status) => status.revisionStale).length;
   const runningGroups = statuses.filter((status) => status.state === "running").length;
   const errorGroups = statuses.filter((status) => status.state === "error").length;
+  const outstandingEventCount = sumDecimalCounts(statuses.map((status) => status.outstandingEventCount));
   const requiredStatuses = statuses.filter((status) => status.requiredDuringBootstrap);
   const status = requiredStatuses.some((entry) => !entry.caughtUp || entry.revisionStale || entry.state === "error")
     ? "degraded"
@@ -1694,6 +1729,7 @@ export function summarizeProjectionReplayStatuses(
     staleGroups,
     runningGroups,
     errorGroups,
+    outstandingEventCount,
     contexts,
   };
 }

@@ -8,7 +8,7 @@ Use this runbook when a worker or projection group reports `degraded`.
 
 1. Open Admin > Operations > Projection Operations.
 2. Identify the runner or projection group with `state = degraded`.
-3. Check the blocked stream count and poison event count.
+3. Check outstanding events, blocked stream count, and poison event count.
 4. Inspect the latest poison event details: projection key, event type, stream id, stream version, global position, and error message.
 5. Decide whether the failure is a handler bug, malformed historical data, missing reference data, or a projection definition change.
 
@@ -27,7 +27,7 @@ Retry must preserve stream order. Apply the first blocked event before later def
 
 The projection operations API is mounted under `/api/platform/projections` on the same API host that serves the admin app (`platform-api` in full-platform environments and `admin-support-api` in split production environments) and requires `security.manage`.
 
-- `GET /api/platform/projections` lists refreshed projection group status, runner status, worker heartbeats, blocked streams, and poison summaries.
+- `GET /api/platform/projections` lists refreshed projection group status, outstanding event backlog, runner status, worker heartbeats, blocked streams, and poison summaries.
 - `GET /api/platform/projections/:projectionKey/blocked-streams` lists active blocked stream and poison details for one projection key.
 - `POST /api/platform/projections/:projectionKey/blocked-streams/:streamId/retry` replays one blocked stream in stream-version order.
 - `POST /api/platform/projections/groups/:contextName/:projectionName/rebuild` rebuilds one projection group and requires `{"confirm":"rebuild"}`.
@@ -49,5 +49,5 @@ Escalate as a projection correctness incident when:
 - a `global-strict` projection is in `error`
 - blocked stream count grows quickly
 - the same event type poisons many streams
-- degraded projection lag affects operator workflows or customer-facing reads
+- outstanding event backlog or degraded projection lag affects operator workflows or customer-facing reads
 - repair fails after the handler or data fix is deployed
