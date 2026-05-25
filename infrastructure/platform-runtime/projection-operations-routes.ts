@@ -15,6 +15,7 @@ import type { PlatformControlPlane, PlatformLease } from "./control-plane";
 
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
 const OPERATION_LEASE_TTL_MS = 10 * 60 * 1_000;
+const BLOCKED_PROJECTION_DETAILS_CONCURRENCY = 4;
 
 type ProjectionOperationsRouteEnv = {
   Variables: {
@@ -174,15 +175,37 @@ async function listBlockedProjectionDetails(
     ]),
   ];
 
-  const details = await Promise.all(
-    activeProjectionKeys.map((projectionKey) =>
+  const details = await mapWithConcurrency(
+    activeProjectionKeys,
+    BLOCKED_PROJECTION_DETAILS_CONCURRENCY,
+    (projectionKey) =>
       listProjectionBlockedStreamDetails(runtime, projectionKey, {
         poisonEventLimit: 10,
       }),
-    ),
   );
 
   return details.filter((detail) => detail.blockedStreams.length > 0 || detail.poisonEvents.length > 0);
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex] as T);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+
+  return results;
 }
 
 async function withProjectionOperationLease<T>(

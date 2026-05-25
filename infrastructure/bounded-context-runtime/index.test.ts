@@ -584,6 +584,82 @@ describe("bounded context projection replay", () => {
     });
   });
 
+  it("reports outstanding event counts from checkpoint to source head", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" }),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_3" }),
+    ]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+    const [group] = createProjectionGroupRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          requiredDuringBootstrap: true,
+        },
+      ],
+      [runner],
+    );
+
+    await runner.refreshStatus();
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "0",
+      sourceHeadGlobalPosition: "3",
+      outstandingEventCount: "3",
+    });
+    expect(group.getStatus()).toMatchObject({
+      outstandingEventCount: "3",
+      caughtUp: false,
+    });
+
+    await runner.runOnce();
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "3",
+      sourceHeadGlobalPosition: "3",
+      outstandingEventCount: "0",
+    });
+
+    sourceEventsByPool.set(sourcePool, [
+      ...(sourceEventsByPool.get(sourcePool) ?? []),
+      createStoredEvent("4", "catalog.catalog-item.published", { itemId: "cat_4" }),
+    ]);
+    const summary = summarizeProjectionReplayStatuses(
+      await refreshProjectionGroupStatuses({ projectionGroups: [group] }),
+    );
+
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "3",
+      sourceHeadGlobalPosition: "4",
+      outstandingEventCount: "1",
+    });
+    expect(summary).toMatchObject({
+      status: "degraded",
+      outstandingEventCount: "1",
+      contexts: [
+        expect.objectContaining({
+          contextName: "inventory",
+          outstandingEventCount: "1",
+        }),
+      ],
+    });
+  });
+
   it("lists blocked stream details for operator projection views", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

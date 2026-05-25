@@ -4331,6 +4331,7 @@ export const englishTranslations = {
   "adminWeb.app.routes.projectionOperations.action": "Action",
   "adminWeb.app.routes.projectionOperations.actions": "Actions",
   "adminWeb.app.routes.projectionOperations.active": "active",
+  "adminWeb.app.routes.projectionOperations.backlog": "Backlog",
   "adminWeb.app.routes.projectionOperations.blockedStreams": "Blocked Streams",
   "adminWeb.app.routes.projectionOperations.catalog": "Catalog",
   "adminWeb.app.routes.projectionOperations.caughtUp": "Caught Up",
@@ -4352,11 +4353,16 @@ export const englishTranslations = {
   "adminWeb.app.routes.projectionOperations.noProjectionGroups": "No projection groups",
   "adminWeb.app.routes.projectionOperations.noProjectionGroupsDescription":
     "This runtime has no projection groups mounted.",
+  "adminWeb.app.routes.projectionOperations.noSubscriptions": "No subscriptions",
+  "adminWeb.app.routes.projectionOperations.noSubscriptionsDescription":
+    "Subscription backlog appears after projection groups register source subscriptions.",
   "adminWeb.app.routes.projectionOperations.noWorkers": "No workers",
   "adminWeb.app.routes.projectionOperations.noWorkersDescription":
     "No worker heartbeat or runner status has been recorded.",
   "adminWeb.app.routes.projectionOperations.none": "none",
   "adminWeb.app.routes.projectionOperations.notRecorded": "Not recorded",
+  "adminWeb.app.routes.projectionOperations.outstandingEvents": "Outstanding Events",
+  "adminWeb.app.routes.projectionOperations.outstandingSummary": "{count} outstanding",
   "adminWeb.app.routes.projectionOperations.poisonEvents": "Poison events",
   "adminWeb.app.routes.projectionOperations.position": "Position",
   "adminWeb.app.routes.projectionOperations.positions": "Positions",
@@ -4372,6 +4378,8 @@ export const englishTranslations = {
   "adminWeb.app.routes.projectionOperations.state": "State",
   "adminWeb.app.routes.projectionOperations.status": "Status",
   "adminWeb.app.routes.projectionOperations.stream": "Stream",
+  "adminWeb.app.routes.projectionOperations.source": "Source",
+  "adminWeb.app.routes.projectionOperations.subscriptionBacklog": "Subscription Backlog",
   "adminWeb.app.routes.projectionOperations.title": "Projection Operations",
   "adminWeb.app.routes.projectionOperations.updated": "Updated",
   "adminWeb.app.routes.projectionOperations.workerRunners": "Worker Runners",

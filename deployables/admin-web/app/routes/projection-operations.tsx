@@ -38,6 +38,7 @@ type ProjectionGroupStatus = Readonly<{
   caughtUp: boolean;
   state: ProjectionState;
   lastError: string | null;
+  outstandingEventCount: string;
   blockedStreamCount: number;
   poisonEventCount: number;
   updatedAt: string;
@@ -53,6 +54,7 @@ type ProjectionSubscriptionStatus = Readonly<{
   subscriptionVersion: number;
   lastGlobalPosition: string;
   sourceHeadGlobalPosition: string;
+  outstandingEventCount: string;
   state: ProjectionState;
   lastError: string | null;
   blockedStreamCount: number;
@@ -97,6 +99,7 @@ type ProjectionOperationsSnapshot = Readonly<{
     staleGroups: number;
     runningGroups: number;
     errorGroups: number;
+    outstandingEventCount: string;
   }>;
   projectionGroups: readonly ProjectionGroupStatus[];
   blockedProjections: readonly BlockedProjectionDetails[];
@@ -105,6 +108,11 @@ type ProjectionOperationsSnapshot = Readonly<{
 }>;
 
 const routeKey = "adminWeb.app.routes.projectionOperations";
+
+type ProjectionSubscriptionRow = ProjectionSubscriptionStatus &
+  Readonly<{
+    projectionGroupName: string;
+  }>;
 
 export const meta: MetaFunction = () => [{ title: t(`${routeKey}.meta.title`) }];
 
@@ -153,6 +161,12 @@ export default function ProjectionOperationsRoute() {
   const blockedRows = data.blockedProjections.flatMap((projection) =>
     projection.blockedStreams.map((stream) => ({ ...stream, projectionKey: projection.projectionKey })),
   );
+  const subscriptionRows = data.projectionGroups.flatMap((group) =>
+    group.subscriptions.map((subscription) => ({
+      ...subscription,
+      projectionGroupName: group.projectionName,
+    })),
+  );
 
   return (
     <Page>
@@ -170,10 +184,14 @@ export default function ProjectionOperationsRoute() {
         </LinkButton>
       </ActionBar>
 
-      <StatGrid columns={{ base: 1, md: 4 }}>
+      <StatGrid columns={{ base: 1, md: 5 }}>
         <Stat label={t(`${routeKey}.status`)} value={data.summary.status} />
         <Stat label={t(`${routeKey}.projectionGroups`)} value={data.summary.totalGroups} />
         <Stat label={t(`${routeKey}.caughtUp`)} value={data.summary.caughtUpGroups} />
+        <Stat
+          label={t(`${routeKey}.outstandingEvents`)}
+          value={formatDecimalCount(data.summary.outstandingEventCount)}
+        />
         <Stat label={t(`${routeKey}.blockedStreams`)} value={blockedRows.length} />
       </StatGrid>
 
@@ -200,12 +218,22 @@ export default function ProjectionOperationsRoute() {
               },
               {
                 key: "lag",
-                header: t(`${routeKey}.issues`),
-                cell: (group) =>
-                  t(`${routeKey}.issueSummary`, {
-                    blocked: group.blockedStreamCount,
-                    poison: group.poisonEventCount,
-                  }),
+                header: t(`${routeKey}.backlog`),
+                cell: (group) => (
+                  <Stack gap={1}>
+                    <Text weight="semibold">
+                      {t(`${routeKey}.outstandingSummary`, {
+                        count: formatDecimalCount(group.outstandingEventCount),
+                      })}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {t(`${routeKey}.issueSummary`, {
+                        blocked: group.blockedStreamCount,
+                        poison: group.poisonEventCount,
+                      })}
+                    </Text>
+                  </Stack>
+                ),
               },
               {
                 key: "revision",
@@ -278,6 +306,50 @@ export default function ProjectionOperationsRoute() {
           />
         </PageSection>
       </Grid>
+
+      <PageSection title={t(`${routeKey}.subscriptionBacklog`)}>
+        <DataTable<ProjectionSubscriptionRow>
+          columns={[
+            {
+              key: "projection",
+              header: t(`${routeKey}.projection`),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{row.projectionGroupName}</Text>
+                  <Text size="sm" tone="secondary">
+                    {row.checkpointKey}
+                  </Text>
+                </Stack>
+              ),
+            },
+            {
+              key: "source",
+              header: t(`${routeKey}.source`),
+              cell: (row) => row.sourceContextName,
+            },
+            {
+              key: "state",
+              header: t(`${routeKey}.state`),
+              cell: (row) => <Badge tone={stateTone(row.state)}>{row.state}</Badge>,
+            },
+            {
+              key: "outstanding",
+              header: t(`${routeKey}.outstandingEvents`),
+              cell: (row) => formatDecimalCount(row.outstandingEventCount),
+            },
+            {
+              key: "positions",
+              header: t(`${routeKey}.positions`),
+              cell: (row) =>
+                `${formatDecimalCount(row.lastGlobalPosition)} -> ${formatDecimalCount(row.sourceHeadGlobalPosition)}`,
+            },
+          ]}
+          rows={[...subscriptionRows].sort(compareSubscriptionRows)}
+          getRowId={(row) => row.checkpointKey}
+          emptyTitle={t(`${routeKey}.noSubscriptions`)}
+          emptyDescription={t(`${routeKey}.noSubscriptionsDescription`)}
+        />
+      </PageSection>
 
       <PageSection title={t(`${routeKey}.blockedStreams`)}>
         <DataTable<BlockedStream>
@@ -373,6 +445,23 @@ function stateTone(state: string) {
     default:
       return "neutral" as const;
   }
+}
+
+function compareSubscriptionRows(left: ProjectionSubscriptionRow, right: ProjectionSubscriptionRow) {
+  const backlogComparison = BigInt(right.outstandingEventCount) - BigInt(left.outstandingEventCount);
+  if (backlogComparison !== 0n) {
+    return backlogComparison > 0n ? 1 : -1;
+  }
+
+  if (left.projectionGroupName !== right.projectionGroupName) {
+    return left.projectionGroupName.localeCompare(right.projectionGroupName);
+  }
+
+  return left.sourceContextName.localeCompare(right.sourceContextName);
+}
+
+function formatDecimalCount(value: string | number) {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function resolveApiUrl(request: Request) {
