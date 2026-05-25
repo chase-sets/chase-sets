@@ -29,7 +29,9 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
+import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createMcpRoutes, type CreateMcpRoutesOptions } from "@chase-sets/platform-runtime/mcp";
+import { createProjectionOperationsRoutes } from "@chase-sets/platform-runtime/projection-operations-routes";
 import {
   createUcpMcpRoutes,
   createUcpProfileRoutes,
@@ -77,6 +79,7 @@ export type BuildPlatformApiOptions = Readonly<{
   ucp?: CreateUcpRoutesOptions;
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
+  controlPlane?: PlatformControlPlane;
 }>;
 
 export function createPlatformApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
@@ -214,6 +217,14 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   );
 
   const platformActorMiddleware = createPlatformActorMiddleware(options.resolveActor ?? (async () => null));
+  app.use("/api/platform/projections", platformActorMiddleware);
+  app.use("/api/platform/projections/*", platformActorMiddleware);
+  app.route(
+    "/api/platform/projections",
+    createProjectionOperationsRoutes(runtime, {
+      controlPlane: options.controlPlane,
+    }),
+  );
   app.use("/mcp", platformActorMiddleware);
   app.use("/mcp/*", platformActorMiddleware);
   app.route("/mcp", createMcpRoutes(options.mcp));

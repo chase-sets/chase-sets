@@ -32,7 +32,10 @@ import {
   createUcpProfileKeyResolver,
   type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
-import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
 import {
   getObservabilityRuntime,
   recordRealtimeAuthorizationRejected,
@@ -64,6 +67,7 @@ const logger = observability.logger;
 const config = loadConfig();
 const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
+const controlPlane = createPostgresPlatformControlPlane(pools.control);
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -332,6 +336,7 @@ const ucpObserver = {
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
+  controlPlane,
   writeConsistencyDrainEnabled: config.writeConsistencyDrainEnabled,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readinessChecks: [

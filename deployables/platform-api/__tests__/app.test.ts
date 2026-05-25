@@ -123,6 +123,78 @@ describe("platform api app", () => {
     });
   });
 
+  it("requires platform operations permission for projection operations", async () => {
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "account_1",
+          membershipId: "member_1",
+          roleKey: "catalog-admin",
+          permissions: ["catalog.view"],
+        })),
+      },
+    );
+
+    const response = await app.request("/api/platform/projections");
+
+    expect(response.status).toBe(403);
+  });
+
+  it("mounts projection operations under the same-origin API prefix", async () => {
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "account_1",
+          membershipId: "member_1",
+          roleKey: "platform-admin",
+          permissions: ["security.manage"],
+        })),
+      },
+    );
+
+    const response = await app.request("/api/platform/projections");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      summary: {
+        status: "ok",
+        totalGroups: 0,
+      },
+      projectionGroups: [],
+      blockedProjections: [],
+      workers: [],
+      runners: [],
+    });
+  });
+
   it("mounts the internal realtime status route", async () => {
     const discoveryModule = {
       contextName: "discovery",

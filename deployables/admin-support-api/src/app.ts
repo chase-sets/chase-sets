@@ -15,6 +15,7 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
+import { createProjectionOperationsRoutes } from "@chase-sets/platform-runtime/projection-operations-routes";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import {
   createIdentityAuthMiddleware,
@@ -23,7 +24,6 @@ import {
   type TenantContextEnv,
 } from "./middleware/auth-context";
 import { errorHandler } from "./middleware/error-handler";
-import { createProjectionOperationsRoutes } from "./projection-operations-routes";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 
 export type PlatformIdentityServices = Readonly<{
