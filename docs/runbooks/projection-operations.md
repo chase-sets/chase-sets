@@ -21,6 +21,17 @@ WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS
 
 Keep database pool capacity in mind. If runner concurrency exceeds available database connections, increasing worker concurrency can make lag worse.
 
+Default shared-resource worker concurrency is intentionally conservative:
+
+- projections: `2`
+- bulk jobs: `1`
+- dispatchers: `1`
+- scheduled jobs: `1`
+
+Raise these only after checking database CPU, IO, connection pool saturation, and worker memory. On DigitalOcean shared-resource App Platform, prefer increasing projection capacity gradually or splitting heavy jobs into a separate worker deployable instead of letting all runner groups compete inside one small container.
+
+`/internal/workers/status` reports configured runner concurrency, database pool size, per-group runner counts, active runners, and lease misses. Treat `overPoolCapacity: true` as a tuning warning, especially when projection backlog is growing.
+
 Bulk jobs use:
 
 ```text
@@ -70,6 +81,14 @@ Use rebuild when read-model state is suspect or when projection revision changes
 
 Do not rebuild during peak write volume unless the degraded read model is worse than temporary catch-up pressure.
 
+## Idempotency And Ledger Growth
+
+Projection application rows are operational state, not business state. `applied` rows protect replay after checkpoint failures; `poison` and `transient` rows support repair. Keep an eye on table growth for `event_subscription_applications`, especially during full rebuilds or large catalog promotions.
+
+Handlers that receive a transaction-scoped `db` handle should use it for all read-model writes in that event application. That makes the handler write and application ledger completion commit together.
+
+The runtime compacts `applied` rows once they are more than 10,000 global positions behind the durable checkpoint. If an operator resets or rebuilds a projection, the projection key's checkpoints, application rows, poison events, and blocked stream state are cleared or superseded by the rebuild path.
+
 ## Healthy Catch-Up
 
 Healthy catch-up looks like:
@@ -87,3 +106,7 @@ If source lag does not decrease:
 3. Check database CPU, IO, and connection pool saturation.
 4. Check for degraded projections.
 5. Scale projection workers or reduce competing job concurrency.
+
+## Write Consistency
+
+API writes should return after durable event append. They should not wait for projector drain unless an endpoint has an explicit compatibility requirement. Use `Chase-Sets-Commit-Position` and bounded read retries to diagnose read-your-writes behavior.

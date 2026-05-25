@@ -2,6 +2,8 @@
 
 Projection consumers own read-model catch-up. Publishers append durable events and do not know which projectors or projection groups consume those events.
 
+API write paths should not synchronously drain projections as the default consistency strategy. Publishers communicate commit positions; projection consumers catch up independently.
+
 When a projection handler fails on one stream, the default failure boundary is the projection plus the source stream. Runtime records the poison event and blocked stream, advances that projection's global checkpoint, and continues draining unrelated streams. Later events from the blocked stream are deferred for that projection until the poison event is repaired or the projection is rebuilt.
 
 ## Policies

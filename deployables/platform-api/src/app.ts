@@ -282,7 +282,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
-  if (options.writeConsistencyDrainEnabled !== false) {
+  if (options.writeConsistencyDrainEnabled === true) {
     attachWriteDrainMiddleware(app, apiMounts, () => drainContextRuntime(runtime));
   }
   mountApiRouters(app, apiMounts);

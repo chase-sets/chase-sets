@@ -63,6 +63,55 @@ describe("projector stream-isolated errors", () => {
     });
   });
 
+  it("pushes handler event types into legacy projector reads", async () => {
+    const checkpointStore = createInMemoryCheckpointStore();
+    const eventStore = createInMemoryEventStore([
+      createStoredEvent("1", "catalog.source-observation.promoted", "catalog.source-observation-1"),
+      createStoredEvent("2", "catalog.catalog-item.published", "catalog.item-1"),
+    ]);
+    const seen: string[] = [];
+    const projector = createProjector({
+      projectorName: "catalog-item-projection",
+      eventStore,
+      checkpointStore,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          seen.push(event.globalPosition);
+        },
+      },
+    });
+
+    await projector.runOnce();
+
+    expect(eventStore.readAllCalls[0]).toMatchObject({
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+    expect(seen).toEqual(["2"]);
+    expect(checkpointStore.checkpoints.get("catalog-item-projection")).toBe("2");
+  });
+
+  it("batches legacy projector checkpoints", async () => {
+    const checkpointStore = createInMemoryCheckpointStore();
+    const projector = createProjector({
+      projectorName: "catalog-item-projection",
+      eventStore: createInMemoryEventStore([
+        createStoredEvent("1", "catalog.catalog-item.published", "catalog.item-1"),
+        createStoredEvent("2", "catalog.catalog-item.published", "catalog.item-2"),
+        createStoredEvent("3", "catalog.catalog-item.published", "catalog.item-3"),
+      ]),
+      checkpointStore,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      checkpointBatchSize: 2,
+    });
+
+    await projector.runOnce();
+
+    expect(checkpointStore.checkpoints.get("catalog-item-projection")).toBe("3");
+    expect(checkpointStore.checkpointWrites).toEqual(["2", "3"]);
+  });
+
   it("does not checkpoint transient projection errors", async () => {
     const checkpointStore = createInMemoryCheckpointStore();
     const projector = createProjector({
@@ -83,13 +132,25 @@ describe("projector stream-isolated errors", () => {
   });
 });
 
-function createInMemoryEventStore(events: readonly StoredEvent[]): EventStore {
+function createInMemoryEventStore(events: readonly StoredEvent[]): EventStore & {
+  readAllCalls: Array<Readonly<{ eventTypes?: readonly string[]; streamPrefixes?: readonly string[] }>>;
+} {
+  const readAllCalls: Array<Readonly<{ eventTypes?: readonly string[]; streamPrefixes?: readonly string[] }>> = [];
   return {
+    readAllCalls,
     appendToStream: async () => [],
     readStream: async ({ streamId, fromVersion = 1, limit = 500 }) =>
       events.filter((event) => event.streamId === streamId && event.streamVersion >= fromVersion).slice(0, limit),
-    readAll: async ({ afterGlobalPosition = ZERO_GLOBAL_POSITION, limit = 500 } = {}) =>
-      events.filter((event) => Number(event.globalPosition) > Number(afterGlobalPosition)).slice(0, limit),
+    readAll: async ({ afterGlobalPosition = ZERO_GLOBAL_POSITION, limit = 500, eventTypes, streamPrefixes } = {}) => {
+      readAllCalls.push({ eventTypes, streamPrefixes });
+      return events
+        .filter((event) => Number(event.globalPosition) > Number(afterGlobalPosition))
+        .filter((event) => !eventTypes?.length || eventTypes.includes(event.eventType))
+        .filter(
+          (event) => !streamPrefixes?.length || streamPrefixes.some((prefix) => event.streamId.startsWith(prefix)),
+        )
+        .slice(0, limit);
+    },
   };
 }
 
@@ -106,6 +167,7 @@ function createInMemoryCheckpointStore(): ProjectionCheckpointStore & {
     }
   >;
   poisonEvents: Set<string>;
+  checkpointWrites: GlobalPosition[];
 } {
   const checkpoints = new Map<string, GlobalPosition>();
   const blockedStreams = new Map<
@@ -119,14 +181,17 @@ function createInMemoryCheckpointStore(): ProjectionCheckpointStore & {
     }
   >();
   const poisonEvents = new Set<string>();
+  const checkpointWrites: GlobalPosition[] = [];
 
   return {
     checkpoints,
     blockedStreams,
     poisonEvents,
+    checkpointWrites,
     loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
     saveCheckpoint: async (projectorName, globalPosition) => {
       checkpoints.set(projectorName, globalPosition);
+      checkpointWrites.push(globalPosition);
     },
     loadBlockedStream: async (projectionKey, streamId) => {
       const stream = blockedStreams.get(`${projectionKey}:${streamId}`);

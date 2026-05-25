@@ -37,11 +37,23 @@ Workers run projection consumers separately from bulk jobs, dispatchers, and sch
 
 Projection subscriptions push event-type and stream-prefix filters into Postgres reads. This keeps each consumer independent while avoiding full source-log scans for every projection. When a filtered subscription has no matching tail left, it advances its checkpoint to the captured source head so irrelevant source events do not create permanent lag.
 
+The Postgres event store keeps composite indexes for common projection scans: event type plus global position, tenant plus event type plus global position, and stream-prefix lookup plus global position. Query plans should be checked with production-like data before introducing new broad stream-prefix subscriptions.
+
+Legacy `createProjector` consumers also push handler event types into `readAll` and batch checkpoint writes. New cross-context read models should still use bounded-context projection groups, but the compatibility path avoids full-log scans for existing slice-local projectors while they are migrated.
+
+When a subscription does not explicitly declare `eventTypes`, the runtime derives its event-type filter from the handler map. If a subscription declares `eventTypes`, startup validation fails when any handler event type is missing from that declaration. A projection must not be allowed to silently checkpoint past an event it has a handler for.
+
+API writes do not drain projections by default. Write responses expose commit-position metadata, and read-after-write surfaces use bounded retries against that position. Synchronous write-drain is an explicit compatibility mode only, not the normal consistency contract.
+
 ## Idempotency
 
 The runtime records projection application rows keyed by `(projection_key, event_id)`. A replay skips handlers already marked `applied`, which protects projection handlers when a worker restarts after handler success but before checkpoint persistence.
 
+Subscription handlers receive a transaction-scoped `db` handle in their handler context. New and migrated handlers should write read-model side effects through that handle so handler changes and the application ledger commit atomically. Existing one-argument handlers still run, but they are only conventionally idempotent until migrated to the transaction-aware path.
+
 Handlers should still be written as deterministic upserts. Multi-step handlers that delete and reinsert rows should use a transaction-aware helper when available.
+
+After a durable checkpoint advances, the runtime compacts `applied` ledger rows that are more than 10,000 global positions behind that checkpoint. Active `poison` and `transient` rows are retained for repair. Projection rebuild still clears all ledger rows for the rebuilt projection key.
 
 ## Poison Events
 

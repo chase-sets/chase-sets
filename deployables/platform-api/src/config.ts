@@ -502,7 +502,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     },
     port: Number(process.env.PORT ?? 6182),
     internalAuthSecret: resolvePlatformInternalAuthSecret(),
-    writeConsistencyDrainEnabled: getBooleanEnv("WRITE_CONSISTENCY_DRAIN_ENABLED", true),
+    writeConsistencyDrainEnabled: getBooleanEnv("WRITE_CONSISTENCY_DRAIN_ENABLED", false),
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),

@@ -35,6 +35,19 @@ CREATE TABLE IF NOT EXISTS platform_runner_statuses (
   updated_at timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots (
+  projection_key text PRIMARY KEY,
+  target_context_name text NOT NULL,
+  projection_name text NOT NULL,
+  runner_name text NOT NULL,
+  owner_id text NOT NULL,
+  status jsonb NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS platform_projection_status_snapshots_updated_at_idx
+  ON platform_projection_status_snapshots (updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases (
   lease_id text PRIMARY KEY,
   connection_key text NOT NULL,
@@ -88,6 +101,17 @@ export type PlatformControlPlane = Readonly<{
       lastError?: string | null;
     }>,
   ) => Promise<void>;
+  recordProjectionStatusSnapshot: (
+    input: Readonly<{
+      projectionKey: string;
+      targetContextName: string;
+      projectionName: string;
+      runnerName: string;
+      ownerId: string;
+      status: Record<string, unknown>;
+    }>,
+  ) => Promise<void>;
+  listProjectionStatusSnapshots: () => Promise<readonly Record<string, unknown>[]>;
   listWorkerHeartbeats: () => Promise<readonly Record<string, unknown>[]>;
   listRunnerStatuses: () => Promise<readonly Record<string, unknown>[]>;
   listLeases: () => Promise<readonly Record<string, unknown>[]>;
@@ -215,6 +239,44 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
         ],
       );
     },
+    recordProjectionStatusSnapshot: async (input) => {
+      await db.query(
+        `INSERT INTO platform_projection_status_snapshots (
+           projection_key,
+           target_context_name,
+           projection_name,
+           runner_name,
+           owner_id,
+           status,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
+         ON CONFLICT (projection_key)
+         DO UPDATE SET
+           target_context_name = EXCLUDED.target_context_name,
+           projection_name = EXCLUDED.projection_name,
+           runner_name = EXCLUDED.runner_name,
+           owner_id = EXCLUDED.owner_id,
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          input.projectionKey,
+          input.targetContextName,
+          input.projectionName,
+          input.runnerName,
+          input.ownerId,
+          JSON.stringify(input.status),
+        ],
+      );
+    },
+    listProjectionStatusSnapshots: async () =>
+      (
+        await db.query(
+          `SELECT projection_key, target_context_name, projection_name,
+                runner_name, owner_id, status, updated_at
+         FROM platform_projection_status_snapshots
+         ORDER BY target_context_name, projection_name`,
+        )
+      ).rows,
     listWorkerHeartbeats: async () =>
       (
         await db.query(

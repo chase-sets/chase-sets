@@ -190,8 +190,125 @@ describe("platform api app", () => {
       },
       projectionGroups: [],
       blockedProjections: [],
+      projectionStatusSource: "runtime-memory",
       workers: [],
       runners: [],
+    });
+  });
+
+  it("serves projection operations from worker snapshots without live refresh", async () => {
+    const refreshStatus = vi.fn(async () => {
+      throw new Error("Projection operations should not live refresh by default.");
+    });
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectors: [],
+        projectionGroups: [
+          {
+            targetContextName: "inventory",
+            projectionName: "inventory-catalog-item-projection",
+            refreshStatus,
+            getStatus: () => ({
+              targetContextName: "inventory",
+              projectionName: "inventory-catalog-item-projection",
+              projectionRevision: 1,
+              storedProjectionRevision: 1,
+              revisionStale: false,
+              sourceContextNames: ["catalog"],
+              ownedTables: ["inventory_catalog_items"],
+              requiredDuringBootstrap: true,
+              initialized: false,
+              caughtUp: false,
+              state: "behind",
+              lastError: null,
+              outstandingEventCount: "10",
+              blockedStreamCount: 0,
+              poisonEventCount: 0,
+              updatedAt: "2026-05-25T00:00:00.000Z",
+              subscriptions: [],
+            }),
+          },
+        ],
+        subscriptionRunners: [],
+      } as never,
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "account_1",
+          membershipId: "member_1",
+          roleKey: "platform-admin",
+          permissions: ["security.manage"],
+        })),
+        controlPlane: {
+          bootstrap: vi.fn(async () => undefined),
+          acquireLease: vi.fn(async () => null),
+          renewLease: vi.fn(async () => false),
+          releaseLease: vi.fn(async () => undefined),
+          heartbeatWorker: vi.fn(async () => undefined),
+          recordRunnerStatus: vi.fn(async () => undefined),
+          recordProjectionStatusSnapshot: vi.fn(async () => undefined),
+          listProjectionStatusSnapshots: vi.fn(async () => [
+            {
+              projection_key: "inventory.inventory-catalog-item-projection",
+              target_context_name: "inventory",
+              projection_name: "inventory-catalog-item-projection",
+              runner_name: "inventory.inventory-catalog-item-projection",
+              owner_id: "worker-a",
+              status: {
+                targetContextName: "inventory",
+                projectionName: "inventory-catalog-item-projection",
+                projectionRevision: 1,
+                storedProjectionRevision: 1,
+                revisionStale: false,
+                sourceContextNames: ["catalog"],
+                ownedTables: ["inventory_catalog_items"],
+                requiredDuringBootstrap: true,
+                initialized: true,
+                caughtUp: false,
+                state: "running",
+                lastError: null,
+                outstandingEventCount: "42",
+                blockedStreamCount: 0,
+                poisonEventCount: 0,
+                updatedAt: "2026-05-25T00:00:00.000Z",
+                subscriptions: [],
+              },
+              updated_at: "2026-05-25T00:01:00.000Z",
+            },
+          ]),
+          listWorkerHeartbeats: vi.fn(async () => []),
+          listRunnerStatuses: vi.fn(async () => []),
+          listLeases: vi.fn(async () => []),
+        },
+      },
+    );
+
+    const response = await app.request("/api/platform/projections");
+
+    expect(response.status).toBe(200);
+    expect(refreshStatus).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      projectionStatusSource: "worker-snapshot",
+      projectionGroups: [
+        {
+          targetContextName: "inventory",
+          projectionName: "inventory-catalog-item-projection",
+          state: "running",
+          outstandingEventCount: "42",
+          snapshot: {
+            runnerName: "inventory.inventory-catalog-item-projection",
+            ownerId: "worker-a",
+          },
+        },
+      ],
     });
   });
 
@@ -628,7 +745,7 @@ describe("platform api app", () => {
     expect(observedRawBody).toBe(rawBody);
   });
 
-  it("drains projectors after writes for mounts that request write consistency", async () => {
+  it("drains projectors after writes only when write-drain consistency is explicitly enabled", async () => {
     const writeRouter = new Hono();
     writeRouter.post("/cart", async (c) => c.json({ status: "added" }, 201));
 
@@ -676,6 +793,7 @@ describe("platform api app", () => {
           roleKey: "buyer",
           permissions: ["orders.manage"],
         })),
+        writeConsistencyDrainEnabled: true,
       },
     );
 
@@ -689,7 +807,7 @@ describe("platform api app", () => {
     expect(runOnce).toHaveBeenCalledTimes(2);
   });
 
-  it("can disable write-drain consistency for constrained deploy targets", async () => {
+  it("keeps write-drain consistency disabled by default", async () => {
     const writeRouter = new Hono();
     writeRouter.post("/cart", async (c) => c.json({ status: "added" }, 201));
 
@@ -737,7 +855,6 @@ describe("platform api app", () => {
           roleKey: "buyer",
           permissions: ["orders.manage"],
         })),
-        writeConsistencyDrainEnabled: false,
       },
     );
 

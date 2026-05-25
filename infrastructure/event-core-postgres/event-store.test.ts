@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createPostgresEventStore } from "./event-store";
+import { withPgTransaction } from "./types";
 
 describe("postgres event store", () => {
   it("pushes readAll event type and stream prefix filters into SQL", async () => {
@@ -34,5 +35,66 @@ describe("postgres event store", () => {
       ["catalog.item-", "catalog.category-"],
       25,
     ]);
+  });
+});
+
+describe("postgres transaction helper", () => {
+  it("commits successful work and releases the client", async () => {
+    const queries: string[] = [];
+    let released = false;
+    const client = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => {
+        released = true;
+      },
+    };
+
+    await expect(
+      withPgTransaction(
+        {
+          query: client.query,
+          connect: async () => client,
+        },
+        async (tx) => {
+          await tx.query("SELECT 1");
+          return "ok";
+        },
+      ),
+    ).resolves.toBe("ok");
+
+    expect(queries).toEqual(["BEGIN", "SELECT 1", "COMMIT"]);
+    expect(released).toBe(true);
+  });
+
+  it("rolls back failed work and releases the client", async () => {
+    const queries: string[] = [];
+    let released = false;
+    const client = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => {
+        released = true;
+      },
+    };
+
+    await expect(
+      withPgTransaction(
+        {
+          query: client.query,
+          connect: async () => client,
+        },
+        async () => {
+          throw new Error("boom");
+        },
+      ),
+    ).rejects.toThrow("boom");
+
+    expect(queries).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(released).toBe(true);
   });
 });

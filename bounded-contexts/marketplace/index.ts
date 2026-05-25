@@ -5,6 +5,7 @@ import type {
   BcEventSubscriptionDeclaration,
   BcProjectionGroupDeclaration,
 } from "@chase-sets/bounded-context-module";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import {
@@ -35,6 +36,19 @@ function getEventSubscription(sourceContextName: string, projectionName: string)
   return declaration;
 }
 
+function selectSubscriptionHandlers(
+  handlers: ProjectorHandlerMap,
+  eventTypes: readonly string[] | undefined,
+): ProjectorHandlerMap {
+  if (!eventTypes) {
+    return handlers;
+  }
+
+  return Object.fromEntries(
+    eventTypes.flatMap((eventType) => (handlers[eventType] ? [[eventType, handlers[eventType]]] : [])),
+  );
+}
+
 export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions> = {
   contextName: "marketplace",
   routePrefix: "/api/marketplace",
@@ -54,6 +68,7 @@ export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, Marke
     const identitySubscription = getEventSubscription("identity", "marketplace-identity-account-projection");
     const inventorySubscription = getEventSubscription("inventory", "marketplace-inventory-supply-projection");
     const reputationSubscription = getEventSubscription("reputation", "marketplace-identity-account-projection");
+    const accountProjectionHandlers = buildMarketplaceAccountProjectionHandlers(services.db);
 
     return [
       {
@@ -71,7 +86,7 @@ export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, Marke
         sourceContextName: "identity",
         projectionName: identitySubscription.projectionName,
         subscriptionVersion: identitySubscription.subscriptionVersion,
-        handlers: buildMarketplaceAccountProjectionHandlers(services.db),
+        handlers: selectSubscriptionHandlers(accountProjectionHandlers, identitySubscription.eventTypes),
         eventTypes: identitySubscription.eventTypes,
         streamPrefixes: identitySubscription.streamPrefixes,
         order: identitySubscription.order,
@@ -93,7 +108,7 @@ export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, Marke
         sourceContextName: "reputation",
         projectionName: reputationSubscription.projectionName,
         subscriptionVersion: reputationSubscription.subscriptionVersion,
-        handlers: buildMarketplaceAccountProjectionHandlers(services.db),
+        handlers: selectSubscriptionHandlers(accountProjectionHandlers, reputationSubscription.eventTypes),
         eventTypes: reputationSubscription.eventTypes,
         streamPrefixes: reputationSubscription.streamPrefixes,
         order: reputationSubscription.order,

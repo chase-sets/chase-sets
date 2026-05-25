@@ -89,7 +89,16 @@ export type ProjectionCheckpointStore = Readonly<{
   clearProjectionErrors?: (projectionKey: string) => Promise<void>;
 }>;
 
-export type ProjectorHandler = (event: Readonly<TransportEvent>) => Promise<void>;
+export type ProjectorHandlerContext = Readonly<{
+  db?: {
+    query: <Row = Record<string, unknown>>(
+      text: string,
+      values?: readonly unknown[],
+    ) => Promise<Readonly<{ rows: readonly Row[]; rowCount: number | null }>>;
+  };
+}>;
+
+export type ProjectorHandler = (event: Readonly<TransportEvent>, context?: ProjectorHandlerContext) => Promise<void>;
 
 export type ProjectorHandlerMap = Readonly<Record<string, ProjectorHandler>>;
 
@@ -112,11 +121,16 @@ export type ProjectorConfig = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   handlers: ProjectorHandlerMap;
   batchSize?: number;
+  checkpointBatchSize?: number;
+  eventTypes?: readonly string[];
+  streamPrefixes?: readonly string[];
   errorPolicy?: ProjectionErrorPolicy;
 }>;
 
 export function createProjector(config: ProjectorConfig): Projector {
   const batchSize = assertPositiveInteger(config.batchSize ?? 100, "batchSize");
+  const checkpointBatchSize = assertPositiveInteger(config.checkpointBatchSize ?? batchSize, "checkpointBatchSize");
+  const eventTypes = config.eventTypes ?? Object.keys(config.handlers).sort();
   const errorPolicy = config.errorPolicy ?? "strict-per-stream";
 
   return {
@@ -125,6 +139,8 @@ export function createProjector(config: ProjectorConfig): Projector {
       const checkpoint = await config.checkpointStore.loadCheckpoint(config.projectorName);
       const storedEvents = await config.eventStore.readAll({
         afterGlobalPosition: checkpoint,
+        eventTypes: eventTypes.length > 0 ? eventTypes : undefined,
+        streamPrefixes: config.streamPrefixes,
         limit: batchSize,
       });
 
@@ -141,7 +157,9 @@ export function createProjector(config: ProjectorConfig): Projector {
       }
 
       let lastGlobalPosition = checkpoint;
+      let lastCheckpointedGlobalPosition = checkpoint;
       let processed = 0;
+      let eventsSinceCheckpoint = 0;
 
       for (const storedEvent of storedEvents) {
         const transportEvent = toTransportEvent(storedEvent);
@@ -165,8 +183,13 @@ export function createProjector(config: ProjectorConfig): Projector {
 
             lastGlobalPosition = transportEvent.globalPosition;
             processed += 1;
+            eventsSinceCheckpoint += 1;
 
-            await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
+            if (eventsSinceCheckpoint >= checkpointBatchSize) {
+              await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
+              lastCheckpointedGlobalPosition = lastGlobalPosition;
+              eventsSinceCheckpoint = 0;
+            }
             continue;
           }
         }
@@ -180,6 +203,9 @@ export function createProjector(config: ProjectorConfig): Projector {
               isTransientProjectionError(error) ||
               !canRecordProjectionPoison(config.checkpointStore)
             ) {
+              if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
+                await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
+              }
               throw error;
             }
 
@@ -205,7 +231,16 @@ export function createProjector(config: ProjectorConfig): Projector {
 
         lastGlobalPosition = transportEvent.globalPosition;
         processed += 1;
+        eventsSinceCheckpoint += 1;
 
+        if (eventsSinceCheckpoint >= checkpointBatchSize) {
+          await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
+          lastCheckpointedGlobalPosition = lastGlobalPosition;
+          eventsSinceCheckpoint = 0;
+        }
+      }
+
+      if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
         await config.checkpointStore.saveCheckpoint(config.projectorName, lastGlobalPosition);
       }
 

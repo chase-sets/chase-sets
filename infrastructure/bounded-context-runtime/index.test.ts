@@ -16,6 +16,7 @@ type MockStoredEvent = Readonly<{
 
 type MockPool = {
   query: (sql: string, params?: readonly unknown[]) => Promise<{ rows: ReadonlyArray<Record<string, unknown>> }>;
+  connect: () => Promise<MockPool & { release: () => void }>;
 };
 
 const sourceEventsByPool = new Map<object, MockStoredEvent[]>();
@@ -27,6 +28,7 @@ const blockedStreamsByPool = new Map<object, Map<string, MockBlockedStream>>();
 const poisonEventsByPool = new Map<object, Set<string>>();
 const applicationStatusByPool = new Map<object, Map<string, string>>();
 const readAllCallsByPool = new Map<object, Record<string, unknown>[]>();
+const sourceHeadByPool = new Map<object, string>();
 
 type MockBlockedStream = Readonly<{
   projectionKey: string;
@@ -122,6 +124,11 @@ function createMockPool(): MockPool {
   const pool = {
     query: async (sql: string, params: readonly unknown[] = []) => {
       if (sql.includes("SELECT COALESCE(MAX(global_position), 0) AS head")) {
+        const configuredHead = sourceHeadByPool.get(pool);
+        if (configuredHead) {
+          return { rows: [{ head: configuredHead }] };
+        }
+
         const events = sourceEventsByPool.get(pool) ?? [];
         const head = events.reduce(
           (current, event) => (Number(event.globalPosition) > Number(current) ? event.globalPosition : current),
@@ -209,7 +216,7 @@ function createMockPool(): MockPool {
       if (sql.includes("UPDATE event_subscription_applications")) {
         const key = `${String(params[0])}:${String(params[1])}`;
         getApplicationStatusStore(pool).set(key, String(params[2]));
-        return { rows: [] };
+        return { rows: [], rowCount: 1 } as never;
       }
 
       if (sql.includes("INSERT INTO event_subscription_checkpoints")) {
@@ -238,6 +245,22 @@ function createMockPool(): MockPool {
 
       if (sql.includes("DELETE FROM event_subscription_applications")) {
         const projectionKey = String(params[0]);
+        if (sql.includes("status = 'applied'")) {
+          const compactThrough = Number(params[1]);
+          for (const [key, status] of [...getApplicationStatusStore(pool)]) {
+            if (!key.startsWith(`${projectionKey}:`) || status !== "applied") {
+              continue;
+            }
+
+            const eventId = key.slice(`${projectionKey}:`.length);
+            const event = [...sourceEventsByPool.values()].flat().find((candidate) => candidate.eventId === eventId);
+            if (event && Number(event.globalPosition) <= compactThrough) {
+              getApplicationStatusStore(pool).delete(key);
+            }
+          }
+          return { rows: [] };
+        }
+
         for (const key of [...getApplicationStatusStore(pool).keys()]) {
           if (key.startsWith(`${projectionKey}:`)) {
             getApplicationStatusStore(pool).delete(key);
@@ -310,6 +333,10 @@ function createMockPool(): MockPool {
 
       throw new Error(`Unexpected SQL in test double: ${sql}`);
     },
+    connect: async () => ({
+      ...pool,
+      release: () => undefined,
+    }),
   };
 
   return pool;
@@ -337,6 +364,7 @@ vi.mock("@chase-sets/event-core", () => ({
 }));
 
 vi.mock("@chase-sets/event-core-postgres", () => ({
+  withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
   createPostgresEventStore: ({ pool }: { pool: object }) => ({
     readAll: async ({
       afterGlobalPosition,
@@ -394,6 +422,7 @@ import {
   rebuildProjectionGroup,
   resetProjectionGroup,
   resolveModuleProjectionGroups,
+  resolveModuleSubscriptions,
   retryProjectionBlockedStream,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
@@ -481,6 +510,131 @@ describe("bounded context projection replay", () => {
     poisonEventsByPool.clear();
     applicationStatusByPool.clear();
     readAllCallsByPool.clear();
+    sourceHeadByPool.clear();
+  });
+
+  it("fails startup when declared event filters omit a handled event type", () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+
+    expect(() =>
+      resolveModuleSubscriptions([
+        {
+          contextName: "catalog",
+          module: {
+            contextName: "catalog",
+            buildSubscriptions: () => [],
+          } as BcApiModule,
+          services: {},
+          pool: sourcePool as never,
+          projectors: [],
+        },
+        {
+          contextName: "inventory",
+          module: {
+            contextName: "inventory",
+            buildSubscriptions: () => [
+              {
+                subscriptionName: "inventory.catalog-item-projection",
+                sourceContextName: "catalog",
+                projectionName: "inventory-catalog-item-projection",
+                subscriptionVersion: 1,
+                handlers: {
+                  "catalog.catalog-item.published": async () => undefined,
+                  "catalog.catalog-item.retired": async () => undefined,
+                },
+                eventTypes: ["catalog.catalog-item.published"],
+              },
+            ],
+          } as BcApiModule,
+          services: {},
+          pool: targetPool as never,
+          projectors: [],
+        },
+      ]),
+    ).toThrow(
+      "Context 'inventory' subscription 'inventory.catalog-item-projection' for projection 'inventory-catalog-item-projection' declares eventTypes that do not cover handler event types. Missing: [catalog.catalog-item.retired].",
+    );
+  });
+
+  it("derives event filters from handler keys when no eventTypes are declared", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+      createStoredEvent("2", "catalog.catalog-item.retired", { itemId: "cat_1" }),
+    ]);
+
+    const [runner] = resolveModuleSubscriptions([
+      {
+        contextName: "catalog",
+        module: {
+          contextName: "catalog",
+          buildSubscriptions: () => [],
+        } as BcApiModule,
+        services: {},
+        pool: sourcePool as never,
+        projectors: [],
+      },
+      {
+        contextName: "inventory",
+        module: {
+          contextName: "inventory",
+          buildSubscriptions: () => [
+            {
+              subscriptionName: "inventory.catalog-item-projection",
+              sourceContextName: "catalog",
+              projectionName: "inventory-catalog-item-projection",
+              subscriptionVersion: 1,
+              handlers: {
+                "catalog.catalog-item.published": async () => undefined,
+              },
+            },
+          ],
+        } as BcApiModule,
+        services: {},
+        pool: targetPool as never,
+        projectors: [],
+      },
+    ]);
+
+    await runner.runOnce();
+
+    expect(getReadAllCalls(sourcePool)[0]).toMatchObject({
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "2",
+      sourceHeadGlobalPosition: "2",
+      outstandingEventCount: "0",
+    });
+  });
+
+  it("does not move in-memory status behind events observed after the captured source head", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceHeadByPool.set(sourcePool, "1");
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_1" })]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+
+    await runner.runOnce();
+
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "2",
+      sourceHeadGlobalPosition: "2",
+      outstandingEventCount: "0",
+      state: "caught-up",
+    });
   });
 
   it("persists versioned checkpoints and replays a new subscription version from origin", async () => {
@@ -862,6 +1016,62 @@ describe("bounded context projection replay", () => {
       "applied",
     );
     expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("2");
+  });
+
+  it("passes a transaction-scoped db handle to subscription handlers before marking events applied", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const observedDbHandles: unknown[] = [];
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" })]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (_event, context) => {
+          observedDbHandles.push(context?.db);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+
+    await runner.runOnce();
+
+    expect(observedDbHandles).toEqual([targetPool]);
+    expect(getApplicationStatusStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:evt_1")).toBe(
+      "applied",
+    );
+  });
+
+  it("compacts applied subscription ledger rows behind the durable checkpoint safety window", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_old" }),
+      createStoredEvent("10001", "catalog.catalog-item.published", { itemId: "cat_boundary" }),
+      createStoredEvent("10002", "catalog.catalog-item.published", { itemId: "cat_recent" }),
+    ]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      batchSize: 100,
+    });
+
+    await runner.runOnce();
+
+    const applicationStore = getApplicationStatusStore(targetPool);
+    expect(applicationStore.get("inventory-catalog-item-projection:catalog:v1:evt_1")).toBeUndefined();
+    expect(applicationStore.get("inventory-catalog-item-projection:catalog:v1:evt_10001")).toBe("applied");
+    expect(applicationStore.get("inventory-catalog-item-projection:catalog:v1:evt_10002")).toBe("applied");
   });
 
   it("lists blocked stream details for operator projection views", async () => {

@@ -26,12 +26,15 @@ import {
   createPostgresEventStore,
   createPostgresProjectionStore,
   eventCorePostgresSchemaSql,
+  withPgTransaction,
+  type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 
 const RETRY_DELAY_MS = 1_000;
 const MAX_RETRIES = 30;
 const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
+const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
 const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
 const PROJECTION_GROUP_REVISIONS_TABLE = "event_projection_group_revisions";
 const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -96,7 +99,13 @@ CREATE TABLE IF NOT EXISTS event_subscription_applications (
 );
 
 CREATE INDEX IF NOT EXISTS event_subscription_applications_projection_position_idx
-  ON event_subscription_applications (projection_key, global_position);`;
+  ON event_subscription_applications (projection_key, global_position);
+
+CREATE INDEX IF NOT EXISTS event_subscription_applications_projection_status_updated_idx
+  ON event_subscription_applications (projection_key, status, updated_at);
+
+CREATE INDEX IF NOT EXISTS event_subscription_applications_status_position_idx
+  ON event_subscription_applications (status, global_position);`;
 
 export type SubscriptionReplayState = "idle" | "behind" | "running" | "caught-up" | "degraded" | "error";
 
@@ -266,7 +275,7 @@ async function saveSubscriptionCheckpoint(
 }
 
 async function loadSubscriptionApplicationStatus(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   projectionKey: string,
   eventId: string,
 ): Promise<"started" | "applied" | "poison" | "transient" | null> {
@@ -283,7 +292,7 @@ async function loadSubscriptionApplicationStatus(
 }
 
 async function recordSubscriptionApplicationStarted(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   projectionKey: string,
   event: Readonly<ReturnType<typeof toTransportEvent>>,
 ): Promise<void> {
@@ -313,13 +322,13 @@ async function recordSubscriptionApplicationStarted(
 }
 
 async function recordSubscriptionApplicationCompleted(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   projectionKey: string,
   eventId: string,
   status: "applied" | "poison" | "transient",
   error: unknown = null,
 ): Promise<void> {
-  await db.query(
+  const result = await db.query(
     `UPDATE event_subscription_applications
      SET status = $3,
          error_message = $4,
@@ -327,6 +336,28 @@ async function recordSubscriptionApplicationCompleted(
      WHERE projection_key = $1
        AND event_id = $2`,
     [projectionKey, eventId, status, error instanceof Error ? error.message : error === null ? null : String(error)],
+  );
+  if (result.rowCount !== null && result.rowCount < 1) {
+    throw new Error(`Projection application '${projectionKey}:${eventId}' was not claimed before completion.`);
+  }
+}
+
+async function compactSubscriptionApplicationLedger(
+  db: PgQueryable,
+  projectionKey: string,
+  checkpoint: GlobalPosition,
+): Promise<void> {
+  const compactThrough = BigInt(checkpoint) - SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS;
+  if (compactThrough <= 0n) {
+    return;
+  }
+
+  await db.query(
+    `DELETE FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND status = 'applied'
+       AND global_position <= $2::bigint`,
+    [projectionKey, compactThrough.toString()],
   );
 }
 
@@ -882,7 +913,9 @@ export type ContextProcessSet = Readonly<{
   subscriptionRunners?: readonly ContextSubscriptionRunner[];
 }>;
 
-function sortSubscriptionRunners(runners: readonly ContextSubscriptionRunner[]): readonly ContextSubscriptionRunner[] {
+export function sortSubscriptionRunners(
+  runners: readonly ContextSubscriptionRunner[],
+): readonly ContextSubscriptionRunner[] {
   return [...runners].sort((left, right) => {
     if (left.order !== right.order) {
       return left.order - right.order;
@@ -946,6 +979,7 @@ export function createSubscriptionRunner(
   const batchSize = subscription.batchSize ?? 100;
   const checkpointBatchSize = Math.max(1, subscription.checkpointBatchSize ?? batchSize);
   const checkpointKey = createCheckpointKey(subscription);
+  const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
   const status: {
     checkpointKey: string;
     subscriptionName: string;
@@ -1059,7 +1093,7 @@ export function createSubscriptionRunner(
           inspectedEvents += 1;
           lastInspectedGlobalPosition = event.globalPosition;
 
-          if (!matchesSubscriptionEvent(event, subscription)) {
+          if (!matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes })) {
             continue;
           }
 
@@ -1079,11 +1113,28 @@ export function createSubscriptionRunner(
               continue;
             }
 
-            await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
-            await handler(event);
-            await recordSubscriptionApplicationCompleted(targetPool, checkpointKey, String(event.id), "applied");
+            const applicationResult = await withPgTransaction(targetPool, async (client) => {
+              const transactionStatus = await loadSubscriptionApplicationStatus(
+                client,
+                checkpointKey,
+                String(event.id),
+              );
+              if (transactionStatus === "applied") {
+                return "already-applied" as const;
+              }
+
+              await recordSubscriptionApplicationStarted(client, checkpointKey, event);
+              await handler(event, { db: client });
+              await recordSubscriptionApplicationCompleted(client, checkpointKey, String(event.id), "applied");
+              return "applied" as const;
+            });
+            if (applicationResult === "already-applied") {
+              appliedEvents += 1;
+              continue;
+            }
             appliedEvents += 1;
           } catch (error) {
+            await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
             await recordSubscriptionApplicationCompleted(targetPool, checkpointKey, String(event.id), "poison", error);
             await recordProjectionPoisonEvent(targetPool, {
               projectionKey: checkpointKey,
@@ -1160,7 +1211,7 @@ export function createSubscriptionRunner(
 
         const storedEvents = await sourceEventStore.readAll({
           afterGlobalPosition: checkpoint,
-          eventTypes: subscription.eventTypes,
+          eventTypes: subscriptionEventTypes,
           streamPrefixes: subscription.streamPrefixes,
           limit: batchSize,
         });
@@ -1200,7 +1251,7 @@ export function createSubscriptionRunner(
           const event = toTransportEvent(storedEvent);
           const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[event.type];
 
-          if (matchesSubscriptionEvent(event, subscription) && handler) {
+          if (matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }) && handler) {
             if (errorPolicy === "strict-per-stream") {
               const blockedStream = await loadProjectionBlockedStream(targetPool, checkpointKey, event.streamId);
 
@@ -1242,11 +1293,35 @@ export function createSubscriptionRunner(
                 continue;
               }
 
-              await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
-              await handler(event);
-              await recordSubscriptionApplicationCompleted(targetPool, checkpointKey, String(event.id), "applied");
+              const applicationResult = await withPgTransaction(targetPool, async (client) => {
+                const transactionStatus = await loadSubscriptionApplicationStatus(
+                  client,
+                  checkpointKey,
+                  String(event.id),
+                );
+                if (transactionStatus === "applied") {
+                  return "already-applied" as const;
+                }
+
+                await recordSubscriptionApplicationStarted(client, checkpointKey, event);
+                await handler(event, { db: client });
+                await recordSubscriptionApplicationCompleted(client, checkpointKey, String(event.id), "applied");
+                return "applied" as const;
+              });
+              if (applicationResult === "already-applied") {
+                lastGlobalPosition = event.globalPosition;
+                processed += 1;
+                eventsSinceCheckpoint += 1;
+                if (eventsSinceCheckpoint >= checkpointBatchSize) {
+                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                  lastCheckpointedGlobalPosition = lastGlobalPosition;
+                  eventsSinceCheckpoint = 0;
+                }
+                continue;
+              }
             } catch (error) {
               if (errorPolicy === "global-strict" || isTransientProjectionError(error)) {
+                await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
                 await recordSubscriptionApplicationCompleted(
                   targetPool,
                   checkpointKey,
@@ -1260,6 +1335,7 @@ export function createSubscriptionRunner(
                 throw error;
               }
 
+              await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
               await recordProjectionPoisonEvent(targetPool, {
                 projectionKey: checkpointKey,
                 projectionName: subscription.projectionName,
@@ -1295,12 +1371,26 @@ export function createSubscriptionRunner(
 
         if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
           await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+          lastCheckpointedGlobalPosition = lastGlobalPosition;
         }
+        await compactSubscriptionApplicationLedger(targetPool, checkpointKey, lastCheckpointedGlobalPosition);
 
-        if (storedEvents.length < batchSize && lastGlobalPosition !== status.sourceHeadGlobalPosition) {
-          lastGlobalPosition = status.sourceHeadGlobalPosition;
-          await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+        if (storedEvents.length < batchSize) {
+          const observedSourceHeadGlobalPosition = isGlobalPositionGreater(
+            lastGlobalPosition,
+            status.sourceHeadGlobalPosition,
+          )
+            ? lastGlobalPosition
+            : status.sourceHeadGlobalPosition;
+
+          status.sourceHeadGlobalPosition = observedSourceHeadGlobalPosition;
+          if (lastGlobalPosition !== observedSourceHeadGlobalPosition) {
+            lastGlobalPosition = observedSourceHeadGlobalPosition;
+            await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+            lastCheckpointedGlobalPosition = lastGlobalPosition;
+          }
         }
+        await compactSubscriptionApplicationLedger(targetPool, checkpointKey, lastCheckpointedGlobalPosition);
 
         status.initialized = true;
         status.lastGlobalPosition = lastGlobalPosition;
@@ -1346,6 +1436,7 @@ export function resolveModuleSubscriptions(
     const subscriptions = entry.module.buildSubscriptions?.(entry.services) ?? [];
 
     for (const subscription of subscriptions) {
+      validateSubscriptionEventFilters(entry.contextName, subscription);
       const sourceEntry = contextsByName.get(subscription.sourceContextName);
       if (!sourceEntry) {
         throw new Error(
@@ -1358,6 +1449,23 @@ export function resolveModuleSubscriptions(
   }
 
   return sortSubscriptionRunners(runners);
+}
+
+function validateSubscriptionEventFilters(contextName: string, subscription: BcEventSubscription): void {
+  if (!subscription.eventTypes) {
+    return;
+  }
+
+  const declaredEventTypes = new Set(subscription.eventTypes);
+  const missingEventTypes = Object.keys(subscription.handlers)
+    .filter((eventType) => !declaredEventTypes.has(eventType))
+    .sort();
+
+  if (missingEventTypes.length > 0) {
+    throw new Error(
+      `Context '${contextName}' subscription '${subscription.subscriptionName}' for projection '${subscription.projectionName}' declares eventTypes that do not cover handler event types. Missing: [${missingEventTypes.join(", ")}]. Add the missing event type(s) to the bounded context manifest or remove the handler.`,
+    );
+  }
 }
 
 function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): readonly ContextProjectionGroup[] {
