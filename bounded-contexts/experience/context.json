@@ -17,8 +17,7 @@
     {
       "mountPath": "/api/experience",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

@@ -3,7 +3,6 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { reputationReservedSeedIds } from "@chase-sets/reputation/seed-support/ids";
 import { createReputationServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { Projector } from "@chase-sets/event-core/projector";
 
 function createSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
@@ -13,18 +12,6 @@ function createSeedContext(accountId: string, userId: string): EventStoreContext
       forAccountId: accountId as never,
     },
   };
-}
-
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
 }
 
 export async function seedReputationDatabase(pool: PgTransactionalPool) {
@@ -39,8 +26,6 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
   } catch {
     // Table may not exist yet. Proceed with seeding.
   }
-
-  await drainProjectors(services.projectors);
 
   const buyerToSellerOpportunity = await services.reviews.getOrderReviewOpportunity(
     (
@@ -118,6 +103,4 @@ export async function seedReputationDatabase(pool: PgTransactionalPool) {
     },
     context: createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
   });
-
-  await drainProjectors(services.projectors);
 }

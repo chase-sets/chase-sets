@@ -14,7 +14,6 @@
       "sourceContextName": "identity",
       "projectionName": "fulfillment-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["fulfillment-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -22,20 +21,21 @@
         "identity.account.reactivated",
         "identity.account.closed"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["fulfillment-account-projection"]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "fulfillment-order-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["fulfillment-order-source-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
         "ordering.order.cancelled",
         "ordering.order.ready-for-fulfillment-recorded"
       ],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["fulfillment-order-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -64,8 +64,7 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

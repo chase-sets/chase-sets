@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type {
@@ -57,7 +58,7 @@ export type ProductMeasureServices = Readonly<{
   resolveAllCatalogItemMeasures: (context?: EventStoreContext) => Promise<void>;
   listProductMeasureProfiles: () => ReturnType<typeof listProductMeasureProfiles>;
   listResolvedProductMeasures: (catalogItemId?: string | null) => ReturnType<typeof listResolvedProductMeasures>;
-  projectors: readonly [];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMeasureServices {
@@ -67,7 +68,17 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
     resolveAllCatalogItemMeasures: (context) => resolveAllCatalogItemMeasures(deps, context),
     listProductMeasureProfiles: () => listProductMeasureProfiles(deps.db),
     listResolvedProductMeasures: (catalogItemId) => listResolvedProductMeasures(deps.db, catalogItemId),
-    projectors: [],
+    projectors: [
+      createProjectionHandlerSet({
+        projectionName: "catalog-product-measures-projection",
+        handlers: {
+          "catalog.catalog-item.product-measures-resolved": async (event) => {
+            const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
+            await replaceResolvedProductMeasures(deps.db, data.catalogItemId, data.products);
+          },
+        },
+      }),
+    ],
   };
 }
 
@@ -143,52 +154,23 @@ async function resolveCatalogItemMeasures(
 
   const profiles = await listProductMeasureProfiles(db);
   const products = enumerateProducts(item);
-  await db.query(`DELETE FROM catalog_resolved_product_measures WHERE catalog_item_id = $1`, [catalogItemId]);
-
-  const resolvedProducts: ProductMeasureSnapshot[] = [];
-  for (const product of products) {
-    const profile = profiles.find((candidate) => profileMatches(candidate, item, product.selectedOptions));
-    const measure = profile
-      ? {
-          ...profile.measure_snapshot,
-          catalogItemId: item.catalog_item_id,
-          productId: product.productId,
-          selectedOptions: product.selectedOptions,
-        }
-      : null;
-    if (measure) {
-      resolvedProducts.push(measure);
-    }
-
-    await db.query(
-      `INSERT INTO catalog_resolved_product_measures (
-         product_id,
-         catalog_item_id,
-         selected_options,
-         measure_snapshot,
-         missing_reason,
-         updated_at
-       ) VALUES ($1, $2, $3, $4, $5, now())
-       ON CONFLICT (product_id) DO UPDATE SET
-         catalog_item_id = EXCLUDED.catalog_item_id,
-         selected_options = EXCLUDED.selected_options,
-         measure_snapshot = EXCLUDED.measure_snapshot,
-         missing_reason = EXCLUDED.missing_reason,
-         updated_at = EXCLUDED.updated_at`,
-      [
-        product.productId,
-        item.catalog_item_id,
-        JSON.stringify(product.selectedOptions),
-        measure ? JSON.stringify(measure) : null,
-        measure ? null : "missing-product-measure-profile",
-      ],
-    );
-  }
+  const resolvedProducts = resolveProductMeasures(item, products, profiles);
 
   if (context) {
+    const streamId = `catalog.product-measures-${catalogItemId}`;
+    const existingEvents = await deps.eventStore.readStream({ streamId });
+    const currentVersion = existingEvents.length;
+    const lastResolved = [...existingEvents]
+      .reverse()
+      .find((event) => event.eventType === "catalog.catalog-item.product-measures-resolved");
+    if (
+      JSON.stringify(lastResolved?.payload ?? null) === JSON.stringify({ catalogItemId, products: resolvedProducts })
+    ) {
+      return;
+    }
     await deps.eventStore.appendToStream({
-      streamId: `catalog.product-measures-${catalogItemId}`,
-      expectedVersion: "any",
+      streamId,
+      expectedVersion: currentVersion,
       context,
       events: [
         {
@@ -200,6 +182,59 @@ async function resolveCatalogItemMeasures(
         },
       ],
     });
+    return;
+  }
+
+  await replaceResolvedProductMeasures(db, catalogItemId, resolvedProducts);
+}
+
+function resolveProductMeasures(
+  item: CatalogProductRow,
+  products: readonly Readonly<{
+    productId: string;
+    selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  }>[],
+  profiles: Awaited<ReturnType<typeof listProductMeasureProfiles>>,
+): ProductMeasureSnapshot[] {
+  return products.flatMap((product) => {
+    const profile = profiles.find((candidate) => profileMatches(candidate, item, product.selectedOptions));
+    return profile
+      ? [
+          {
+            ...profile.measure_snapshot,
+            catalogItemId: item.catalog_item_id,
+            productId: product.productId,
+            selectedOptions: product.selectedOptions,
+          },
+        ]
+      : [];
+  });
+}
+
+async function replaceResolvedProductMeasures(
+  db: PgQueryable,
+  catalogItemId: string,
+  resolvedProducts: readonly ProductMeasureSnapshot[],
+): Promise<void> {
+  await db.query(`DELETE FROM catalog_resolved_product_measures WHERE catalog_item_id = $1`, [catalogItemId]);
+  for (const measure of resolvedProducts) {
+    await db.query(
+      `INSERT INTO catalog_resolved_product_measures (
+         product_id,
+         catalog_item_id,
+         selected_options,
+         measure_snapshot,
+         missing_reason,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, NULL, now())
+       ON CONFLICT (product_id) DO UPDATE SET
+         catalog_item_id = EXCLUDED.catalog_item_id,
+         selected_options = EXCLUDED.selected_options,
+         measure_snapshot = EXCLUDED.measure_snapshot,
+         missing_reason = EXCLUDED.missing_reason,
+         updated_at = EXCLUDED.updated_at`,
+      [measure.productId, catalogItemId, JSON.stringify(measure.selectedOptions), JSON.stringify(measure)],
+    );
   }
 }
 

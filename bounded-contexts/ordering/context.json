@@ -14,7 +14,6 @@
       "sourceContextName": "identity",
       "projectionName": "ordering-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["ordering-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -22,13 +21,13 @@
         "identity.account.reactivated",
         "identity.account.closed"
       ],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["ordering-account-projection"]
     },
     {
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-supply-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["ordering-marketplace-supply-input-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -40,54 +39,54 @@
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled"
       ],
-      "order": 30
+      "order": 30,
+      "projectionHandlerSetNames": ["ordering-marketplace-supply-input-projection"]
     },
     {
       "sourceContextName": "inventory",
       "projectionName": "ordering-inventory-supply-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["ordering-inventory-supply-input-projection"],
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
         "inventory.hold.placed",
         "inventory.hold.released"
       ],
-      "order": 40
+      "order": 40,
+      "projectionHandlerSetNames": ["ordering-inventory-supply-input-projection"]
     },
     {
       "sourceContextName": "inventory",
       "projectionName": "ordering-inventory-reservation-outcomes",
       "subscriptionVersion": 1,
-      "projectorNames": ["ordering-inventory-reservation-outcomes"],
       "eventTypes": [
         "inventory.reservation.confirmed",
         "inventory.reservation.rejected",
         "inventory.reservation.released"
       ],
-      "order": 45
+      "order": 45,
+      "projectionHandlerSetNames": ["ordering-inventory-reservation-outcomes"]
     },
     {
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-offer-acceptance",
       "subscriptionVersion": 1,
-      "projectorNames": ["ordering-marketplace-offer-acceptance"],
       "eventTypes": ["marketplace.offer.accepted"],
-      "order": 50
+      "order": 50,
+      "projectionHandlerSetNames": ["ordering-marketplace-offer-acceptance"]
     },
     {
       "sourceContextName": "payments",
       "projectionName": "ordering-payment-capture",
       "subscriptionVersion": 1,
-      "projectorNames": ["ordering-payment-capture"],
       "eventTypes": ["payments.payment-captured"],
-      "order": 60
+      "order": 60,
+      "projectionHandlerSetNames": ["ordering-payment-capture"]
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "ordering-fulfillment-cancellation-inputs",
       "subscriptionVersion": 1,
-      "projectorNames": ["ordering-fulfillment-cancellation-inputs"],
       "eventTypes": [
         "fulfillment.shipment.created",
         "fulfillment.shipment.package-prepared",
@@ -95,7 +94,8 @@
         "fulfillment.shipment.dispatched",
         "fulfillment.shipment.cancelled"
       ],
-      "order": 70
+      "order": 70,
+      "projectionHandlerSetNames": ["ordering-fulfillment-cancellation-inputs"]
     }
   ],
   "projectionGroups": [
@@ -149,8 +149,7 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

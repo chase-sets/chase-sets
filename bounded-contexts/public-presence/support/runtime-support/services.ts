@@ -6,7 +6,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createWaitlistRuntime } from "../../features/waitlist/api/runtime";
 
 export type PublicPresenceHostPorts = Readonly<{
@@ -16,7 +16,7 @@ export type PublicPresenceHostPorts = Readonly<{
 export type PublicPresenceServices = Readonly<{
   waitlist: ReturnType<typeof createWaitlistRuntime>;
   transactionalEmailOutbox: TransactionalEmailOutbox;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

@@ -1,6 +1,6 @@
 import {
   bootstrapContextDatabase,
-  collectProjectors,
+  createProjectionAwarePool,
   drainContextRuntime,
   resolveModuleApiMounts,
   resolveModuleProjectionGroups,
@@ -59,7 +59,6 @@ export type ApiHostRuntime = Readonly<{
     services: unknown;
   }>[];
   services: Readonly<Record<string, unknown>>;
-  projectors: ReturnType<typeof collectProjectors>;
   projectionGroups: ReturnType<typeof resolveModuleProjectionGroups>;
   subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 }>;
@@ -117,7 +116,7 @@ export function createApiHost(
       return [
         entry.contextName,
         entry.module.createServices(
-          pool,
+          createProjectionAwarePool(pool),
           getHostPortsForContext(entry.manifest as ApiContextManifest, options.hostPorts ?? {}) as never,
         ),
       ];
@@ -134,7 +133,7 @@ export function createApiHost(
       module: entry.module,
       services: contextServices,
       pool,
-      projectors: entry.module.projectors(contextServices as never),
+      projectionHandlerSets: entry.module.projectionHandlerSets?.(contextServices as never) ?? [],
     };
   });
 
@@ -149,11 +148,6 @@ export function createApiHost(
     mountedContexts,
     mountedModules,
     services,
-    projectors: collectProjectors(
-      mountedContexts.map((entry) => ({
-        projectors: entry.projectors,
-      })),
-    ),
     projectionGroups,
     subscriptionRunners,
   };
@@ -259,6 +253,9 @@ export async function seedApiHostIfEmpty(
     }
     await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
     if (runFullDrain) {
+      await syncContextProjectionGroups(runtime, contextName);
+      await drainContextRuntime(runtime);
+      await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
       await syncContextProjectionGroups(runtime, contextName);
       await drainContextRuntime(runtime);
     }

@@ -1,7 +1,7 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
@@ -32,7 +32,7 @@ export type CategoryServices = Readonly<{
   listCategories: (params?: Parameters<typeof listCategories>[1]) => ReturnType<typeof listCategories>;
   getCategoryDetail: (categoryId: string) => ReturnType<typeof getCategoryDetail>;
   bulkLifecycle: BulkLifecycleOperations<CategoryListParams, CategoryCommand, CategoryState, CategoryEvent>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createCategoryRuntime(deps: CatalogRuntimeDeps): CategoryServices {
@@ -48,16 +48,12 @@ export function createCategoryRuntime(deps: CatalogRuntimeDeps): CategoryService
   });
 
   const projectors = [
-    createProjector({
-      projectorName: "catalog-category-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-category-projection",
       handlers: buildCategoryProjectionHandlers(deps.db),
     }),
-    createProjector({
-      projectorName: "catalog-admin-category-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-admin-category-projection",
       handlers: withCatalogAdminRealtimeInvalidation(buildCatalogAdminCategoryProjectionHandlers(deps.db), deps.db, {
         projectionName: "catalog-admin-category-projection",
         surface: "categories",

@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -89,7 +89,7 @@ export type MarketplaceOfferServices = Readonly<{
   getSubmittedOffer: (offerId: string, buyerAccountId: string) => ReturnType<typeof getSubmittedOffer>;
   listOfferMatches: (params: Parameters<typeof listOfferMatches>[1]) => ReturnType<typeof listOfferMatches>;
   getOfferMatch: (offerId: string, sellerAccountId: string) => ReturnType<typeof getOfferMatch>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): MarketplaceOfferServices {
@@ -317,10 +317,8 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     listOfferMatches: (params) => listOfferMatches(deps.db, params),
     getOfferMatch: (offerId, sellerAccountId) => getOfferMatch(deps.db, offerId, sellerAccountId),
     projectors: [
-      createProjector({
-        projectorName: "marketplace-offer-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "marketplace-offer-projection",
         handlers: buildMarketplaceOfferProjectionHandlers(deps.db),
       }),
     ],

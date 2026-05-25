@@ -4,12 +4,12 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
 
 export type SupportServices = Readonly<{
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

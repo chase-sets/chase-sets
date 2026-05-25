@@ -4,7 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
@@ -18,7 +18,8 @@ export type MarketplaceServiceOptions = Readonly<{
 export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
+  commercialTermsResolver: CommercialTermsResolver;
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
@@ -30,11 +31,12 @@ export function createMarketplaceServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const commercialTermsResolver = options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db);
   const deps = {
     eventStore,
     checkpointStore,
     db,
-    commercialTermsResolver: options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db),
+    commercialTermsResolver,
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
@@ -44,6 +46,7 @@ export function createMarketplaceServices(
     listings,
     offers,
     projectors: [...listings.projectors, ...offers.projectors],
+    commercialTermsResolver,
     pool,
     db,
   };

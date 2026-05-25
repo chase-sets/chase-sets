@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -220,7 +220,7 @@ export type MarketplaceListingServices = Readonly<{
   listItemListings: (itemId: string) => ReturnType<typeof listItemListings>;
   getInventoryItemSupply: (itemId: string, accountId?: string) => ReturnType<typeof getInventoryItemSupply>;
   reconcileInventoryCapacity: (inventoryItemId: string) => Promise<void>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 type ListingRuntimeDeps = MarketplaceRuntimeDeps &
@@ -818,10 +818,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     getInventoryItemSupply: (itemId, accountId) => getInventoryItemSupply(deps.db, itemId, accountId),
     reconcileInventoryCapacity,
     projectors: [
-      createProjector({
-        projectorName: "marketplace-listing-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "marketplace-listing-projection",
         handlers: buildMarketplaceListingProjectionHandlers(deps.db),
       }),
     ],

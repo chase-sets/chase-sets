@@ -1,7 +1,7 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
@@ -25,7 +25,7 @@ export type FieldServices = Readonly<{
   listFields: (params?: Parameters<typeof listFields>[1]) => ReturnType<typeof listFields>;
   getField: (fieldId: string) => ReturnType<typeof getField>;
   bulkLifecycle: BulkLifecycleOperations<FieldListParams, FieldCommand, FieldState, FieldEvent>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldServices {
@@ -41,10 +41,8 @@ export function createFieldRuntime(deps: CatalogRuntimeDeps): FieldServices {
   });
 
   const projectors = [
-    createProjector({
-      projectorName: "catalog-field-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-field-projection",
       handlers: withCatalogAdminRealtimeInvalidation(buildFieldProjectionHandlers(deps.db), deps.db, {
         projectionName: "catalog-field-projection",
         surface: "fields",

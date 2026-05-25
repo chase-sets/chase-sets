@@ -1,6 +1,6 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createIdentitySecretAdapters } from "../../features/api-keys/api/secret-adapters";
 import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
@@ -20,7 +20,7 @@ export type IdentityServices = Readonly<{
   consents: ReturnType<typeof createConsentRuntime>;
   linkedPlatformAuthorizations: ReturnType<typeof createLinkedPlatformAuthorizationStore>;
   shippingAddresses: ReturnType<typeof createShippingAddressRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
   auth: ReturnType<typeof createIdentitySecretAdapters>;

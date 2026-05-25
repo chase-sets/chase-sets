@@ -14,7 +14,6 @@
       "sourceContextName": "catalog",
       "projectionName": "inventory-catalog-item-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["inventory-catalog-item-projection"],
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
@@ -34,15 +33,16 @@
         "catalog.dimension.option-added",
         "catalog.dimension.option-revised"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["inventory-catalog-item-projection"]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "inventory-order-reservation-workflow",
       "subscriptionVersion": 1,
-      "projectorNames": ["inventory-order-reservation-workflow"],
       "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["inventory-order-reservation-workflow"]
     }
   ],
   "projectionGroups": [
@@ -78,8 +78,7 @@
     {
       "mountPath": "/api/inventory",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

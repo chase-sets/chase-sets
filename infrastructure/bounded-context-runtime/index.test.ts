@@ -428,6 +428,7 @@ vi.mock("@chase-sets/event-core-postgres", () => ({
 
 import {
   createSubscriptionRunner,
+  compactRuntimeSubscriptionLedgers,
   listProjectionBlockedStreamDetails,
   refreshProjectionGroupStatuses,
   rebuildProjectionGroup,
@@ -1056,7 +1057,7 @@ describe("bounded context projection replay", () => {
     );
   });
 
-  it("compacts applied subscription ledger rows behind the durable checkpoint safety window", async () => {
+  it("compacts applied subscription ledger rows from scheduled maintenance", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
     sourceEventsByPool.set(sourcePool, [
@@ -1078,6 +1079,18 @@ describe("bounded context projection replay", () => {
     });
 
     await runner.runOnce();
+    await compactRuntimeSubscriptionLedgers({
+      mountedContexts: [
+        {
+          contextName: "inventory",
+          module: {} as never,
+          services: {},
+          pool: targetPool as never,
+          projectionHandlerSets: [],
+        },
+      ],
+      subscriptionRunners: [runner],
+    });
 
     const applicationStore = getApplicationStatusStore(targetPool);
     expect(applicationStore.get("inventory-catalog-item-projection:catalog:v1:evt_1")).toBeUndefined();
@@ -1194,10 +1207,10 @@ describe("bounded context projection replay", () => {
 
     expect(getCheckpointStore(targetPool).get("discovery-market-projection:identity:v1")).toBeUndefined();
     expect(getCheckpointStore(targetPool).get("discovery-market-projection:marketplace:v1")).toBeUndefined();
-    expect(getTruncateLog(targetPool)).toEqual([["discovery_market_accounts", "discovery_market_listings"]]);
+    expect(getTruncateLog(targetPool)).toEqual([]);
   });
 
-  it("rebuilding a projection group truncates owned tables and replays from origin", async () => {
+  it("rebuilding a projection group replays from origin without truncating live read tables", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
     sourceEventsByPool.set(sourcePool, [
@@ -1240,7 +1253,7 @@ describe("bounded context projection replay", () => {
 
     expect(seenPositions).toEqual(["1", "2", "1", "2"]);
     expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("2");
-    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items", "inventory_catalog_blueprints"]]);
+    expect(getTruncateLog(targetPool)).toEqual([]);
     expect(group.getStatus().caughtUp).toBe(true);
   });
 
@@ -1327,7 +1340,7 @@ describe("bounded context projection replay", () => {
     await syncContextProjectionGroups(runtime, "inventory");
 
     expect(seenPositions).toEqual(["1", "2"]);
-    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
+    expect(getTruncateLog(targetPool)).toEqual([]);
     expect(getProjectionRevisionStore(targetPool).get("inventory:inventory-catalog-item-projection")).toBe(2);
     expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("2");
     expect(runtime.projectionGroups[0].getStatus().revisionStale).toBe(false);
@@ -1370,7 +1383,7 @@ describe("bounded context projection replay", () => {
 
     await expect(syncContextProjectionGroups(runtime, "inventory")).rejects.toThrow("projection handler failed");
 
-    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
+    expect(getTruncateLog(targetPool)).toEqual([]);
     expect(getProjectionRevisionStore(targetPool).get("inventory:inventory-catalog-item-projection")).toBe(1);
 
     await refreshProjectionGroupStatuses(runtime);

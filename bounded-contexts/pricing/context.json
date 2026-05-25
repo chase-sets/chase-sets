@@ -14,7 +14,6 @@
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["pricing-catalog-input-projection"],
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.metadata-revised",
@@ -22,26 +21,26 @@
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["pricing-catalog-input-projection"]
     },
     {
       "sourceContextName": "inventory",
       "projectionName": "pricing-inventory-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["pricing-inventory-input-projection"],
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
         "inventory.hold.placed",
         "inventory.hold.released"
       ],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["pricing-inventory-input-projection"]
     },
     {
       "sourceContextName": "marketplace",
       "projectionName": "pricing-market-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["pricing-market-input-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -52,27 +51,28 @@
         "marketplace.offer.submitted",
         "marketplace.offer.accepted"
       ],
-      "order": 30
+      "order": 30,
+      "projectionHandlerSetNames": ["pricing-market-input-projection"]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "pricing-order-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["pricing-order-input-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.cancelled",
         "ordering.order.ready-for-fulfillment-recorded"
       ],
-      "order": 40
+      "order": 40,
+      "projectionHandlerSetNames": ["pricing-order-input-projection"]
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "pricing-fulfillment-input-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["pricing-fulfillment-input-projection"],
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered", "fulfillment.shipment.returned"],
-      "order": 50
+      "order": 50,
+      "projectionHandlerSetNames": ["pricing-fulfillment-input-projection"]
     }
   ],
   "projectionGroups": [
@@ -113,8 +113,7 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

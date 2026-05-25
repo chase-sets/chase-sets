@@ -62,7 +62,7 @@ export const module: BcApiModule<MarketplaceServices, PgTransactionalPool, Marke
   projectionGroups,
   createServices: (pool, options) => createMarketplaceServices(pool, options),
   buildApis: (services) => [buildMarketplaceApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const catalogSubscription = getEventSubscription("catalog", "marketplace-catalog-item-projection");
     const identitySubscription = getEventSubscription("identity", "marketplace-identity-account-projection");

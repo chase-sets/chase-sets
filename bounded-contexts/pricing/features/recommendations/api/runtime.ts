@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -288,7 +288,7 @@ export type PricingRecommendationServices = Readonly<{
     params: Readonly<{ accountId: string; recommendationIds: readonly string[] }>,
     context: EventStoreContext,
   ) => Promise<{ dismissedCount: number }>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createPricingRecommendationRuntime(
@@ -490,10 +490,8 @@ export function createPricingRecommendationRuntime(
     getAccountRecommendation: (recommendationId, accountId) =>
       getAccountRecommendation(deps.db, recommendationId, accountId),
     projectors: [
-      createProjector({
-        projectorName: "pricing-recommendation-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "pricing-recommendation-projection",
         handlers: buildPricingRecommendationProjectionHandlers(deps.db),
       }),
     ],

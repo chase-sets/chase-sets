@@ -14,7 +14,6 @@
       "sourceContextName": "identity",
       "projectionName": "reputation-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["reputation-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -22,26 +21,26 @@
         "identity.account.reactivated",
         "identity.account.closed"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["reputation-account-projection"]
     },
     {
       "sourceContextName": "ordering",
       "projectionName": "reputation-order-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["reputation-order-source-projection"],
       "eventTypes": [
         "ordering.order.created",
         "ordering.order.pending-payment-recorded",
         "ordering.order.cancelled",
         "ordering.order.ready-for-fulfillment-recorded"
       ],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["reputation-order-source-projection"]
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "reputation-shipment-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["reputation-shipment-source-projection"],
       "eventTypes": [
         "fulfillment.shipment.created",
         "fulfillment.shipment.dispatched",
@@ -49,19 +48,20 @@
         "fulfillment.shipment.returned",
         "fulfillment.shipment.exception-raised"
       ],
-      "order": 30
+      "order": 30,
+      "projectionHandlerSetNames": ["reputation-shipment-source-projection"]
     },
     {
       "sourceContextName": "support",
       "projectionName": "reputation-support-source-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["reputation-support-source-projection"],
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
         "support.support-request.cancelled"
       ],
-      "order": 90
+      "order": 90,
+      "projectionHandlerSetNames": ["reputation-support-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -96,8 +96,7 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

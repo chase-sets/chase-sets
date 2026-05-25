@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -83,7 +83,7 @@ export type PayoutReadinessServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ accountId: AccountId; version: number }>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 function readinessStatus(readiness: ProviderPayoutReadiness): PayoutReadinessStatus {
@@ -292,10 +292,8 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     },
     recordProviderReadiness,
     projectors: [
-      createProjector({
-        projectorName: "settlement-payout-readiness-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "settlement-payout-readiness-projection",
         handlers: buildPayoutReadinessProjectionHandlers(deps.db),
       }),
     ],

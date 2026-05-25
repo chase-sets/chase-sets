@@ -62,7 +62,7 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
   projectionGroups,
   createServices: (pool, ports) => createDiscoveryServices(pool, ports),
   buildApis: (services) => [buildDiscoveryApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const categorySubscription = getEventSubscription("catalog", "discovery-category-projection");
     const productAlertPageSubscription = getEventSubscription("discovery", "discovery-product-alert-page-projection");

@@ -26,7 +26,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       },
@@ -66,7 +65,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       },
@@ -100,7 +98,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       },
@@ -132,7 +129,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       },
@@ -163,7 +159,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       },
@@ -208,7 +203,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [
           {
             targetContextName: "inventory",
@@ -317,7 +311,7 @@ describe("platform api app", () => {
       contextName: "discovery",
       apiMounts: [],
       buildApis: () => [],
-      projectors: () => [],
+      projectionHandlerSets: () => [],
     };
     const catalogModule = {
       ...discoveryModule,
@@ -340,14 +334,14 @@ describe("platform api app", () => {
             module: catalogModule,
             services: {},
             pool: realtimePool,
-            projectors: [],
+            projectionHandlerSets: [],
           },
           {
             contextName: "discovery",
             module: discoveryModule,
             services: {},
             pool: realtimePool,
-            projectors: [],
+            projectionHandlerSets: [],
           },
         ],
         mountedModules: [
@@ -358,7 +352,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       } as never,
@@ -395,7 +388,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       },
@@ -462,7 +454,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       },
@@ -558,18 +549,17 @@ describe("platform api app", () => {
             search: {
               searchItems,
               rebuildSearchIndex: vi.fn(),
-              projectors: [],
+              projectionHandlerSets: [],
             },
             detail: {
               getItemDetail: vi.fn(),
-              projectors: [],
+              projectionHandlerSets: [],
             },
             market: {},
-            projectors: [],
+            projectionHandlerSets: [],
           },
         },
       },
-      projectors: [],
       projectionGroups: [],
       subscriptionRunners: [],
     } as never);
@@ -626,11 +616,10 @@ describe("platform api app", () => {
               recordPaymentStarted: vi.fn(),
               recordOfferSubmitted: vi.fn(),
               getSession,
-              projectors: [],
+              projectionHandlerSets: [],
             },
           },
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       } as never,
@@ -699,11 +688,10 @@ describe("platform api app", () => {
           mountPath: "/api/settlement/provider",
           kind: "additional",
           requiresAuth: false,
-          drainProjectorsOnWrite: false,
         },
       ],
       buildApis: () => [providerRouter],
-      projectors: () => [],
+      projectionHandlerSets: () => [],
     };
     const app = buildPlatformApiApp(
       {
@@ -713,7 +701,7 @@ describe("platform api app", () => {
             module,
             services: {},
             pool: {},
-            projectors: [],
+            projectionHandlerSets: [],
           },
         ],
         mountedModules: [{ module, services: {} }],
@@ -721,7 +709,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [],
         projectionGroups: [],
         subscriptionRunners: [],
       } as never,
@@ -745,7 +732,7 @@ describe("platform api app", () => {
     expect(observedRawBody).toBe(rawBody);
   });
 
-  it("drains projectors after writes only when write-drain consistency is explicitly enabled", async () => {
+  it("does not synchronously drain projections after writes", async () => {
     const writeRouter = new Hono();
     writeRouter.post("/cart", async (c) => c.json({ status: "added" }, 201));
 
@@ -757,11 +744,10 @@ describe("platform api app", () => {
           mountPath: "/api/marketplace",
           kind: "primary",
           requiresAuth: true,
-          drainProjectorsOnWrite: true,
         },
       ],
       buildApis: () => [writeRouter],
-      projectors: () => [{ runOnce }],
+      projectionHandlerSets: () => [{ runOnce }],
     };
     const app = buildPlatformApiApp(
       {
@@ -771,7 +757,7 @@ describe("platform api app", () => {
             module,
             services: {},
             pool: {},
-            projectors: [{ runOnce }],
+            projectionHandlerSets: [{ runOnce }],
           },
         ],
         mountedModules: [{ module, services: {} }],
@@ -779,7 +765,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [{ runOnce }],
         projectionGroups: [],
         subscriptionRunners: [],
       } as never,
@@ -793,7 +778,6 @@ describe("platform api app", () => {
           roleKey: "buyer",
           permissions: ["orders.manage"],
         })),
-        writeConsistencyDrainEnabled: true,
       },
     );
 
@@ -804,7 +788,7 @@ describe("platform api app", () => {
     });
 
     expect(response.status).toBe(201);
-    expect(runOnce).toHaveBeenCalledTimes(2);
+    expect(runOnce).not.toHaveBeenCalled();
   });
 
   it("keeps write-drain consistency disabled by default", async () => {
@@ -819,11 +803,10 @@ describe("platform api app", () => {
           mountPath: "/api/marketplace",
           kind: "primary",
           requiresAuth: true,
-          drainProjectorsOnWrite: true,
         },
       ],
       buildApis: () => [writeRouter],
-      projectors: () => [{ runOnce }],
+      projectionHandlerSets: () => [{ runOnce }],
     };
     const app = buildPlatformApiApp(
       {
@@ -833,7 +816,7 @@ describe("platform api app", () => {
             module,
             services: {},
             pool: {},
-            projectors: [{ runOnce }],
+            projectionHandlerSets: [{ runOnce }],
           },
         ],
         mountedModules: [{ module, services: {} }],
@@ -841,7 +824,6 @@ describe("platform api app", () => {
           auth: {},
           identity: {},
         },
-        projectors: [{ runOnce }],
         projectionGroups: [],
         subscriptionRunners: [],
       } as never,

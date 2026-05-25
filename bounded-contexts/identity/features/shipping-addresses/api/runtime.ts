@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideShippingAddressBook,
@@ -21,7 +21,7 @@ export type ShippingAddressServices = Readonly<{
     options?: Parameters<typeof listShippingAddresses>[2],
   ) => ReturnType<typeof listShippingAddresses>;
   getShippingAddress: (accountId: string, shippingAddressId: string) => ReturnType<typeof getShippingAddress>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createShippingAddressRuntime(deps: IdentityRuntimeDeps): ShippingAddressServices {
@@ -41,10 +41,8 @@ export function createShippingAddressRuntime(deps: IdentityRuntimeDeps): Shippin
     listShippingAddresses: (accountId, options) => listShippingAddresses(deps.db, accountId, options),
     getShippingAddress: (accountId, shippingAddressId) => getShippingAddress(deps.db, accountId, shippingAddressId),
     projectors: [
-      createProjector({
-        projectorName: "identity-shipping-address-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "identity-shipping-address-projection",
         handlers: buildShippingAddressProjectionHandlers(deps.db),
       }),
     ],

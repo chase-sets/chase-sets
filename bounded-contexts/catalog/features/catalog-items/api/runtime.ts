@@ -1,7 +1,7 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { CatalogDomainError } from "../../../support/runtime-support/common";
@@ -143,7 +143,7 @@ export type CatalogItemServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<BulkEditCatalogItemResult>;
   bulkLifecycle: BulkLifecycleOperations<CatalogItemListParams, CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemServices {
@@ -159,16 +159,12 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
   });
 
   const projectors = [
-    createProjector({
-      projectorName: "catalog-item-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-item-projection",
       handlers: buildCatalogItemProjectionHandlers(deps.db),
     }),
-    createProjector({
-      projectorName: "catalog-admin-catalog-item-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-admin-catalog-item-projection",
       handlers: withCatalogAdminRealtimeInvalidation(buildCatalogAdminCatalogItemProjectionHandlers(deps.db), deps.db, {
         projectionName: "catalog-admin-catalog-item-projection",
         surface: "catalog-items",

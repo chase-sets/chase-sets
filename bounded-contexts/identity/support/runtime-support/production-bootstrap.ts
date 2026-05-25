@@ -36,16 +36,7 @@ function splitDisplayName(displayName: string) {
 }
 
 async function drainIdentityProjectors(services: IdentityServices) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+  void services;
 }
 
 export async function bootstrapPlatformAdminIdentity(

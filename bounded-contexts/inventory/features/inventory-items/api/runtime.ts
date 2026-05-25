@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -87,7 +87,7 @@ export type InventoryItemServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<InventoryEnsuredListingStock>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createInventoryItemRuntime(
@@ -409,10 +409,8 @@ export function createInventoryItemRuntime(
       };
     },
     projectors: [
-      createProjector({
-        projectorName: "inventory-item-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "inventory-item-projection",
         handlers: buildInventoryItemProjectionHandlers(deps.db),
       }),
     ],

@@ -4,7 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
@@ -27,7 +27,7 @@ export type SettlementServices = Readonly<{
   wallets: ReturnType<typeof createWalletRuntime>;
   payouts: ReturnType<typeof createPayoutRuntime>;
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

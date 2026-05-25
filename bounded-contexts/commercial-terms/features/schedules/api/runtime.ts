@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -36,7 +36,7 @@ export type ScheduleServices = Readonly<{
   ) => Promise<{ scheduleId: string; version: number }>;
   listSchedules: (params: Readonly<{ limit?: number; offset?: number }>) => ReturnType<typeof listSchedules>;
   getSchedule: (scheduleId: string) => ReturnType<typeof getSchedule>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createScheduleRuntime(deps: ScheduleRuntimeDeps): ScheduleServices {
@@ -69,10 +69,8 @@ export function createScheduleRuntime(deps: ScheduleRuntimeDeps): ScheduleServic
     listSchedules: (params) => listSchedules(deps.db, params),
     getSchedule: (scheduleId) => getSchedule(deps.db, scheduleId),
     projectors: [
-      createProjector({
-        projectorName: "commercial-terms-schedule-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "commercial-terms-schedule-projection",
         handlers: buildScheduleProjectionHandlers(deps.db),
       }),
     ],

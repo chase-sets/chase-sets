@@ -1,7 +1,7 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
@@ -32,7 +32,7 @@ export type ComponentServices = Readonly<{
   listComponents: (params?: Parameters<typeof listComponents>[1]) => ReturnType<typeof listComponents>;
   getComponentDetail: (componentId: string) => ReturnType<typeof getComponentDetail>;
   bulkLifecycle: BulkLifecycleOperations<ComponentListParams, ComponentCommand, ComponentState, ComponentEvent>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createComponentRuntime(deps: CatalogRuntimeDeps): ComponentServices {
@@ -48,19 +48,15 @@ export function createComponentRuntime(deps: CatalogRuntimeDeps): ComponentServi
   });
 
   const projectors = [
-    createProjector({
-      projectorName: "catalog-component-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-component-projection",
       handlers: withCatalogAdminRealtimeInvalidation(buildComponentProjectionHandlers(deps.db), deps.db, {
         projectionName: "catalog-component-projection",
         surface: "components",
       }),
     }),
-    createProjector({
-      projectorName: "catalog-admin-component-detail-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-admin-component-detail-projection",
       handlers: buildCatalogAdminComponentProjectionHandlers(deps.db),
     }),
   ];

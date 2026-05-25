@@ -17,6 +17,6 @@ export const module: BcApiModule<IdentityServices, PgTransactionalPool, void> = 
   apiMounts: contextManifest.apiMounts as BcApiModule<IdentityServices, PgTransactionalPool, void>["apiMounts"],
   createServices: (pool) => createIdentityServices(pool),
   buildApis: (services) => [buildIdentityApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   seed: seedIdentityDatabase,
 };

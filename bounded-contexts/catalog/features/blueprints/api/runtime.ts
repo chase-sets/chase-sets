@@ -1,7 +1,7 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
@@ -32,7 +32,7 @@ export type BlueprintServices = Readonly<{
   listBlueprints: (params?: Parameters<typeof listBlueprints>[1]) => ReturnType<typeof listBlueprints>;
   getBlueprintDetail: (blueprintId: string) => ReturnType<typeof getBlueprintDetail>;
   bulkLifecycle: BulkLifecycleOperations<BlueprintListParams, BlueprintCommand, BlueprintState, BlueprintEvent>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createBlueprintRuntime(deps: CatalogRuntimeDeps): BlueprintServices {
@@ -48,19 +48,15 @@ export function createBlueprintRuntime(deps: CatalogRuntimeDeps): BlueprintServi
   });
 
   const projectors = [
-    createProjector({
-      projectorName: "catalog-blueprint-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-blueprint-projection",
       handlers: withCatalogAdminRealtimeInvalidation(buildBlueprintProjectionHandlers(deps.db), deps.db, {
         projectionName: "catalog-blueprint-projection",
         surface: "blueprints",
       }),
     }),
-    createProjector({
-      projectorName: "catalog-admin-blueprint-detail-projection",
-      eventStore: deps.eventStore,
-      checkpointStore: deps.checkpointStore,
+    createProjectionHandlerSet({
+      projectionName: "catalog-admin-blueprint-detail-projection",
       handlers: buildCatalogAdminBlueprintProjectionHandlers(deps.db),
     }),
   ];

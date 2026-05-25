@@ -29,20 +29,19 @@
       "sourceContextName": "discovery",
       "projectionName": "discovery-product-alert-page-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["discovery-product-alert-page-projection"],
       "eventTypes": [
         "discovery.product-alert.created",
         "discovery.product-alert.paused",
         "discovery.product-alert.resumed",
         "discovery.product-alert.deleted"
       ],
-      "order": 5
+      "order": 5,
+      "projectionHandlerSetNames": ["discovery-product-alert-page-projection"]
     },
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-category-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["discovery-category-projection"],
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -77,13 +76,13 @@
         "catalog.dimension.option-revised",
         "catalog.dimension.options-reordered"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["discovery-category-projection"]
     },
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
       "subscriptionVersion": 2,
-      "projectorNames": ["discovery-search-item-projection"],
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -123,13 +122,13 @@
         "catalog.dimension.option-revised",
         "catalog.dimension.options-reordered"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["discovery-search-item-projection"]
     },
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-item-detail-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["discovery-item-detail-projection"],
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -169,13 +168,13 @@
         "catalog.dimension.option-revised",
         "catalog.dimension.options-reordered"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["discovery-item-detail-projection"]
     },
     {
       "sourceContextName": "identity",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["discovery-market-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -183,13 +182,13 @@
         "identity.account.reactivated",
         "identity.account.closed"
       ],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["discovery-market-projection"]
     },
     {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["discovery-market-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -203,13 +202,13 @@
         "marketplace.offer.submitted",
         "marketplace.offer.accepted"
       ],
-      "order": 30
+      "order": 30,
+      "projectionHandlerSetNames": ["discovery-market-projection"]
     },
     {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-product-alert-notification-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["discovery-product-alert-notification-projection"],
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -220,15 +219,16 @@
         "marketplace.offer.submitted",
         "marketplace.offer.accepted"
       ],
-      "order": 35
+      "order": 35,
+      "projectionHandlerSetNames": ["discovery-product-alert-notification-projection"]
     },
     {
       "sourceContextName": "reputation",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["discovery-market-projection"],
       "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
-      "order": 40
+      "order": 40,
+      "projectionHandlerSetNames": ["discovery-market-projection"]
     }
   ],
   "projectionGroups": [
@@ -305,8 +305,7 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

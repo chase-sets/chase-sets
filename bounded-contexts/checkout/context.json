@@ -20,7 +20,6 @@
       "sourceContextName": "catalog",
       "projectionName": "checkout-catalog-item-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["checkout.catalog-projection"],
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
@@ -38,7 +37,8 @@
         "catalog.dimension.option-added",
         "catalog.dimension.option-revised"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["checkout.catalog-projection"]
     }
   ],
   "projectionGroups": [
@@ -60,8 +60,7 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [

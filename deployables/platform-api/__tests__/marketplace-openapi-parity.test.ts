@@ -81,7 +81,7 @@ function createRouteInventoryRuntime(): RouteInventoryRuntime {
       module: entry.module,
       services: createServiceProxy(),
       pool: createServiceProxy(),
-      projectors: [],
+      projectionHandlerSets: [],
     }));
   const services = Object.fromEntries(mountedContexts.map((entry) => [entry.contextName, entry.services]));
 
@@ -92,7 +92,6 @@ function createRouteInventoryRuntime(): RouteInventoryRuntime {
       services: entry.services,
     })),
     services,
-    projectors: [],
     projectionGroups: [],
     subscriptionRunners: [],
   } as RouteInventoryRuntime;

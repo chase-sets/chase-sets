@@ -65,7 +65,7 @@ export const module: BcApiModule<OrderingServices, PgTransactionalPool, Ordering
   projectionGroups,
   createServices: (pool, options) => createOrderingServices(pool, options),
   buildApis: (services) => [buildOrderingApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const identitySubscription = getEventSubscription("identity", "ordering-account-projection");
     const marketplaceSupplySubscription = getEventSubscription(

@@ -13,5 +13,5 @@ export const module: BcApiModule<InsightsServices, PgTransactionalPool, void> = 
   apiMounts: contextManifest.apiMounts as BcApiModule<InsightsServices, PgTransactionalPool, void>["apiMounts"],
   createServices: (pool) => createInsightsServices(pool),
   buildApis: () => [],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
 };

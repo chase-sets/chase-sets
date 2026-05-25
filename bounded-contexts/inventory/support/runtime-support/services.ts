@@ -1,6 +1,6 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
 import { createInventoryHoldRuntime } from "../../features/holds/api/runtime";
 import {
@@ -18,7 +18,7 @@ export type InventoryServices = Readonly<{
   importBatches: ReturnType<typeof createInventoryImportBatchRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

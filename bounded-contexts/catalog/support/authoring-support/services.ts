@@ -1,7 +1,7 @@
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createBlueprintRuntime } from "../../features/blueprints/api/runtime";
 import { createCatalogItemRuntime } from "../../features/catalog-items/api/runtime";
 import { createCategoryRuntime } from "../../features/categories/api/runtime";
@@ -27,7 +27,7 @@ export type CatalogServices = Readonly<{
   items: ReturnType<typeof createCatalogItemRuntime>;
   productMeasures: ReturnType<typeof createProductMeasureRuntime>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

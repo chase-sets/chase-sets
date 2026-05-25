@@ -20,7 +20,7 @@ export const module: BcApiModule<ExperienceServices, PgTransactionalPool, void> 
   projectionGroups,
   createServices: (pool) => createExperienceServices(pool),
   buildApis: (services) => [buildExperienceApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: () => [],
   seed: seedExperienceDatabase,
 };

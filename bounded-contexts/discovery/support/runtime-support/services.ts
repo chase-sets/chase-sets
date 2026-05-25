@@ -4,7 +4,7 @@ import {
   type PgTransactionalPool,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createDiscoveryCategoryRuntime, type DiscoveryCategoryServices } from "../../features/categories/api/runtime";
@@ -20,7 +20,7 @@ export type DiscoveryServices = Readonly<{
   items: DiscoveryItemsServices;
   productAlerts: ProductAlertServices;
   notificationOutbox: NotificationOutbox;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   db: PgQueryable;
   pool: PgTransactionalPool;
 }>;

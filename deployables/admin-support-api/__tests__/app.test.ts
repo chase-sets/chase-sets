@@ -7,7 +7,6 @@ function createEmptyRuntime(): ApiHostRuntime {
     mountedContexts: [],
     mountedModules: [],
     services: {},
-    projectors: [],
     projectionGroups: [],
     subscriptionRunners: [],
   };

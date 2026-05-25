@@ -13,19 +13,6 @@ function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
-async function drainProjectors(projectors: ReadonlyArray<{ runOnce: () => Promise<{ processed: number }> }>) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
   const context = createIdentityBootstrapContext();
@@ -596,6 +583,4 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: { type: "RevokeApiKey" },
     context,
   });
-
-  await drainProjectors(services.projectors);
 }

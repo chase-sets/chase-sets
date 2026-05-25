@@ -1,6 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import type { NotificationOutbox } from "@chase-sets/notifications";
@@ -36,6 +36,8 @@ import {
   upsertSessionToken,
 } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
+import type { SessionRow } from "../../features/sessions/read-model/queries";
+import type { SessionState } from "../../features/sessions/domain/domain";
 import type { SocialLoginProvider } from "../social-login-support/providers";
 
 type AuthIdentityReadServices = Readonly<{
@@ -64,7 +66,7 @@ export type AuthServices = Readonly<{
   sessions: ReturnType<typeof createSessionRuntime>;
   notificationOutbox: NotificationOutbox;
   socialLoginProviders: readonly SocialLoginProvider[];
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export type AuthHostPorts = Readonly<{
@@ -114,19 +116,6 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   };
 }
 
-export async function drainAuthProjectors(services: AuthServices) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];
 
 export type AuthSessionStartResult =
@@ -137,7 +126,7 @@ export type AuthSessionStartResult =
   | Readonly<{
       requiresAccountSelection: false;
       sessionId: string;
-      session: NonNullable<Awaited<ReturnType<AuthServices["sessions"]["getSession"]>>>;
+      session: SessionRow;
       memberships: readonly AuthSessionMembership[];
     }>;
 
@@ -154,9 +143,40 @@ export type InteractiveAuthResult =
       userId: string;
       sessionId: string;
       sessionToken: string;
-      session: NonNullable<Awaited<ReturnType<AuthServices["sessions"]["getSession"]>>>;
+      session: SessionRow;
       memberships: readonly AuthSessionMembership[];
     }>;
+
+function toSessionRowFromState(state: SessionState, updatedAt: string): SessionRow | null {
+  if (!state.id || !state.userId || !state.accountId || !state.authenticationMethod || !state.expiresAt) {
+    return null;
+  }
+
+  return {
+    session_id: state.id,
+    user_id: state.userId,
+    user_display_name: null,
+    user_primary_email: null,
+    account_id: state.accountId,
+    account_display_name: null,
+    account_name: null,
+    available_account_ids: state.availableAccountIds,
+    authentication_method: state.authenticationMethod,
+    status: state.status,
+    expires_at: state.expiresAt,
+    updated_at: updatedAt,
+  };
+}
+
+async function getSessionForAuth(services: AuthServices, sessionId: string): Promise<SessionRow | null> {
+  const projectedSession = await services.sessions.getSession(sessionId);
+  if (projectedSession) {
+    return projectedSession;
+  }
+
+  const sessionState = await services.sessions.getSessionState(sessionId);
+  return sessionState ? toSessionRowFromState(sessionState, new Date().toISOString()) : null;
+}
 
 async function startSessionForUser(
   services: AuthServices,
@@ -191,7 +211,7 @@ async function startSessionForUser(
   const sessionId = createId("ses");
   const expiresAt = createExpiryTimestamp(AUTH_SESSION_TTL_MS);
 
-  await services.sessions.commandHandler({
+  const result = await services.sessions.commandHandler({
     streamId: toSessionStreamId(sessionId),
     command: {
       type: "StartSession",
@@ -205,10 +225,13 @@ async function startSessionForUser(
     context: params.context,
   });
 
-  await drainAuthProjectors(services);
-  const session = await services.sessions.getSession(sessionId);
+  const storedEvents = result.storedEvents ?? [];
+  const session = toSessionRowFromState(
+    result.state,
+    storedEvents[storedEvents.length - 1]?.recordedAt ?? new Date().toISOString(),
+  );
   if (!session) {
-    throw new Error("Session projection was not available after session start.");
+    throw new Error("Session state was not available after session start.");
   }
 
   return {
@@ -316,8 +339,6 @@ export async function revokeSession(
     context: params.context,
   });
 
-  await drainAuthProjectors(services);
-
   return {
     id: params.sessionId,
     version: result.version,
@@ -329,7 +350,7 @@ export async function resolveActorFromSessionId(
   services: AuthServices,
   sessionId: string,
 ): Promise<ResolvedActor | null> {
-  const session = await services.sessions.getSession(sessionId);
+  const session = await getSessionForAuth(services, sessionId);
   if (!session || session.status !== "active" || new Date(session.expires_at).getTime() <= Date.now()) {
     return null;
   }

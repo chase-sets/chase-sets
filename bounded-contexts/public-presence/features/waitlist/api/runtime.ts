@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -44,7 +44,7 @@ export type WaitlistServices = Readonly<{
   ) => Promise<{ signupId: string; version: number }>;
   listWaitlistSignups: (params: Parameters<typeof listWaitlistSignups>[1]) => ReturnType<typeof listWaitlistSignups>;
   getWaitlistMetrics: () => ReturnType<typeof getWaitlistMetrics>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServices {
@@ -84,16 +84,12 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
     listWaitlistSignups: (params) => listWaitlistSignups(deps.db, params),
     getWaitlistMetrics: () => getWaitlistMetrics(deps.db),
     projectors: [
-      createProjector({
-        projectorName: "public-presence-waitlist-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "public-presence-waitlist-projection",
         handlers: buildWaitlistProjectionHandlers(deps.db),
       }),
-      createProjector({
-        projectorName: PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildWaitlistTransactionalEmailProjectionHandlers(
           transactionalEmailOutbox,
           PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,

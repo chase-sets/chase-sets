@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  NOTIFICATIONS_FULFILLMENT_PROJECTION,
-  NOTIFICATIONS_ORDERING_PROJECTION,
+  NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
   projectSourceEventToNotification,
 } from "./notification-projector";
 
@@ -39,7 +38,7 @@ describe("notifications source event projector", () => {
           shippingDestinationSnapshot: { email: "buyer@example.test" },
         },
       },
-      NOTIFICATIONS_ORDERING_PROJECTION,
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
     );
 
     expect(outbox.enqueueNotification).toHaveBeenCalledWith(
@@ -50,7 +49,7 @@ describe("notifications source event projector", () => {
           actor: { userId: null, accountId: "acc_buyer" },
         }),
         source: expect.objectContaining({
-          projectionName: NOTIFICATIONS_ORDERING_PROJECTION,
+          projectionName: NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
         }),
       }),
     );
@@ -72,7 +71,7 @@ describe("notifications source event projector", () => {
           shippingDestinationSnapshot: { email: null },
         },
       },
-      NOTIFICATIONS_FULFILLMENT_PROJECTION,
+      NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
     );
 
     expect(outbox.enqueueNotification).toHaveBeenCalledWith(
@@ -83,7 +82,7 @@ describe("notifications source event projector", () => {
           actor: { userId: null, accountId: "acc_buyer" },
         }),
         source: expect.objectContaining({
-          projectionName: NOTIFICATIONS_FULFILLMENT_PROJECTION,
+          projectionName: NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
         }),
       }),
     );

@@ -4,7 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createAgreementRuntime } from "../../features/agreements/api/runtime";
 import { createResolutionRuntime } from "../../features/resolutions/api/runtime";
 import { createScheduleRuntime } from "../../features/schedules/api/runtime";
@@ -13,7 +13,7 @@ export type CommercialTermsServices = Readonly<{
   schedules: ReturnType<typeof createScheduleRuntime>;
   agreements: ReturnType<typeof createAgreementRuntime>;
   resolutions: ReturnType<typeof createResolutionRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

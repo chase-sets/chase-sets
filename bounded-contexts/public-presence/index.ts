@@ -48,7 +48,7 @@ export const module: BcApiModule<
   projectionGroups,
   createServices: (pool, ports) => createPublicPresenceServices(pool, ports),
   buildApis: (services) => [buildPublicPresencePublicApi(services), buildPublicPresenceAdminApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const waitlistSubscription = getEventSubscription("public-presence", "public-presence-waitlist-projection");
     const waitlistEmailSubscription = getEventSubscription(

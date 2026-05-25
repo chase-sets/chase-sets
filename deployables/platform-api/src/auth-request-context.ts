@@ -1,4 +1,7 @@
-import type { ResolvedActor } from "@chase-sets/auth/server";
+import {
+  resolveActorFromSessionId as resolveAuthActorFromSessionId,
+  type ResolvedActor,
+} from "@chase-sets/auth/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PlatformIdentityServices } from "./app";
 
@@ -48,32 +51,6 @@ export function createAuthBootstrapContext(services: PlatformIdentityServices["a
       forAccountId: "acc_identity_system" as never,
     },
     trace: {},
-  };
-}
-
-async function resolveActorFromSessionId(
-  services: PlatformIdentityServices["auth"],
-  sessionId: string,
-): Promise<ResolvedActor | null> {
-  const session = await services.sessions.getSession(sessionId);
-  if (!session || session.status !== "active" || new Date(session.expires_at).getTime() <= Date.now()) {
-    return null;
-  }
-
-  const membership = await services.identity.getActiveMembershipForUserAccount(session.user_id, session.account_id);
-
-  if (!membership) {
-    return null;
-  }
-
-  return {
-    sessionId: session.session_id,
-    tenantId: services.identity.bootstrapTenantId,
-    userId: session.user_id,
-    accountId: session.account_id,
-    membershipId: membership.membership_id,
-    roleKey: membership.role_key,
-    permissions: membership.role_permissions as readonly string[],
   };
 }
 
@@ -144,7 +121,7 @@ export async function resolveActorFromRequest(
   }
 
   return (
-    (await resolveActorFromSessionId(services.auth, tokenRecord.session_id)) ??
+    (await resolveAuthActorFromSessionId(services.auth, tokenRecord.session_id)) ??
     (await resolveGuestCheckoutActor(services.auth, request))
   );
 }

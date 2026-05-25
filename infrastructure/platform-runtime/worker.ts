@@ -1,5 +1,6 @@
 import {
-  collectProjectors,
+  compactRuntimeSubscriptionLedgers,
+  createProjectionAwarePool,
   resetProjectionGroup,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
@@ -9,7 +10,7 @@ import {
   type ContextSubscriptionRunner,
   type MountedContextRuntimeEntry,
 } from "@chase-sets/bounded-context-runtime";
-import type { BcApiModule, BcHostPort, BcProjector } from "@chase-sets/bounded-context-module";
+import type { BcApiModule, BcHostPort } from "@chase-sets/bounded-context-module";
 import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -37,7 +38,6 @@ export type WorkerHostContextName<TRegistry extends WorkerContextRegistry = Work
 export type WorkerHostRuntime = Readonly<{
   mountedContexts: readonly MountedContextRuntimeEntry[];
   services: Readonly<Record<string, unknown>>;
-  projectors: ReturnType<typeof collectProjectors>;
   projectionGroups: ReturnType<typeof resolveModuleProjectionGroups>;
   subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 }>;
@@ -104,7 +104,10 @@ export function createWorkerHost(
 
       return [
         entry.contextName,
-        entry.module.createServices(pool, getHostPortsForContext(entry.manifest, options.hostPorts ?? {}) as never),
+        entry.module.createServices(
+          createProjectionAwarePool(pool),
+          getHostPortsForContext(entry.manifest, options.hostPorts ?? {}) as never,
+        ),
       ];
     }),
   );
@@ -119,7 +122,7 @@ export function createWorkerHost(
       module: entry.module,
       services: contextServices,
       pool,
-      projectors: entry.module.projectors(contextServices as never),
+      projectionHandlerSets: entry.module.projectionHandlerSets?.(contextServices as never) ?? [],
     };
   });
   const subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
@@ -128,11 +131,6 @@ export function createWorkerHost(
   return {
     mountedContexts,
     services,
-    projectors: collectProjectors(
-      mountedContexts.map((entry) => ({
-        projectors: entry.projectors,
-      })),
-    ),
     projectionGroups,
     subscriptionRunners,
   };
@@ -140,10 +138,8 @@ export function createWorkerHost(
 
 export function collectWorkerRunners(runtime: WorkerHostRuntime): readonly WorkerRunner[] {
   return [
-    ...runtime.mountedContexts.flatMap((entry) =>
-      entry.projectors.map((projector, index) => createProjectorRunner(entry.contextName, projector, index)),
-    ),
     ...runtime.projectionGroups.map(createProjectionGroupWorkerRunner),
+    createSubscriptionLedgerCompactionRunner(runtime),
   ];
 }
 
@@ -348,14 +344,6 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
   return true;
 }
 
-function createProjectorRunner(contextName: string, projector: BcProjector, index: number): WorkerRunner {
-  return {
-    name: `${contextName}.${projector.projectorName ?? `projector-${index + 1}`}`,
-    kind: "projector",
-    runOnce: (context) => projector.runOnce(context),
-  };
-}
-
 function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): WorkerRunner {
   let rebuildingRevision: number | null = null;
 
@@ -403,6 +391,22 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
         rebuildingRevision = null;
         throw error;
       }
+    },
+  };
+}
+
+function createSubscriptionLedgerCompactionRunner(runtime: WorkerHostRuntime): WorkerRunner {
+  return {
+    name: "projection-ledger-compaction",
+    kind: "job",
+    priority: () => 0,
+    runOnce: async () => {
+      const compacted = await compactRuntimeSubscriptionLedgers(runtime);
+      return {
+        processed: compacted,
+        lastGlobalPosition: ZERO_GLOBAL_POSITION,
+        state: "caught-up",
+      };
     },
   };
 }

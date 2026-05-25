@@ -96,17 +96,6 @@ async function reservePersonalAccountDisplayName(
   }
 }
 
-async function drainProjectors(services: IdentityServices) {
-  let processed = 0;
-  do {
-    processed = 0;
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 async function createPersonalIdentityForAuth(
   services: IdentityServices,
   params: Readonly<{
@@ -203,7 +192,6 @@ async function createPersonalIdentityForAuth(
     });
   }
 
-  await drainProjectors(services);
   return { userId, accountId, membershipId };
 }
 
@@ -230,7 +218,6 @@ async function createGuestAccountForAuth(
     context: params.context,
   });
 
-  await drainProjectors(services);
   return { accountId };
 }
 
@@ -256,7 +243,6 @@ async function createUserForAuth(
     context: params.context,
   });
 
-  await drainProjectors(services);
   return { userId };
 }
 
@@ -282,7 +268,6 @@ async function grantGuestAccountForAuth(
     context: params.context,
   });
 
-  await drainProjectors(services);
   return { membershipId };
 }
 
@@ -307,7 +292,6 @@ async function enablePasswordCredentialForAuth(
     },
     context: params.context,
   });
-  await drainProjectors(services);
 }
 
 async function registerPasskeyCredentialForAuth(
@@ -331,7 +315,6 @@ async function registerPasskeyCredentialForAuth(
     },
     context: params.context,
   });
-  await drainProjectors(services);
 }
 
 async function enableSmsCodeForAuth(
@@ -351,7 +334,6 @@ async function enableSmsCodeForAuth(
     command: { type: "EnableAuthMethod", authMethod: "sms-code" },
     context: params.context,
   });
-  await drainProjectors(services);
 }
 
 class SocialLoginLinkConflictError extends Error {
@@ -413,8 +395,6 @@ async function linkSocialLoginForAuth(
       context: params.context,
     });
   }
-
-  await drainProjectors(services);
 }
 
 async function acceptInvitationForUserFromAuth(
@@ -447,7 +427,6 @@ async function acceptInvitationForUserFromAuth(
     },
     context: params.context,
   });
-  await drainProjectors(services);
   return membershipId;
 }
 
@@ -718,7 +697,6 @@ export function buildIdentityApi(services: IdentityServices) {
       keyPrefix,
       secretHash: services.auth.hashSecret(secret),
     });
-    await drainProjectors(services);
     return c.json(
       {
         id: apiKeyId,
@@ -774,7 +752,6 @@ export function buildIdentityApi(services: IdentityServices) {
       keyPrefix,
       secretHash: services.auth.hashSecret(secret),
     });
-    await drainProjectors(services);
     return c.json({
       id: apiKeyId,
       version: result.version,
@@ -805,7 +782,6 @@ export function buildIdentityApi(services: IdentityServices) {
       command: { type: "RecordApiKeyUse", usedAt: new Date().toISOString() },
       context: getBootstrapContext(c),
     });
-    await drainProjectors(services);
     return c.json({
       apiKeyId: apiKeySecret.api_key_id,
       userId: apiKeySecret.user_id as UserId,

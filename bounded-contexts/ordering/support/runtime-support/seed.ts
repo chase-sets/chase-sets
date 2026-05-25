@@ -1,4 +1,3 @@
-import type { Projector } from "@chase-sets/event-core/projector";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
@@ -74,25 +73,19 @@ function createSeedContextFor(accountId: AccountId, userId: string) {
   };
 }
 
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 async function hasOrderPage(db: PgQueryable, orderId: string) {
   const result = await db.query<{ exists: boolean }>(
     "SELECT EXISTS(SELECT 1 FROM ordering_order_pages WHERE order_id = $1) AS exists",
     [orderId],
   );
   return result.rows[0]?.exists ?? false;
+}
+
+async function getOrderPageStatus(db: PgQueryable, orderId: string) {
+  const result = await db.query<{ status: string }>("SELECT status FROM ordering_order_pages WHERE order_id = $1", [
+    orderId,
+  ]);
+  return result.rows[0]?.status ?? null;
 }
 
 async function listOrderPagesForSource(
@@ -185,21 +178,19 @@ export async function seedOrderingDatabase(
   const buyerAccountId = identitySeedIds.collector.accountId;
 
   try {
-    const [hasCheckoutPending, hasCancelledOrder, hasAcceptedOfferOrder] = await Promise.all([
+    const [hasCheckoutPending, cancelledOrderStatus, hasAcceptedOfferOrder] = await Promise.all([
       hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
-      hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled),
+      getOrderPageStatus(ordering.db, orderingReservedSeedIds.orders.cancelled),
       hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
     ]);
 
-    if (hasCheckoutPending && hasCancelledOrder && hasAcceptedOfferOrder) {
+    if (hasCheckoutPending && cancelledOrderStatus === "cancelled" && hasAcceptedOfferOrder) {
       console.log("Ordering already contains seed data. Skipping seed.");
       return;
     }
   } catch {
     // Tables may not exist yet. Proceed with seeding.
   }
-
-  await drainProjectors(ordering.projectors);
 
   console.log("Starting ordering development seed...\n");
 
@@ -219,11 +210,11 @@ export async function seedOrderingDatabase(
       },
       buyerContext,
     );
-    await drainProjectors(ordering.projectors);
     console.log(`  Pending checkout order seeded (${checkoutResult.orderIds.join(", ")})`);
   }
 
-  if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.cancelled))) {
+  const cancelledOrderStatus = await getOrderPageStatus(ordering.db, orderingReservedSeedIds.orders.cancelled);
+  if (!cancelledOrderStatus) {
     const cancelledOrderResult = await ordering.orders.createOrdersFromCheckout(
       {
         buyerAccountId,
@@ -236,22 +227,22 @@ export async function seedOrderingDatabase(
       },
       buyerContext,
     );
-    await drainProjectors(ordering.projectors);
 
     const cancelledOrderId = cancelledOrderResult.orderIds[0];
     if (!cancelledOrderId) {
       throw new Error("Ordering demo seed could not create the cancellable order.");
     }
 
+    console.log(`  Cancellable order seeded (${cancelledOrderId})`);
+  } else if (cancelledOrderStatus !== "cancelled") {
     await ordering.orders.cancelPurchase(
       {
-        orderId: cancelledOrderId,
+        orderId: orderingReservedSeedIds.orders.cancelled,
         buyerAccountId,
       },
       buyerContext,
     );
-    await drainProjectors(ordering.projectors);
-    console.log(`  Cancelled order seeded (${cancelledOrderId})`);
+    console.log(`  Cancelled order seeded (${orderingReservedSeedIds.orders.cancelled})`);
   }
 
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady))) {
@@ -288,7 +279,6 @@ export async function seedOrderingDatabase(
         },
         sellerContext,
       );
-      await drainProjectors(ordering.projectors);
       console.log(`  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`);
     }
   }

@@ -24,7 +24,6 @@
       "sourceContextName": "identity",
       "projectionName": "auth-identity-account-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["auth-identity-account-projection"],
       "eventTypes": [
         "identity.account.created",
         "identity.account.profile-updated",
@@ -32,13 +31,13 @@
         "identity.account.reactivated",
         "identity.account.closed"
       ],
-      "order": 5
+      "order": 5,
+      "projectionHandlerSetNames": ["auth-identity-account-projection"]
     },
     {
       "sourceContextName": "identity",
       "projectionName": "auth-identity-user-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["auth-identity-user-projection"],
       "eventTypes": [
         "identity.user.created",
         "identity.user.profile-updated",
@@ -51,26 +50,26 @@
         "identity.user.suspended",
         "identity.user.reactivated"
       ],
-      "order": 10
+      "order": 10,
+      "projectionHandlerSetNames": ["auth-identity-user-projection"]
     },
     {
       "sourceContextName": "identity",
       "projectionName": "auth-identity-membership-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["auth-identity-membership-projection"],
       "eventTypes": [
         "identity.membership.granted",
         "identity.membership.role-changed",
         "identity.membership.revoked",
         "identity.membership.reinstated"
       ],
-      "order": 20
+      "order": 20,
+      "projectionHandlerSetNames": ["auth-identity-membership-projection"]
     },
     {
       "sourceContextName": "identity",
       "projectionName": "auth-identity-invitation-projection",
       "subscriptionVersion": 1,
-      "projectorNames": ["auth-identity-invitation-projection"],
       "eventTypes": [
         "identity.invitation.created",
         "identity.invitation.resent",
@@ -79,7 +78,8 @@
         "identity.invitation.declined",
         "identity.invitation.expired"
       ],
-      "order": 30
+      "order": 30,
+      "projectionHandlerSetNames": ["auth-identity-invitation-projection"]
     }
   ],
   "projectionGroups": [
@@ -125,8 +125,7 @@
     {
       "mountPath": "/api/auth",
       "kind": "primary",
-      "requiresAuth": false,
-      "drainProjectorsOnWrite": true
+      "requiresAuth": false
     }
   ],
   "deployableContributions": [

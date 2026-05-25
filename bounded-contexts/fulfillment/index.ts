@@ -47,7 +47,7 @@ export const module: BcApiModule<FulfillmentServices, PgTransactionalPool, Fulfi
   projectionGroups,
   createServices: (pool, ports) => createFulfillmentServices(pool, ports),
   buildApis: (services) => [buildFulfillmentApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const identitySubscription = getEventSubscription("identity", "fulfillment-account-projection");
     const orderingSubscription = getEventSubscription("ordering", "fulfillment-order-source-projection");

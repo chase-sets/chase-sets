@@ -4,7 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
@@ -17,7 +17,7 @@ export type OrderingServiceOptions = Readonly<{
 
 export type OrderingServices = Readonly<{
   orders: ReturnType<typeof createOrderingOrderRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

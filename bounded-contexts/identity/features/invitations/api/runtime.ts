@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideInvitation,
@@ -19,7 +19,7 @@ export type InvitationServices = Readonly<{
   listInvitations: (params?: Parameters<typeof listInvitations>[1]) => ReturnType<typeof listInvitations>;
   getInvitation: (invitationId: string) => ReturnType<typeof getInvitation>;
   getPendingInvitationByEmail: (email: string) => ReturnType<typeof getPendingInvitationByEmail>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createInvitationRuntime(deps: IdentityRuntimeDeps): InvitationServices {
@@ -40,10 +40,8 @@ export function createInvitationRuntime(deps: IdentityRuntimeDeps): InvitationSe
     getInvitation: (invitationId) => getInvitation(deps.db, invitationId),
     getPendingInvitationByEmail: (email) => getPendingInvitationByEmail(deps.db, email),
     projectors: [
-      createProjector({
-        projectorName: "identity-invitation-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "identity-invitation-projection",
         handlers: buildInvitationProjectionHandlers(deps.db),
       }),
     ],

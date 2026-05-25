@@ -4,7 +4,6 @@ import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { Projector } from "@chase-sets/event-core/projector";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 
 type OrderSnapshot = Readonly<{
@@ -33,18 +32,6 @@ function createSeedContext(): EventStoreContext {
       forAccountId: identitySeedIds.demo.accountId,
     },
   };
-}
-
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
 }
 
 async function getShipmentStatus(pool: PgTransactionalPool, shipmentId: string): Promise<ShipmentStatus | null> {
@@ -158,25 +145,24 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
       },
       context,
     });
-    await drainProjectors(services.projectors);
 
-    return getShipmentStatus(pool, shipmentId);
+    return "awaiting-package";
   };
 
   const ensureShipmentPacked = async (shipmentId: string, createdAt: string) => {
     let status = await ensureShipmentCreated(shipmentId, createdAt);
 
     if (status === "awaiting-package") {
-      await services.shipments.packShipment(
-        {
-          shipmentId,
-          sellerAccountId: order.seller_account_id,
+      await services.shipments.commandHandler({
+        streamId: `fulfillment.shipment-${shipmentId}`,
+        command: {
+          type: "PrepareShipmentPackage",
           packageCount: 1,
+          preparedAt: new Date().toISOString(),
         },
         context,
-      );
-      await drainProjectors(services.projectors);
-      status = await getShipmentStatus(pool, shipmentId);
+      });
+      status = "awaiting-label";
     }
 
     return status;
@@ -191,19 +177,19 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     let status = await ensureShipmentPacked(shipmentId, createdAt);
 
     if (status === "awaiting-label") {
-      await services.shipments.attachLabel(
-        {
-          shipmentId,
-          sellerAccountId: order.seller_account_id,
+      await services.shipments.commandHandler({
+        streamId: `fulfillment.shipment-${shipmentId}`,
+        command: {
+          type: "AttachShipmentLabel",
           shippingMethod: "standard",
           carrierName: "UPS",
           labelReference,
           trackingIdentifier,
+          attachedAt: new Date().toISOString(),
         },
         context,
-      );
-      await drainProjectors(services.projectors);
-      status = await getShipmentStatus(pool, shipmentId);
+      });
+      status = "label-attached";
     }
 
     return status;
@@ -218,15 +204,15 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     let status = await ensureShipmentLabeled(shipmentId, createdAt, labelReference, trackingIdentifier);
 
     if (status === "label-attached") {
-      await services.shipments.dispatchShipment(
-        {
-          shipmentId,
-          sellerAccountId: order.seller_account_id,
+      await services.shipments.commandHandler({
+        streamId: `fulfillment.shipment-${shipmentId}`,
+        command: {
+          type: "DispatchShipment",
+          dispatchedAt: new Date().toISOString(),
         },
         context,
-      );
-      await drainProjectors(services.projectors);
-      status = await getShipmentStatus(pool, shipmentId);
+      });
+      status = "dispatched";
     }
 
     return status;
@@ -255,15 +241,15 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     "1ZSEEDDELIVERED",
   );
   if (deliveredStatus === "dispatched" || deliveredStatus === "exception") {
-    await services.shipments.deliverShipment(
-      {
-        shipmentId: fulfillmentReservedSeedIds.shipments.demoCharizardShipment,
-        sellerAccountId: order.seller_account_id,
+    await services.shipments.commandHandler({
+      streamId: `fulfillment.shipment-${fulfillmentReservedSeedIds.shipments.demoCharizardShipment}`,
+      command: {
+        type: "RecordShipmentDelivery",
+        deliveredAt: new Date().toISOString(),
       },
       context,
-    );
-    await drainProjectors(services.projectors);
-    deliveredStatus = await getShipmentStatus(pool, fulfillmentReservedSeedIds.shipments.demoCharizardShipment);
+    });
+    deliveredStatus = "delivered";
   }
 
   let returnedStatus = await ensureShipmentDispatched(
@@ -273,16 +259,16 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     "1ZSEEDRETURNED",
   );
   if (returnedStatus === "dispatched" || returnedStatus === "exception") {
-    await services.shipments.returnShipment(
-      {
-        shipmentId: fulfillmentReservedSeedIds.shipments.returnedShipment,
-        sellerAccountId: order.seller_account_id,
+    await services.shipments.commandHandler({
+      streamId: `fulfillment.shipment-${fulfillmentReservedSeedIds.shipments.returnedShipment}`,
+      command: {
+        type: "ReturnShipment",
         reason: "Carrier return to sender",
+        returnedAt: new Date().toISOString(),
       },
       context,
-    );
-    await drainProjectors(services.projectors);
-    returnedStatus = await getShipmentStatus(pool, fulfillmentReservedSeedIds.shipments.returnedShipment);
+    });
+    returnedStatus = "returned";
   }
 
   let exceptionStatus = await ensureShipmentDispatched(
@@ -292,17 +278,15 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
     "1ZSEEDEXCEPTION",
   );
   if (exceptionStatus !== "exception" && exceptionStatus !== "delivered" && exceptionStatus !== "returned") {
-    await services.shipments.raiseShipmentException(
-      {
-        shipmentId: fulfillmentReservedSeedIds.shipments.exceptionShipment,
-        sellerAccountId: order.seller_account_id,
+    await services.shipments.commandHandler({
+      streamId: `fulfillment.shipment-${fulfillmentReservedSeedIds.shipments.exceptionShipment}`,
+      command: {
+        type: "RaiseShipmentException",
         exceptionType: "carrier-delay",
         notes: "Missed origin scan handoff.",
+        raisedAt: new Date().toISOString(),
       },
       context,
-    );
-    await drainProjectors(services.projectors);
+    });
   }
-
-  await drainProjectors(services.projectors);
 }

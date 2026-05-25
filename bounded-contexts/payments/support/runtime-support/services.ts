@@ -4,7 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
@@ -19,7 +19,7 @@ export type PaymentsServices = Readonly<{
   payments: ReturnType<typeof createPaymentRuntime>;
   refunds: ReturnType<typeof createRefundRuntime>;
   publicConfig: PaymentProcessorPublicConfig;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

@@ -1,4 +1,4 @@
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -11,16 +11,14 @@ type OrderingAccountRuntimeDeps = Readonly<{
 }>;
 
 export type OrderingAccountServices = Readonly<{
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createOrderingAccountRuntime(deps: OrderingAccountRuntimeDeps): OrderingAccountServices {
   return {
     projectors: [
-      createProjector({
-        projectorName: "ordering-account-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "ordering-account-projection",
         handlers: buildOrderingAccountProjectionHandlers(deps.db),
       }),
     ],

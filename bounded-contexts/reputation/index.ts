@@ -45,7 +45,7 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
   projectionGroups,
   createServices: (pool) => createReputationServices(pool),
   buildApis: (services) => [buildReputationApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const identitySubscription = getEventSubscription("identity", "reputation-account-projection");
     const orderingSubscription = getEventSubscription("ordering", "reputation-order-source-projection");

@@ -16,7 +16,6 @@ import type { PlatformControlPlane, PlatformLease } from "./control-plane";
 
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
 const OPERATION_LEASE_TTL_MS = 10 * 60 * 1_000;
-const BLOCKED_PROJECTION_DETAILS_CONCURRENCY = 4;
 const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
 const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
 const PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS = 2 * 60_000;
@@ -46,14 +45,13 @@ export function createProjectionOperationsRoutes(
     const snapshots = options.controlPlane ? await options.controlPlane.listProjectionStatusSnapshots() : [];
     const snapshotOverlay = overlayProjectionGroupSnapshots(listProjectionGroupStatuses(runtime), snapshots);
     const projectionGroups = snapshotOverlay.projectionGroups;
-    const blockedProjections = await listBlockedProjectionDetails(runtime, projectionGroups);
 
     const workers = options.controlPlane ? await options.controlPlane.listWorkerHeartbeats() : [];
 
     return c.json({
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
-      blockedProjections,
+      blockedProjections: summarizeBlockedProjectionKeys(projectionGroups),
       projectionStatusSource: snapshotOverlay.source,
       workers: classifyWorkerHeartbeats(workers),
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
@@ -182,51 +180,22 @@ function requireProjectionOperationsActor(actor: ResolvedActor | null): Resolved
   return actor;
 }
 
-async function listBlockedProjectionDetails(
-  runtime: ApiHostRuntime,
+function summarizeBlockedProjectionKeys(
   projectionGroups: readonly ContextProjectionGroupStatus[],
-) {
+): readonly Readonly<{ projectionKey: string; blockedStreamCount: number; poisonEventCount: number }>[] {
   const activeProjectionKeys = [
-    ...new Set([
-      ...projectionGroups.flatMap((group) =>
-        group.subscriptions
-          .filter((subscription) => subscription.blockedStreamCount > 0 || subscription.poisonEventCount > 0)
-          .map((subscription) => subscription.checkpointKey),
-      ),
-    ]),
+    ...projectionGroups.flatMap((group) =>
+      group.subscriptions
+        .filter((subscription) => subscription.blockedStreamCount > 0 || subscription.poisonEventCount > 0)
+        .map((subscription) => ({
+          projectionKey: subscription.checkpointKey,
+          blockedStreamCount: subscription.blockedStreamCount,
+          poisonEventCount: subscription.poisonEventCount,
+        })),
+    ),
   ];
 
-  const details = await mapWithConcurrency(
-    activeProjectionKeys,
-    BLOCKED_PROJECTION_DETAILS_CONCURRENCY,
-    (projectionKey) =>
-      listProjectionBlockedStreamDetails(runtime, projectionKey, {
-        poisonEventLimit: 10,
-      }),
-  );
-
-  return details.filter((detail) => detail.blockedStreams.length > 0 || detail.poisonEvents.length > 0);
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  mapper: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      results[currentIndex] = await mapper(items[currentIndex] as T);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
-
-  return results;
+  return activeProjectionKeys;
 }
 
 function classifyWorkerHeartbeats(workers: readonly Record<string, unknown>[]): readonly Record<string, unknown>[] {

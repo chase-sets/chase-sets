@@ -7,7 +7,6 @@ import { createPaymentsServices } from "./services";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { Projector } from "@chase-sets/event-core/projector";
 import type { RefundId } from "./common";
 import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
 
@@ -25,16 +24,6 @@ type OrderRow = Readonly<{
   seller_payout_amount: string;
 }>;
 
-type PaymentPageRow = Readonly<{
-  payment_id: string;
-  buyer_account_id: string;
-  order_ids: string[];
-  amount: string;
-  currency_code: string;
-  processor_name: string;
-  processor_payment_reference: string;
-}>;
-
 class SeedOrderMissingError extends Error {}
 
 function createSeedContext(accountId: string, userId: string): EventStoreContext {
@@ -45,18 +34,6 @@ function createSeedContext(accountId: string, userId: string): EventStoreContext
       forAccountId: accountId as never,
     },
   };
-}
-
-async function drainProjectors(projectors: readonly Projector[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
 }
 
 async function getSeedOrder(pool: PgTransactionalPool, orderId: string, buyerAccountId: string): Promise<OrderRow> {
@@ -170,29 +147,6 @@ async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<Ord
   }
 }
 
-async function getPaymentPage(pool: PgTransactionalPool, paymentId: PaymentId): Promise<PaymentPageRow> {
-  const result = await pool.query<PaymentPageRow>(
-    `SELECT
-       payment_id,
-       buyer_account_id,
-       order_ids,
-       amount,
-       currency_code,
-       processor_name,
-       processor_payment_reference
-     FROM payments_payment_pages
-     WHERE payment_id = $1`,
-    [paymentId],
-  );
-  const payment = result.rows[0];
-
-  if (!payment) {
-    throw new Error(`Payments seed could not load payment ${paymentId}.`);
-  }
-
-  return payment;
-}
-
 export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   const processorGateway = createFakePaymentProcessorGateway();
   const services = createPaymentsServices(pool, {
@@ -282,7 +236,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       context: buyerContext,
     });
 
-    await drainProjectors(services.projectors);
+    return processorPayment;
   };
 
   await createPayment(
@@ -296,22 +250,17 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     pendingCheckoutOrder,
     "2026-03-20T10:05:00.000Z",
   );
-  const failedPayment = await getPaymentPage(pool, paymentsReservedSeedIds.payments.failedModernCheckout);
-  await services.payments.processWebhook(
-    {
-      rawBody: JSON.stringify({
-        kind: "payment-failed",
-        processorPaymentReference: failedPayment.processor_payment_reference,
-        processorStatus: "failed",
-        failureCode: "card_declined",
-        failureMessage: "Seeded card decline.",
-        occurredAt: "2026-03-20T10:06:00.000Z",
-      }),
-      signatureHeader: null,
+  await services.payments.commandHandler({
+    streamId: `payments.payment-${paymentsReservedSeedIds.payments.failedModernCheckout}`,
+    command: {
+      type: "RecordPaymentFailure",
+      processorStatus: "failed",
+      failureCode: "card_declined",
+      failureMessage: "Seeded card decline.",
+      failedAt: "2026-03-20T10:06:00.000Z",
     },
-    buyerContext,
-  );
-  await drainProjectors(services.projectors);
+    context: buyerContext,
+  });
 
   await createPayment(
     paymentsReservedSeedIds.payments.cancelledVintageCheckout,
@@ -326,42 +275,34 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     },
     context: buyerContext,
   });
-  await drainProjectors(services.projectors);
 
-  await createPayment(
+  const capturedProcessorPayment = await createPayment(
     paymentsReservedSeedIds.payments.acceptedOfferCaptured,
     acceptedOfferOrder,
     "2026-03-20T11:00:00.000Z",
   );
-  const capturedPayment = await getPaymentPage(pool, paymentsReservedSeedIds.payments.acceptedOfferCaptured);
-  await services.payments.processWebhook(
-    {
-      rawBody: JSON.stringify({
-        kind: "payment-captured",
-        processorPaymentReference: capturedPayment.processor_payment_reference,
-        processorStatus: "succeeded",
-        occurredAt: "2026-03-20T11:05:00.000Z",
-      }),
-      signatureHeader: null,
+  await services.payments.commandHandler({
+    streamId: `payments.payment-${paymentsReservedSeedIds.payments.acceptedOfferCaptured}`,
+    command: {
+      type: "RecordPaymentCapture",
+      processorStatus: "succeeded",
+      capturedAt: "2026-03-20T11:05:00.000Z",
     },
-    buyerContext,
-  );
-  await drainProjectors(services.projectors);
+    context: buyerContext,
+  });
 
   const issueRefund = async (refundId: RefundId, reason: string, requestedAt: string) => {
-    const payment = await getPaymentPage(pool, paymentsReservedSeedIds.payments.acceptedOfferCaptured);
-
     await services.refunds.commandHandler({
       streamId: `payments.refund-${refundId}`,
       command: {
         type: "RequestRefund",
         refundId,
-        paymentId: payment.payment_id as never,
-        orderIds: payment.order_ids as never,
-        amount: payment.amount,
-        currencyCode: payment.currency_code as never,
+        paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
+        orderIds: [acceptedOfferOrder.order_id as never],
+        amount: acceptedOfferOrder.total_amount,
+        currencyCode: "usd" as never,
         reason,
-        processorName: payment.processor_name as never,
+        processorName: capturedProcessorPayment.processorName,
         requestedAt,
       },
       context: sellerContext,
@@ -369,11 +310,11 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
 
     try {
       const processorRefund = await processorGateway.createRefund({
-        paymentId: payment.payment_id as never,
-        processorPaymentReference: payment.processor_payment_reference,
-        orderIds: payment.order_ids as never,
-        amount: payment.amount,
-        currencyCode: payment.currency_code as never,
+        paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
+        processorPaymentReference: capturedProcessorPayment.processorPaymentReference,
+        orderIds: [acceptedOfferOrder.order_id as never],
+        amount: acceptedOfferOrder.total_amount,
+        currencyCode: "usd" as never,
         reason,
       });
       await services.refunds.commandHandler({
@@ -399,8 +340,6 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         context: sellerContext,
       });
     }
-
-    await drainProjectors(services.projectors);
   };
 
   await issueRefund(

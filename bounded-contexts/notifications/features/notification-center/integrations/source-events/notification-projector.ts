@@ -4,8 +4,7 @@ import type { NotificationOutbox } from "@chase-sets/notifications";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { mapOrderCreatedToNotification, mapShipmentDeliveredToNotification } from "./notification-intents";
 
-export const NOTIFICATIONS_ORDERING_PROJECTION = "notifications-ordering-facts-projection";
-export const NOTIFICATIONS_FULFILLMENT_PROJECTION = "notifications-fulfillment-facts-projection";
+export const NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION = "notifications-source-facts-outbox-projection";
 
 type OrderCreatedEvent = TransportEvent &
   Readonly<{
@@ -83,7 +82,7 @@ export async function projectSourceEventToNotification(
 
 export function buildNotificationsOrderingProjectionHandlers(
   outbox: NotificationOutbox,
-  projectionName = NOTIFICATIONS_ORDERING_PROJECTION,
+  projectionName = NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 ): ProjectorHandlerMap {
   return {
     "ordering.order.created": (event) => projectSourceEventToNotification(outbox, event, projectionName),
@@ -92,7 +91,7 @@ export function buildNotificationsOrderingProjectionHandlers(
 
 export function buildNotificationsFulfillmentProjectionHandlers(
   outbox: NotificationOutbox,
-  projectionName = NOTIFICATIONS_FULFILLMENT_PROJECTION,
+  projectionName = NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 ): ProjectorHandlerMap {
   return {
     "fulfillment.shipment.delivered": (event) => projectSourceEventToNotification(outbox, event, projectionName),

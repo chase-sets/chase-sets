@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -17,7 +17,6 @@ import {
   type CheckoutVersionSchema,
   type ShippingOption,
 } from "../../../support/runtime-support/common";
-import { drainOwnedProjector } from "../../../support/runtime-support/projectors";
 import {
   decideCheckoutSession,
   evolveCheckoutSession,
@@ -145,7 +144,7 @@ export type CheckoutSessionServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ sessionId: string }>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 function cartLineToSessionLine(line: CheckoutCartLineRow): CheckoutSessionLine {
@@ -177,10 +176,8 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     evolve: evolveCheckoutSession,
     decide: decideCheckoutSession,
   });
-  const sessionProjector = createProjector({
-    projectorName: "checkout.session-projection",
-    eventStore: deps.eventStore,
-    checkpointStore: deps.checkpointStore,
+  const sessionProjector = createProjectionHandlerSet({
+    projectionName: "checkout.session-projection",
     handlers: buildCheckoutSessionProjectionHandlers(deps.db),
   });
 
@@ -251,7 +248,6 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       },
       context,
     });
-    await drainOwnedProjector(sessionProjector);
     return { sessionId };
   }
 

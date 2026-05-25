@@ -1,7 +1,7 @@
 import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
-import { createProjector, type Projector } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
   decideAccount,
@@ -18,7 +18,7 @@ export type AccountServices = Readonly<{
   commandHandler: CommandHandler<AccountCommand, AccountState, AccountEvent>;
   listAccounts: (params?: Parameters<typeof listAccounts>[1]) => ReturnType<typeof listAccounts>;
   getAccount: (accountId: string) => ReturnType<typeof getAccount>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices {
@@ -38,10 +38,8 @@ export function createAccountRuntime(deps: IdentityRuntimeDeps): AccountServices
     listAccounts: (params) => listAccounts(deps.db, params),
     getAccount: (accountId) => getAccount(deps.db, accountId),
     projectors: [
-      createProjector({
-        projectorName: "identity-account-projection",
-        eventStore: deps.eventStore,
-        checkpointStore: deps.checkpointStore,
+      createProjectionHandlerSet({
+        projectionName: "identity-account-projection",
         handlers: buildAccountProjectionHandlers(deps.db),
       }),
     ],

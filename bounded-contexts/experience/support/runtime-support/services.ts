@@ -4,12 +4,12 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { Projector } from "@chase-sets/event-core/projector";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 
 export type ExperienceServices = Readonly<{
   platformFeedback: ReturnType<typeof createPlatformFeedbackRuntime>;
-  projectors: readonly Projector[];
+  projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;

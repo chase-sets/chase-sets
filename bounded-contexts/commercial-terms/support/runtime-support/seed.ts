@@ -14,18 +14,6 @@ function createSeedContext() {
   };
 }
 
-async function drainProjectors(projectors: readonly { runOnce: () => Promise<{ processed: number }> }[]) {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
-}
-
 export async function seedCommercialTermsDatabase(
   pool: PgTransactionalPool,
   _services?: unknown,
@@ -89,8 +77,6 @@ export async function seedCommercialTermsDatabase(
       context,
     });
   }
-
-  await drainProjectors(services.projectors);
 }
 
 function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-bootstrap" | "scenario-seed") {

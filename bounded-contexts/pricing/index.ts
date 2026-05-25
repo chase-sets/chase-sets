@@ -46,7 +46,7 @@ export const module: BcApiModule<PricingServices, PgTransactionalPool, void> = {
   projectionGroups,
   createServices: (pool) => createPricingServices(pool),
   buildApis: (services) => [buildPricingApi(services)],
-  projectors: (services) => services.projectors,
+  projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const catalogSubscription = getEventSubscription("catalog", "pricing-catalog-input-projection");
     const inventorySubscription = getEventSubscription("inventory", "pricing-inventory-input-projection");
