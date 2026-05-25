@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { createForwardedAuthHeaders } from "@chase-sets/platform-runtime/http";
+import { t } from "@chase-sets/localization";
 import {
   ActionBar,
   Badge,
@@ -103,7 +104,9 @@ type ProjectionOperationsSnapshot = Readonly<{
   runners: readonly Record<string, unknown>[];
 }>;
 
-export const meta: MetaFunction = () => [{ title: "Projection Operations | Chase Sets Admin" }];
+const routeKey = "adminWeb.app.routes.projectionOperations";
+
+export const meta: MetaFunction = () => [{ title: t(`${routeKey}.meta.title`) }];
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireIdentityAdminActor(request);
@@ -154,33 +157,33 @@ export default function ProjectionOperationsRoute() {
   return (
     <Page>
       <PageHeader
-        eyebrow="Operations"
-        title="Projection Operations"
-        description="Monitor projection catch-up, inspect poisoned streams, and run targeted repair."
+        eyebrow={t(`${routeKey}.eyebrow`)}
+        title={t(`${routeKey}.title`)}
+        description={t(`${routeKey}.description`)}
       />
       <ActionBar>
         <LinkButton href="/catalog/dimensions" tone="secondary">
-          Catalog
+          {t(`${routeKey}.catalog`)}
         </LinkButton>
         <LinkButton href="/identity/accounts" tone="secondary">
-          Identity
+          {t(`${routeKey}.identity`)}
         </LinkButton>
       </ActionBar>
 
       <StatGrid columns={{ base: 1, md: 4 }}>
-        <Stat label="Status" value={data.summary.status} />
-        <Stat label="Projection Groups" value={data.summary.totalGroups} />
-        <Stat label="Caught Up" value={data.summary.caughtUpGroups} />
-        <Stat label="Blocked Streams" value={blockedRows.length} />
+        <Stat label={t(`${routeKey}.status`)} value={data.summary.status} />
+        <Stat label={t(`${routeKey}.projectionGroups`)} value={data.summary.totalGroups} />
+        <Stat label={t(`${routeKey}.caughtUp`)} value={data.summary.caughtUpGroups} />
+        <Stat label={t(`${routeKey}.blockedStreams`)} value={blockedRows.length} />
       </StatGrid>
 
       <Grid columns={{ base: 1, xl: 2 }} gap={4}>
-        <PageSection title="Projection Groups">
+        <PageSection title={t(`${routeKey}.projectionGroups`)}>
           <DataTable<ProjectionGroupStatus>
             columns={[
               {
                 key: "projection",
-                header: "Projection",
+                header: t(`${routeKey}.projection`),
                 cell: (group) => (
                   <Stack gap={1}>
                     <Text weight="semibold">{group.projectionName}</Text>
@@ -192,25 +195,32 @@ export default function ProjectionOperationsRoute() {
               },
               {
                 key: "state",
-                header: "State",
+                header: t(`${routeKey}.state`),
                 cell: (group) => <Badge tone={stateTone(group.state)}>{group.state}</Badge>,
               },
               {
                 key: "lag",
-                header: "Issues",
-                cell: (group) => `${group.blockedStreamCount} blocked / ${group.poisonEventCount} poison`,
+                header: t(`${routeKey}.issues`),
+                cell: (group) =>
+                  t(`${routeKey}.issueSummary`, {
+                    blocked: group.blockedStreamCount,
+                    poison: group.poisonEventCount,
+                  }),
               },
               {
                 key: "revision",
-                header: "Revision",
+                header: t(`${routeKey}.revision`),
                 cell: (group) =>
                   group.revisionStale
-                    ? `stale ${group.storedProjectionRevision ?? "none"} -> ${group.projectionRevision}`
+                    ? t(`${routeKey}.staleRevision`, {
+                        stored: group.storedProjectionRevision ?? t(`${routeKey}.none`),
+                        current: group.projectionRevision,
+                      })
                     : String(group.projectionRevision),
               },
               {
                 key: "actions",
-                header: "Actions",
+                header: t(`${routeKey}.actions`),
                 cell: (group) => (
                   <Inline gap={2}>
                     <form method="post">
@@ -218,7 +228,7 @@ export default function ProjectionOperationsRoute() {
                       <input type="hidden" name="contextName" value={group.targetContextName} readOnly />
                       <input type="hidden" name="projectionName" value={group.projectionName} readOnly />
                       <Button type="submit" tone="secondary" size="sm" leadingIcon="refreshCcw">
-                        Rebuild
+                        {t(`${routeKey}.rebuild`)}
                       </Button>
                     </form>
                   </Inline>
@@ -227,59 +237,70 @@ export default function ProjectionOperationsRoute() {
             ]}
             rows={[...data.projectionGroups]}
             getRowId={(group) => `${group.targetContextName}:${group.projectionName}`}
-            emptyTitle="No projection groups"
-            emptyDescription="This runtime has no projection groups mounted."
+            emptyTitle={t(`${routeKey}.noProjectionGroups`)}
+            emptyDescription={t(`${routeKey}.noProjectionGroupsDescription`)}
           />
         </PageSection>
 
-        <PageSection title="Worker Runners">
+        <PageSection title={t(`${routeKey}.workerRunners`)}>
           <DataTable<Record<string, unknown>>
             columns={[
-              { key: "runner_name", header: "Runner", cell: (row) => String(row.runner_name ?? row.worker_id ?? "") },
-              { key: "kind", header: "Kind", cell: (row) => String(row.runner_kind ?? row.worker_kind ?? "") },
+              {
+                key: "runner_name",
+                header: t(`${routeKey}.runner`),
+                cell: (row) => String(row.runner_name ?? row.worker_id ?? ""),
+              },
+              {
+                key: "kind",
+                header: t(`${routeKey}.kind`),
+                cell: (row) => String(row.runner_kind ?? row.worker_kind ?? ""),
+              },
               {
                 key: "state",
-                header: "State",
+                header: t(`${routeKey}.state`),
                 cell: (row) => (
-                  <Badge tone={stateTone(String(row.state ?? "idle"))}>{String(row.state ?? "active")}</Badge>
+                  <Badge tone={stateTone(String(row.state ?? "idle"))}>
+                    {String(row.state ?? t(`${routeKey}.active`))}
+                  </Badge>
                 ),
               },
               {
                 key: "updated",
-                header: "Updated",
-                cell: (row) => formatDate(String(row.updated_at ?? row.heartbeat_at ?? "")),
+                header: t(`${routeKey}.updated`),
+                cell: (row) =>
+                  formatDate(String(row.updated_at ?? row.heartbeat_at ?? ""), t(`${routeKey}.notRecorded`)),
               },
             ]}
             rows={[...data.runners, ...data.workers]}
             getRowId={(row, index) => String(row.runner_name ?? row.worker_id ?? index)}
-            emptyTitle="No workers"
-            emptyDescription="No worker heartbeat or runner status has been recorded."
+            emptyTitle={t(`${routeKey}.noWorkers`)}
+            emptyDescription={t(`${routeKey}.noWorkersDescription`)}
           />
         </PageSection>
       </Grid>
 
-      <PageSection title="Blocked Streams">
+      <PageSection title={t(`${routeKey}.blockedStreams`)}>
         <DataTable<BlockedStream>
           columns={[
-            { key: "projection", header: "Projection Key", cell: (row) => row.projectionKey },
-            { key: "stream", header: "Stream", cell: (row) => row.streamId },
-            { key: "version", header: "First Version", cell: (row) => row.firstBlockedStreamVersion },
+            { key: "projection", header: t(`${routeKey}.projectionKey`), cell: (row) => row.projectionKey },
+            { key: "stream", header: t(`${routeKey}.stream`), cell: (row) => row.streamId },
+            { key: "version", header: t(`${routeKey}.firstVersion`), cell: (row) => row.firstBlockedStreamVersion },
             {
               key: "position",
-              header: "Positions",
+              header: t(`${routeKey}.positions`),
               cell: (row) => `${row.firstBlockedGlobalPosition} -> ${row.lastSeenGlobalPosition}`,
             },
-            { key: "deferred", header: "Deferred", cell: (row) => row.deferredEventCount },
+            { key: "deferred", header: t(`${routeKey}.deferred`), cell: (row) => row.deferredEventCount },
             {
               key: "action",
-              header: "Action",
+              header: t(`${routeKey}.action`),
               cell: (row) => (
                 <form method="post">
                   <input type="hidden" name="intent" value="retry-stream" readOnly />
                   <input type="hidden" name="projectionKey" value={row.projectionKey} readOnly />
                   <input type="hidden" name="streamId" value={row.streamId} readOnly />
                   <Button type="submit" size="sm" leadingIcon="refreshCcw">
-                    Retry
+                    {t(`${routeKey}.retry`)}
                   </Button>
                 </form>
               ),
@@ -287,8 +308,8 @@ export default function ProjectionOperationsRoute() {
           ]}
           rows={blockedRows}
           getRowId={(row) => `${row.projectionKey}:${row.streamId}`}
-          emptyTitle="No blocked streams"
-          emptyDescription="No stream-isolated projection errors are currently active."
+          emptyTitle={t(`${routeKey}.noBlockedStreams`)}
+          emptyDescription={t(`${routeKey}.noBlockedStreamsDescription`)}
         />
       </PageSection>
 
@@ -299,8 +320,8 @@ export default function ProjectionOperationsRoute() {
               <Stack gap={3}>
                 <KeyValueList
                   items={[
-                    { key: "Blocked streams", value: projection.blockedStreams.length },
-                    { key: "Poison events", value: projection.poisonEvents.length },
+                    { key: t(`${routeKey}.blockedStreams`), value: projection.blockedStreams.length },
+                    { key: t(`${routeKey}.poisonEvents`), value: projection.poisonEvents.length },
                   ]}
                 />
                 {projection.poisonEvents.map((event) => (
@@ -313,11 +334,14 @@ export default function ProjectionOperationsRoute() {
                       <Text size="sm">{event.errorMessage}</Text>
                       <KeyValueList
                         items={[
-                          { key: "Event", value: event.eventId },
-                          { key: "Stream", value: event.streamId },
-                          { key: "Position", value: event.globalPosition },
-                          { key: "Retries", value: event.retryCount },
-                          { key: "Last seen", value: formatDate(event.lastSeenAt) },
+                          { key: t(`${routeKey}.event`), value: event.eventId },
+                          { key: t(`${routeKey}.stream`), value: event.streamId },
+                          { key: t(`${routeKey}.position`), value: event.globalPosition },
+                          { key: t(`${routeKey}.retries`), value: event.retryCount },
+                          {
+                            key: t(`${routeKey}.lastSeen`),
+                            value: formatDate(event.lastSeenAt, t(`${routeKey}.notRecorded`)),
+                          },
                         ]}
                       />
                     </Stack>
@@ -378,9 +402,9 @@ async function postProjectionOperation(
   }
 }
 
-function formatDate(value: string) {
+function formatDate(value: string, emptyLabel: string) {
   if (!value) {
-    return "Not recorded";
+    return emptyLabel;
   }
 
   return new Date(value).toLocaleString();
