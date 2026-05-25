@@ -10,7 +10,7 @@ import {
   type MountedContextRuntimeEntry,
 } from "@chase-sets/bounded-context-runtime";
 import type { BcApiModule, BcHostPort, BcProjector } from "@chase-sets/bounded-context-module";
-import type { ProjectorRunResult } from "@chase-sets/event-core/projector";
+import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane, PlatformLease } from "./control-plane";
@@ -45,7 +45,7 @@ export type WorkerHostRuntime = Readonly<{
 export type WorkerRunner = Readonly<{
   name: string;
   kind: "projector" | "projection-group" | "subscription" | "job";
-  runOnce: () => Promise<ProjectorRunResult>;
+  runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   priority?: () => bigint | number;
   projectionStatusSnapshot?: () => ContextProjectionGroupStatus;
 }>;
@@ -258,14 +258,24 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
   }
 
   let leaseActive = true;
+  const abortController = new AbortController();
+  const throwIfLeaseLost = () => {
+    if (!leaseActive || abortController.signal.aborted) {
+      throw new Error(`Lost lease '${lease.leaseName}'.`);
+    }
+  };
   const renewalTimer = setInterval(() => {
     void options.controlPlane
       .renewLease(lease, options.leaseTtlMs)
       .then((renewed) => {
         leaseActive = leaseActive && renewed;
+        if (!renewed) {
+          abortController.abort();
+        }
       })
       .catch(() => {
         leaseActive = false;
+        abortController.abort();
       });
   }, options.leaseRenewIntervalMs);
   renewalTimer.unref?.();
@@ -279,13 +289,19 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
       fencingToken: lease.fencingToken,
     });
 
-    if (!leaseActive) {
-      throw new Error(`Lost lease '${lease.leaseName}'.`);
-    }
+    throwIfLeaseLost();
 
-    const result = await runner.runOnce();
+    const runnerContext: ProjectionRunContext = {
+      ownerId: lease.ownerId,
+      fencingToken: lease.fencingToken,
+      signal: abortController.signal,
+      throwIfLeaseLost,
+    };
+    const result = await runner.runOnce(runnerContext);
+    throwIfLeaseLost();
     const state = result.state === "degraded" ? "degraded" : result.processed > 0 ? "running" : "caught-up";
 
+    throwIfLeaseLost();
     await options.controlPlane.recordRunnerStatus({
       runnerName: runner.name,
       runnerKind: runner.kind,
@@ -301,24 +317,28 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
 
     const projectionStatusSnapshot = runner.projectionStatusSnapshot?.();
     if (projectionStatusSnapshot) {
+      throwIfLeaseLost();
       await options.controlPlane.recordProjectionStatusSnapshot({
         projectionKey: `${projectionStatusSnapshot.targetContextName}.${projectionStatusSnapshot.projectionName}`,
         targetContextName: projectionStatusSnapshot.targetContextName,
         projectionName: projectionStatusSnapshot.projectionName,
         runnerName: runner.name,
         ownerId: lease.ownerId,
+        fencingToken: lease.fencingToken,
         status: projectionStatusSnapshot as unknown as Record<string, unknown>,
       });
     }
   } catch (error) {
-    await options.controlPlane.recordRunnerStatus({
-      runnerName: runner.name,
-      runnerKind: runner.kind,
-      state: "error",
-      ownerId: lease.ownerId,
-      fencingToken: lease.fencingToken,
-      lastError: error instanceof Error ? error.message : String(error),
-    });
+    if (leaseActive && !abortController.signal.aborted) {
+      await options.controlPlane.recordRunnerStatus({
+        runnerName: runner.name,
+        runnerKind: runner.kind,
+        state: "error",
+        ownerId: lease.ownerId,
+        fencingToken: lease.fencingToken,
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+    }
     throw error;
   } finally {
     clearInterval(renewalTimer);
@@ -332,7 +352,7 @@ function createProjectorRunner(contextName: string, projector: BcProjector, inde
   return {
     name: `${contextName}.${projector.projectorName ?? `projector-${index + 1}`}`,
     kind: "projector",
-    runOnce: projector.runOnce,
+    runOnce: (context) => projector.runOnce(context),
   };
 }
 
@@ -344,10 +364,12 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
     kind: "projection-group",
     priority: () => BigInt(group.getStatus().outstandingEventCount),
     projectionStatusSnapshot: () => group.getStatus(),
-    runOnce: async () => {
+    runOnce: async (context) => {
       try {
+        context?.throwIfLeaseLost?.();
         const status = await group.refreshStatus();
         if (status.revisionStale && rebuildingRevision !== group.projectionRevision) {
+          context?.throwIfLeaseLost?.();
           await resetProjectionGroup(group);
           rebuildingRevision = group.projectionRevision;
         }
@@ -357,7 +379,7 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
         let blockedStreams = 0;
         let poisonEvents = 0;
 
-        for (const result of await runSubscriptionRunnersByOrder(group.subscriptionRunners)) {
+        for (const result of await runSubscriptionRunnersByOrder(group.subscriptionRunners, context)) {
           processed += result.processed;
           lastGlobalPosition = maxGlobalPosition(lastGlobalPosition, result.lastGlobalPosition);
           blockedStreams += result.blockedStreams ?? 0;
@@ -365,6 +387,7 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
         }
 
         if (processed === 0 && blockedStreams === 0) {
+          context?.throwIfLeaseLost?.();
           await group.markRevisionSynced();
           rebuildingRevision = null;
         }
@@ -386,6 +409,7 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
 
 async function runSubscriptionRunnersByOrder(
   runners: readonly ContextSubscriptionRunner[],
+  context?: ProjectionRunContext,
 ): Promise<readonly ProjectorRunResult[]> {
   const results: ProjectorRunResult[] = [];
   const sortedRunners = sortSubscriptionRunners(runners);
@@ -399,7 +423,8 @@ async function runSubscriptionRunnersByOrder(
       index += 1;
     }
 
-    results.push(...(await Promise.all(sameOrderRunners.map((runner) => runner.runOnce()))));
+    context?.throwIfLeaseLost?.();
+    results.push(...(await Promise.all(sameOrderRunners.map((runner) => runner.runOnce(context)))));
   }
 
   return results;

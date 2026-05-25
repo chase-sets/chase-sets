@@ -281,7 +281,7 @@ describe("platform api app", () => {
                 updatedAt: "2026-05-25T00:00:00.000Z",
                 subscriptions: [],
               },
-              updated_at: "2026-05-25T00:01:00.000Z",
+              updated_at: new Date().toISOString(),
             },
           ]),
           listWorkerHeartbeats: vi.fn(async () => []),

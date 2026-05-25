@@ -41,9 +41,13 @@ CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots (
   projection_name text NOT NULL,
   runner_name text NOT NULL,
   owner_id text NOT NULL,
+  fencing_token bigint,
   status jsonb NOT NULL,
   updated_at timestamptz NOT NULL
 );
+
+ALTER TABLE platform_projection_status_snapshots
+  ADD COLUMN IF NOT EXISTS fencing_token bigint;
 
 CREATE INDEX IF NOT EXISTS platform_projection_status_snapshots_updated_at_idx
   ON platform_projection_status_snapshots (updated_at DESC);
@@ -108,6 +112,7 @@ export type PlatformControlPlane = Readonly<{
       projectionName: string;
       runnerName: string;
       ownerId: string;
+      fencingToken?: string;
       status: Record<string, unknown>;
     }>,
   ) => Promise<void>;
@@ -227,7 +232,10 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
            last_processed = EXCLUDED.last_processed,
            last_error = EXCLUDED.last_error,
            last_ran_at = EXCLUDED.last_ran_at,
-           updated_at = EXCLUDED.updated_at`,
+           updated_at = EXCLUDED.updated_at
+         WHERE platform_runner_statuses.fencing_token IS NULL
+            OR EXCLUDED.fencing_token IS NULL
+            OR EXCLUDED.fencing_token >= platform_runner_statuses.fencing_token`,
         [
           input.runnerName,
           input.runnerKind,
@@ -247,23 +255,29 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
            projection_name,
            runner_name,
            owner_id,
+           fencing_token,
            status,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
+         ) VALUES ($1, $2, $3, $4, $5, $6::bigint, $7::jsonb, now())
          ON CONFLICT (projection_key)
          DO UPDATE SET
            target_context_name = EXCLUDED.target_context_name,
            projection_name = EXCLUDED.projection_name,
            runner_name = EXCLUDED.runner_name,
            owner_id = EXCLUDED.owner_id,
+           fencing_token = EXCLUDED.fencing_token,
            status = EXCLUDED.status,
-           updated_at = EXCLUDED.updated_at`,
+           updated_at = EXCLUDED.updated_at
+         WHERE platform_projection_status_snapshots.fencing_token IS NULL
+            OR EXCLUDED.fencing_token IS NULL
+            OR EXCLUDED.fencing_token >= platform_projection_status_snapshots.fencing_token`,
         [
           input.projectionKey,
           input.targetContextName,
           input.projectionName,
           input.runnerName,
           input.ownerId,
+          input.fencingToken ?? null,
           JSON.stringify(input.status),
         ],
       );
@@ -272,7 +286,7 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
       (
         await db.query(
           `SELECT projection_key, target_context_name, projection_name,
-                runner_name, owner_id, status, updated_at
+                runner_name, owner_id, fencing_token, status, updated_at
          FROM platform_projection_status_snapshots
          ORDER BY target_context_name, projection_name`,
         )

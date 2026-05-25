@@ -37,6 +37,7 @@ async function createMetadataFixture() {
   await mkdir(path.join(rootDir, "deployables", "public-web", "app", "generated"), {
     recursive: true,
   });
+  await mkdir(path.join(rootDir, "infrastructure", "event-core-postgres"), { recursive: true });
 
   writeJson(path.join(rootDir, "tsconfig.base.json"), {
     compilerOptions: {
@@ -53,6 +54,11 @@ async function createMetadataFixture() {
       },
     ],
   });
+  writeFileSync(
+    path.join(rootDir, "infrastructure", "event-core-postgres", "schema.sql"),
+    "CREATE TABLE IF NOT EXISTS event_store_events (event_id text PRIMARY KEY);\n",
+    "utf8",
+  );
 
   const workspaces = [
     {
@@ -122,5 +128,18 @@ describe("sync-workspace-metadata --check", () => {
       /api-context-registry\.generated\.ts should be deleted/,
     );
     expect(readFileSync(legacyPath, "utf8")).toBe("// legacy\n");
+  });
+
+  it("fails when the generated event-core Postgres schema is stale", async () => {
+    const fixture = await createMetadataFixture();
+    syncWorkspaceMetadata(fixture);
+    const generatedPath = path.join(fixture.rootDir, "infrastructure", "event-core-postgres", "schema.ts");
+    const staleContent = 'export const eventCorePostgresSchemaSql = "stale";\n';
+    writeFileSync(generatedPath, staleContent, "utf8");
+
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
+      /infrastructure\/event-core-postgres\/schema\.ts is stale/,
+    );
+    expect(readFileSync(generatedPath, "utf8")).toBe(staleContent);
   });
 });

@@ -11,6 +11,7 @@ import type {
   ProjectionBlockedStream,
   ProjectionErrorSummary,
   ProjectionPoisonEvent,
+  ProjectionRunContext,
   ProjectorHandler,
   ProjectorRunResult,
 } from "@chase-sets/event-core/projector";
@@ -202,6 +203,8 @@ type SubscriptionApplicationRow = Readonly<{
   status: string;
 }>;
 
+type SubscriptionApplicationClaimResult = "claimed" | "already-applied";
+
 function assertSqlIdentifier(identifier: string): string {
   if (!SQL_IDENTIFIER_RE.test(identifier)) {
     throw new Error(`Invalid SQL identifier "${identifier}". Use letters, numbers, and underscores only.`);
@@ -278,12 +281,13 @@ async function loadSubscriptionApplicationStatus(
   db: PgQueryable,
   projectionKey: string,
   eventId: string,
+  options: Readonly<{ lock?: boolean }> = {},
 ): Promise<"started" | "applied" | "poison" | "transient" | null> {
   const result = await db.query<SubscriptionApplicationRow>(
     `SELECT status
      FROM event_subscription_applications
      WHERE projection_key = $1
-       AND event_id = $2`,
+       AND event_id = $2${options.lock ? "\n     FOR UPDATE" : ""}`,
     [projectionKey, eventId],
   );
   const status = result.rows[0]?.status;
@@ -291,12 +295,40 @@ async function loadSubscriptionApplicationStatus(
   return status === "started" || status === "applied" || status === "poison" || status === "transient" ? status : null;
 }
 
-async function recordSubscriptionApplicationStarted(
+async function loadSubscriptionApplicationStatuses(
+  db: PgQueryable,
+  projectionKey: string,
+  eventIds: readonly string[],
+): Promise<ReadonlyMap<string, "started" | "applied" | "poison" | "transient">> {
+  if (eventIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<Readonly<{ event_id: string; status: string }>>(
+    `SELECT event_id, status
+     FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND event_id = ANY($2::text[])`,
+    [projectionKey, eventIds],
+  );
+
+  return new Map(
+    result.rows.flatMap((row) => {
+      const status = row.status;
+      return status === "started" || status === "applied" || status === "poison" || status === "transient"
+        ? [[String(row.event_id), status] as const]
+        : [];
+    }),
+  );
+}
+
+async function claimSubscriptionApplication(
   db: PgQueryable,
   projectionKey: string,
   event: Readonly<ReturnType<typeof toTransportEvent>>,
-): Promise<void> {
-  await db.query(
+): Promise<SubscriptionApplicationClaimResult> {
+  const eventId = String(event.id);
+  const insertResult = await db.query<SubscriptionApplicationRow>(
     `INSERT INTO event_subscription_applications (
        projection_key,
        event_id,
@@ -310,15 +342,36 @@ async function recordSubscriptionApplicationStarted(
        updated_at
      ) VALUES ($1, $2, $3, $4::bigint, $5::bigint, $6, 'started', NULL, now(), now())
      ON CONFLICT (projection_key, event_id)
-     DO UPDATE SET
-       status = CASE
-         WHEN event_subscription_applications.status = 'applied' THEN event_subscription_applications.status
-         ELSE 'started'
-       END,
-       error_message = NULL,
-       updated_at = EXCLUDED.updated_at`,
-    [projectionKey, String(event.id), event.streamId, event.streamVersion, event.globalPosition, event.type],
+     DO NOTHING
+     RETURNING status`,
+    [projectionKey, eventId, event.streamId, event.streamVersion, event.globalPosition, event.type],
   );
+
+  if (insertResult.rows[0]) {
+    return "claimed";
+  }
+
+  const existingStatus = await loadSubscriptionApplicationStatus(db, projectionKey, eventId, { lock: true });
+  if (existingStatus === "applied") {
+    return "already-applied";
+  }
+
+  if (!existingStatus) {
+    throw new Error(`Projection application '${projectionKey}:${eventId}' disappeared before it could be claimed.`);
+  }
+
+  await db.query(
+    `UPDATE event_subscription_applications
+     SET status = 'started',
+         error_message = NULL,
+         updated_at = now()
+     WHERE projection_key = $1
+       AND event_id = $2
+       AND status <> 'applied'`,
+    [projectionKey, eventId],
+  );
+
+  return "claimed";
 }
 
 async function recordSubscriptionApplicationCompleted(
@@ -340,6 +393,24 @@ async function recordSubscriptionApplicationCompleted(
   if (result.rowCount !== null && result.rowCount < 1) {
     throw new Error(`Projection application '${projectionKey}:${eventId}' was not claimed before completion.`);
   }
+}
+
+async function recordSubscriptionApplicationFailure(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  event: Readonly<ReturnType<typeof toTransportEvent>>,
+  status: "poison" | "transient",
+  error: unknown,
+): Promise<SubscriptionApplicationClaimResult> {
+  return withPgTransaction(db, async (client) => {
+    const claimResult = await claimSubscriptionApplication(client, projectionKey, event);
+    if (claimResult === "already-applied") {
+      return claimResult;
+    }
+
+    await recordSubscriptionApplicationCompleted(client, projectionKey, String(event.id), status, error);
+    return "claimed";
+  });
 }
 
 async function compactSubscriptionApplicationLedger(
@@ -877,7 +948,7 @@ export type ContextSubscriptionRunner = Readonly<{
   subscriptionVersion: number;
   checkpointKey: string;
   order: number;
-  runOnce: () => Promise<ProjectorRunResult>;
+  runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   getStatus: () => ContextSubscriptionStatus;
   refreshStatus: () => Promise<ContextSubscriptionStatus>;
   reset: () => Promise<void>;
@@ -1103,27 +1174,12 @@ export function createSubscriptionRunner(
           }
 
           try {
-            const applicationStatus = await loadSubscriptionApplicationStatus(
-              targetPool,
-              checkpointKey,
-              String(event.id),
-            );
-            if (applicationStatus === "applied") {
-              appliedEvents += 1;
-              continue;
-            }
-
             const applicationResult = await withPgTransaction(targetPool, async (client) => {
-              const transactionStatus = await loadSubscriptionApplicationStatus(
-                client,
-                checkpointKey,
-                String(event.id),
-              );
-              if (transactionStatus === "applied") {
+              const claimResult = await claimSubscriptionApplication(client, checkpointKey, event);
+              if (claimResult === "already-applied") {
                 return "already-applied" as const;
               }
 
-              await recordSubscriptionApplicationStarted(client, checkpointKey, event);
               await handler(event, { db: client });
               await recordSubscriptionApplicationCompleted(client, checkpointKey, String(event.id), "applied");
               return "applied" as const;
@@ -1134,8 +1190,18 @@ export function createSubscriptionRunner(
             }
             appliedEvents += 1;
           } catch (error) {
-            await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
-            await recordSubscriptionApplicationCompleted(targetPool, checkpointKey, String(event.id), "poison", error);
+            const failureResult = await recordSubscriptionApplicationFailure(
+              targetPool,
+              checkpointKey,
+              event,
+              "poison",
+              error,
+            );
+            if (failureResult === "already-applied") {
+              appliedEvents += 1;
+              continue;
+            }
+
             await recordProjectionPoisonEvent(targetPool, {
               projectionKey: checkpointKey,
               projectionName: subscription.projectionName,
@@ -1196,10 +1262,15 @@ export function createSubscriptionRunner(
         errorMessage: null,
       };
     },
-    runOnce: async () => {
+    runOnce: async (context) => {
+      context?.throwIfLeaseLost?.();
       status.state = "running";
       status.lastError = null;
       status.updatedAt = new Date().toISOString();
+      const saveLeasedSubscriptionCheckpoint = async (lastGlobalPosition: GlobalPosition) => {
+        context?.throwIfLeaseLost?.();
+        await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+      };
 
       try {
         const storedCheckpoint = await loadSubscriptionCheckpoint(targetPool, checkpointKey);
@@ -1218,7 +1289,7 @@ export function createSubscriptionRunner(
 
         if (storedEvents.length === 0) {
           if (checkpoint !== status.sourceHeadGlobalPosition) {
-            await saveSubscriptionCheckpoint(targetPool, subscription, status.sourceHeadGlobalPosition);
+            await saveLeasedSubscriptionCheckpoint(status.sourceHeadGlobalPosition);
           }
           const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
           status.blockedStreamCount = errorSummary.blockedStreamCount;
@@ -1246,8 +1317,14 @@ export function createSubscriptionRunner(
         let lastCheckpointedGlobalPosition = checkpoint;
         let eventsSinceCheckpoint = 0;
         let processed = 0;
+        const applicationStatuses = await loadSubscriptionApplicationStatuses(
+          targetPool,
+          checkpointKey,
+          storedEvents.map((event) => String(event.eventId)),
+        );
 
         for (const storedEvent of storedEvents) {
+          context?.throwIfLeaseLost?.();
           const event = toTransportEvent(storedEvent);
           const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[event.type];
 
@@ -1267,7 +1344,7 @@ export function createSubscriptionRunner(
                 processed += 1;
                 eventsSinceCheckpoint += 1;
                 if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
                   lastCheckpointedGlobalPosition = lastGlobalPosition;
                   eventsSinceCheckpoint = 0;
                 }
@@ -1275,35 +1352,25 @@ export function createSubscriptionRunner(
               }
             }
 
-            try {
-              const applicationStatus = await loadSubscriptionApplicationStatus(
-                targetPool,
-                checkpointKey,
-                String(event.id),
-              );
-              if (applicationStatus === "applied") {
-                lastGlobalPosition = event.globalPosition;
-                processed += 1;
-                eventsSinceCheckpoint += 1;
-                if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
-                  lastCheckpointedGlobalPosition = lastGlobalPosition;
-                  eventsSinceCheckpoint = 0;
-                }
-                continue;
+            if (applicationStatuses.get(String(event.id)) === "applied") {
+              lastGlobalPosition = event.globalPosition;
+              processed += 1;
+              eventsSinceCheckpoint += 1;
+              if (eventsSinceCheckpoint >= checkpointBatchSize) {
+                await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
+                lastCheckpointedGlobalPosition = lastGlobalPosition;
+                eventsSinceCheckpoint = 0;
               }
+              continue;
+            }
 
+            try {
               const applicationResult = await withPgTransaction(targetPool, async (client) => {
-                const transactionStatus = await loadSubscriptionApplicationStatus(
-                  client,
-                  checkpointKey,
-                  String(event.id),
-                );
-                if (transactionStatus === "applied") {
+                const claimResult = await claimSubscriptionApplication(client, checkpointKey, event);
+                if (claimResult === "already-applied") {
                   return "already-applied" as const;
                 }
 
-                await recordSubscriptionApplicationStarted(client, checkpointKey, event);
                 await handler(event, { db: client });
                 await recordSubscriptionApplicationCompleted(client, checkpointKey, String(event.id), "applied");
                 return "applied" as const;
@@ -1313,7 +1380,7 @@ export function createSubscriptionRunner(
                 processed += 1;
                 eventsSinceCheckpoint += 1;
                 if (eventsSinceCheckpoint >= checkpointBatchSize) {
-                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
                   lastCheckpointedGlobalPosition = lastGlobalPosition;
                   eventsSinceCheckpoint = 0;
                 }
@@ -1321,21 +1388,50 @@ export function createSubscriptionRunner(
               }
             } catch (error) {
               if (errorPolicy === "global-strict" || isTransientProjectionError(error)) {
-                await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
-                await recordSubscriptionApplicationCompleted(
+                const failureResult = await recordSubscriptionApplicationFailure(
                   targetPool,
                   checkpointKey,
-                  String(event.id),
+                  event,
                   "transient",
                   error,
                 );
+                if (failureResult === "already-applied") {
+                  lastGlobalPosition = event.globalPosition;
+                  processed += 1;
+                  eventsSinceCheckpoint += 1;
+                  if (eventsSinceCheckpoint >= checkpointBatchSize) {
+                    await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
+                    lastCheckpointedGlobalPosition = lastGlobalPosition;
+                    eventsSinceCheckpoint = 0;
+                  }
+                  continue;
+                }
+
                 if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
-                  await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
                 }
                 throw error;
               }
 
-              await recordSubscriptionApplicationStarted(targetPool, checkpointKey, event);
+              const failureResult = await recordSubscriptionApplicationFailure(
+                targetPool,
+                checkpointKey,
+                event,
+                "poison",
+                error,
+              );
+              if (failureResult === "already-applied") {
+                lastGlobalPosition = event.globalPosition;
+                processed += 1;
+                eventsSinceCheckpoint += 1;
+                if (eventsSinceCheckpoint >= checkpointBatchSize) {
+                  await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
+                  lastCheckpointedGlobalPosition = lastGlobalPosition;
+                  eventsSinceCheckpoint = 0;
+                }
+                continue;
+              }
+
               await recordProjectionPoisonEvent(targetPool, {
                 projectionKey: checkpointKey,
                 projectionName: subscription.projectionName,
@@ -1349,13 +1445,6 @@ export function createSubscriptionRunner(
                 globalPosition: event.globalPosition,
                 error,
               });
-              await recordSubscriptionApplicationCompleted(
-                targetPool,
-                checkpointKey,
-                String(event.id),
-                "poison",
-                error,
-              );
             }
           }
 
@@ -1363,14 +1452,14 @@ export function createSubscriptionRunner(
           processed += 1;
           eventsSinceCheckpoint += 1;
           if (eventsSinceCheckpoint >= checkpointBatchSize) {
-            await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+            await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
             lastCheckpointedGlobalPosition = lastGlobalPosition;
             eventsSinceCheckpoint = 0;
           }
         }
 
         if (lastGlobalPosition !== lastCheckpointedGlobalPosition) {
-          await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+          await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
           lastCheckpointedGlobalPosition = lastGlobalPosition;
         }
         await compactSubscriptionApplicationLedger(targetPool, checkpointKey, lastCheckpointedGlobalPosition);
@@ -1386,7 +1475,7 @@ export function createSubscriptionRunner(
           status.sourceHeadGlobalPosition = observedSourceHeadGlobalPosition;
           if (lastGlobalPosition !== observedSourceHeadGlobalPosition) {
             lastGlobalPosition = observedSourceHeadGlobalPosition;
-            await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition);
+            await saveLeasedSubscriptionCheckpoint(lastGlobalPosition);
             lastCheckpointedGlobalPosition = lastGlobalPosition;
           }
         }

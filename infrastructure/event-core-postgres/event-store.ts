@@ -248,12 +248,12 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
   }
 
   if (input?.streamPrefixes?.length) {
-    predicates.push(`EXISTS (
-      SELECT 1
-      FROM unnest($${nextParam}::text[]) AS prefix(value)
-      WHERE stream_id LIKE prefix.value || '%'
-    )`);
-    nextParam += 1;
+    const prefixPredicates = [...new Set(input.streamPrefixes)].map((_, index) => {
+      const prefixParam = nextParam + index;
+      return `stream_id LIKE $${prefixParam} || '%'`;
+    });
+    predicates.push(`(${prefixPredicates.join(" OR ")})`);
+    nextParam += prefixPredicates.length;
   }
 
   return `
@@ -277,7 +277,7 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
   }
 
   if (input.streamPrefixes?.length) {
-    params.push([...new Set(input.streamPrefixes)]);
+    params.push(...new Set(input.streamPrefixes));
   }
 
   params.push(input.limit);
