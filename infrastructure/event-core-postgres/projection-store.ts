@@ -4,6 +4,9 @@ import type {
   ProjectionBlockedStream,
   ProjectionBlockedStreamState,
   ProjectionCheckpointStore,
+  ProjectionFailureKind,
+  ProjectionPoisonEvent,
+  ProjectionPoisonState,
 } from "@chase-sets/event-core/projector";
 import type { GlobalPosition, StreamVersion } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION, globalPositionFromBigInt, parseGlobalPosition } from "@chase-sets/event-core/storage";
@@ -27,6 +30,29 @@ type DbBlockedStreamRow = Readonly<{
 type DbProjectionErrorSummaryRow = Readonly<{
   blocked_stream_count: string | number | bigint;
   poison_event_count: string | number | bigint;
+}>;
+
+type DbProjectionPoisonEventRow = Readonly<{
+  projection_key: string;
+  event_id: string;
+  projection_name: string;
+  projection_kind: string;
+  target_context_name: string | null;
+  source_context_name: string | null;
+  projection_revision: string | number | bigint | null;
+  subscription_version: string | number | bigint | null;
+  stream_id: string;
+  stream_version: string | number | bigint;
+  event_type: string;
+  global_position: string | number | bigint;
+  failure_kind: string;
+  error_message: string;
+  error_stack: string | null;
+  state: string;
+  retry_count: string | number | bigint;
+  first_seen_at: Date | string;
+  last_seen_at: Date | string;
+  resolved_at: Date | string | null;
 }>;
 
 export type PostgresProjectionStoreConfig = Readonly<{
@@ -205,6 +231,54 @@ export function createPostgresProjectionStore(config: PostgresProjectionStoreCon
       ) AS poison_event_count
   `;
 
+  const listPoisonEventsSql = `
+    SELECT
+      projection_key,
+      event_id,
+      projection_name,
+      projection_kind,
+      target_context_name,
+      source_context_name,
+      projection_revision,
+      subscription_version,
+      stream_id,
+      stream_version,
+      event_type,
+      global_position,
+      failure_kind,
+      error_message,
+      error_stack,
+      state,
+      retry_count,
+      first_seen_at,
+      last_seen_at,
+      resolved_at
+    FROM ${poisonEventsTable}
+    WHERE projection_key = $1
+      AND state IN ('blocked', 'retrying')
+    ORDER BY global_position ASC, event_id ASC
+    LIMIT $2
+  `;
+
+  const markBlockedStreamRetryingSql = `
+    UPDATE ${blockedStreamsTable}
+    SET state = 'retrying',
+        updated_at = $3
+    WHERE projection_key = $1
+      AND stream_id = $2
+      AND state IN ('blocked', 'retrying')
+  `;
+
+  const markBlockedStreamPoisonEventsRetryingSql = `
+    UPDATE ${poisonEventsTable}
+    SET state = 'retrying',
+        retry_count = retry_count + 1,
+        last_seen_at = $3
+    WHERE projection_key = $1
+      AND stream_id = $2
+      AND state IN ('blocked', 'retrying')
+  `;
+
   const resolveBlockedStreamSql = `
     UPDATE ${blockedStreamsTable}
     SET state = 'resolved',
@@ -319,6 +393,21 @@ export function createPostgresProjectionStore(config: PostgresProjectionStoreCon
       return result.rows.map(mapBlockedStreamRow);
     },
 
+    listPoisonEvents: async (projectionKey, limit = 50) => {
+      const result = await config.db.query<DbProjectionPoisonEventRow>(listPoisonEventsSql, [
+        projectionKey,
+        assertPositiveLimit(limit),
+      ]);
+
+      return result.rows.map(mapPoisonEventRow);
+    },
+
+    markBlockedStreamRetrying: async (projectionKey, streamId) => {
+      const timestamp = now();
+      await config.db.query(markBlockedStreamRetryingSql, [projectionKey, streamId, timestamp]);
+      await config.db.query(markBlockedStreamPoisonEventsRetryingSql, [projectionKey, streamId, timestamp]);
+    },
+
     resolveBlockedStream: async (projectionKey, streamId) => {
       const timestamp = now();
       await config.db.query(resolveBlockedStreamSql, [projectionKey, streamId, timestamp]);
@@ -330,6 +419,35 @@ export function createPostgresProjectionStore(config: PostgresProjectionStoreCon
       await config.db.query(clearProjectionBlockedStreamsSql, [projectionKey, timestamp]);
       await config.db.query(clearProjectionPoisonEventsSql, [projectionKey, timestamp]);
     },
+  };
+}
+
+function mapPoisonEventRow(row: DbProjectionPoisonEventRow): ProjectionPoisonEvent {
+  return {
+    projectionKey: row.projection_key,
+    eventId: row.event_id,
+    projectionName: row.projection_name,
+    projectionKind: coerceProjectionKind(row.projection_kind),
+    targetContextName: row.target_context_name,
+    sourceContextName: row.source_context_name,
+    projectionRevision:
+      row.projection_revision === null ? null : coercePositiveInteger(row.projection_revision, "projection_revision"),
+    subscriptionVersion:
+      row.subscription_version === null
+        ? null
+        : coercePositiveInteger(row.subscription_version, "subscription_version"),
+    streamId: row.stream_id,
+    streamVersion: coerceDbStreamVersion(row.stream_version, "stream_version"),
+    eventType: row.event_type,
+    globalPosition: coerceDbGlobalPosition(row.global_position, "global_position"),
+    failureKind: coerceFailureKind(row.failure_kind),
+    errorMessage: row.error_message,
+    errorStack: row.error_stack,
+    state: coercePoisonState(row.state),
+    retryCount: coerceDbCount(row.retry_count, "retry_count"),
+    firstSeenAt: toIsoString(row.first_seen_at),
+    lastSeenAt: toIsoString(row.last_seen_at),
+    resolvedAt: row.resolved_at === null ? null : toIsoString(row.resolved_at),
   };
 }
 
@@ -348,12 +466,58 @@ function mapBlockedStreamRow(row: DbBlockedStreamRow): ProjectionBlockedStream {
   };
 }
 
+function coerceProjectionKind(value: string): ProjectionPoisonEvent["projectionKind"] {
+  if (value === "projector" || value === "subscription") {
+    return value;
+  }
+
+  throw new Error(`Unexpected projection poison event kind "${value}".`);
+}
+
+function coerceFailureKind(value: string): ProjectionFailureKind {
+  if (value === "poison" || value === "transient") {
+    return value;
+  }
+
+  throw new Error(`Unexpected projection failure kind "${value}".`);
+}
+
+function coercePoisonState(value: string): ProjectionPoisonState {
+  if (value === "blocked" || value === "retrying" || value === "resolved" || value === "ignored") {
+    return value;
+  }
+
+  throw new Error(`Unexpected projection poison event state "${value}".`);
+}
+
 function coerceBlockedStreamState(value: string): ProjectionBlockedStreamState {
   if (value === "blocked" || value === "retrying" || value === "resolved") {
     return value;
   }
 
   throw new Error(`Unexpected projection blocked stream state "${value}".`);
+}
+
+function coercePositiveInteger(value: string | number | bigint, fieldName: string): number {
+  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
+
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`Expected "${fieldName}" to be a positive safe integer.`);
+  }
+
+  return parsed;
+}
+
+function assertPositiveLimit(limit: number): number {
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 500) {
+    throw new Error("Projection poison event limit must be an integer between 1 and 500.");
+  }
+
+  return limit;
+}
+
+function toIsoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : String(value);
 }
 
 function coerceDbGlobalPosition(value: string | number | bigint, fieldName: string): GlobalPosition {
