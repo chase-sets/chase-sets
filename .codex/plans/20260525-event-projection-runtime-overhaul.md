@@ -57,6 +57,7 @@ Make projections fully consumer-owned, asynchronous, replayable, and operational
 - [x] Make non-production bootstrap seed reconciliation async-consumer aware: seed facts, drain required projections, rerun seed reconciliation, and drain again without legacy projector adapters.
 - [x] Remove seed-time projection drain adapters from runtime seed/API paths and replace read-model round trips with aggregate command flow or multi-pass reconciliation.
 - [x] Remove Auth session write-path dependency on its own async projection by returning command-result session state and falling back to the session event stream for token resolution before projections catch up.
+- [x] Remove platform API's duplicated projection-only Auth session resolver so deployables delegate session actor resolution to the Auth bounded context.
 
 ## Finding Coverage
 
@@ -73,6 +74,7 @@ Make projections fully consumer-owned, asynchronous, replayable, and operational
 - P3 lag semantics: separate source lag from applicable lag estimate.
 - E2E bootstrap regression: removed hidden seed assumptions that local projections are caught up within the same publisher call; platform API sandbox bootstrap now reaches completion from a clean database.
 - E2E sign-in regression: Auth no longer requires the `auth-session-projection` to drain before returning a session token or resolving that token on the first redirected request.
+- E2E account-route regression: platform API no longer bypasses the Auth resolver and therefore no longer rejects a freshly issued session token while `auth-session-projection` is still catching up.
 - Legacy adapter cleanup: bounded contexts, contracts, infrastructure, deployables, packages, docs, and scripts have no `createProjector(`, `projector-runner`, write-drain middleware, or `drainProjectors` references.
 
 ## Verification
@@ -87,6 +89,7 @@ Make projections fully consumer-owned, asynchronous, replayable, and operational
 - Additional targeted tests after CI E2E bootstrap fix: `@chase-sets/bounded-context-runtime`, `@chase-sets/platform-runtime`, and `@chase-sets/app-platform-api test:fast` passed.
 - Additional targeted tests after CI sign-in fix: `@chase-sets/auth`, `@chase-sets/catalog`, `@chase-sets/bounded-context-runtime`, `@chase-sets/platform-runtime`, `@chase-sets/app-platform-api test:fast`, `pnpm run verify:typecheck`, and `pnpm run verify:static` passed.
 - Post-cleanup grep for legacy projection/write-drain symbols returned no matches across `bounded-contexts`, `contracts`, `infrastructure`, `deployables`, `packages`, `docs`, and `scripts`; reran `@chase-sets/catalog` and `pnpm run verify:static` after renaming the last acceptance-test helper.
+- Additional targeted tests after platform API Auth resolver fix: `@chase-sets/auth`, `@chase-sets/app-platform-api test:fast`, `pnpm run verify:typecheck`, and `pnpm run verify:static` passed.
 
 ## Documentation To Promote
 

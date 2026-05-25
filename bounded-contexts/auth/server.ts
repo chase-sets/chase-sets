@@ -3,6 +3,7 @@ export {
   bootstrapPlatformAdminPassword,
   type PlatformAdminPasswordBootstrapConfig,
 } from "./support/runtime-support/production-bootstrap";
+export { resolveActorFromSessionId } from "./support/runtime-support/services";
 export {
   AuthApiError,
   createAuthRequestApiClient,
