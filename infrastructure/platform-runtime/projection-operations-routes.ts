@@ -16,6 +16,8 @@ import type { PlatformControlPlane, PlatformLease } from "./control-plane";
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
 const OPERATION_LEASE_TTL_MS = 10 * 60 * 1_000;
 const BLOCKED_PROJECTION_DETAILS_CONCURRENCY = 4;
+const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
+const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
 
 type ProjectionOperationsRouteEnv = {
   Variables: {
@@ -42,11 +44,13 @@ export function createProjectionOperationsRoutes(
     const projectionGroups = await refreshProjectionGroupStatuses(runtime);
     const blockedProjections = await listBlockedProjectionDetails(runtime, projectionGroups);
 
+    const workers = options.controlPlane ? await options.controlPlane.listWorkerHeartbeats() : [];
+
     return c.json({
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
       blockedProjections,
-      workers: options.controlPlane ? await options.controlPlane.listWorkerHeartbeats() : [],
+      workers: classifyWorkerHeartbeats(workers),
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
     });
   });
@@ -169,9 +173,6 @@ async function listBlockedProjectionDetails(
           .filter((subscription) => subscription.blockedStreamCount > 0 || subscription.poisonEventCount > 0)
           .map((subscription) => subscription.checkpointKey),
       ),
-      ...runtime.mountedContexts.flatMap((context) =>
-        context.projectors.flatMap((projector) => (projector.projectorName ? [projector.projectorName] : [])),
-      ),
     ]),
   ];
 
@@ -206,6 +207,42 @@ async function mapWithConcurrency<T, R>(
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
 
   return results;
+}
+
+function classifyWorkerHeartbeats(workers: readonly Record<string, unknown>[]): readonly Record<string, unknown>[] {
+  const now = Date.now();
+
+  return workers.map((worker) => {
+    const heartbeatAt = parseTimestamp(worker.heartbeat_at);
+    const heartbeatAgeMs = heartbeatAt ? Math.max(0, now - heartbeatAt.getTime()) : null;
+    const workerState =
+      heartbeatAgeMs === null
+        ? "unknown"
+        : heartbeatAgeMs <= ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS
+          ? "active"
+          : heartbeatAgeMs <= EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS
+            ? "stale"
+            : "expired";
+
+    return {
+      ...worker,
+      worker_state: workerState,
+      heartbeat_age_ms: heartbeatAgeMs,
+    };
+  });
+}
+
+function parseTimestamp(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 async function withProjectionOperationLease<T>(

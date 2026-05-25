@@ -29,6 +29,7 @@ import {
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
   type WorkerRunner,
+  type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
 import {
   createPostgresTransactionalEmailOutbox,
@@ -131,35 +132,56 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   },
 });
 
-const runners = [
-  ...collectWorkerRunners(runtime),
-  ...createCatalogBulkJobRunners(runtime.services, config),
-  ...createNotificationDispatchRunners(runtime, config.workerId, emailNotificationAdapter),
-  ...createTransactionalEmailDispatchRunners(runtime, config.workerId, transactionalEmailGateway),
-  ...createScheduledJobRunners(runtime.services, config),
-];
-const runnerLoop = createWorkerRunnerLoop({
-  workerId: config.workerId,
-  controlPlane,
-  runners,
-  maxConcurrentRunners: config.maxConcurrentRunners,
-  leaseTtlMs: config.leaseTtlMs,
-  leaseRenewIntervalMs: config.leaseRenewIntervalMs,
-  pollIntervalMs: config.pollIntervalMs,
-  onError: (error, runner) => {
-    logger.error("Platform worker runner failed.", {
-      type: "platform-worker.runner.failed",
-      runner: runner.name,
-      runnerKind: runner.kind,
-      error,
-    });
-  },
-});
+const projectionRunners = collectWorkerRunners(runtime);
+const bulkJobRunners = createCatalogBulkJobRunners(runtime.services, config);
+const notificationDispatchRunners = createNotificationDispatchRunners(
+  runtime,
+  config.workerId,
+  emailNotificationAdapter,
+);
+const transactionalEmailDispatchRunners = createTransactionalEmailDispatchRunners(
+  runtime,
+  config.workerId,
+  transactionalEmailGateway,
+);
+const scheduledJobRunners = createScheduledJobRunners(runtime.services, config);
+const runnerGroups = [
+  createRunnerGroup("projections", projectionRunners, config.projectionMaxConcurrentRunners),
+  createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
+  createRunnerGroup(
+    "dispatch",
+    [...notificationDispatchRunners, ...transactionalEmailDispatchRunners],
+    config.dispatchMaxConcurrentRunners,
+  ),
+  createRunnerGroup("scheduled", scheduledJobRunners, config.scheduledMaxConcurrentRunners),
+].filter((group) => group.runners.length > 0);
+const runnerLoops = runnerGroups.map((group) => ({
+  ...group,
+  loop: createWorkerRunnerLoop({
+    workerId: config.workerId,
+    controlPlane,
+    runners: group.runners,
+    maxConcurrentRunners: group.maxConcurrentRunners,
+    leaseTtlMs: config.leaseTtlMs,
+    leaseRenewIntervalMs: config.leaseRenewIntervalMs,
+    pollIntervalMs: config.pollIntervalMs,
+    onError: (error, runner) => {
+      logger.error("Platform worker runner failed.", {
+        type: "platform-worker.runner.failed",
+        runnerGroup: group.name,
+        runner: runner.name,
+        runnerKind: runner.kind,
+        error,
+      });
+    },
+  }),
+}));
+const runnerCount = runnerGroups.reduce((total, group) => total + group.runners.length, 0);
 
 await controlPlane.heartbeatWorker({
   workerId: config.workerId,
   workerKind: "platform-worker",
-  metadata: { runnerCount: runners.length },
+  metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups) },
 });
 const heartbeatTimer = setInterval(
   () => {
@@ -167,7 +189,7 @@ const heartbeatTimer = setInterval(
       .heartbeatWorker({
         workerId: config.workerId,
         workerKind: "platform-worker",
-        metadata: { runnerCount: runners.length },
+        metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups) },
       })
       .catch((error) => {
         logger.error("Platform worker heartbeat failed.", {
@@ -179,7 +201,9 @@ const heartbeatTimer = setInterval(
   Math.max(5_000, Math.floor(config.leaseTtlMs / 3)),
 );
 heartbeatTimer.unref?.();
-runnerLoop.start();
+for (const runnerLoop of runnerLoops) {
+  runnerLoop.loop.start();
+}
 
 const app = new Hono();
 app.get("/health/live", (c) => c.json({ status: "ok" }));
@@ -187,34 +211,79 @@ app.get("/health/ready", async (c) => {
   await pools.control.query("SELECT 1");
   return c.json({ status: "ok" });
 });
-app.get("/internal/workers/status", async (c) =>
-  c.json({
+app.get("/internal/workers/status", async (c) => {
+  const loopStatuses = runnerLoops.map((runnerLoop) => ({
+    name: runnerLoop.name,
+    maxConcurrentRunners: runnerLoop.maxConcurrentRunners,
+    runnerCount: runnerLoop.runners.length,
+    ...runnerLoop.loop.status(),
+  }));
+  return c.json({
     status: "ok",
-    loop: runnerLoop.status(),
+    loop: summarizeLoopStatuses(config.workerId, loopStatuses),
+    loops: loopStatuses,
     workers: await controlPlane.listWorkerHeartbeats(),
     runners: await controlPlane.listRunnerStatuses(),
     leases: await controlPlane.listLeases(),
-  }),
-);
+  });
+});
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   logger.info("Platform worker listening.", {
     type: "platform-worker.started",
     port: info.port,
     workerId: config.workerId,
-    runnerCount: runners.length,
+    runnerCount,
+    runnerGroups: runnerGroupMetadata(runnerGroups),
   });
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
     clearInterval(heartbeatTimer);
-    void runnerLoop
-      .stop()
+    void stopRunnerLoops(runnerLoops.map((runnerLoop) => runnerLoop.loop))
       .finally(() => closePlatformWorkerPools(pools))
       .finally(() => observability.shutdown())
       .finally(() => process.exit(0));
   });
+}
+
+type RunnerGroup = Readonly<{
+  name: string;
+  runners: readonly WorkerRunner[];
+  maxConcurrentRunners: number;
+}>;
+
+function createRunnerGroup(name: string, runners: readonly WorkerRunner[], maxConcurrentRunners: number): RunnerGroup {
+  return {
+    name,
+    runners,
+    maxConcurrentRunners,
+  };
+}
+
+function runnerGroupMetadata(groups: readonly RunnerGroup[]) {
+  return Object.fromEntries(
+    groups.map((group) => [
+      group.name,
+      {
+        runnerCount: group.runners.length,
+        maxConcurrentRunners: group.maxConcurrentRunners,
+      },
+    ]),
+  );
+}
+
+function summarizeLoopStatuses(workerId: string, loopStatuses: readonly ReturnType<WorkerRunnerLoop["status"]>[]) {
+  return {
+    workerId,
+    activeRunnerCount: loopStatuses.reduce((total, status) => total + status.activeRunnerCount, 0),
+    stopped: loopStatuses.every((status) => status.stopped),
+  };
+}
+
+async function stopRunnerLoops(loops: readonly WorkerRunnerLoop[]) {
+  await Promise.allSettled(loops.map((loop) => loop.stop()));
 }
 
 function createScheduledJobRunners(

@@ -11,6 +11,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
 - [Projection Rebuild Replay](./architecture/projection-rebuild-replay.md): projection revision policy and automatic read-model rebuild behavior.
+- [Event Projection Runtime](./architecture/event-projection-runtime.md): projection consumer states, scaling, idempotency, and poison-event behavior.
 - [Stream-Isolated Projection Errors](./architecture/stream-isolated-projection-errors.md): poison-event isolation, blocked-stream semantics, and degraded projection health.
 - [Notification Center And Settings](./architecture/notification-center-and-settings.md): notification side sheet, settings, Product Alert placement, and Notifications bounded-context ownership.
 - [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
@@ -31,6 +32,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
+- [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, and rebuild triage.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.

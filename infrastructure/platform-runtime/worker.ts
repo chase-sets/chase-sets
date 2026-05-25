@@ -43,6 +43,7 @@ export type WorkerRunner = Readonly<{
   name: string;
   kind: "projector" | "projection-group" | "subscription" | "job";
   runOnce: () => Promise<ProjectorRunResult>;
+  priority?: () => bigint | number;
 }>;
 
 export type WorkerRunnerLoop = Readonly<{
@@ -154,16 +155,16 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
 
     for (
-      let inspected = 0;
-      inspected < options.runners.length && active.size < options.maxConcurrentRunners;
-      inspected += 1
+      let attempts = 0;
+      attempts < options.runners.length && active.size < options.maxConcurrentRunners;
+      attempts += 1
     ) {
-      const runner = options.runners[nextRunnerIndex];
-      nextRunnerIndex = (nextRunnerIndex + 1) % options.runners.length;
-
-      if (activeRunnerNames.has(runner.name)) {
-        continue;
+      const selection = selectNextRunner(options.runners, activeRunnerNames, nextRunnerIndex);
+      if (!selection) {
+        break;
       }
+      const { runner, index } = selection;
+      nextRunnerIndex = (index + 1) % options.runners.length;
 
       const promise = runLeasedRunner(options, runner)
         .catch((error) => options.onError?.(error, runner))
@@ -194,6 +195,42 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       stopped,
     }),
   };
+}
+
+function selectNextRunner(
+  runners: readonly WorkerRunner[],
+  activeRunnerNames: ReadonlySet<string>,
+  startIndex: number,
+): Readonly<{ runner: WorkerRunner; index: number }> | null {
+  let fallback: Readonly<{ runner: WorkerRunner; index: number }> | null = null;
+
+  for (let offset = 0; offset < runners.length; offset += 1) {
+    const index = (startIndex + offset) % runners.length;
+    const runner = runners[index];
+    if (activeRunnerNames.has(runner.name)) {
+      continue;
+    }
+
+    const priority = resolveRunnerPriority(runner);
+    if (priority > 0n) {
+      return { runner, index };
+    }
+
+    if (!fallback) {
+      fallback = { runner, index };
+    }
+  }
+
+  return fallback;
+}
+
+function resolveRunnerPriority(runner: WorkerRunner): bigint {
+  try {
+    const priority = runner.priority?.() ?? 0;
+    return BigInt(priority);
+  } catch {
+    return 0n;
+  }
 }
 
 async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerRunner): Promise<void> {
@@ -284,6 +321,7 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
   return {
     name: `${group.targetContextName}.${group.projectionName}`,
     kind: "projection-group",
+    priority: () => BigInt(group.getStatus().outstandingEventCount),
     runOnce: async () => {
       try {
         const status = await group.refreshStatus();

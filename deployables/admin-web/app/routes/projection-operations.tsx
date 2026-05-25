@@ -23,7 +23,7 @@ import {
 } from "@chase-sets/design-system";
 import { requireIdentityAdminActor } from "../auth.server";
 
-type ProjectionState = "idle" | "running" | "caught-up" | "degraded" | "error";
+type ProjectionState = "idle" | "behind" | "running" | "caught-up" | "degraded" | "error";
 
 type ProjectionGroupStatus = Readonly<{
   projectionName: string;
@@ -112,6 +112,7 @@ const routeKey = "adminWeb.app.routes.projectionOperations";
 type ProjectionSubscriptionRow = ProjectionSubscriptionStatus &
   Readonly<{
     projectionGroupName: string;
+    operatorState: ProjectionState;
   }>;
 
 export const meta: MetaFunction = () => [{ title: t(`${routeKey}.meta.title`) }];
@@ -158,6 +159,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function ProjectionOperationsRoute() {
   const data = useLoaderData<typeof loader>();
+  const runnerStateByProjectionGroup = new Map(
+    data.runners.map((runner) => [String(runner.runner_name ?? ""), String(runner.state ?? "")]),
+  );
   const blockedRows = data.blockedProjections.flatMap((projection) =>
     projection.blockedStreams.map((stream) => ({ ...stream, projectionKey: projection.projectionKey })),
   );
@@ -165,8 +169,16 @@ export default function ProjectionOperationsRoute() {
     group.subscriptions.map((subscription) => ({
       ...subscription,
       projectionGroupName: group.projectionName,
+      operatorState: resolveProjectionOperatorState(
+        subscription.state,
+        runnerStateByProjectionGroup.get(`${group.targetContextName}.${group.projectionName}`),
+      ),
     })),
   );
+  const activeWorkerCount = data.workers.filter((worker) => worker.worker_state === "active").length;
+  const staleWorkerCount = data.workers.filter(
+    (worker) => worker.worker_state === "stale" || worker.worker_state === "expired",
+  ).length;
 
   return (
     <Page>
@@ -188,10 +200,9 @@ export default function ProjectionOperationsRoute() {
         <Stat label={t(`${routeKey}.status`)} value={data.summary.status} />
         <Stat label={t(`${routeKey}.projectionGroups`)} value={data.summary.totalGroups} />
         <Stat label={t(`${routeKey}.caughtUp`)} value={data.summary.caughtUpGroups} />
-        <Stat
-          label={t(`${routeKey}.outstandingEvents`)}
-          value={formatDecimalCount(data.summary.outstandingEventCount)}
-        />
+        <Stat label={t(`${routeKey}.sourceLag`)} value={formatDecimalCount(data.summary.outstandingEventCount)} />
+        <Stat label={t(`${routeKey}.activeWorkers`)} value={activeWorkerCount} />
+        <Stat label={t(`${routeKey}.staleWorkers`)} value={staleWorkerCount} />
         <Stat label={t(`${routeKey}.blockedStreams`)} value={blockedRows.length} />
       </StatGrid>
 
@@ -214,7 +225,13 @@ export default function ProjectionOperationsRoute() {
               {
                 key: "state",
                 header: t(`${routeKey}.state`),
-                cell: (group) => <Badge tone={stateTone(group.state)}>{group.state}</Badge>,
+                cell: (group) => {
+                  const operatorState = resolveProjectionOperatorState(
+                    group.state,
+                    runnerStateByProjectionGroup.get(`${group.targetContextName}.${group.projectionName}`),
+                  );
+                  return <Badge tone={stateTone(operatorState)}>{operatorState}</Badge>;
+                },
               },
               {
                 key: "lag",
@@ -287,8 +304,8 @@ export default function ProjectionOperationsRoute() {
                 key: "state",
                 header: t(`${routeKey}.state`),
                 cell: (row) => (
-                  <Badge tone={stateTone(String(row.state ?? "idle"))}>
-                    {String(row.state ?? t(`${routeKey}.active`))}
+                  <Badge tone={stateTone(String(row.state ?? row.worker_state ?? "idle"))}>
+                    {String(row.state ?? row.worker_state ?? t(`${routeKey}.active`))}
                   </Badge>
                 ),
               },
@@ -330,11 +347,11 @@ export default function ProjectionOperationsRoute() {
             {
               key: "state",
               header: t(`${routeKey}.state`),
-              cell: (row) => <Badge tone={stateTone(row.state)}>{row.state}</Badge>,
+              cell: (row) => <Badge tone={stateTone(row.operatorState)}>{row.operatorState}</Badge>,
             },
             {
               key: "outstanding",
-              header: t(`${routeKey}.outstandingEvents`),
+              header: t(`${routeKey}.sourceLag`),
               cell: (row) => formatDecimalCount(row.outstandingEventCount),
             },
             {
@@ -436,7 +453,11 @@ function stateTone(state: string) {
       return "success" as const;
     case "running":
     case "retrying":
+    case "active":
       return "accent" as const;
+    case "behind":
+    case "stale":
+    case "expired":
     case "degraded":
     case "blocked":
       return "warning" as const;
@@ -445,6 +466,17 @@ function stateTone(state: string) {
     default:
       return "neutral" as const;
   }
+}
+
+function resolveProjectionOperatorState(
+  subscriptionState: ProjectionState,
+  runnerState: string | undefined,
+): ProjectionState {
+  if (subscriptionState === "behind" && runnerState === "running") {
+    return "running";
+  }
+
+  return subscriptionState;
 }
 
 function compareSubscriptionRows(left: ProjectionSubscriptionRow, right: ProjectionSubscriptionRow) {

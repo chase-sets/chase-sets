@@ -1,0 +1,63 @@
+# Event Projection Runtime
+
+## Purpose
+
+Projection consumers keep bounded-context read models current without coupling event publishers to downstream projectors. Publishers append integration facts to their own event store. Workers lease projection consumers, read matching source events, apply downstream handlers, and persist checkpoints.
+
+## Runtime Model
+
+- A source context owns the event stream and publishes facts.
+- A target context declares subscriptions in `context.json`.
+- The shared bounded-context runtime creates subscription runners from those declarations.
+- The platform worker runs projection groups as independent consumer runners.
+- Checkpoints are stored per `projectionName:sourceContextName:version`.
+- Poison handling is stream-isolated by default: one bad stream blocks only that projection plus stream.
+
+## Operator States
+
+Projection status uses these meanings:
+
+- `caught-up`: checkpoint equals the captured source head and no active stream-isolated errors exist.
+- `behind`: checkpoint is below the captured source head and no fresh runner status proves active draining.
+- `running`: the worker control plane recently recorded a runner batch for the projection group.
+- `degraded`: blocked streams or poison events require operator action.
+- `error`: a runner failed outside stream-isolated poison handling.
+- `idle`: local initial/transitional state only; positive backlog should not render as idle.
+
+## Scaling Rules
+
+Workers run projection consumers separately from bulk jobs, dispatchers, and scheduled jobs. Tune these independently:
+
+- `WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS`
+- `WORKER_JOB_MAX_CONCURRENT_RUNNERS`
+- `WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS`
+- `WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS`
+
+`WORKER_MAX_CONCURRENT_RUNNERS` remains the fallback for compatibility.
+
+Projection subscriptions push event-type and stream-prefix filters into Postgres reads. This keeps each consumer independent while avoiding full source-log scans for every projection. When a filtered subscription has no matching tail left, it advances its checkpoint to the captured source head so irrelevant source events do not create permanent lag.
+
+## Idempotency
+
+The runtime records projection application rows keyed by `(projection_key, event_id)`. A replay skips handlers already marked `applied`, which protects projection handlers when a worker restarts after handler success but before checkpoint persistence.
+
+Handlers should still be written as deterministic upserts. Multi-step handlers that delete and reinsert rows should use a transaction-aware helper when available.
+
+## Poison Events
+
+`strict-per-stream` remains the default projection error policy:
+
+- The first poison event records a blocked stream.
+- Later events on the same stream are deferred.
+- Unrelated streams continue to drain.
+- Retry replays the blocked stream from its first blocked version.
+- Rebuild truncates the projection group's owned tables, clears checkpoints and application rows, and replays from origin.
+
+## Metrics To Watch
+
+- Source lag by subscription.
+- Active vs stale worker count.
+- Runner `last_processed` and `updated_at`.
+- Blocked stream count and oldest blocked age.
+- Poison event count.
+- Projection runner concurrency vs database saturation.
