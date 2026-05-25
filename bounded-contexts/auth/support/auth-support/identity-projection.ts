@@ -86,6 +86,15 @@ CREATE TABLE IF NOT EXISTS auth_identity_user_memberships (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS auth_identity_user_memberships_user_status_idx
+  ON auth_identity_user_memberships (user_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS auth_identity_user_memberships_user_account_status_idx
+  ON auth_identity_user_memberships (user_id, account_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS auth_identity_memberships_user_account_status_idx
+  ON auth_identity_memberships (user_id, account_id, status, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS auth_identity_invitations (
   invitation_id text PRIMARY KEY,
   account_id text NOT NULL,
@@ -928,6 +937,20 @@ export async function listActiveAuthMembershipsForUser(
 }
 
 export async function getActiveAuthMembershipForUserAccount(db: PgQueryable, userId: string, accountId: string) {
+  const userMembership = await db.query<AuthIdentityMembershipRow>(
+    `SELECT *
+     FROM auth_identity_user_memberships
+     WHERE user_id = $1
+       AND account_id = $2
+       AND status = 'active'
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [userId, accountId],
+  );
+  if (userMembership.rows[0]) {
+    return userMembership.rows[0];
+  }
+
   const result = await db.query<AuthIdentityMembershipRow>(
     `SELECT *
      FROM auth_identity_memberships
