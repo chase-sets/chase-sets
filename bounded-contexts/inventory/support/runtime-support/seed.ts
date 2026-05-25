@@ -12,7 +12,7 @@ import {
 } from "@chase-sets/inventory/seed-support/ids";
 import { createInventoryProductDescriptor } from "../../features/inventory-items/integrations/catalog/versioning";
 import { createInventoryServices } from "./services";
-import { drainProjectors, sendSeedCommand } from "../seed-support/context";
+import { sendSeedCommand } from "../seed-support/context";
 
 const DEMO_RELEASED_AT = "2026-03-31T00:00:00.000Z";
 
@@ -498,8 +498,6 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
 
   console.log("Starting inventory development seed...\n");
 
-  await drainProjectors("inventory-catalog", services.catalogItems.projectors);
-
   for (const location of storageLocations) {
     const streamId = `inventory.storage-location-${location.storageLocationId}`;
 
@@ -595,6 +593,5 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
     console.log(`  Inventory hold "${hold.holdId}" seeded`);
   }
 
-  await drainProjectors("inventory", services.projectors);
   console.log("\nInventory seed complete!");
 }

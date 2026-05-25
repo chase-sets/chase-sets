@@ -1,4 +1,3 @@
-import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { TenantId } from "@chase-sets/primitives/typed-ids";
@@ -17,8 +16,4 @@ export async function sendSeedCommand<Command>(
   command: Command,
 ) {
   return handler({ streamId, command, context: seedContext });
-}
-
-export async function drainProjectors(label: string, projectors: readonly ProjectionHandlerSet[]): Promise<void> {
-  void projectors;
 }

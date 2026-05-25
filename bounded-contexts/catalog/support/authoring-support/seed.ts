@@ -16,14 +16,12 @@ import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { PokemonReferenceIds } from "../../features/reference-data/api/seed";
 import { catalogSeedIds } from "../seed-support/ids";
-import { drainProjectors } from "../seed-support/context";
 import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 
 export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const services = createCatalogServices(pool);
   const shouldSeedIntegrationProfile = profileEnabled(options, "catalog-integration-bootstrap");
   const shouldSeedScenarioData = profileEnabled(options, "scenario-seed");
-  const shouldDrainProjectors = shouldDrainCatalogSeedProjectors(options);
 
   if (!shouldSeedIntegrationProfile && !shouldSeedScenarioData) {
     console.log("Catalog seed skipped for selected data profiles.");
@@ -33,7 +31,7 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   console.log("Starting Pokemon TCG catalog integration profile seed...\n");
 
   const authoring = shouldSeedIntegrationProfile
-    ? await seedTcgdexCatalogIntegrationProfile(pool, { drainProjectors: shouldDrainProjectors })
+    ? await seedTcgdexCatalogIntegrationProfile(pool)
     : staticTcgdexCatalogIntegrationIds();
 
   if (shouldSeedScenarioData) {
@@ -51,16 +49,12 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
 
 export async function seedTcgdexCatalogIntegrationProfile(
   pool: PgTransactionalPool,
-  options: Readonly<{ drainProjectors?: boolean }> = {},
 ): Promise<TcgdexCatalogIntegrationIds> {
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_dimensions")) {
     console.log("Pokemon TCG catalog integration profile already exists. Reconciling fields.");
     const fields = await seedFields(services);
-    if (options.drainProjectors) {
-      await drainProjectors("catalog", services.projectors);
-    }
     return {
       ...staticTcgdexCatalogIntegrationIds(),
       fields,
@@ -75,9 +69,6 @@ export async function seedTcgdexCatalogIntegrationProfile(
   const components = await seedComponents(services, dimensions, fields);
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
-  if (options.drainProjectors) {
-    await drainProjectors("catalog", services.projectors);
-  }
 
   return {
     dimensions,
@@ -102,7 +93,6 @@ async function seedCatalogScenarioData(
 
   console.log("Seeding non-production Catalog scenario items...");
   await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references);
-  await drainProjectors("catalog", services.projectors);
 }
 
 type TcgdexCatalogIntegrationIds = Readonly<{
@@ -121,10 +111,6 @@ function profileEnabled(
   return (
     options?.enabledDataProfiles ?? ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]
   ).includes(profile);
-}
-
-export function shouldDrainCatalogSeedProjectors(options?: BcSeedOptions) {
-  return profileEnabled(options, "scenario-seed");
 }
 
 async function tableHasRows(

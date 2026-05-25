@@ -19,6 +19,7 @@ export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
   projectors: readonly ProjectionHandlerSet[];
+  commercialTermsResolver: CommercialTermsResolver;
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
@@ -30,11 +31,12 @@ export function createMarketplaceServices(
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const commercialTermsResolver = options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db);
   const deps = {
     eventStore,
     checkpointStore,
     db,
-    commercialTermsResolver: options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db),
+    commercialTermsResolver,
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
@@ -44,6 +46,7 @@ export function createMarketplaceServices(
     listings,
     offers,
     projectors: [...listings.projectors, ...offers.projectors],
+    commercialTermsResolver,
     pool,
     db,
   };

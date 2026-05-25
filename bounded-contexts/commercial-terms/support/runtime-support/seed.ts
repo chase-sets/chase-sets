@@ -14,10 +14,6 @@ function createSeedContext() {
   };
 }
 
-async function drainProjectors(projectors: readonly unknown[]) {
-  void projectors;
-}
-
 export async function seedCommercialTermsDatabase(
   pool: PgTransactionalPool,
   _services?: unknown,
@@ -81,8 +77,6 @@ export async function seedCommercialTermsDatabase(
       context,
     });
   }
-
-  await drainProjectors(services.projectors);
 }
 
 function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-bootstrap" | "scenario-seed") {

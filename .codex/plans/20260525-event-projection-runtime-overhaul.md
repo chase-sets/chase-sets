@@ -54,6 +54,8 @@ Make projections fully consumer-owned, asynchronous, replayable, and operational
 - [x] Augment lag metrics with `sourceLagEventCount` and `applicableLagEstimate`; keep `outstandingEventCount` as a compatibility alias.
 - [x] Add/update targeted tests for legacy removal, non-destructive rebuild, scheduled compaction, snapshot-first operations, and worker runner changes.
 - [x] Add durable architecture/runbook/ADR docs for projection ownership, replay/rebuild, poison handling, and operations monitoring.
+- [x] Make non-production bootstrap seed reconciliation async-consumer aware: seed facts, drain required projections, rerun seed reconciliation, and drain again without legacy projector adapters.
+- [x] Remove seed-time projection drain adapters from runtime seed/API paths and replace read-model round trips with aggregate command flow or multi-pass reconciliation.
 
 ## Finding Coverage
 
@@ -68,15 +70,19 @@ Make projections fully consumer-owned, asynchronous, replayable, and operational
 - P2 ledger write pressure: hot compaction removed; scheduled retention/partition maintenance.
 - P2 operations GET load: snapshot-first summary and lazy blocked detail route.
 - P3 lag semantics: separate source lag from applicable lag estimate.
+- E2E bootstrap regression: removed hidden seed assumptions that local projections are caught up within the same publisher call; platform API sandbox bootstrap now reaches completion from a clean database.
+- Legacy adapter cleanup: runtime code has no `createProjector(`, `projector-runner`, write-drain middleware, or seed-time `drainProjectors` adapter references. The only remaining `drainProjectors` symbol is a catalog acceptance test helper.
 
 ## Verification
 
+- `pnpm run dev:db:refresh` reached `Platform API bootstrap complete`; the subsequent local platform-worker bootstrap failed only because this machine's shared local env sets `NOTIFICATION_EMAIL_PROVIDER=amazon-ses` without SES credentials.
 - `pnpm run verify:static` passed.
 - `pnpm run verify:typecheck` passed.
 - `pnpm run verify:test` passed.
 - `pnpm run verify:test-db` passed.
 - `pnpm run verify:build` passed.
 - Targeted package tests passed while iterating: `@chase-sets/bounded-context-runtime`, `@chase-sets/platform-runtime`, `@chase-sets/event-core`, `@chase-sets/event-core-postgres`, `@chase-sets/app-platform-api`, `@chase-sets/app-admin-support-api`, `@chase-sets/identity`, `@chase-sets/checkout`, and the Catalog product-measures runtime test.
+- Additional targeted tests after CI E2E bootstrap fix: `@chase-sets/bounded-context-runtime`, `@chase-sets/platform-runtime`, and `@chase-sets/app-platform-api test:fast` passed.
 
 ## Documentation To Promote
 

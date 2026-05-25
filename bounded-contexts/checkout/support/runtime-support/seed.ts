@@ -1,9 +1,9 @@
-import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { CheckoutSessionLine } from "../../features/sessions/domain/domain";
 import { createCheckoutProductDescriptor, type CheckoutVersionSchema } from "./common";
 import { createCheckoutServices, type CheckoutServices } from "./services";
 import { checkoutSeedIds } from "../seed-support/ids";
@@ -61,10 +61,6 @@ function createSeedContextFor(accountId: AccountId, userId: string) {
   };
 }
 
-async function drainProjectors(projectors: readonly ProjectionHandlerSet[]) {
-  void projectors;
-}
-
 async function hasCartLines(db: PgQueryable, buyerAccountId: AccountId) {
   const result = await db.query<{ count: string }>(
     "SELECT COUNT(*) AS count FROM checkout_cart_line_pages WHERE buyer_account_id = $1",
@@ -114,17 +110,17 @@ export async function seedCheckoutDatabase(
 ) {
   const buyerAccountId = identitySeedIds.collector.accountId;
   const buyerContext = createSeedContextFor(buyerAccountId, identitySeedIds.collector.userId);
-
-  await drainProjectors(checkout.projectors);
+  const seededSessionLines: CheckoutSessionLine[] = [];
 
   if (!(await hasCartLines(checkout.db, buyerAccountId))) {
     console.log("Starting checkout development seed...\n");
     for (const line of demoCartLines) {
-      await checkout.cart.addLine(
+      const productId = await buildProductId(checkout.db, line);
+      const result = await checkout.cart.addLine(
         {
           accountId: buyerAccountId,
           catalogItemId: line.catalogItemId,
-          productId: await buildProductId(checkout.db, line),
+          productId,
           itemTitle: line.itemTitle,
           itemSubtitle: line.itemSubtitle,
           itemImageUrl: line.itemImageUrl ?? null,
@@ -134,21 +130,60 @@ export async function seedCheckoutDatabase(
         },
         buyerContext,
       );
+      seededSessionLines.push({
+        listingId: null,
+        cartLineId: result.lineId,
+        catalogItemId: line.catalogItemId,
+        productId,
+        itemTitle: line.itemTitle,
+        itemSubtitle: line.itemSubtitle,
+        selectedOptions: [...line.selectedOptions],
+        productSummary: line.productSummary,
+        quantity: line.quantity,
+        fulfillmentMode: "optimize",
+        lockedListingId: null,
+        sellerPreferenceId: null,
+        availabilityState: "available",
+      });
     }
-    await drainProjectors(checkout.projectors);
     console.log("  Demo account cart seeded.");
   }
 
   if (!(await hasStartedSession(checkout.db))) {
-    await checkout.sessions.createFromCart(
-      {
-        accountId: buyerAccountId,
+    const lines = [...seededSessionLines];
+    if (lines.length === 0) {
+      for (const line of demoCartLines) {
+        lines.push({
+          listingId: null,
+          cartLineId: null,
+          catalogItemId: line.catalogItemId,
+          productId: await buildProductId(checkout.db, line),
+          itemTitle: line.itemTitle,
+          itemSubtitle: line.itemSubtitle,
+          selectedOptions: [...line.selectedOptions],
+          productSummary: line.productSummary,
+          quantity: line.quantity,
+          fulfillmentMode: "optimize",
+          lockedListingId: null,
+          sellerPreferenceId: null,
+          availabilityState: "available",
+        });
+      }
+    }
+
+    await checkout.sessions.commandHandler({
+      streamId: `checkout.session-${checkoutSeedIds.sessions.startedCart}`,
+      command: {
+        type: "StartCheckoutSession",
+        sessionId: checkoutSeedIds.sessions.startedCart,
+        buyerAccountId,
+        sourceType: "cart",
         shippingOption: "standard",
-        sessionIdOverride: checkoutSeedIds.sessions.startedCart,
+        lines,
+        createdAt: new Date().toISOString(),
       },
-      buyerContext,
-    );
-    await drainProjectors(checkout.projectors);
+      context: buyerContext,
+    });
     console.log(`  Started checkout session seeded (${checkoutSeedIds.sessions.startedCart}).`);
   }
 

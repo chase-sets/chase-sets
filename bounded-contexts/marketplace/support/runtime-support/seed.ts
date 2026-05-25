@@ -12,6 +12,7 @@ import {
 } from "../../features/offers/domain/versioning";
 import { requiresListingPhotoEvidence } from "../../features/listings/domain/domain";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
+import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
 import sharp from "sharp";
 
@@ -594,10 +595,6 @@ async function buildSeedListingPhotoUpload(listing: ListingSeed): Promise<readon
   ];
 }
 
-async function drainProjectors(projectors: ReturnType<typeof createMarketplaceServices>["projectors"]) {
-  void projectors;
-}
-
 async function getProductId(
   services: ReturnType<typeof createMarketplaceServices>,
   catalogItemId: string,
@@ -617,6 +614,37 @@ async function getProductId(
       typeof productSchema === "object" && productSchema !== null ? (productSchema as MarketplaceVersionSchema) : null,
     selection,
   }).productId;
+}
+
+async function acceptReservedSeedOffer(
+  services: ReturnType<typeof createMarketplaceServices>,
+  offer: OfferSeed,
+  sellerAccountId: AccountId,
+  context: ReturnType<typeof createSeedContextFor>,
+) {
+  const quote = await quoteMarketplaceTerms(services.commercialTermsResolver, {
+    accountId: sellerAccountId,
+    priceAmount: offer.priceAmount,
+  });
+
+  await services.offers.commandHandler({
+    streamId: `marketplace.offer-${offer.offerId}`,
+    command: {
+      type: "AcceptOffer",
+      sellerAccountId,
+      acceptedAt: new Date().toISOString(),
+      marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
+      sellerNetUnitAmount: quote.seller_net_unit_amount,
+      shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
+      termsScheduleId: quote.schedule_id,
+      termsAgreementId: quote.agreement_id,
+      termsResolvedAt: quote.resolved_at,
+      feeQuoteFingerprint: quote.fee_quote_fingerprint,
+      acceptanceBatchId: null,
+      acceptanceBatchSize: null,
+    },
+    context,
+  });
 }
 
 function createSeedContext() {
@@ -737,20 +765,12 @@ export async function seedMarketplaceDatabase(
     });
   }
 
-  await drainProjectors(services.projectors);
-
-  const acceptedOfferQuote = await services.offers.previewOfferAcceptanceTerms({
-    offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
-    sellerAccountId: identitySeedIds.demo.accountId,
-  });
-
-  await services.offers.acceptOffer(
-    {
-      offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
-      sellerAccountId: identitySeedIds.demo.accountId,
-      feeQuoteFingerprint: acceptedOfferQuote.fee_quote_fingerprint,
-    },
-    context,
+  const acceptedSeedOffer = offers.find(
+    (offer) => offer.offerId === marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
   );
-  await drainProjectors(services.projectors);
+  if (!acceptedSeedOffer) {
+    throw new Error("Reserved accepted seed offer is missing from the marketplace seed list.");
+  }
+
+  await acceptReservedSeedOffer(services, acceptedSeedOffer, identitySeedIds.demo.accountId, context);
 }

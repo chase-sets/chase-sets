@@ -4,7 +4,6 @@ import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { settlementReservedSeedIds } from "@chase-sets/settlement/seed-support/ids";
 import { createSettlementServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 type SeedPaymentSourceRow = Readonly<{
   amount: string;
@@ -21,10 +20,6 @@ function createSeedContext(): EventStoreContext {
       forAccountId: identitySeedIds.demo.accountId,
     },
   };
-}
-
-async function drainProjectors(projectors: readonly ProjectionHandlerSet[]) {
-  void projectors;
 }
 
 export async function seedSettlementDatabase(pool: PgTransactionalPool) {
@@ -205,6 +200,4 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
     },
     context,
   );
-
-  await drainProjectors(services.projectors);
 }

@@ -8,10 +8,6 @@ function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
-async function drainProjectors(projectors: readonly unknown[]) {
-  void projectors;
-}
-
 export async function seedExperienceDatabase(pool: PgTransactionalPool) {
   const services = createExperienceServices(pool);
 
@@ -98,6 +94,4 @@ export async function seedExperienceDatabase(pool: PgTransactionalPool) {
       context,
     });
   }
-
-  await drainProjectors(services.projectors);
 }

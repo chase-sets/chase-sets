@@ -1607,8 +1607,9 @@ export function resolveModuleSubscriptions(
     const subscriptions = [
       ...declaredSubscriptions,
       ...(entry.projectionHandlerSets ?? [])
-        .filter((set) => !declaredProjectionNames.has(set.projectionName))
-        .map((set) => createLocalProjectionSubscription(entry.contextName, set)),
+        .map((set, index) => ({ set, index }))
+        .filter(({ set }) => !declaredProjectionNames.has(set.projectionName))
+        .map(({ set, index }) => createLocalProjectionSubscription(entry.contextName, set, index)),
     ];
 
     for (const subscription of subscriptions) {
@@ -1630,6 +1631,7 @@ export function resolveModuleSubscriptions(
 function createLocalProjectionSubscription(
   contextName: string,
   projection: BcProjectionHandlerSet,
+  order: number,
 ): BcEventSubscription {
   return {
     subscriptionName: `${contextName}.${projection.projectionName}`,
@@ -1642,7 +1644,7 @@ function createLocalProjectionSubscription(
     errorPolicy: projection.errorPolicy,
     batchSize: projection.batchSize,
     checkpointBatchSize: projection.checkpointBatchSize,
-    order: 0,
+    order,
   };
 }
 

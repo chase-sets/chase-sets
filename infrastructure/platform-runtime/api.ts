@@ -255,6 +255,9 @@ export async function seedApiHostIfEmpty(
     if (runFullDrain) {
       await syncContextProjectionGroups(runtime, contextName);
       await drainContextRuntime(runtime);
+      await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+      await syncContextProjectionGroups(runtime, contextName);
+      await drainContextRuntime(runtime);
     }
   }
 

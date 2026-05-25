@@ -1,6 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
@@ -22,10 +21,6 @@ function createSeedContext(accountId: string, userId: string): EventStoreContext
       forAccountId: accountId as never,
     },
   };
-}
-
-async function drainProjectors(projectors: readonly ProjectionHandlerSet[]) {
-  void projectors;
 }
 
 async function supportRequestExists(services: SupportServices, supportRequestId: string) {
@@ -183,6 +178,4 @@ export async function seedSupportDatabase(
       context: supportContext,
     });
   }
-
-  await drainProjectors(support.projectors);
 }

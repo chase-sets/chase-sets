@@ -13,10 +13,6 @@ function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
-async function drainProjectors(projectors: readonly unknown[]) {
-  void projectors;
-}
-
 export async function seedIdentityDatabase(pool: PgTransactionalPool) {
   const services = createIdentityServices(pool);
   const context = createIdentityBootstrapContext();
@@ -587,6 +583,4 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: { type: "RevokeApiKey" },
     context,
   });
-
-  await drainProjectors(services.projectors);
 }
