@@ -25,7 +25,7 @@ Retry must preserve stream order. Apply the first blocked event before later def
 
 ## Admin Operations
 
-The projection operations API is mounted under `/api/platform/projections` on `admin-support-api` and requires `security.manage`.
+The projection operations API is mounted under `/api/platform/projections` on the same API host that serves the admin app (`platform-api` in full-platform environments and `admin-support-api` in split production environments) and requires `security.manage`.
 
 - `GET /api/platform/projections` lists refreshed projection group status, runner status, worker heartbeats, blocked streams, and poison summaries.
 - `GET /api/platform/projections/:projectionKey/blocked-streams` lists active blocked stream and poison details for one projection key.

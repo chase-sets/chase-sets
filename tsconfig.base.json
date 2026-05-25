@@ -342,6 +342,9 @@
       "@chase-sets/platform-runtime/meta": [
         "./infrastructure/platform-runtime/meta.ts"
       ],
+      "@chase-sets/platform-runtime/projection-operations-routes": [
+        "./infrastructure/platform-runtime/projection-operations-routes.ts"
+      ],
       "@chase-sets/platform-runtime/realtime": [
         "./infrastructure/platform-runtime/realtime.ts"
       ],

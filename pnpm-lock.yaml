@@ -1934,6 +1934,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../event-core-postgres
+      '@chase-sets/http':
+        specifier: workspace:*
+        version: link:../../contracts/http
       '@chase-sets/mcp':
         specifier: workspace:*
         version: link:../../contracts/mcp

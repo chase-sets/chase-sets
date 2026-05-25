@@ -8,14 +8,19 @@ import {
   summarizeProjectionReplayStatuses,
   type ContextProjectionGroupStatus,
 } from "@chase-sets/bounded-context-runtime";
-import type { ApiHostRuntime } from "@chase-sets/platform-runtime/api";
-import type { PlatformControlPlane, PlatformLease } from "@chase-sets/platform-runtime/control-plane";
-import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
-import type { TenantContextEnv } from "./middleware/auth-context";
+import type { ApiHostRuntime } from "./api";
+import type { ResolvedActor } from "./auth";
+import type { PlatformControlPlane, PlatformLease } from "./control-plane";
 
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
 const OPERATION_LEASE_TTL_MS = 10 * 60 * 1_000;
+
+type ProjectionOperationsRouteEnv = {
+  Variables: {
+    actor: ResolvedActor | null;
+  };
+};
 
 export type ProjectionOperationsRouteOptions = Readonly<{
   controlPlane?: PlatformControlPlane;
@@ -25,7 +30,7 @@ export function createProjectionOperationsRoutes(
   runtime: ApiHostRuntime,
   options: ProjectionOperationsRouteOptions = {},
 ) {
-  const app = new Hono<TenantContextEnv>();
+  const app = new Hono<ProjectionOperationsRouteEnv>();
 
   app.get("/", async (c) => {
     const actorResponse = requireProjectionOperationsActor(c.get("actor"));
