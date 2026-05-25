@@ -53,7 +53,19 @@ function createServices() {
       listActiveMembershipsForUser: vi.fn(async () => []),
     },
     sessions: {
-      commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
+      commandHandler: vi.fn(async (input) => ({
+        version: 1,
+        state: {
+          id: input.command.sessionId,
+          userId: input.command.userId,
+          accountId: input.command.accountId,
+          availableAccountIds: input.command.availableAccountIds,
+          authenticationMethod: input.command.authenticationMethod,
+          status: "active",
+          expiresAt: input.command.expiresAt,
+        },
+        storedEvents: [{ recordedAt: new Date().toISOString() }],
+      })),
       getSession: vi.fn(async (sessionId: string) => ({
         session_id: sessionId,
         user_id: "usr_new",

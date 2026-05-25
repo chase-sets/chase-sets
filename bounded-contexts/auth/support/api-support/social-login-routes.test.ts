@@ -125,9 +125,18 @@ function createServices(
       ),
     },
     sessions: {
-      commandHandler: vi.fn(async () => ({
+      commandHandler: vi.fn(async (input) => ({
         version: 1,
-        state: {},
+        state: {
+          id: input.command.sessionId,
+          userId: input.command.userId,
+          accountId: input.command.accountId,
+          availableAccountIds: input.command.availableAccountIds,
+          authenticationMethod: input.command.authenticationMethod,
+          status: "active",
+          expiresAt: input.command.expiresAt,
+        },
+        storedEvents: [{ recordedAt: new Date().toISOString() }],
       })),
       getSession: vi.fn(async () => session),
     },

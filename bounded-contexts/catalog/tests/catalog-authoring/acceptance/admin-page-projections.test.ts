@@ -50,7 +50,7 @@ let pool: PgTransactionalPool;
 let services: CatalogServices;
 let app: ReturnType<typeof buildCatalogAuthoringTestApp>;
 
-async function drainProjectors() {
+async function drainCatalogProjectionSubscriptions() {
   let processed = 0;
 
   do {
@@ -259,7 +259,7 @@ describeWithDatabase("Admin page projections", () => {
       description: l10n("Japanese printed Charizard", { ja: "日本語版リザードン" }),
     });
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const dimensionDetail = await getJson(`/api/catalog/dimensions/${dimensionId}`);
     expect(dimensionDetail.response.status).toBe(200);
@@ -431,7 +431,7 @@ describeWithDatabase("Admin page projections", () => {
       displayOrder: 1,
     });
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const updatedComponent = await getJson(`/api/catalog/components/${componentId}`);
     expect(updatedComponent.json.name).toBe("Base Card Info V2");
@@ -550,7 +550,7 @@ describeWithDatabase("Admin page projections", () => {
       value: { referenceId: setReferenceId },
     });
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const itemDetail = await getJson(`/api/catalog/items/${itemId}`);
     expect(itemDetail.response.status).toBe(200);
@@ -608,7 +608,7 @@ describeWithDatabase("Admin page projections", () => {
       },
     );
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const updatedItemDetail = await getJson(`/api/catalog/items/${itemId}`);
     expect(updatedItemDetail.json.field_values[0].reference.attributes["card-count"]).toBe(218);
@@ -627,7 +627,7 @@ describeWithDatabase("Admin page projections", () => {
       },
     );
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const updatedSeriesRelationship = await getJson(`/api/catalog/items/${itemId}`);
     expect(updatedSeriesRelationship.json.field_values[0].reference.relationships[0].reference.name).toBe(
@@ -734,7 +734,7 @@ describeWithDatabase("Admin page projections", () => {
       type: "PublishBlueprint",
     });
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const componentDetail = await getJson(`/api/catalog/components/${componentId}`);
     expect(componentDetail.response.status).toBe(200);
@@ -825,7 +825,7 @@ describeWithDatabase("Admin page projections", () => {
       value: l10n("Valid Import"),
     });
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const previewResponse = await app.fetch(
       new Request("http://catalog.test/api/catalog/items/bulk-publish/preview", {
@@ -873,7 +873,7 @@ describeWithDatabase("Admin page projections", () => {
       skipped_count: 1,
     });
 
-    await drainProjectors();
+    await drainCatalogProjectionSubscriptions();
 
     const activeImports = await getJson("/api/catalog/items?status=active&source=tcgplayer&limit=5&offset=0");
     expect(activeImports.response.status).toBe(200);

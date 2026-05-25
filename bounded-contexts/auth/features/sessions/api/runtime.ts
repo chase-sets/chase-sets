@@ -12,6 +12,7 @@ import {
   type SessionEvent,
   type SessionState,
 } from "../domain/domain";
+import { toSessionStreamId } from "../domain/auth-flow";
 import { getSession, listSessions } from "../read-model/queries";
 import { buildSessionProjectionHandlers } from "../read-model/projection";
 import {
@@ -24,6 +25,7 @@ export type SessionServices = Readonly<{
   commandHandler: CommandHandler<SessionCommand, SessionState, SessionEvent>;
   listSessions: (params?: Parameters<typeof listSessions>[1]) => ReturnType<typeof listSessions>;
   getSession: (sessionId: string) => ReturnType<typeof getSession>;
+  getSessionState: (sessionId: string) => Promise<SessionState | null>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -39,13 +41,14 @@ export function createSessionRuntime(
     getMagicLinkDeliveryToken: async () => null,
     clearMagicLinkDeliveryToken: async () => undefined,
   };
+  const repository = createAggregateRepository({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<SessionEvent>(),
+    initialState: () => initialSessionState,
+    evolve: evolveSession,
+  });
   const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<SessionEvent>(),
-      initialState: () => initialSessionState,
-      evolve: evolveSession,
-    }),
+    repository,
     evolve: evolveSession,
     decide: decideSession,
   });
@@ -54,6 +57,10 @@ export function createSessionRuntime(
     commandHandler,
     listSessions: (params) => listSessions(deps.db, params),
     getSession: (sessionId) => getSession(deps.db, sessionId),
+    getSessionState: async (sessionId) => {
+      const loaded = await repository.load(toSessionStreamId(sessionId));
+      return loaded.state.id ? loaded.state : null;
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: "auth-session-projection",
