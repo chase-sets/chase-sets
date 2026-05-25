@@ -180,15 +180,25 @@ function createMockPool(): MockPool {
 
       if (sql.includes("UPDATE event_projection_blocked_streams")) {
         const projectionKey = String(params[0]);
+        const streamId = params[1] ? String(params[1]) : null;
+        const nextState = sql.includes("state = 'retrying'")
+          ? "retrying"
+          : sql.includes("state = 'blocked'")
+            ? "blocked"
+            : "resolved";
         for (const [key, stream] of getBlockedStreamStore(pool)) {
-          if (stream.projectionKey === projectionKey) {
-            getBlockedStreamStore(pool).set(key, { ...stream, state: "resolved" });
+          if (stream.projectionKey === projectionKey && (!streamId || stream.streamId === streamId)) {
+            getBlockedStreamStore(pool).set(key, { ...stream, state: nextState });
           }
         }
         return { rows: [] };
       }
 
       if (sql.includes("UPDATE event_projection_poison_events")) {
+        if (!sql.includes("state = 'resolved'")) {
+          return { rows: [] };
+        }
+
         const projectionKey = String(params[0]);
         for (const key of [...getPoisonEventStore(pool)]) {
           if (key.startsWith(`${projectionKey}:`)) {
@@ -264,16 +274,37 @@ vi.mock("@chase-sets/event-core-postgres", () => ({
       (sourceEventsByPool.get(pool) ?? [])
         .filter((event) => Number(event.globalPosition) > Number(afterGlobalPosition))
         .slice(0, limit),
+    readStream: async ({
+      streamId,
+      fromVersion = 1,
+      limit = 500,
+    }: {
+      streamId: string;
+      fromVersion?: number;
+      limit?: number;
+    }) =>
+      (sourceEventsByPool.get(pool) ?? [])
+        .filter((event) => event.streamId === streamId && event.streamVersion >= fromVersion)
+        .slice(0, limit),
+  }),
+  createPostgresProjectionStore: ({ db }: { db: object }) => ({
+    listBlockedStreams: async (projectionKey: string) =>
+      [...getBlockedStreamStore(db).values()].filter(
+        (stream) => stream.projectionKey === projectionKey && stream.state !== "resolved",
+      ),
+    listPoisonEvents: async () => [],
   }),
   eventCorePostgresSchemaSql: "",
 }));
 
 import {
   createSubscriptionRunner,
+  listProjectionBlockedStreamDetails,
   refreshProjectionGroupStatuses,
   rebuildProjectionGroup,
   resetProjectionGroup,
   resolveModuleProjectionGroups,
+  retryProjectionBlockedStream,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
 } from "./index";
@@ -496,6 +527,108 @@ describe("bounded context projection replay", () => {
       deferredEventCount: 1,
       firstBlockedGlobalPosition: "1",
       lastSeenGlobalPosition: "3",
+    });
+  });
+
+  it("retries one blocked subscription stream in stream-version order", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+      createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_good" }, "catalog.item-cat_good"),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+    ]);
+
+    let shouldFail = true;
+    const seen: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          if (shouldFail && event.streamId === "catalog.item-cat_bad") {
+            throw new Error("bad catalog item shape");
+          }
+
+          seen.push(`${event.streamId}:${event.globalPosition}`);
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+    });
+
+    await runner.runOnce();
+    shouldFail = false;
+
+    await expect(
+      retryProjectionBlockedStream(
+        {
+          subscriptionRunners: [runner],
+        },
+        "inventory-catalog-item-projection:catalog:v1",
+        "catalog.item-cat_bad",
+      ),
+    ).resolves.toMatchObject({
+      state: "resolved",
+      inspectedEvents: 2,
+      appliedEvents: 2,
+    });
+
+    expect(seen).toEqual(["catalog.item-cat_good:2", "catalog.item-cat_bad:1", "catalog.item-cat_bad:3"]);
+    expect(
+      getBlockedStreamStore(targetPool).get("inventory-catalog-item-projection:catalog:v1:catalog.item-cat_bad"),
+    ).toMatchObject({
+      state: "resolved",
+    });
+  });
+
+  it("lists blocked stream details for operator projection views", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_bad" }, "catalog.item-cat_bad"),
+    ]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw new Error("bad catalog item shape");
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+
+    await runner.runOnce();
+
+    await expect(
+      listProjectionBlockedStreamDetails(
+        {
+          mountedContexts: [
+            {
+              contextName: "inventory",
+              module: {} as BcApiModule,
+              services: {},
+              pool: targetPool as never,
+              projectors: [],
+            },
+          ],
+          subscriptionRunners: [runner],
+        },
+        "inventory-catalog-item-projection:catalog:v1",
+      ),
+    ).resolves.toMatchObject({
+      projectionKey: "inventory-catalog-item-projection:catalog:v1",
+      blockedStreams: [
+        {
+          streamId: "catalog.item-cat_bad",
+        },
+      ],
     });
   });
 

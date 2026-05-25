@@ -33,6 +33,9 @@ export default function IdentityAdminLayoutRoute() {
           <LinkButton href="/experience/waitlist" tone="secondary">
             {t("adminWeb.app.routes.identityLayout.experience")}
           </LinkButton>
+          <LinkButton href="/operations/projections" tone="secondary">
+            {t("adminWeb.app.routes.identityLayout.operations")}
+          </LinkButton>
           <form action="/identity/sign-out" method="post">
             <Button type="submit" tone="secondary">
               {t("adminWeb.app.routes.identityLayout.sign.out")}

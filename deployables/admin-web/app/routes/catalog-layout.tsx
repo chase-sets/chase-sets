@@ -34,6 +34,9 @@ export default function CatalogAdminLayoutRoute() {
           <LinkButton href="/identity/accounts" tone="secondary">
             {t("adminWeb.app.routes.catalogLayout.identity")}
           </LinkButton>
+          <LinkButton href="/operations/projections" tone="secondary">
+            {t("adminWeb.app.routes.catalogLayout.operations")}
+          </LinkButton>
           <form action="/catalog/sign-out" method="post">
             <Button type="submit" tone="secondary">
               {t("adminWeb.app.routes.catalogLayout.sign.out")}

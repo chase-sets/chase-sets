@@ -23,6 +23,8 @@ import {
   type TenantContextEnv,
 } from "./middleware/auth-context";
 import { errorHandler } from "./middleware/error-handler";
+import { createProjectionOperationsRoutes } from "./projection-operations-routes";
+import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 
 export type PlatformIdentityServices = Readonly<{
   auth: ReturnType<typeof authModule.createServices>;
@@ -35,6 +37,7 @@ export type BuildAdminSupportApiOptions = Readonly<{
   resolveActor?: PlatformActorResolver;
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
+  controlPlane?: PlatformControlPlane;
 }>;
 
 export function createAdminSupportApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
@@ -74,6 +77,15 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
   }
 
   const platformActorMiddleware = createPlatformActorMiddleware(options.resolveActor ?? (async () => null));
+  app.use("/api/platform/projections", platformActorMiddleware);
+  app.use("/api/platform/projections/*", platformActorMiddleware);
+  app.route(
+    "/api/platform/projections",
+    createProjectionOperationsRoutes(runtime, {
+      controlPlane: options.controlPlane,
+    }),
+  );
+
   attachApiMountMiddleware(
     app,
     apiMounts

@@ -1,7 +1,10 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
 import {
   createFilesystemObjectStorage,
   createS3ObjectStorage,
@@ -19,6 +22,7 @@ const logger = observability.logger;
 const config = loadConfig();
 const pools = createAdminSupportApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
+const controlPlane = createPostgresPlatformControlPlane(pools.control);
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 
 const runtime = createAdminSupportApiHost({
@@ -30,6 +34,7 @@ const runtime = createAdminSupportApiHost({
 const app = buildAdminSupportApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
+  controlPlane,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readinessChecks: runtime.mountedContexts.map((entry) => ({
     name: `${entry.contextName}.database`,

@@ -27,6 +27,29 @@ export type ProjectionBlockedStream = Readonly<{
   state: ProjectionBlockedStreamState;
 }>;
 
+export type ProjectionPoisonEvent = Readonly<{
+  projectionKey: string;
+  eventId: string;
+  projectionName: string;
+  projectionKind: "projector" | "subscription";
+  targetContextName: string | null;
+  sourceContextName: string | null;
+  projectionRevision: number | null;
+  subscriptionVersion: number | null;
+  streamId: StreamId;
+  streamVersion: StreamVersion;
+  eventType: string;
+  globalPosition: GlobalPosition;
+  failureKind: ProjectionFailureKind;
+  errorMessage: string;
+  errorStack: string | null;
+  state: ProjectionPoisonState;
+  retryCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+}>;
+
 export type RecordProjectionPoisonEventInput = Readonly<{
   projectionKey: string;
   projectionName: string;
@@ -60,6 +83,8 @@ export type ProjectionCheckpointStore = Readonly<{
   recordDeferredBlockedStreamEvent?: (input: RecordProjectionDeferredEventInput) => Promise<void>;
   loadProjectionErrorSummary?: (projectionKey: string) => Promise<ProjectionErrorSummary>;
   listBlockedStreams?: (projectionKey: string) => Promise<readonly ProjectionBlockedStream[]>;
+  listPoisonEvents?: (projectionKey: string, limit?: number) => Promise<readonly ProjectionPoisonEvent[]>;
+  markBlockedStreamRetrying?: (projectionKey: string, streamId: StreamId) => Promise<void>;
   resolveBlockedStream?: (projectionKey: string, streamId: StreamId) => Promise<void>;
   clearProjectionErrors?: (projectionKey: string) => Promise<void>;
 }>;

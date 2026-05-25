@@ -60,6 +60,7 @@ export default [
   route("health/ready", "routes/health-ready.ts"),
   route("offline", "routes/offline.tsx"),
   route("/", "routes/index.tsx"),
+  route("operations/projections", "routes/projection-operations.tsx"),
   ...catalogRootRoutes,
   ...identityRootRoutes,
   ...experienceRootRoutes,
