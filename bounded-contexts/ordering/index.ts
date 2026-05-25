@@ -5,6 +5,7 @@ import type {
   BcEventSubscriptionDeclaration,
   BcProjectionGroupDeclaration,
 } from "@chase-sets/bounded-context-module";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { OrderingServiceOptions, OrderingServices } from "./support/runtime-support/services";
@@ -36,6 +37,19 @@ function getEventSubscription(sourceContextName: string, projectionName: string)
   }
 
   return declaration;
+}
+
+function selectSubscriptionHandlers(
+  handlers: ProjectorHandlerMap,
+  eventTypes: readonly string[] | undefined,
+): ProjectorHandlerMap {
+  if (!eventTypes) {
+    return handlers;
+  }
+
+  return Object.fromEntries(
+    eventTypes.flatMap((eventType) => (handlers[eventType] ? [[eventType, handlers[eventType]]] : [])),
+  );
 }
 
 export const module: BcApiModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions> = {
@@ -73,6 +87,8 @@ export const module: BcApiModule<OrderingServices, PgTransactionalPool, Ordering
       "ordering-fulfillment-cancellation-inputs",
     );
 
+    const marketplaceSupplyHandlers = buildOrderingMarketplaceSupplyProjectionHandlers(services.db);
+
     return [
       {
         subscriptionName: "ordering.identity-account-projection",
@@ -89,7 +105,7 @@ export const module: BcApiModule<OrderingServices, PgTransactionalPool, Ordering
         sourceContextName: "marketplace",
         projectionName: marketplaceSupplySubscription.projectionName,
         subscriptionVersion: marketplaceSupplySubscription.subscriptionVersion,
-        handlers: buildOrderingMarketplaceSupplyProjectionHandlers(services.db),
+        handlers: selectSubscriptionHandlers(marketplaceSupplyHandlers, marketplaceSupplySubscription.eventTypes),
         eventTypes: marketplaceSupplySubscription.eventTypes,
         streamPrefixes: marketplaceSupplySubscription.streamPrefixes,
         order: marketplaceSupplySubscription.order,
@@ -186,76 +202,79 @@ export const module: BcApiModule<OrderingServices, PgTransactionalPool, Ordering
         sourceContextName: "marketplace",
         projectionName: marketplaceOfferAcceptanceSubscription.projectionName,
         subscriptionVersion: marketplaceOfferAcceptanceSubscription.subscriptionVersion,
-        handlers: buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
-          onOfferAccepted: async (params) => {
-            if (params.acceptanceBatchId) {
-              const batchRows = await listAcceptedOfferBatchInputs(services.db, params.acceptanceBatchId);
-              const expectedSize = params.acceptanceBatchSize ?? batchRows.length;
-              if (batchRows.length < expectedSize) {
-                return;
-              }
-              if (await hasOrderForSource(services.db, "offer-acceptance", params.acceptanceBatchId)) {
+        handlers: selectSubscriptionHandlers(
+          buildOrderingMarketplaceSupplyProjectionHandlers(services.db, {
+            onOfferAccepted: async (params) => {
+              if (params.acceptanceBatchId) {
+                const batchRows = await listAcceptedOfferBatchInputs(services.db, params.acceptanceBatchId);
+                const expectedSize = params.acceptanceBatchSize ?? batchRows.length;
+                if (batchRows.length < expectedSize) {
+                  return;
+                }
+                if (await hasOrderForSource(services.db, "offer-acceptance", params.acceptanceBatchId)) {
+                  return;
+                }
+
+                await services.orders.createOrdersFromAcceptedOfferBatch(
+                  {
+                    acceptanceBatchId: params.acceptanceBatchId,
+                    offers: batchRows.map((row) => ({
+                      offerId: row.offer_id,
+                      buyerAccountId: row.buyer_account_id as never,
+                      sellerAccountId: row.seller_account_id as never,
+                      catalogItemId: row.catalog_catalog_item_id,
+                      productId: row.product_id,
+                      itemTitle: row.item_title,
+                      itemSubtitle: row.item_subtitle,
+                      selectedOptions: [...row.selected_options],
+                      productSummary: row.product_summary,
+                      priceAmount: row.price_amount,
+                      marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
+                      sellerNetUnitAmount: row.seller_net_unit_amount,
+                      shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
+                      shippingDestinationSnapshot: row.shipping_destination_snapshot,
+                      termsScheduleId: row.terms_schedule_id,
+                      termsAgreementId: row.terms_agreement_id,
+                      termsResolvedAt: row.terms_resolved_at,
+                      quantityRequested: row.quantity_requested,
+                    })),
+                  },
+                  params.context,
+                );
                 return;
               }
 
-              await services.orders.createOrdersFromAcceptedOfferBatch(
+              if (await hasOrderForSource(services.db, "offer-acceptance", params.offerId)) {
+                return;
+              }
+
+              await services.orders.createOrdersFromAcceptedOffer(
                 {
-                  acceptanceBatchId: params.acceptanceBatchId,
-                  offers: batchRows.map((row) => ({
-                    offerId: row.offer_id,
-                    buyerAccountId: row.buyer_account_id as never,
-                    sellerAccountId: row.seller_account_id as never,
-                    catalogItemId: row.catalog_catalog_item_id,
-                    productId: row.product_id,
-                    itemTitle: row.item_title,
-                    itemSubtitle: row.item_subtitle,
-                    selectedOptions: [...row.selected_options],
-                    productSummary: row.product_summary,
-                    priceAmount: row.price_amount,
-                    marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
-                    sellerNetUnitAmount: row.seller_net_unit_amount,
-                    shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
-                    shippingDestinationSnapshot: row.shipping_destination_snapshot,
-                    termsScheduleId: row.terms_schedule_id,
-                    termsAgreementId: row.terms_agreement_id,
-                    termsResolvedAt: row.terms_resolved_at,
-                    quantityRequested: row.quantity_requested,
-                  })),
+                  offerId: params.offerId,
+                  buyerAccountId: params.buyerAccountId as never,
+                  sellerAccountId: params.sellerAccountId as never,
+                  catalogItemId: params.catalogItemId,
+                  productId: params.productId as never,
+                  itemTitle: params.itemTitle,
+                  itemSubtitle: params.itemSubtitle,
+                  selectedOptions: [...params.selectedOptions],
+                  productSummary: params.productSummary,
+                  priceAmount: params.priceAmount,
+                  marketplaceSalesFeeUnitAmount: params.marketplaceSalesFeeUnitAmount,
+                  sellerNetUnitAmount: params.sellerNetUnitAmount,
+                  termsScheduleId: params.termsScheduleId,
+                  termsAgreementId: params.termsAgreementId,
+                  termsResolvedAt: params.termsResolvedAt,
+                  shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
+                  shippingDestinationSnapshot: params.shippingDestinationSnapshot as never,
+                  quantityRequested: params.quantityRequested,
                 },
                 params.context,
               );
-              return;
-            }
-
-            if (await hasOrderForSource(services.db, "offer-acceptance", params.offerId)) {
-              return;
-            }
-
-            await services.orders.createOrdersFromAcceptedOffer(
-              {
-                offerId: params.offerId,
-                buyerAccountId: params.buyerAccountId as never,
-                sellerAccountId: params.sellerAccountId as never,
-                catalogItemId: params.catalogItemId,
-                productId: params.productId as never,
-                itemTitle: params.itemTitle,
-                itemSubtitle: params.itemSubtitle,
-                selectedOptions: [...params.selectedOptions],
-                productSummary: params.productSummary,
-                priceAmount: params.priceAmount,
-                marketplaceSalesFeeUnitAmount: params.marketplaceSalesFeeUnitAmount,
-                sellerNetUnitAmount: params.sellerNetUnitAmount,
-                termsScheduleId: params.termsScheduleId,
-                termsAgreementId: params.termsAgreementId,
-                termsResolvedAt: params.termsResolvedAt,
-                shippingAllowancePercentageBps: params.shippingAllowancePercentageBps,
-                shippingDestinationSnapshot: params.shippingDestinationSnapshot as never,
-                quantityRequested: params.quantityRequested,
-              },
-              params.context,
-            );
-          },
-        }),
+            },
+          }),
+          marketplaceOfferAcceptanceSubscription.eventTypes,
+        ),
         eventTypes: marketplaceOfferAcceptanceSubscription.eventTypes,
         streamPrefixes: marketplaceOfferAcceptanceSubscription.streamPrefixes,
         order: marketplaceOfferAcceptanceSubscription.order,

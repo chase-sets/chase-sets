@@ -44,6 +44,8 @@ Write responses may also include consistency headers:
 
 Browser routes that redirect to a read-model-backed detail page after creating a resource carry the commit position as a short-lived `afterWrite` query token. Detail loaders use that token to retry bounded `404` reads before treating the resource as missing. Clients must not treat every `404` as retryable; only a fresh write token means the resource may still be waiting for projections.
 
+Command responses do not imply downstream projections have drained. Clients that need read-your-writes behavior should use the commit-position metadata and bounded retries rather than depending on synchronous projector drain.
+
 Errors use one envelope:
 
 ```json

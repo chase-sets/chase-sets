@@ -55,6 +55,12 @@ CREATE INDEX IF NOT EXISTS event_store_events_type_idx
 CREATE INDEX IF NOT EXISTS event_store_events_type_global_idx
   ON event_store_events (event_type, global_position ASC);
 
+CREATE INDEX IF NOT EXISTS event_store_events_tenant_type_global_idx
+  ON event_store_events (tenant_id, event_type, global_position ASC);
+
+CREATE INDEX IF NOT EXISTS event_store_events_stream_prefix_global_idx
+  ON event_store_events (stream_id text_pattern_ops, global_position ASC);
+
 CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   projector_name text PRIMARY KEY,
   last_global_position bigint NOT NULL CHECK (last_global_position >= 0),

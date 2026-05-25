@@ -192,6 +192,130 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("publishes projection group status snapshots after leased projection batches", async () => {
+    const snapshots: Array<
+      Readonly<{ projectionKey: string; runnerName: string; ownerId: string; status: Record<string, unknown> }>
+    > = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      recordProjectionStatusSnapshot: async (snapshot) => {
+        snapshots.push(snapshot);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "inventory.inventory-catalog-item-projection",
+      kind: "projection-group",
+      projectionStatusSnapshot: () =>
+        createProjectionGroup({
+          refreshStatus: async () => ({ revisionStale: false }),
+        }).getStatus() as never,
+      runOnce: async () => ({
+        processed: 1,
+        lastGlobalPosition: "2" as never,
+      }),
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(snapshots.length).toBeGreaterThan(0);
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(snapshots[0]).toMatchObject({
+      projectionKey: "inventory.inventory-catalog-item-projection",
+      runnerName: "inventory.inventory-catalog-item-projection",
+      ownerId: "worker-a",
+      status: {
+        targetContextName: "inventory",
+        projectionName: "inventory-catalog-item-projection",
+      },
+    });
+  });
+
+  it("does not publish projection snapshots for non-projection runners", async () => {
+    const snapshots: unknown[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane({
+      recordProjectionStatusSnapshot: async (snapshot) => {
+        snapshots.push(snapshot);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "catalog.bulk-job",
+      kind: "job",
+      runOnce: async () => ({
+        processed: 0,
+        lastGlobalPosition: "0" as never,
+      }),
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(loop.status().activeRunnerCount).toBe(0);
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(snapshots).toEqual([]);
+  });
+
+  it("does not overwrite shared runner status when another worker holds the lease", async () => {
+    const statuses: Array<Readonly<{ runnerName: string; state: string }>> = [];
+    const controlPlane = createNeverLeasedControlPlane({
+      recordRunnerStatus: async (status) => {
+        statuses.push(status);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "catalog-item-projection",
+      kind: "projection-group",
+      runOnce: async () => {
+        throw new Error("Lease misses must not run the runner.");
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-b",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(loop.status().leaseMissCount).toBeGreaterThan(0);
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(statuses).toEqual([]);
+  });
+
   it("collects projection group runners instead of raw subscription runners", () => {
     const subscriptionRunner = {
       targetContextName: "inventory",
@@ -259,6 +383,77 @@ describe("worker runner loop", () => {
     expect(resets).toEqual(["group", "subscription"]);
     expect(markedRevision).toBe(true);
   });
+
+  it("runs same-order projection group subscriptions concurrently while preserving order barriers", async () => {
+    const calls: string[] = [];
+    let releaseSlowRunner: (() => void) | null = null;
+    const slowRunnerBlocked = new Promise<void>((resolve) => {
+      releaseSlowRunner = resolve;
+    });
+    const slowRunner = {
+      subscriptionName: "inventory.catalog-item-projection",
+      targetContextName: "inventory",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      order: 10,
+      runOnce: async () => {
+        calls.push("slow-start");
+        await slowRunnerBlocked;
+        calls.push("slow-end");
+        return { processed: 1, lastGlobalPosition: "2" as never };
+      },
+    };
+    const sameOrderRunner = {
+      subscriptionName: "inventory.marketplace-item-projection",
+      targetContextName: "inventory",
+      sourceContextName: "marketplace",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      checkpointKey: "inventory-catalog-item-projection:marketplace:v1",
+      order: 10,
+      runOnce: async () => {
+        calls.push("same-order");
+        return { processed: 1, lastGlobalPosition: "3" as never };
+      },
+    };
+    const laterRunner = {
+      subscriptionName: "inventory.order-item-projection",
+      targetContextName: "inventory",
+      sourceContextName: "ordering",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      checkpointKey: "inventory-catalog-item-projection:ordering:v1",
+      order: 20,
+      runOnce: async () => {
+        calls.push("later-order");
+        return { processed: 1, lastGlobalPosition: "4" as never };
+      },
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [slowRunner, sameOrderRunner, laterRunner],
+      refreshStatus: async () => ({
+        revisionStale: false,
+      }),
+    });
+    const [runner] = collectWorkerRunners({
+      mountedContexts: [],
+      services: {},
+      projectors: [],
+      projectionGroups: [group],
+      subscriptionRunners: [slowRunner, sameOrderRunner, laterRunner],
+    } as never);
+
+    const run = runner.runOnce();
+    await vi.waitFor(() => {
+      expect(calls).toContain("same-order");
+    });
+    expect(calls).not.toContain("later-order");
+    releaseSlowRunner?.();
+    await expect(run).resolves.toMatchObject({ processed: 3, lastGlobalPosition: "4" });
+    expect(calls).toEqual(["slow-start", "same-order", "slow-end", "later-order"]);
+  });
 });
 
 function createProjectionGroup(
@@ -308,7 +503,7 @@ function createProjectionGroup(
 }
 
 function createAlwaysLeasedControlPlane(
-  overrides: Partial<Pick<PlatformControlPlane, "recordRunnerStatus">> = {},
+  overrides: Partial<Pick<PlatformControlPlane, "recordRunnerStatus" | "recordProjectionStatusSnapshot">> = {},
 ): PlatformControlPlane {
   return {
     bootstrap: async () => {},
@@ -322,6 +517,26 @@ function createAlwaysLeasedControlPlane(
     releaseLease: async () => {},
     heartbeatWorker: async () => {},
     recordRunnerStatus: overrides.recordRunnerStatus ?? (async () => {}),
+    recordProjectionStatusSnapshot: overrides.recordProjectionStatusSnapshot ?? (async () => {}),
+    listProjectionStatusSnapshots: async () => [],
+    listWorkerHeartbeats: async () => [],
+    listRunnerStatuses: async () => [],
+    listLeases: async () => [],
+  };
+}
+
+function createNeverLeasedControlPlane(
+  overrides: Partial<Pick<PlatformControlPlane, "recordRunnerStatus">> = {},
+): PlatformControlPlane {
+  return {
+    bootstrap: async () => {},
+    acquireLease: async () => null,
+    renewLease: async () => false,
+    releaseLease: async () => {},
+    heartbeatWorker: async () => {},
+    recordRunnerStatus: overrides.recordRunnerStatus ?? (async () => {}),
+    recordProjectionStatusSnapshot: async () => {},
+    listProjectionStatusSnapshots: async () => [],
     listWorkerHeartbeats: async () => [],
     listRunnerStatuses: async () => [],
     listLeases: async () => [],

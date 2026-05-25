@@ -5,6 +5,7 @@ import type {
   BcEventSubscriptionDeclaration,
   BcProjectionGroupDeclaration,
 } from "@chase-sets/bounded-context-module";
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { DiscoveryServices } from "./support/runtime-support/services";
@@ -35,6 +36,19 @@ function getEventSubscription(sourceContextName: string, projectionName: string)
   return declaration;
 }
 
+function selectSubscriptionHandlers(
+  handlers: ProjectorHandlerMap,
+  eventTypes: readonly string[] | undefined,
+): ProjectorHandlerMap {
+  if (!eventTypes) {
+    return handlers;
+  }
+
+  return Object.fromEntries(
+    eventTypes.flatMap((eventType) => (handlers[eventType] ? [[eventType, handlers[eventType]]] : [])),
+  );
+}
+
 export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts> = {
   contextName: "discovery",
   routePrefix: "/api/marketplace",
@@ -61,6 +75,8 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
       "marketplace",
       "discovery-product-alert-notification-projection",
     );
+
+    const marketProjectionHandlers = buildDiscoveryMarketProjectionHandlers(services.db);
 
     return [
       {
@@ -108,7 +124,7 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
         sourceContextName: "identity",
         projectionName: identitySubscription.projectionName,
         subscriptionVersion: identitySubscription.subscriptionVersion,
-        handlers: buildDiscoveryMarketProjectionHandlers(services.db),
+        handlers: selectSubscriptionHandlers(marketProjectionHandlers, identitySubscription.eventTypes),
         eventTypes: identitySubscription.eventTypes,
         streamPrefixes: identitySubscription.streamPrefixes,
         order: identitySubscription.order,
@@ -118,7 +134,7 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
         sourceContextName: "marketplace",
         projectionName: marketplaceSubscription.projectionName,
         subscriptionVersion: marketplaceSubscription.subscriptionVersion,
-        handlers: buildDiscoveryMarketProjectionHandlers(services.db),
+        handlers: selectSubscriptionHandlers(marketProjectionHandlers, marketplaceSubscription.eventTypes),
         eventTypes: marketplaceSubscription.eventTypes,
         streamPrefixes: marketplaceSubscription.streamPrefixes,
         order: marketplaceSubscription.order,
@@ -128,7 +144,7 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
         sourceContextName: "reputation",
         projectionName: reputationSubscription.projectionName,
         subscriptionVersion: reputationSubscription.subscriptionVersion,
-        handlers: buildDiscoveryMarketProjectionHandlers(services.db),
+        handlers: selectSubscriptionHandlers(marketProjectionHandlers, reputationSubscription.eventTypes),
         eventTypes: reputationSubscription.eventTypes,
         streamPrefixes: reputationSubscription.streamPrefixes,
         order: reputationSubscription.order,

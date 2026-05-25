@@ -86,6 +86,7 @@ describe("admin-support API app", () => {
       },
       projectionGroups: [],
       blockedProjections: [],
+      projectionStatusSource: "runtime-memory",
       workers: [],
       runners: [],
     });

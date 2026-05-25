@@ -221,6 +221,7 @@ app.get("/internal/workers/status", async (c) => {
   return c.json({
     status: "ok",
     loop: summarizeLoopStatuses(config.workerId, loopStatuses),
+    capacity: summarizeRunnerCapacity(config.pool.max, runnerGroups),
     loops: loopStatuses,
     workers: await controlPlane.listWorkerHeartbeats(),
     runners: await controlPlane.listRunnerStatuses(),
@@ -279,6 +280,17 @@ function summarizeLoopStatuses(workerId: string, loopStatuses: readonly ReturnTy
     workerId,
     activeRunnerCount: loopStatuses.reduce((total, status) => total + status.activeRunnerCount, 0),
     stopped: loopStatuses.every((status) => status.stopped),
+  };
+}
+
+function summarizeRunnerCapacity(databasePoolMax: number, groups: readonly RunnerGroup[]) {
+  const configuredRunnerConcurrency = groups.reduce((total, group) => total + group.maxConcurrentRunners, 0);
+
+  return {
+    databasePoolMax,
+    configuredRunnerConcurrency,
+    overPoolCapacity: configuredRunnerConcurrency > databasePoolMax,
+    runnerGroups: runnerGroupMetadata(groups),
   };
 }
 

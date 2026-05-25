@@ -530,4 +530,11 @@ describe("platform api config", () => {
     expect(config.realtime.backgroundMaintenanceEnabled).toBe(false);
     expect(config.writeConsistencyDrainEnabled).toBe(false);
   });
+
+  it("keeps projection write drains disabled by default", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+
+    expect(loadConfig().writeConsistencyDrainEnabled).toBe(false);
+  });
 });

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import {
   listProjectionBlockedStreamDetails,
+  listProjectionGroupStatuses,
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
   refreshProjectionGroupStatuses,
@@ -41,7 +42,9 @@ export function createProjectionOperationsRoutes(
       return actorResponse;
     }
 
-    const projectionGroups = await refreshProjectionGroupStatuses(runtime);
+    const snapshots = options.controlPlane ? await options.controlPlane.listProjectionStatusSnapshots() : [];
+    const projectionGroups =
+      snapshots.length > 0 ? readProjectionGroupSnapshots(snapshots) : listProjectionGroupStatuses(runtime);
     const blockedProjections = await listBlockedProjectionDetails(runtime, projectionGroups);
 
     const workers = options.controlPlane ? await options.controlPlane.listWorkerHeartbeats() : [];
@@ -50,8 +53,24 @@ export function createProjectionOperationsRoutes(
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
       blockedProjections,
+      projectionStatusSource: snapshots.length > 0 ? "worker-snapshot" : "runtime-memory",
       workers: classifyWorkerHeartbeats(workers),
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
+    });
+  });
+
+  app.post("/refresh", async (c) => {
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    if (actorResponse instanceof Response) {
+      return actorResponse;
+    }
+
+    const projectionGroups = await refreshProjectionGroupStatuses(runtime);
+
+    return c.json({
+      summary: summarizeProjectionReplayStatuses(projectionGroups),
+      projectionGroups,
+      projectionStatusSource: "live-refresh",
     });
   });
 
@@ -232,6 +251,48 @@ function classifyWorkerHeartbeats(workers: readonly Record<string, unknown>[]): 
   });
 }
 
+function readProjectionGroupSnapshots(
+  snapshots: readonly Record<string, unknown>[],
+): readonly ContextProjectionGroupStatus[] {
+  return snapshots.flatMap((snapshot) => {
+    const status = readJsonRecord(snapshot.status);
+    if (!status) {
+      return [];
+    }
+
+    return [
+      {
+        ...status,
+        snapshot: {
+          projectionKey: String(snapshot.projection_key ?? ""),
+          runnerName: String(snapshot.runner_name ?? ""),
+          ownerId: String(snapshot.owner_id ?? ""),
+          updatedAt: formatTimestamp(snapshot.updated_at),
+        },
+      } as unknown as ContextProjectionGroupStatus,
+    ];
+  });
+}
+
+function readJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function parseTimestamp(value: unknown): Date | null {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value;
@@ -243,6 +304,11 @@ function parseTimestamp(value: unknown): Date | null {
 
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatTimestamp(value: unknown): string | null {
+  const parsed = parseTimestamp(value);
+  return parsed ? parsed.toISOString() : null;
 }
 
 async function withProjectionOperationLease<T>(

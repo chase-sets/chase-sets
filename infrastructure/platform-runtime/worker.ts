@@ -3,7 +3,10 @@ import {
   resetProjectionGroup,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
+  sortSubscriptionRunners,
   type ContextProjectionGroup,
+  type ContextProjectionGroupStatus,
+  type ContextSubscriptionRunner,
   type MountedContextRuntimeEntry,
 } from "@chase-sets/bounded-context-runtime";
 import type { BcApiModule, BcHostPort, BcProjector } from "@chase-sets/bounded-context-module";
@@ -44,6 +47,7 @@ export type WorkerRunner = Readonly<{
   kind: "projector" | "projection-group" | "subscription" | "job";
   runOnce: () => Promise<ProjectorRunResult>;
   priority?: () => bigint | number;
+  projectionStatusSnapshot?: () => ContextProjectionGroupStatus;
 }>;
 
 export type WorkerRunnerLoop = Readonly<{
@@ -52,6 +56,7 @@ export type WorkerRunnerLoop = Readonly<{
   status: () => Readonly<{
     workerId: string;
     activeRunnerCount: number;
+    leaseMissCount: number;
     stopped: boolean;
   }>;
 }>;
@@ -148,6 +153,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let nextRunnerIndex = 0;
+  let leaseMissCount = 0;
 
   const schedule = () => {
     if (stopped) {
@@ -167,6 +173,11 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       nextRunnerIndex = (index + 1) % options.runners.length;
 
       const promise = runLeasedRunner(options, runner)
+        .then((leaseAcquired) => {
+          if (!leaseAcquired) {
+            leaseMissCount += 1;
+          }
+        })
         .catch((error) => options.onError?.(error, runner))
         .finally(() => {
           active.delete(promise);
@@ -192,6 +203,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     status: () => ({
       workerId: options.workerId,
       activeRunnerCount: active.size,
+      leaseMissCount,
       stopped,
     }),
   };
@@ -233,7 +245,7 @@ function resolveRunnerPriority(runner: WorkerRunner): bigint {
   }
 }
 
-async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerRunner): Promise<void> {
+async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerRunner): Promise<boolean> {
   const leaseName = `${runner.kind}:${runner.name}`;
   const lease = await options.controlPlane.acquireLease({
     leaseName,
@@ -242,12 +254,7 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
     metadata: { runnerKind: runner.kind },
   });
   if (!lease) {
-    await options.controlPlane.recordRunnerStatus({
-      runnerName: runner.name,
-      runnerKind: runner.kind,
-      state: "skipped",
-    });
-    return;
+    return false;
   }
 
   let leaseActive = true;
@@ -291,6 +298,18 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
           ? `Projection has ${result.blockedStreams ?? 0} blocked stream(s) and ${result.poisonEvents ?? 0} poison event(s).`
           : null,
     });
+
+    const projectionStatusSnapshot = runner.projectionStatusSnapshot?.();
+    if (projectionStatusSnapshot) {
+      await options.controlPlane.recordProjectionStatusSnapshot({
+        projectionKey: `${projectionStatusSnapshot.targetContextName}.${projectionStatusSnapshot.projectionName}`,
+        targetContextName: projectionStatusSnapshot.targetContextName,
+        projectionName: projectionStatusSnapshot.projectionName,
+        runnerName: runner.name,
+        ownerId: lease.ownerId,
+        status: projectionStatusSnapshot as unknown as Record<string, unknown>,
+      });
+    }
   } catch (error) {
     await options.controlPlane.recordRunnerStatus({
       runnerName: runner.name,
@@ -305,6 +324,8 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
     clearInterval(renewalTimer);
     await options.controlPlane.releaseLease(lease);
   }
+
+  return true;
 }
 
 function createProjectorRunner(contextName: string, projector: BcProjector, index: number): WorkerRunner {
@@ -322,6 +343,7 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
     name: `${group.targetContextName}.${group.projectionName}`,
     kind: "projection-group",
     priority: () => BigInt(group.getStatus().outstandingEventCount),
+    projectionStatusSnapshot: () => group.getStatus(),
     runOnce: async () => {
       try {
         const status = await group.refreshStatus();
@@ -335,10 +357,9 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
         let blockedStreams = 0;
         let poisonEvents = 0;
 
-        for (const runner of group.subscriptionRunners) {
-          const result = await runner.runOnce();
+        for (const result of await runSubscriptionRunnersByOrder(group.subscriptionRunners)) {
           processed += result.processed;
-          lastGlobalPosition = result.lastGlobalPosition;
+          lastGlobalPosition = maxGlobalPosition(lastGlobalPosition, result.lastGlobalPosition);
           blockedStreams += result.blockedStreams ?? 0;
           poisonEvents += result.poisonEvents ?? 0;
         }
@@ -361,6 +382,34 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
       }
     },
   };
+}
+
+async function runSubscriptionRunnersByOrder(
+  runners: readonly ContextSubscriptionRunner[],
+): Promise<readonly ProjectorRunResult[]> {
+  const results: ProjectorRunResult[] = [];
+  const sortedRunners = sortSubscriptionRunners(runners);
+
+  for (let index = 0; index < sortedRunners.length; ) {
+    const order = sortedRunners[index].order;
+    const sameOrderRunners: ContextSubscriptionRunner[] = [];
+
+    while (index < sortedRunners.length && sortedRunners[index].order === order) {
+      sameOrderRunners.push(sortedRunners[index]);
+      index += 1;
+    }
+
+    results.push(...(await Promise.all(sameOrderRunners.map((runner) => runner.runOnce()))));
+  }
+
+  return results;
+}
+
+function maxGlobalPosition(
+  left: ProjectorRunResult["lastGlobalPosition"],
+  right: ProjectorRunResult["lastGlobalPosition"],
+) {
+  return BigInt(left) >= BigInt(right) ? left : right;
 }
 
 function getHostPortsForContext(manifest: WorkerContextManifest, hostPorts: Readonly<Record<string, unknown>>) {

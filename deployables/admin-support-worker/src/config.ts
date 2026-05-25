@@ -84,12 +84,9 @@ export function loadConfig(): AdminSupportWorkerConfig {
     maxConcurrentRunners,
     projectionMaxConcurrentRunners: getPositiveNumberEnv(
       "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
-      maxConcurrentRunners,
-    ),
-    jobMaxConcurrentRunners: getPositiveNumberEnv(
-      "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
       Math.min(2, maxConcurrentRunners),
     ),
+    jobMaxConcurrentRunners: getPositiveNumberEnv("WORKER_JOB_MAX_CONCURRENT_RUNNERS", 1),
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),

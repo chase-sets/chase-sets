@@ -34,4 +34,14 @@ describe("admin-support worker configuration", () => {
       }),
     );
   });
+
+  it("keeps default runner concurrency within shared-resource capacity", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+
+    expect(loadConfig()).toMatchObject({
+      maxConcurrentRunners: 4,
+      projectionMaxConcurrentRunners: 2,
+      jobMaxConcurrentRunners: 1,
+    });
+  });
 });

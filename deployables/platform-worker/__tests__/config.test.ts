@@ -28,6 +28,11 @@ const envNames = [
   "TWILIO_MESSAGING_SERVICE_SID",
   "TWILIO_API_BASE_URL",
   "TWILIO_STATUS_CALLBACK_BASE_URL",
+  "WORKER_MAX_CONCURRENT_RUNNERS",
+  "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS",
+  "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
+  "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS",
+  "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
 ];
 
 afterEach(() => {
@@ -46,6 +51,33 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toEqual({ kind: "fake" });
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
+  });
+
+  it("keeps default runner concurrency within shared-resource capacity", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+
+    expect(loadConfig()).toMatchObject({
+      maxConcurrentRunners: 4,
+      projectionMaxConcurrentRunners: 2,
+      jobMaxConcurrentRunners: 1,
+      dispatchMaxConcurrentRunners: 1,
+      scheduledMaxConcurrentRunners: 1,
+    });
+  });
+
+  it("allows explicit runner concurrency overrides", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS = "6";
+    process.env.WORKER_JOB_MAX_CONCURRENT_RUNNERS = "3";
+    process.env.WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS = "2";
+    process.env.WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS = "2";
+
+    expect(loadConfig()).toMatchObject({
+      projectionMaxConcurrentRunners: 6,
+      jobMaxConcurrentRunners: 3,
+      dispatchMaxConcurrentRunners: 2,
+      scheduledMaxConcurrentRunners: 2,
+    });
   });
 
   it("loads Twilio mobile messaging configuration when enabled", () => {
