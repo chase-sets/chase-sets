@@ -224,4 +224,61 @@ describe("product measure runtime", () => {
       unitWeightOunces: 2.1,
     });
   });
+
+  it("runs direct repair replacement in one database transaction when supported", async () => {
+    const { db, resolved } = createMeasureDb({
+      catalog_item_id: "cat_1",
+      blueprint_id: "bp_card",
+      category_ids: ["cat_pokemon"],
+      canonical_dimension_order: ["form"],
+      dimension_rules: [
+        {
+          dimensionId: "form",
+          required: true,
+          allowedOptions: [{ optionId: "raw" }],
+        },
+      ],
+    });
+    const transactionStatements: string[] = [];
+    const transactionalDb = {
+      ...db,
+      connect: vi.fn(async () => ({
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+          transactionStatements.push(sql);
+          return db.query(sql, params);
+        }),
+        release: vi.fn(),
+      })),
+    };
+    const { eventStore } = createEventStore();
+    const services = createProductMeasureRuntime({
+      db: transactionalDb,
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+    });
+
+    await services.upsertProfile({
+      profileId: "p_raw",
+      key: "pokemon-raw",
+      name: "Pokemon raw single",
+      matchCategoryIds: ["cat_pokemon"],
+      matchSelectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      precedence: 100,
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.012,
+      unitWeightOunces: 0.064,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      confidence: "measured",
+    });
+
+    await services.resolveCatalogItemMeasures("cat_1");
+
+    expect(transactionStatements[0]).toBe("BEGIN");
+    expect(transactionStatements).toContain("COMMIT");
+    expect(transactionStatements.join("\n")).toContain("DELETE FROM catalog_resolved_product_measures");
+    expect(transactionStatements.join("\n")).toContain("INSERT INTO catalog_resolved_product_measures");
+    expect(resolved.get("cat_1::form:raw")).toBeDefined();
+  });
 });

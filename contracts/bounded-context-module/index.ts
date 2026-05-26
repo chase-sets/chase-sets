@@ -1,6 +1,7 @@
 import type {
   ProjectionHandlerSet,
   ProjectionErrorPolicy,
+  ProjectionRunContext,
   ProjectorHandlerMap,
 } from "@chase-sets/event-core/projector";
 
@@ -68,11 +69,18 @@ export type BcEventSubscriptionDeclaration = Readonly<{
   readonly order?: number;
 }>;
 
+export type BcProjectionGroupResetStrategy =
+  | "replay-only"
+  | "append-only-no-reset"
+  | "truncate-owned-tables"
+  | "generation-cutover";
+
 export type BcProjectionGroupDeclaration = Readonly<{
   readonly projectionName: string;
   readonly projectionRevision?: number;
   readonly sourceContextNames: readonly string[];
   readonly ownedTables: readonly string[];
+  readonly resetStrategy?: BcProjectionGroupResetStrategy;
   readonly requiredDuringBootstrap?: boolean;
 }>;
 
@@ -92,7 +100,7 @@ export type BcEventSubscription = Readonly<{
 
 export type BcProjectionGroup = BcProjectionGroupDeclaration &
   Readonly<{
-    readonly reset?: () => Promise<void>;
+    readonly reset?: (context?: ProjectionRunContext) => Promise<void>;
   }>;
 
 export type EnvironmentDataProfile = "critical-bootstrap" | "catalog-integration-bootstrap" | "scenario-seed";

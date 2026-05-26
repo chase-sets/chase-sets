@@ -1,5 +1,10 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withPgTransaction } from "@chase-sets/event-core-postgres";
+import {
+  createProjectionHandlerSet,
+  resolveProjectionDb,
+  type ProjectionHandlerSet,
+} from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type {
@@ -72,9 +77,13 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
       createProjectionHandlerSet({
         projectionName: "catalog-product-measures-projection",
         handlers: {
-          "catalog.catalog-item.product-measures-resolved": async (event) => {
+          "catalog.catalog-item.product-measures-resolved": async (event, context) => {
             const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
-            await replaceResolvedProductMeasures(deps.db, data.catalogItemId, data.products);
+            await replaceResolvedProductMeasures(
+              resolveProjectionDb(context, deps.db),
+              data.catalogItemId,
+              data.products,
+            );
           },
         },
       }),
@@ -185,7 +194,24 @@ async function resolveCatalogItemMeasures(
     return;
   }
 
+  await replaceResolvedProductMeasuresAtomically(db, catalogItemId, resolvedProducts);
+}
+
+async function replaceResolvedProductMeasuresAtomically(
+  db: PgQueryable,
+  catalogItemId: string,
+  resolvedProducts: readonly ProductMeasureSnapshot[],
+): Promise<void> {
+  if (isPgTransactionalPool(db)) {
+    await withPgTransaction(db, (client) => replaceResolvedProductMeasures(client, catalogItemId, resolvedProducts));
+    return;
+  }
+
   await replaceResolvedProductMeasures(db, catalogItemId, resolvedProducts);
+}
+
+function isPgTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
+  return typeof (db as { connect?: unknown }).connect === "function";
 }
 
 function resolveProductMeasures(

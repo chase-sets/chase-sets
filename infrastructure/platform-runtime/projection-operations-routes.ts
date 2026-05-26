@@ -2,20 +2,16 @@ import { Hono } from "hono";
 import {
   listProjectionBlockedStreamDetails,
   listProjectionGroupStatuses,
-  rebuildAllContextProjectionGroups,
-  rebuildContextProjectionGroup,
   refreshProjectionGroupStatuses,
-  retryProjectionBlockedStream,
   summarizeProjectionReplayStatuses,
   type ContextProjectionGroupStatus,
 } from "@chase-sets/bounded-context-runtime";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import type { ApiHostRuntime } from "./api";
 import type { ResolvedActor } from "./auth";
-import type { PlatformControlPlane, PlatformLease } from "./control-plane";
+import type { PlatformControlPlane, ProjectionOperationKind } from "./control-plane";
 
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
-const OPERATION_LEASE_TTL_MS = 10 * 60 * 1_000;
 const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
 const EXPIRED_WORKER_HEARTBEAT_MAX_AGE_MS = 10 * 60_000;
 const PROJECTION_STATUS_SNAPSHOT_FRESH_MAX_AGE_MS = 2 * 60_000;
@@ -55,6 +51,8 @@ export function createProjectionOperationsRoutes(
       projectionStatusSource: snapshotOverlay.source,
       workers: classifyWorkerHeartbeats(workers),
       runners: options.controlPlane ? await options.controlPlane.listRunnerStatuses() : [],
+      operations: options.controlPlane ? await options.controlPlane.listProjectionOperations({ limit: 25 }) : [],
+      operationSummary: options.controlPlane ? await options.controlPlane.summarizeProjectionOperations() : null,
     });
   });
 
@@ -94,14 +92,17 @@ export function createProjectionOperationsRoutes(
 
     const projectionKey = c.req.param("projectionKey");
     const streamId = c.req.param("streamId");
-    const result = await withProjectionOperationLease(
-      options.controlPlane,
-      `projection-retry:${projectionKey}:${streamId}`,
-      actorResponse,
-      () => retryProjectionBlockedStream(runtime, projectionKey, streamId),
-    );
+    const operation = await enqueueProjectionOperation(options.controlPlane, actorResponse, {
+      operationKind: "retry-blocked-stream",
+      contextName: readProjectionKeyContextName(projectionKey),
+      projectionKey,
+      streamId,
+      progress: {
+        message: "Retry queued.",
+      },
+    });
 
-    return c.json({ result });
+    return c.json({ operation }, 202);
   });
 
   app.post("/groups/:contextName/:projectionName/rebuild", async (c) => {
@@ -125,14 +126,16 @@ export function createProjectionOperationsRoutes(
 
     const contextName = c.req.param("contextName");
     const projectionName = c.req.param("projectionName");
-    await withProjectionOperationLease(
-      options.controlPlane,
-      `projection-rebuild:${contextName}:${projectionName}`,
-      actorResponse,
-      () => rebuildContextProjectionGroup(runtime, contextName, projectionName),
-    );
+    const operation = await enqueueProjectionOperation(options.controlPlane, actorResponse, {
+      operationKind: "rebuild-projection-group",
+      contextName,
+      projectionName,
+      progress: {
+        message: "Projection group rebuild queued.",
+      },
+    });
 
-    return c.json({ result: { state: "rebuilt", contextName, projectionName } });
+    return c.json({ operation }, 202);
   });
 
   app.post("/groups/:contextName/rebuild", async (c) => {
@@ -155,14 +158,78 @@ export function createProjectionOperationsRoutes(
     }
 
     const contextName = c.req.param("contextName");
-    await withProjectionOperationLease(
-      options.controlPlane,
-      `projection-rebuild:${contextName}:all`,
-      actorResponse,
-      () => rebuildAllContextProjectionGroups(runtime, contextName),
-    );
+    const operation = await enqueueProjectionOperation(options.controlPlane, actorResponse, {
+      operationKind: "rebuild-context",
+      contextName,
+      progress: {
+        message: "Context rebuild queued.",
+      },
+    });
 
-    return c.json({ result: { state: "rebuilt", contextName } });
+    return c.json({ operation }, 202);
+  });
+
+  app.get("/operations", async (c) => {
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    if (actorResponse instanceof Response) {
+      return actorResponse;
+    }
+
+    if (!options.controlPlane) {
+      return c.json({ operations: [] });
+    }
+
+    return c.json({
+      operations: await options.controlPlane.listProjectionOperations({
+        limit: readLimit(c.req.query("limit")),
+        contextName: c.req.query("contextName"),
+        projectionName: c.req.query("projectionName"),
+        state: readProjectionOperationState(c.req.query("state")),
+        requestedByUserId: c.req.query("requestedByUserId"),
+      }),
+      operationSummary: await options.controlPlane.summarizeProjectionOperations({
+        contextName: c.req.query("contextName"),
+        projectionName: c.req.query("projectionName"),
+        state: readProjectionOperationState(c.req.query("state")),
+        requestedByUserId: c.req.query("requestedByUserId"),
+      }),
+    });
+  });
+
+  app.get("/operations/:operationId", async (c) => {
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    if (actorResponse instanceof Response) {
+      return actorResponse;
+    }
+
+    if (!options.controlPlane) {
+      return c.json({ error: { code: "control_plane_unavailable" } }, 503);
+    }
+
+    const operation = await options.controlPlane.getProjectionOperation(c.req.param("operationId"));
+    if (!operation) {
+      return c.json({ error: { code: "operation_not_found" } }, 404);
+    }
+
+    return c.json({ operation });
+  });
+
+  app.post("/operations/:operationId/cancel", async (c) => {
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    if (actorResponse instanceof Response) {
+      return actorResponse;
+    }
+
+    if (!options.controlPlane) {
+      return c.json({ error: { code: "control_plane_unavailable" } }, 503);
+    }
+
+    const cancelled = await options.controlPlane.cancelProjectionOperation({
+      operationId: c.req.param("operationId"),
+      requestedByUserId: actorResponse.userId,
+    });
+
+    return c.json({ result: { cancelled } }, cancelled ? 200 : 409);
   });
 
   return app;
@@ -372,38 +439,6 @@ function formatTimestamp(value: unknown): string | null {
   return parsed ? parsed.toISOString() : null;
 }
 
-async function withProjectionOperationLease<T>(
-  controlPlane: PlatformControlPlane | undefined,
-  leaseName: string,
-  actor: ResolvedActor,
-  operation: () => Promise<T>,
-): Promise<T> {
-  let lease: PlatformLease | null = null;
-  if (controlPlane) {
-    lease = await controlPlane.acquireLease({
-      leaseName,
-      ownerId: `projection-ops:${actor.userId}`,
-      ttlMs: OPERATION_LEASE_TTL_MS,
-      metadata: {
-        operation: leaseName,
-        accountId: actor.accountId,
-      },
-    });
-
-    if (!lease) {
-      throw new Error(`Projection operation '${leaseName}' is already running.`);
-    }
-  }
-
-  try {
-    return await operation();
-  } finally {
-    if (controlPlane && lease) {
-      await controlPlane.releaseLease(lease);
-    }
-  }
-}
-
 async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
   if (!request.headers.get("content-type")?.includes("application/json")) {
     return {};
@@ -416,4 +451,42 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
 function readLimit(value: string | undefined): number {
   const parsed = Number(value ?? 50);
   return Number.isSafeInteger(parsed) && parsed > 0 ? Math.min(parsed, 500) : 50;
+}
+
+function readProjectionOperationState(value: string | undefined) {
+  return value === "queued" ||
+    value === "running" ||
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "cancel_requested" ||
+    value === "cancelled"
+    ? value
+    : undefined;
+}
+
+async function enqueueProjectionOperation(
+  controlPlane: PlatformControlPlane | undefined,
+  actor: ResolvedActor,
+  input: Readonly<{
+    operationKind: ProjectionOperationKind;
+    contextName: string;
+    projectionName?: string | null;
+    projectionKey?: string | null;
+    streamId?: string | null;
+    progress?: Record<string, unknown>;
+  }>,
+) {
+  if (!controlPlane) {
+    throw new Error("Projection operation control plane is unavailable.");
+  }
+
+  return controlPlane.enqueueProjectionOperation({
+    ...input,
+    requestedByUserId: actor.userId,
+    requestedByAccountId: actor.accountId,
+  });
+}
+
+function readProjectionKeyContextName(projectionKey: string): string {
+  return projectionKey.includes(".") ? projectionKey.slice(0, projectionKey.indexOf(".")) : "unknown";
 }

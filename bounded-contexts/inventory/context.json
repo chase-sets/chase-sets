@@ -56,13 +56,15 @@
         "inventory_catalog_dimension_options",
         "inventory_catalog_external_product_references"
       ],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "inventory-order-reservation-workflow",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["inventory_reservation_pages"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

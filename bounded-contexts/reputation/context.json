@@ -69,25 +69,29 @@
       "projectionName": "reputation-account-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["reputation_account_pages"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "reputation-order-source-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["reputation_order_sources"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "reputation-shipment-source-projection",
       "sourceContextNames": ["fulfillment"],
       "ownedTables": ["reputation_shipment_sources"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "reputation-support-source-projection",
       "sourceContextNames": ["support"],
       "ownedTables": ["reputation_review_eligibility_pages"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [],

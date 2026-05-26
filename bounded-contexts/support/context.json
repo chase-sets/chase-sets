@@ -42,13 +42,15 @@
       "projectionName": "support-order-source-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["support_order_sources"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "support-shipment-source-projection",
       "sourceContextNames": ["fulfillment"],
       "ownedTables": ["support_shipment_sources"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [],

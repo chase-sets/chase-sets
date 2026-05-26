@@ -19,7 +19,8 @@
     "./realtime-web": "./realtime-web.ts",
     "./web": "./web.ts",
     "./web-route-config": "./web-route-config.ts",
-    "./worker": "./worker.ts"
+    "./worker": "./worker.ts",
+    "./worker-capacity": "./worker-capacity.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ./tsconfig.json --noEmit",

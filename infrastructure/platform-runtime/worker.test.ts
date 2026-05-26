@@ -333,7 +333,7 @@ describe("worker runner loop", () => {
       subscriptionRunners: [subscriptionRunner],
     } as never);
 
-    expect(runners).toHaveLength(2);
+    expect(runners).toHaveLength(3);
     expect(runners[0]).toMatchObject({
       name: "inventory.inventory-catalog-item-projection",
       kind: "projection-group",
@@ -453,6 +453,98 @@ describe("worker runner loop", () => {
     await expect(run).resolves.toMatchObject({ processed: 3, lastGlobalPosition: "4" });
     expect(calls).toEqual(["slow-start", "same-order", "slow-end", "later-order"]);
   });
+
+  it("cancels a running projection operation when the operation state requests cancellation", async () => {
+    const completedResults: Array<Record<string, unknown> | undefined> = [];
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      reset: async () => undefined,
+      runOnce: async (context?: { signal?: AbortSignal; throwIfLeaseLost?: () => void }) => {
+        await vi.waitFor(() => {
+          expect(context?.signal?.aborted).toBe(true);
+        });
+        context?.throwIfLeaseLost?.();
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({ revisionStale: false }),
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      claimProjectionOperation: async () => ({
+        operationId: "projection-operation-1",
+        operationKind: "rebuild-projection-group",
+        state: "running",
+        contextName: "inventory",
+        projectionName: "inventory-catalog-item-projection",
+        projectionKey: null,
+        streamId: null,
+        requestedByUserId: null,
+        requestedByAccountId: null,
+        claimOwnerId: "worker-a",
+        claimFencingToken: "1",
+        claimedUntil: new Date(Date.now() + 60_000).toISOString(),
+        progress: {},
+        result: null,
+        error: null,
+        requestedAt: new Date(0).toISOString(),
+        startedAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+        completedAt: null,
+      }),
+      getProjectionOperation: async () => ({
+        operationId: "projection-operation-1",
+        operationKind: "rebuild-projection-group",
+        state: "cancel_requested",
+        contextName: "inventory",
+        projectionName: "inventory-catalog-item-projection",
+        projectionKey: null,
+        streamId: null,
+        requestedByUserId: null,
+        requestedByAccountId: null,
+        claimOwnerId: "worker-a",
+        claimFencingToken: "1",
+        claimedUntil: new Date(Date.now() + 60_000).toISOString(),
+        progress: {},
+        result: null,
+        error: null,
+        requestedAt: new Date(0).toISOString(),
+        startedAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+        completedAt: null,
+      }),
+      completeProjectionOperation: async (input) => {
+        completedResults.push(input.result);
+        return true;
+      },
+    });
+    const runners = collectWorkerRunners(
+      {
+        mountedContexts: [],
+        services: {},
+        projectors: [],
+        projectionGroups: [group],
+        subscriptionRunners: [subscriptionRunner],
+      } as never,
+      {
+        controlPlane,
+        projectionOperationCancelPollIntervalMs: 1,
+      },
+    );
+    const operationRunner = runners.find((runner) => runner.name === "projection-operations");
+
+    await expect(operationRunner?.runOnce({ ownerId: "worker-a" })).resolves.toMatchObject({
+      processed: 1,
+      state: "degraded",
+    });
+    expect(completedResults).toContainEqual(
+      expect.objectContaining({
+        state: "cancelled",
+      }),
+    );
+  });
 });
 
 function createProjectionGroup(
@@ -501,26 +593,40 @@ function createProjectionGroup(
   };
 }
 
-function createAlwaysLeasedControlPlane(
-  overrides: Partial<Pick<PlatformControlPlane, "recordRunnerStatus" | "recordProjectionStatusSnapshot">> = {},
-): PlatformControlPlane {
+function createAlwaysLeasedControlPlane(overrides: Partial<PlatformControlPlane> = {}): PlatformControlPlane {
   return {
     bootstrap: async () => {},
-    acquireLease: async (input) => ({
-      leaseName: input.leaseName,
-      ownerId: input.ownerId,
-      fencingToken: "1",
-      expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
-    }),
-    renewLease: async () => true,
-    releaseLease: async () => {},
-    heartbeatWorker: async () => {},
+    acquireLease:
+      overrides.acquireLease ??
+      (async (input) => ({
+        leaseName: input.leaseName,
+        ownerId: input.ownerId,
+        fencingToken: "1",
+        expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+      })),
+    renewLease: overrides.renewLease ?? (async () => true),
+    releaseLease: overrides.releaseLease ?? (async () => {}),
+    heartbeatWorker: overrides.heartbeatWorker ?? (async () => {}),
     recordRunnerStatus: overrides.recordRunnerStatus ?? (async () => {}),
     recordProjectionStatusSnapshot: overrides.recordProjectionStatusSnapshot ?? (async () => {}),
-    listProjectionStatusSnapshots: async () => [],
-    listWorkerHeartbeats: async () => [],
-    listRunnerStatuses: async () => [],
-    listLeases: async () => [],
+    listProjectionStatusSnapshots: overrides.listProjectionStatusSnapshots ?? (async () => []),
+    listWorkerHeartbeats: overrides.listWorkerHeartbeats ?? (async () => []),
+    listRunnerStatuses: overrides.listRunnerStatuses ?? (async () => []),
+    listLeases: overrides.listLeases ?? (async () => []),
+    enqueueProjectionOperation:
+      overrides.enqueueProjectionOperation ??
+      (async () => {
+        throw new Error("not used");
+      }),
+    claimProjectionOperation: overrides.claimProjectionOperation ?? (async () => null),
+    recordProjectionOperationProgress: async () => false,
+    completeProjectionOperation: overrides.completeProjectionOperation ?? (async () => false),
+    failProjectionOperation: overrides.failProjectionOperation ?? (async () => false),
+    cancelProjectionOperation: overrides.cancelProjectionOperation ?? (async () => false),
+    getProjectionOperation: overrides.getProjectionOperation ?? (async () => null),
+    listProjectionOperations: overrides.listProjectionOperations ?? (async () => []),
+    summarizeProjectionOperations:
+      overrides.summarizeProjectionOperations ?? (async () => defaultProjectionOperationSummary()),
   };
 }
 
@@ -539,5 +645,28 @@ function createNeverLeasedControlPlane(
     listWorkerHeartbeats: async () => [],
     listRunnerStatuses: async () => [],
     listLeases: async () => [],
+    enqueueProjectionOperation: async () => {
+      throw new Error("not used");
+    },
+    claimProjectionOperation: async () => null,
+    recordProjectionOperationProgress: async () => false,
+    completeProjectionOperation: async () => false,
+    failProjectionOperation: async () => false,
+    cancelProjectionOperation: async () => false,
+    getProjectionOperation: async () => null,
+    listProjectionOperations: async () => [],
+    summarizeProjectionOperations: async () => defaultProjectionOperationSummary(),
+  };
+}
+
+function defaultProjectionOperationSummary() {
+  return {
+    queuedCount: "0",
+    runningCount: "0",
+    failedCount: "0",
+    cancelRequestedCount: "0",
+    oldestQueuedAt: null,
+    oldestRunningAt: null,
+    averageDurationMs: null,
   };
 }

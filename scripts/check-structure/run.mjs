@@ -1285,6 +1285,19 @@ export async function runStructureCheck(options = {}) {
         addPathViolation(projectionGroupLabel, "ownedTables must be a non-empty array of strings");
       }
 
+      const supportedResetStrategies = new Set([
+        "append-only-no-reset",
+        "generation-cutover",
+        "replay-only",
+        "truncate-owned-tables",
+      ]);
+      if (!supportedResetStrategies.has(projectionGroup.resetStrategy)) {
+        addPathViolation(
+          projectionGroupLabel,
+          "resetStrategy must be one of append-only-no-reset, generation-cutover, replay-only, or truncate-owned-tables",
+        );
+      }
+
       if ("requiredDuringBootstrap" in projectionGroup && !isBoolean(projectionGroup.requiredDuringBootstrap)) {
         addPathViolation(projectionGroupLabel, "requiredDuringBootstrap must be a boolean when provided");
       }

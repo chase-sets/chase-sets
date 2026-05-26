@@ -61,4 +61,50 @@ describe("catalog admin realtime invalidation", () => {
       ],
     });
   });
+
+  it("forwards projection handler context and writes invalidation through the transaction db", async () => {
+    const baseQuery = vi.fn(async () => ({ rows: [] }));
+    const txQuery = vi.fn(async (sql: string) => ({
+      rows: sql.includes("RETURNING outbox_id") ? [{ outbox_id: "42" }] : [],
+    }));
+    const db = { query: baseQuery } satisfies PgQueryable;
+    const txDb = { query: txQuery } satisfies PgQueryable;
+    const handler = vi.fn(async (_event, context) => {
+      await context?.db?.query("UPDATE catalog_dimensions SET status = $1", ["active"]);
+    });
+    const handlers = withCatalogAdminRealtimeInvalidation(
+      {
+        "catalog.dimension.activated": handler,
+      },
+      db,
+      {
+        projectionName: "catalog-dimension-projection",
+        surface: "dimensions",
+      },
+    );
+
+    await handlers["catalog.dimension.activated"]?.(
+      {
+        type: "catalog.dimension.activated",
+        streamId: "catalog.dimension-dim_1",
+        globalPosition: "9",
+        streamPosition: "2",
+        data: {},
+        metadata: {},
+        timing: {
+          recordedAt: "2026-05-20T12:00:00.000Z",
+        },
+      },
+      { db: txDb },
+    );
+
+    expect(handler).toHaveBeenCalledWith(expect.any(Object), { db: txDb });
+    expect(baseQuery).not.toHaveBeenCalled();
+    expect(txQuery.mock.calls.map(([sql]) => sql)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("UPDATE catalog_dimensions"),
+        expect.stringContaining("INSERT INTO realtime_projection_outbox"),
+      ]),
+    );
+  });
 });

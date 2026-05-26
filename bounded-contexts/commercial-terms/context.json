@@ -30,7 +30,8 @@
       "projectionName": "commercial-terms-account-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["commercial_terms_account_pages"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [],

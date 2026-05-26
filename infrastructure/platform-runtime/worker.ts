@@ -1,7 +1,11 @@
 import {
   compactRuntimeSubscriptionLedgers,
   createProjectionAwarePool,
+  cleanupRuntimeProjectionGenerations,
+  rebuildAllContextProjectionGroups,
+  rebuildContextProjectionGroup,
   resetProjectionGroup,
+  retryProjectionBlockedStream,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
   sortSubscriptionRunners,
@@ -14,7 +18,7 @@ import type { BcApiModule, BcHostPort } from "@chase-sets/bounded-context-module
 import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { PlatformControlPlane, PlatformLease } from "./control-plane";
+import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
 
 export type WorkerHostName = "platform-worker" | "admin-support-worker";
 
@@ -61,6 +65,51 @@ export type WorkerRunnerLoop = Readonly<{
   }>;
 }>;
 
+export type WorkerRuntimeObserver = Readonly<{
+  leaseMissed?: (event: WorkerLeaseEvent) => void;
+  leaseRenewFailed?: (event: WorkerLeaseEvent & Readonly<{ error?: unknown }>) => void;
+  runnerCompleted?: (event: WorkerRunnerCompletedEvent) => void;
+  runnerFailed?: (event: WorkerRunnerFailedEvent) => void;
+  projectionOperationStarted?: (event: WorkerProjectionOperationEvent) => void;
+  projectionOperationCompleted?: (event: WorkerProjectionOperationEvent) => void;
+  projectionOperationFailed?: (event: WorkerProjectionOperationEvent & Readonly<{ error: unknown }>) => void;
+}>;
+
+export type WorkerLeaseEvent = Readonly<{
+  workerId: string;
+  runnerName: string;
+  runnerKind: WorkerRunner["kind"];
+  leaseName: string;
+  ownerId?: string;
+  fencingToken?: string;
+}>;
+
+export type WorkerRunnerCompletedEvent = WorkerLeaseEvent &
+  Readonly<{
+    processed: number;
+    state?: ProjectorRunResult["state"];
+    operationId?: string;
+  }>;
+
+export type WorkerRunnerFailedEvent = WorkerLeaseEvent &
+  Readonly<{
+    error: unknown;
+    operationId?: string;
+  }>;
+
+export type WorkerProjectionOperationEvent = Readonly<{
+  operationId: string;
+  operationKind: ProjectionOperationRecord["operationKind"];
+  operationState: ProjectionOperationRecord["state"];
+  workerId: string;
+  ownerId: string;
+  fencingToken: string;
+  contextName: string;
+  projectionName: string | null;
+  projectionKey: string | null;
+  streamId: string | null;
+}>;
+
 type WorkerRunnerLoopOptions = Readonly<{
   workerId: string;
   controlPlane: PlatformControlPlane;
@@ -69,6 +118,7 @@ type WorkerRunnerLoopOptions = Readonly<{
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
   pollIntervalMs: number;
+  observer?: WorkerRuntimeObserver;
   onError?: (error: unknown, runner: WorkerRunner) => void;
 }>;
 
@@ -136,11 +186,38 @@ export function createWorkerHost(
   };
 }
 
-export function collectWorkerRunners(runtime: WorkerHostRuntime): readonly WorkerRunner[] {
-  return [
+export function collectWorkerRunners(
+  runtime: WorkerHostRuntime,
+  options: Readonly<{
+    controlPlane?: PlatformControlPlane;
+    projectionOperationClaimTtlMs?: number;
+    projectionOperationLeaseTtlMs?: number;
+    projectionOperationLeaseRenewIntervalMs?: number;
+    projectionOperationStatementTimeoutMs?: number;
+    projectionOperationCancelPollIntervalMs?: number;
+    observer?: WorkerRuntimeObserver;
+  }> = {},
+): readonly WorkerRunner[] {
+  const runners = [
     ...runtime.projectionGroups.map(createProjectionGroupWorkerRunner),
     createSubscriptionLedgerCompactionRunner(runtime),
+    createProjectionGenerationRetentionRunner(runtime),
   ];
+
+  return options.controlPlane
+    ? [
+        ...runners,
+        createProjectionOperationWorkerRunner(runtime, {
+          controlPlane: options.controlPlane,
+          claimTtlMs: options.projectionOperationClaimTtlMs ?? 120_000,
+          leaseTtlMs: options.projectionOperationLeaseTtlMs ?? 120_000,
+          leaseRenewIntervalMs: options.projectionOperationLeaseRenewIntervalMs ?? 30_000,
+          statementTimeoutMs: options.projectionOperationStatementTimeoutMs ?? 30_000,
+          cancelPollIntervalMs: options.projectionOperationCancelPollIntervalMs ?? 5_000,
+          observer: options.observer,
+        }),
+      ]
+    : runners;
 }
 
 export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): WorkerRunnerLoop {
@@ -242,7 +319,7 @@ function resolveRunnerPriority(runner: WorkerRunner): bigint {
 }
 
 async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerRunner): Promise<boolean> {
-  const leaseName = `${runner.kind}:${runner.name}`;
+  const leaseName = createWorkerRunnerLeaseName(runner);
   const lease = await options.controlPlane.acquireLease({
     leaseName,
     ownerId: options.workerId,
@@ -250,6 +327,12 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
     metadata: { runnerKind: runner.kind },
   });
   if (!lease) {
+    options.observer?.leaseMissed?.({
+      workerId: options.workerId,
+      runnerName: runner.name,
+      runnerKind: runner.kind,
+      leaseName,
+    });
     return false;
   }
 
@@ -266,11 +349,13 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
       .then((renewed) => {
         leaseActive = leaseActive && renewed;
         if (!renewed) {
+          options.observer?.leaseRenewFailed?.(leaseEvent(options.workerId, runner, lease));
           abortController.abort();
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         leaseActive = false;
+        options.observer?.leaseRenewFailed?.({ ...leaseEvent(options.workerId, runner, lease), error });
         abortController.abort();
       });
   }, options.leaseRenewIntervalMs);
@@ -294,6 +379,12 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
       throwIfLeaseLost,
     };
     const result = await runner.runOnce(runnerContext);
+    options.observer?.runnerCompleted?.({
+      ...leaseEvent(options.workerId, runner, lease),
+      processed: result.processed,
+      state: result.state,
+      operationId: runnerContext.operationId,
+    });
     throwIfLeaseLost();
     const state = result.state === "degraded" ? "degraded" : result.processed > 0 ? "running" : "caught-up";
 
@@ -325,6 +416,10 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
       });
     }
   } catch (error) {
+    options.observer?.runnerFailed?.({
+      ...leaseEvent(options.workerId, runner, lease),
+      error,
+    });
     if (leaseActive && !abortController.signal.aborted) {
       await options.controlPlane.recordRunnerStatus({
         runnerName: runner.name,
@@ -344,11 +439,30 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
   return true;
 }
 
+export function createWorkerRunnerLeaseName(runner: Pick<WorkerRunner, "kind" | "name">): string {
+  return `${runner.kind}:${runner.name}`;
+}
+
+export function createProjectionGroupRunnerName(
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+) {
+  return `${group.targetContextName}.${group.projectionName}`;
+}
+
+export function createProjectionGroupRunnerLeaseName(
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+): string {
+  return createWorkerRunnerLeaseName({
+    kind: "projection-group",
+    name: createProjectionGroupRunnerName(group),
+  });
+}
+
 function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): WorkerRunner {
   let rebuildingRevision: number | null = null;
 
   return {
-    name: `${group.targetContextName}.${group.projectionName}`,
+    name: createProjectionGroupRunnerName(group),
     kind: "projection-group",
     priority: () => BigInt(group.getStatus().outstandingEventCount),
     projectionStatusSnapshot: () => group.getStatus(),
@@ -358,7 +472,7 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
         const status = await group.refreshStatus();
         if (status.revisionStale && rebuildingRevision !== group.projectionRevision) {
           context?.throwIfLeaseLost?.();
-          await resetProjectionGroup(group);
+          await resetProjectionGroup(group, context);
           rebuildingRevision = group.projectionRevision;
         }
 
@@ -395,6 +509,342 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
   };
 }
 
+function createProjectionOperationWorkerRunner(
+  runtime: WorkerHostRuntime,
+  options: Readonly<{
+    controlPlane: PlatformControlPlane;
+    claimTtlMs: number;
+    leaseTtlMs: number;
+    leaseRenewIntervalMs: number;
+    statementTimeoutMs: number;
+    cancelPollIntervalMs: number;
+    observer?: WorkerRuntimeObserver;
+  }>,
+): WorkerRunner {
+  return {
+    name: "projection-operations",
+    kind: "job",
+    priority: () => 0,
+    runOnce: async (context) => {
+      const ownerId = context?.ownerId ?? "projection-operation-worker";
+      const operation = await options.controlPlane.claimProjectionOperation({
+        ownerId,
+        claimTtlMs: options.claimTtlMs,
+      });
+
+      if (!operation) {
+        return {
+          processed: 0,
+          lastGlobalPosition: ZERO_GLOBAL_POSITION,
+          state: "caught-up",
+        };
+      }
+
+      if (!operation.claimFencingToken) {
+        throw new Error(`Projection operation '${operation.operationId}' was claimed without a fencing token.`);
+      }
+
+      try {
+        options.observer?.projectionOperationStarted?.(
+          projectionOperationEvent(operation, ownerId, operation.claimFencingToken),
+        );
+        await options.controlPlane.recordProjectionOperationProgress({
+          operationId: operation.operationId,
+          ownerId,
+          fencingToken: operation.claimFencingToken,
+          progress: {
+            ...operation.progress,
+            state: "running",
+          },
+        });
+        await runProjectionOperation(runtime, options, operation, ownerId, context);
+        await options.controlPlane.completeProjectionOperation({
+          operationId: operation.operationId,
+          ownerId,
+          fencingToken: operation.claimFencingToken,
+          result: {
+            state: "completed",
+          },
+        });
+        options.observer?.projectionOperationCompleted?.(
+          projectionOperationEvent({ ...operation, state: "succeeded" }, ownerId, operation.claimFencingToken),
+        );
+
+        return {
+          processed: 1,
+          lastGlobalPosition: ZERO_GLOBAL_POSITION,
+          state: "running",
+        };
+      } catch (error) {
+        const latestOperation = await options.controlPlane.getProjectionOperation(operation.operationId);
+        if (latestOperation?.state === "cancel_requested") {
+          await options.controlPlane.completeProjectionOperation({
+            operationId: operation.operationId,
+            ownerId,
+            fencingToken: operation.claimFencingToken,
+            result: {
+              state: "cancelled",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          });
+          options.observer?.projectionOperationCompleted?.(
+            projectionOperationEvent({ ...operation, state: "cancelled" }, ownerId, operation.claimFencingToken),
+          );
+          return {
+            processed: 1,
+            lastGlobalPosition: ZERO_GLOBAL_POSITION,
+            state: "degraded",
+          };
+        }
+
+        await options.controlPlane.failProjectionOperation({
+          operationId: operation.operationId,
+          ownerId,
+          fencingToken: operation.claimFencingToken,
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+        options.observer?.projectionOperationFailed?.({
+          ...projectionOperationEvent({ ...operation, state: "failed" }, ownerId, operation.claimFencingToken),
+          error,
+        });
+        throw error;
+      }
+    },
+  };
+}
+
+async function runProjectionOperation(
+  runtime: WorkerHostRuntime,
+  options: Readonly<{
+    controlPlane: PlatformControlPlane;
+    leaseTtlMs: number;
+    leaseRenewIntervalMs: number;
+    statementTimeoutMs: number;
+    cancelPollIntervalMs: number;
+  }>,
+  operation: ProjectionOperationRecord,
+  ownerId: string,
+  runnerContext?: ProjectionRunContext,
+): Promise<void> {
+  runnerContext?.throwIfLeaseLost?.();
+
+  if (operation.operationKind === "rebuild-projection-group") {
+    const projectionName = requireProjectionOperationField(operation, "projectionName");
+    await runWithRenewedLease(
+      options.controlPlane,
+      {
+        leaseName: createProjectionGroupRunnerLeaseName({
+          targetContextName: operation.contextName,
+          projectionName,
+        }),
+        ownerId,
+        ttlMs: options.leaseTtlMs,
+        renewIntervalMs: options.leaseRenewIntervalMs,
+        statementTimeoutMs: options.statementTimeoutMs,
+        shouldAbort: () => isProjectionOperationCancelRequested(options.controlPlane, operation.operationId),
+        abortPollIntervalMs: options.cancelPollIntervalMs,
+        metadata: {
+          operationId: operation.operationId,
+          operationKind: operation.operationKind,
+        },
+      },
+      (context) => rebuildContextProjectionGroup(runtime, operation.contextName, projectionName, context),
+    );
+    return;
+  }
+
+  if (operation.operationKind === "rebuild-context") {
+    const groups = runtime.projectionGroups.filter((group) => group.targetContextName === operation.contextName);
+    if (groups.length === 0) {
+      throw new Error(`Runtime is missing projection groups for context '${operation.contextName}'.`);
+    }
+
+    for (const group of groups) {
+      runnerContext?.throwIfLeaseLost?.();
+      await runWithRenewedLease(
+        options.controlPlane,
+        {
+          leaseName: createProjectionGroupRunnerLeaseName(group),
+          ownerId,
+          ttlMs: options.leaseTtlMs,
+          renewIntervalMs: options.leaseRenewIntervalMs,
+          statementTimeoutMs: options.statementTimeoutMs,
+          shouldAbort: () => isProjectionOperationCancelRequested(options.controlPlane, operation.operationId),
+          abortPollIntervalMs: options.cancelPollIntervalMs,
+          metadata: {
+            operationId: operation.operationId,
+            operationKind: operation.operationKind,
+          },
+        },
+        (context) =>
+          rebuildAllContextProjectionGroups(
+            {
+              projectionGroups: [group],
+            },
+            operation.contextName,
+            {},
+            context,
+          ),
+      );
+    }
+    return;
+  }
+
+  if (operation.operationKind === "retry-blocked-stream") {
+    const projectionKey = requireProjectionOperationField(operation, "projectionKey");
+    const streamId = requireProjectionOperationField(operation, "streamId");
+    const group = findProjectionGroupForProjectionKey(runtime, projectionKey);
+    await runWithRenewedLease(
+      options.controlPlane,
+      {
+        leaseName: createProjectionGroupRunnerLeaseName(group),
+        ownerId,
+        ttlMs: options.leaseTtlMs,
+        renewIntervalMs: options.leaseRenewIntervalMs,
+        statementTimeoutMs: options.statementTimeoutMs,
+        shouldAbort: () => isProjectionOperationCancelRequested(options.controlPlane, operation.operationId),
+        abortPollIntervalMs: options.cancelPollIntervalMs,
+        metadata: {
+          operationId: operation.operationId,
+          operationKind: operation.operationKind,
+          projectionKey,
+          streamId,
+        },
+      },
+      (context) => retryProjectionBlockedStream(runtime, projectionKey, streamId, context),
+    );
+    return;
+  }
+
+  throw new Error(`Projection operation kind '${operation.operationKind}' is not implemented.`);
+}
+
+function findProjectionGroupForProjectionKey(
+  runtime: Pick<WorkerHostRuntime, "projectionGroups" | "subscriptionRunners">,
+  projectionKey: string,
+): ContextProjectionGroup {
+  const runner = runtime.subscriptionRunners.find((candidate) => candidate.checkpointKey === projectionKey);
+  if (!runner) {
+    throw new Error(`Runtime is missing subscription runner '${projectionKey}'.`);
+  }
+
+  const group = runtime.projectionGroups.find(
+    (candidate) =>
+      candidate.targetContextName === runner.targetContextName &&
+      candidate.projectionName === runner.projectionName &&
+      candidate.subscriptionRunners.some((subscriptionRunner) => subscriptionRunner.checkpointKey === projectionKey),
+  );
+  if (!group) {
+    throw new Error(`Runtime is missing projection group for subscription runner '${projectionKey}'.`);
+  }
+
+  return group;
+}
+
+function requireProjectionOperationField(
+  operation: ProjectionOperationRecord,
+  fieldName: "projectionName" | "projectionKey" | "streamId",
+): string {
+  const value = operation[fieldName];
+  if (!value) {
+    throw new Error(`Projection operation '${operation.operationId}' is missing '${fieldName}'.`);
+  }
+  return value;
+}
+
+async function runWithRenewedLease<T>(
+  controlPlane: PlatformControlPlane,
+  input: Readonly<{
+    leaseName: string;
+    ownerId: string;
+    ttlMs: number;
+    renewIntervalMs: number;
+    statementTimeoutMs?: number;
+    shouldAbort?: () => Promise<boolean>;
+    abortPollIntervalMs?: number;
+    metadata?: Record<string, unknown>;
+  }>,
+  work: (context: ProjectionRunContext) => Promise<T>,
+): Promise<T> {
+  const lease = await controlPlane.acquireLease({
+    leaseName: input.leaseName,
+    ownerId: input.ownerId,
+    ttlMs: input.ttlMs,
+    metadata: input.metadata,
+  });
+  if (!lease) {
+    throw new Error(`Projection runner lease '${input.leaseName}' is already active.`);
+  }
+
+  let leaseActive = true;
+  const abortController = new AbortController();
+  const throwIfLeaseLost = () => {
+    if (!leaseActive || abortController.signal.aborted) {
+      throw new Error(`Lost lease '${lease.leaseName}'.`);
+    }
+  };
+  const renewalTimer = setInterval(() => {
+    void controlPlane
+      .renewLease(lease, input.ttlMs)
+      .then((renewed) => {
+        leaseActive = leaseActive && renewed;
+        if (!renewed) {
+          abortController.abort();
+        }
+      })
+      .catch(() => {
+        leaseActive = false;
+        abortController.abort();
+      });
+  }, input.renewIntervalMs);
+  renewalTimer.unref?.();
+  const abortPollTimer =
+    input.shouldAbort && input.abortPollIntervalMs && input.abortPollIntervalMs > 0
+      ? setInterval(() => {
+          void input
+            .shouldAbort?.()
+            .then((shouldAbort) => {
+              if (shouldAbort) {
+                leaseActive = false;
+                abortController.abort();
+              }
+            })
+            .catch(() => {
+              leaseActive = false;
+              abortController.abort();
+            });
+        }, input.abortPollIntervalMs)
+      : null;
+  abortPollTimer?.unref?.();
+
+  try {
+    return await work({
+      ownerId: lease.ownerId,
+      fencingToken: lease.fencingToken,
+      operationId: typeof input.metadata?.operationId === "string" ? (input.metadata.operationId as string) : undefined,
+      signal: abortController.signal,
+      statementTimeoutMs: input.statementTimeoutMs,
+      throwIfLeaseLost,
+    });
+  } finally {
+    clearInterval(renewalTimer);
+    if (abortPollTimer) {
+      clearInterval(abortPollTimer);
+    }
+    await controlPlane.releaseLease(lease);
+  }
+}
+
+async function isProjectionOperationCancelRequested(
+  controlPlane: PlatformControlPlane,
+  operationId: string,
+): Promise<boolean> {
+  const operation = await controlPlane.getProjectionOperation(operationId);
+  return operation?.state === "cancel_requested" || operation?.state === "cancelled";
+}
+
 function createSubscriptionLedgerCompactionRunner(runtime: WorkerHostRuntime): WorkerRunner {
   return {
     name: "projection-ledger-compaction",
@@ -408,6 +858,52 @@ function createSubscriptionLedgerCompactionRunner(runtime: WorkerHostRuntime): W
         state: "caught-up",
       };
     },
+  };
+}
+
+function createProjectionGenerationRetentionRunner(runtime: WorkerHostRuntime): WorkerRunner {
+  return {
+    name: "projection-generation-retention",
+    kind: "job",
+    priority: () => 0,
+    runOnce: async () => {
+      const cleaned = await cleanupRuntimeProjectionGenerations(runtime);
+      return {
+        processed: cleaned,
+        lastGlobalPosition: ZERO_GLOBAL_POSITION,
+        state: "caught-up",
+      };
+    },
+  };
+}
+
+function leaseEvent(workerId: string, runner: WorkerRunner, lease: PlatformLease): WorkerLeaseEvent {
+  return {
+    workerId,
+    runnerName: runner.name,
+    runnerKind: runner.kind,
+    leaseName: lease.leaseName,
+    ownerId: lease.ownerId,
+    fencingToken: lease.fencingToken,
+  };
+}
+
+function projectionOperationEvent(
+  operation: ProjectionOperationRecord,
+  ownerId: string,
+  fencingToken: string,
+): WorkerProjectionOperationEvent {
+  return {
+    operationId: operation.operationId,
+    operationKind: operation.operationKind,
+    operationState: operation.state,
+    workerId: ownerId,
+    ownerId,
+    fencingToken,
+    contextName: operation.contextName,
+    projectionName: operation.projectionName,
+    projectionKey: operation.projectionKey,
+    streamId: operation.streamId,
   };
 }
 
