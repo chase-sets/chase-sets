@@ -421,7 +421,7 @@ jobs:
               continue
             fi
 
-            terraform import "$address" "$record_id"
+            terraform import "$address" "${zone},${record_id}"
           done
 
       - name: Terraform plan
