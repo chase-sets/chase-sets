@@ -31,7 +31,7 @@ resource "digitalocean_database_connection_pool" "contexts" {
   cluster_id = digitalocean_database_cluster.postgres.id
   name       = "${each.key}-runtime"
   mode       = "transaction"
-  size       = 1
+  size       = local.context_database_connection_pool_sizes[each.key]
   db_name    = digitalocean_database_db.contexts[each.key].name
   user       = digitalocean_database_user.contexts[each.key].name
 }
@@ -320,7 +320,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "DATABASE_POOL_MAX"
-          value = local.database_pool_max
+          value = local.api_database_pool_max
           scope = "RUN_TIME"
         }
 
@@ -559,7 +559,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "DATABASE_POOL_MAX"
-          value = local.database_pool_max
+          value = local.api_database_pool_max
           scope = "RUN_TIME"
         }
 
@@ -694,7 +694,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "DATABASE_POOL_MAX"
-          value = local.database_pool_max
+          value = local.worker_database_pool_max
           scope = "RUN_TIME"
         }
 
@@ -707,6 +707,36 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
           value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_max_concurrent_runners
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_projection_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_JOB_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_job_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_dispatch_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_scheduled_concurrency
           scope = "RUN_TIME"
         }
 
@@ -896,7 +926,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "DATABASE_POOL_MAX"
-          value = local.database_pool_max
+          value = local.worker_database_pool_max
           scope = "RUN_TIME"
         }
 
@@ -909,6 +939,24 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "DATABASE_POOL_CONNECTION_TIMEOUT_MS"
           value = local.database_pool_connection_timeout_ms
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_max_concurrent_runners
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_projection_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_JOB_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_job_concurrency
           scope = "RUN_TIME"
         }
 
@@ -958,7 +1006,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "DATABASE_POOL_MAX"
-          value = local.database_pool_max
+          value = local.bootstrap_database_pool_max
           scope = "RUN_TIME"
         }
 
@@ -1091,7 +1139,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "DATABASE_POOL_MAX"
-          value = local.database_pool_max
+          value = local.bootstrap_database_pool_max
           scope = "RUN_TIME"
         }
 
