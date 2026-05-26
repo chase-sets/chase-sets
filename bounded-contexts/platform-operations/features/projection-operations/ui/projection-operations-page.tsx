@@ -225,7 +225,10 @@ function OperationsSummary({
             label={t(`${routeKey}.runningOperations`)}
             value={formatDecimalCount(data.operationSummary?.runningCount ?? "0")}
           />
-          <Stat label={t(`${routeKey}.activeWorkers`)} value={`${activeWorkerCount} / ${staleWorkerCount} stale`} />
+          <Stat
+            label={t(`${routeKey}.activeWorkers`)}
+            value={t(`${routeKey}.activeWorkerSummary`, { active: activeWorkerCount, stale: staleWorkerCount })}
+          />
         </StatGrid>
       </Stack>
     </Surface>
@@ -352,25 +355,27 @@ function OverviewPanel({
               id: "groups",
               signal: t(`${routeKey}.projectionGroups`),
               value: data.summary.totalGroups,
-              detail: `${data.summary.caughtUpGroups} caught up`,
+              detail: t(`${routeKey}.caughtUpCount`, { count: data.summary.caughtUpGroups }),
             },
             {
               id: "workers",
               signal: t(`${routeKey}.workers`),
               value: activeWorkerCount,
-              detail: `${staleWorkerCount} stale`,
+              detail: t(`${routeKey}.staleCount`, { count: staleWorkerCount }),
             },
             {
               id: "blocked",
               signal: t(`${routeKey}.blockedStreams`),
               value: blockedStreamCount,
-              detail: `${totalPoisonEvents(data)} poison events`,
+              detail: t(`${routeKey}.poisonEventCount`, { count: totalPoisonEvents(data) }),
             },
             {
               id: "operations",
               signal: t(`${routeKey}.operations`),
               value: data.operations.length,
-              detail: `${formatDecimalCount(data.operationSummary?.queuedCount ?? "0")} queued`,
+              detail: t(`${routeKey}.queuedCount`, {
+                count: formatDecimalCount(data.operationSummary?.queuedCount ?? "0"),
+              }),
             },
           ]}
           getRowId={(row) => row.id}
@@ -458,7 +463,10 @@ function OperationsTable({ rows, selectedId }: Readonly<{ rows: readonly Project
           key: "target",
           header: t(`${routeKey}.target`),
           cell: (operation) =>
-            `${operation.contextName} / ${operation.projectionName ?? operation.projectionKey ?? operation.streamId ?? "all"}`,
+            t(`${routeKey}.operationTarget`, {
+              context: operation.contextName,
+              target: operation.projectionName ?? operation.projectionKey ?? operation.streamId ?? t(`${routeKey}.all`),
+            }),
         },
         { key: "updated", header: t(`${routeKey}.updated`), cell: (operation) => formatDate(operation.updatedAt) },
         {
@@ -520,7 +528,8 @@ function ProjectionGroupsTable({
         {
           key: "issues",
           header: t(`${routeKey}.issues`),
-          cell: (group) => `${group.blockedStreamCount} blocked / ${group.poisonEventCount} poison`,
+          cell: (group) =>
+            t(`${routeKey}.issueSummary`, { blocked: group.blockedStreamCount, poison: group.poisonEventCount }),
         },
         {
           key: "actions",
@@ -582,7 +591,10 @@ function SubscriptionsTable({
           key: "positions",
           header: t(`${routeKey}.positions`),
           cell: (row) =>
-            `${formatDecimalCount(row.lastGlobalPosition)} -> ${formatDecimalCount(row.sourceHeadGlobalPosition)}`,
+            t(`${routeKey}.positionRange`, {
+              current: formatDecimalCount(row.lastGlobalPosition),
+              next: formatDecimalCount(row.sourceHeadGlobalPosition),
+            }),
         },
         {
           key: "actions",
@@ -871,7 +883,7 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
   const operation = data.operations.find((entry) => entry.operationId === selected);
   if (operation) {
     return {
-      title: `${operation.operationKind} / ${operation.state}`,
+      title: t(`${routeKey}.operationDetailTitle`, { kind: operation.operationKind, state: operation.state }),
       actions: isCancellable(operation.state) ? <CancelOperationForm operationId={operation.operationId} /> : undefined,
       error: operation.error ? JSON.stringify(operation.error) : null,
       items: [
@@ -879,7 +891,7 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
         { key: t(`${routeKey}.context`), value: operation.contextName },
         {
           key: t(`${routeKey}.target`),
-          value: operation.projectionName ?? operation.projectionKey ?? operation.streamId ?? "all",
+          value: operation.projectionName ?? operation.projectionKey ?? operation.streamId ?? t(`${routeKey}.all`),
         },
         { key: t(`${routeKey}.requestedBy`), value: operation.requestedByUserId ?? t(`${routeKey}.notRecorded`) },
         { key: t(`${routeKey}.claimOwner`), value: operation.claimOwnerId ?? t(`${routeKey}.notRecorded`) },
@@ -893,21 +905,30 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
   const group = data.projectionGroups.find((entry) => groupId(entry) === selected);
   if (group) {
     return {
-      title: `${group.targetContextName}.${group.projectionName}`,
+      title: t(`${routeKey}.projectionGroupDetailTitle`, {
+        context: group.targetContextName,
+        projection: group.projectionName,
+      }),
       actions: <RebuildGroupDialog group={group} />,
       error: group.lastError,
       items: [
         { key: t(`${routeKey}.state`), value: group.state },
-        { key: t(`${routeKey}.requiredDuringBootstrap`), value: group.requiredDuringBootstrap ? "yes" : "no" },
-        { key: t(`${routeKey}.initialized`), value: group.initialized ? "yes" : "no" },
-        { key: t(`${routeKey}.caughtUp`), value: group.caughtUp ? "yes" : "no" },
+        {
+          key: t(`${routeKey}.requiredDuringBootstrap`),
+          value: group.requiredDuringBootstrap ? t(`${routeKey}.yes`) : t(`${routeKey}.no`),
+        },
+        { key: t(`${routeKey}.initialized`), value: group.initialized ? t(`${routeKey}.yes`) : t(`${routeKey}.no`) },
+        { key: t(`${routeKey}.caughtUp`), value: group.caughtUp ? t(`${routeKey}.yes`) : t(`${routeKey}.no`) },
         {
           key: t(`${routeKey}.sourceContexts`),
           value: group.sourceContextNames.join(", ") || t(`${routeKey}.notRecorded`),
         },
         {
           key: t(`${routeKey}.revision`),
-          value: `${group.storedProjectionRevision ?? "none"} -> ${group.projectionRevision}`,
+          value: t(`${routeKey}.revisionRange`, {
+            current: group.storedProjectionRevision ?? t(`${routeKey}.none`),
+            next: group.projectionRevision,
+          }),
         },
         {
           key: t(`${routeKey}.sourceLag`),
@@ -934,7 +955,10 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
         { key: t(`${routeKey}.poisonEvents`), value: subscription.poisonEventCount },
         {
           key: t(`${routeKey}.positions`),
-          value: `${subscription.lastGlobalPosition} -> ${subscription.sourceHeadGlobalPosition}`,
+          value: t(`${routeKey}.positionRange`, {
+            current: subscription.lastGlobalPosition,
+            next: subscription.sourceHeadGlobalPosition,
+          }),
         },
         {
           key: t(`${routeKey}.sourceLag`),
@@ -949,7 +973,10 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
   if (blocked) {
     const projection = data.blockedProjections.find((entry) => entry.projectionKey === blocked.projectionKey);
     return {
-      title: `${blocked.projectionKey} / ${blocked.streamId}`,
+      title: t(`${routeKey}.blockedStreamDetailTitle`, {
+        projection: blocked.projectionKey,
+        stream: blocked.streamId,
+      }),
       actions: <RetryStreamForm row={blocked} />,
       poisonEvents: projection?.poisonEvents.filter((event) => event.streamId === blocked.streamId) ?? [],
       items: [
@@ -958,7 +985,10 @@ function resolveSelectedDetail(data: ProjectionOperationsSnapshot, selected: str
         { key: t(`${routeKey}.firstVersion`), value: blocked.firstBlockedStreamVersion },
         {
           key: t(`${routeKey}.positions`),
-          value: `${blocked.firstBlockedGlobalPosition} -> ${blocked.lastSeenGlobalPosition}`,
+          value: t(`${routeKey}.positionRange`, {
+            current: blocked.firstBlockedGlobalPosition,
+            next: blocked.lastSeenGlobalPosition,
+          }),
         },
         { key: t(`${routeKey}.deferred`), value: blocked.deferredEventCount },
       ],
