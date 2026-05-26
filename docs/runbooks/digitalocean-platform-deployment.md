@@ -54,9 +54,9 @@ The long-lived staging environment uses the same full-platform shape as PR previ
 - `admin.staging.chasesets.com`: admin web.
 - Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-The staging environment root, `staging.chasesets.com`, is attached to App Platform as a self-managed alias without a DNS `zone` field. App Platform must not create or replace DNS records at this exact name because staging email identity can require exact-name MX/TXT records, and those records are incompatible with CNAME-style managed App Platform ownership. A May 17, 2026 attempt to attach it as a DigitalOcean-managed App Platform marketplace alias left the domain in `CONFIGURING` until the staging deployment was canceled. A second attempt to make it the staging App Platform primary domain also left the root in `CONFIGURING` with no certificate. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present. The canonical deployment-gated staging marketplace host remains `marketplace.staging.chasesets.com`; root DNS is operated separately when exact-name mail records are present.
+The staging environment root, `staging.chasesets.com`, is attached to App Platform as the staging app's managed primary domain in the `chasesets.com` zone. This mirrors production apex ownership: DigitalOcean manages App Platform routing and certificates with `A`/`AAAA`-style records, while exact-name Google Workspace MX/TXT records remain valid at the same owner name. A managed App Platform subdomain alias or self-managed alias is not correct for this host because those modes expect CNAME ownership and conflict with exact-name mail.
 
-When Google Workspace mail is enabled for an environment root, configure that root like `preview.chasesets.com`: exact-name App Platform ingress `A`/`AAAA` records, exact-name Gmail MX/TXT records, and no CNAME. Keep the corresponding App Platform domain attachment self-managed so Terraform does not ask DigitalOcean App Platform to manage a conflicting subdomain alias record.
+When Google Workspace mail is enabled for an environment root, configure that root like the production apex: App Platform owns the root as a managed primary domain in the DigitalOcean DNS zone, Gmail owns exact-name MX/TXT records, and no CNAME exists at the environment root.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
@@ -219,8 +219,8 @@ The staging job:
 10. Runs Terraform apply for `environment=staging`, which runs the App Platform `PRE_DEPLOY` bootstrap and migration path before runtime traffic is validated.
 11. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 12. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-13. Waits for landing, admin, marketplace, and legacy redirect domains. The staging root marketplace alias is self-managed because exact-name mail records can be present there, so deployment does not create DNS for it or block on it.
-14. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
+13. Waits for landing, admin, marketplace, staging root marketplace, and legacy redirect domains. Staging root is deployment-gated because it is the launch-facing marketplace root and App Platform owns its routing/certificate while Gmail MX/TXT records coexist at the same owner name.
+14. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the staging marketplace root with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
 
 Production starts automatically only after this staging job deploys and smokes the release commit. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.
 
@@ -266,7 +266,7 @@ The platform smoke script checks:
 - admin password sign-in works when admin credentials are supplied
 - waitlist admin endpoint can find the synthetic lead when the smoke wrote one
 
-Catalog asset CDN smoke should verify that each environment's `CATALOG_ASSET_PUBLIC_BASE_URL` resolves over HTTPS after the `catalog-assets` Terraform root applies. A full asset write smoke is covered by importing a provider Source Observation that has an image and confirming the stored URL starts with the environment CDN base URL.
+Catalog asset CDN smoke verifies that each environment's `CATALOG_ASSET_PUBLIC_BASE_URL` resolves over HTTPS after the `catalog-assets` Terraform root applies and during staging/production platform smoke. A full asset write smoke is covered by importing a provider Source Observation that has an image and confirming the stored URL starts with the environment CDN base URL.
 
 Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_REQUIRE_LEGACY_REDIRECT=true` and `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
 

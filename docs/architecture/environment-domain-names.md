@@ -41,18 +41,18 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 `www.staging.chasesets.com` is the canonical staging public-web host.
 
-The environment root, `staging.chasesets.com`, is the launch-facing staging marketplace entry point. It is attached to App Platform as a self-managed alias without a DNS `zone` field.
+The environment root, `staging.chasesets.com`, is the launch-facing staging marketplace entry point. It is attached to App Platform as the staging app's managed primary domain in the `chasesets.com` zone.
 
-When an environment root also receives mail through Google Workspace, it must not be a CNAME and must not be a DigitalOcean-managed App Platform subdomain alias. Use exact-name `A` and `AAAA` records that point to the App Platform ingress addresses, plus the exact-name Gmail MX/TXT records. This is the same coexistence pattern used by `preview.chasesets.com`.
+When an environment root also receives mail through Google Workspace, it must not be a CNAME and must not be a managed App Platform subdomain alias that expects a CNAME. Use a managed App Platform primary-domain attachment so DigitalOcean maintains the platform routing and certificate while the root keeps exact-name `A`/`AAAA` records that can coexist with exact-name Gmail MX/TXT records. This is the same record-family pattern used by the production apex.
 
 The Gmail-compatible environment-root record shape is:
 
-- `A <environment>` and `AAAA <environment>` to the current App Platform ingress addresses.
+- `A <environment>` and `AAAA <environment>` to the current App Platform ingress addresses, managed through the App Platform primary domain attachment.
 - `MX <environment>` to Google Workspace.
 - `TXT <environment>` for Google Workspace SPF.
 - No `CNAME <environment>`.
 
-On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A follow-up attempt to make it the staging App Platform primary domain also left `staging.chasesets.com` in `CONFIGURING` with no certificate. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present. Keep the root self-managed so App Platform routing/cert ownership and Gmail MX ownership can coexist. Staging deployment workflows wait on `marketplace.staging.chasesets.com`, not the root alias.
+On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. Use the managed primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`.
 
 Staging application hosts are:
 

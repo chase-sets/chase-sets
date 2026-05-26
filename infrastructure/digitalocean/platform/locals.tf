@@ -25,6 +25,7 @@ locals {
     "${var.environment}.${var.root_domain}",
   ] : []
   all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)
+  app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]
 
   admin_domain       = local.is_production ? "admin.${var.root_domain}" : local.is_staging ? "admin.${var.environment}.${var.root_domain}" : "admin.${local.environment_slug}.preview.${var.root_domain}"
   landing_domain     = local.public_domains[0]
@@ -175,7 +176,7 @@ locals {
     (format("admin-%s", replace(local.admin_domain, ".", "-"))) = "https://${local.admin_domain}/health/ready"
   }
   marketplace_uptime_check_targets = {
-    for domain in local.marketplace_domains :
+    for domain in local.all_marketplace_domains :
     "marketplace-${replace(domain, ".", "-")}" => "https://${domain}/health/ready"
   }
   uptime_check_targets = merge(

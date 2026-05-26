@@ -327,8 +327,16 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
+
+          custom_domain="assets.staging.chasesets.com"
+          live_cdn_id="$(doctl compute cdn list --output json | jq -r \
+            --arg custom_domain "$custom_domain" \
+            'first(.[] | select(.custom_domain == $custom_domain) | .id) // empty')"
 
           cdn_id="$(terraform state pull | jq -r '
             first(
@@ -340,6 +348,10 @@ jobs:
           ')"
           if [ -z "$cdn_id" ]; then
             echo "No catalog CDN resource is present in Terraform state."
+            if [ -n "$live_cdn_id" ]; then
+              echo "Importing live catalog CDN ${live_cdn_id} before reset destroy."
+              terraform import digitalocean_cdn.catalog_assets "$live_cdn_id"
+            fi
             exit 0
           fi
 
@@ -350,6 +362,10 @@ jobs:
 
           echo "Catalog CDN ${cdn_id} is missing in DigitalOcean; removing stale Terraform state before destroy."
           terraform state rm digitalocean_cdn.catalog_assets
+          if [ -n "$live_cdn_id" ]; then
+            echo "Importing live catalog CDN ${live_cdn_id} before reset destroy."
+            terraform import digitalocean_cdn.catalog_assets "$live_cdn_id"
+          fi
 
       - name: Terraform destroy staging catalog assets
         working-directory: infrastructure/digitalocean/catalog-assets
@@ -380,6 +396,30 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         run: terraform apply -auto-approve tfplan
+
+      - name: Verify staging catalog asset CDN
+        working-directory: infrastructure/digitalocean/catalog-assets
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          custom_domain="$(terraform output -raw custom_domain)"
+          cdn_endpoint="$(terraform output -raw cdn_endpoint)"
+          record_name="${custom_domain%.chasesets.com}"
+
+          doctl compute cdn list --output json | jq -e \
+            --arg custom_domain "$custom_domain" \
+            --arg cdn_endpoint "$cdn_endpoint" \
+            '.[] | select(.custom_domain == $custom_domain and .endpoint == $cdn_endpoint)' >/dev/null
+
+          doctl compute domain records list chasesets.com --output json | jq -e \
+            --arg record_name "$record_name" \
+            --arg cdn_endpoint "$cdn_endpoint" \
+            '.[] | select(.type == "CNAME" and .name == $record_name and .data == $cdn_endpoint)' >/dev/null
+
+          curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors \
+            "https://${custom_domain}/" >/dev/null
 
       - name: Terraform plan staging recreate
         working-directory: infrastructure/digitalocean/platform
@@ -471,7 +511,8 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           mapfile -t legacy_public_redirect_domains < <(terraform output -json legacy_public_redirect_domains | jq -r '.[]')
           mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ]; then
+          mapfile -t staging_root_marketplace_domains < <(terraform output -json staging_root_marketplace_domains | jq -r '.[]')
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ] || [ "${#staging_root_marketplace_domains[@]}" -eq 0 ]; then
             echo "Required staging domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -482,6 +523,7 @@ jobs:
             "$admin_domain" \
             "${legacy_public_redirect_domains[@]}" \
             "${marketplace_domains[@]}" \
+            "${staging_root_marketplace_domains[@]}" \
             --timeout-seconds=1800 \
             --poll-seconds=30
 
@@ -498,6 +540,7 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
           SMOKE_REQUIRE_MARKETPLACE: "true"
+          SMOKE_REQUIRE_MARKETPLACE_ROOT: "true"
           SMOKE_REQUIRE_LEGACY_REDIRECT: "true"
           SMOKE_WRITE_WAITLIST: "false"
           SMOKE_SOURCE: staging-reset-smoke
@@ -508,9 +551,11 @@ jobs:
           set -euo pipefail
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
+          catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
           legacy_public_redirect_domain="$(terraform output -json legacy_public_redirect_domains | jq -r '.[0] // empty')"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ]; then
+          staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$catalog_asset_public_base_url" ] || [ -z "$legacy_public_redirect_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
             echo "Required staging smoke domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -525,8 +570,11 @@ jobs:
           fi
 
           cd ../../..
+          export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
           pnpm run smoke:platform -- \
             "https://${landing_domain}" \
             "https://${admin_domain}" \
             "https://${marketplace_domain}" \
             "https://${legacy_public_redirect_domain}"
+          curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors \
+            "${catalog_asset_public_base_url}/" >/dev/null
