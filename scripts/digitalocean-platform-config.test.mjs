@@ -21,6 +21,14 @@ function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
 }
 
+function workflowStep(source, stepName) {
+  const start = source.indexOf(`- name: ${stepName}`);
+  expect(start).not.toBe(-1);
+
+  const next = source.indexOf("\n      - name:", start + 1);
+  return next === -1 ? source.slice(start) : source.slice(start, next);
+}
+
 describe("DigitalOcean platform configuration", () => {
   it("keeps staging landing under the environment namespace and redirects the legacy dash host", () => {
     expect(platformLocals).toContain('local.is_staging ? "www.${var.environment}.${var.root_domain}"');
@@ -156,6 +164,18 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
     expect(platformProductionWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
     expect(platformProductionWorkflow).toContain('terraform import "$address" "$record_id"');
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+      "TF_VAR_digitalocean_token",
+    );
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+      "TF_VAR_platform_admin_password",
+    );
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+      "TF_VAR_stripe_secret_key",
+    );
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+      "TF_VAR_easypost_api_key",
+    );
     expect(platformStagingResetWorkflow).toContain("Reconcile staging App Platform alias DNS state");
     expect(platformStagingResetWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
     expect(platformStagingResetWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
