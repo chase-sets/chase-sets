@@ -3,6 +3,7 @@ locals {
   is_staging          = var.environment == "staging"
   is_non_production   = !local.is_production
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
+  environment_zone    = "${var.environment}.${var.root_domain}"
   database_name_token = replace(local.environment_slug, "-", "_")
   name_prefix         = local.is_production ? "chase-sets" : "chase-sets-${local.environment_slug}"
 
@@ -155,6 +156,27 @@ locals {
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
   ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  app_domain_zones = merge(
+    {
+      for domain in local.public_domains :
+      domain => local.is_staging ? local.environment_zone : var.root_domain
+    },
+    {
+      for domain in keys(local.legacy_domain_redirects) :
+      domain => var.root_domain
+    },
+    {
+      for domain in local.marketplace_domains :
+      domain => local.is_staging ? local.environment_zone : var.root_domain
+    },
+    {
+      for domain in local.staging_root_marketplace_domains :
+      domain => local.environment_zone
+    },
+    {
+      (local.admin_domain) = local.is_staging ? local.environment_zone : var.root_domain
+    },
+  )
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {

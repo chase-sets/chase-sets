@@ -265,6 +265,47 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
+      - name: Terraform init staging environment DNS
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=environment-dns/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Terraform format staging environment DNS
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate staging environment DNS
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: terraform validate
+
+      - name: Terraform apply staging environment DNS
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/environment-dns
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_google_workspace_dkim_txt_value: ${{ vars.GOOGLE_WORKSPACE_DKIM_TXT_VALUE || '' }}
+        run: terraform apply -auto-approve
+
       - uses: docker/setup-buildx-action@v4
         if: steps.latest_main.outputs.should_deploy != 'false'
 

@@ -8,6 +8,12 @@ const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platfo
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
+const environmentDnsMain = readFileSync(resolve("infrastructure/digitalocean/environment-dns/main.tf"), "utf8");
+const environmentDnsLocals = readFileSync(resolve("infrastructure/digitalocean/environment-dns/locals.tf"), "utf8");
+const environmentDnsVariables = readFileSync(
+  resolve("infrastructure/digitalocean/environment-dns/variables.tf"),
+  "utf8",
+);
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 
@@ -97,6 +103,7 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("routes staging root as the managed primary marketplace host", () => {
+    expect(platformLocals).toContain('environment_zone    = "${var.environment}.${var.root_domain}"');
     expect(platformLocals).toContain("staging_root_marketplace_domains = local.is_staging");
     expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');
     expect(platformLocals).toContain(
@@ -112,9 +119,31 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("for_each = local.staging_root_marketplace_domains");
     expect(platformMain).toContain("for_each = local.all_marketplace_domains");
     expect(platformMain).toContain('type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"');
-    expect(occurrenceCount(platformMain, "zone = var.root_domain")).toBeGreaterThanOrEqual(5);
+    expect(platformLocals).toContain("app_domain_zones = merge(");
+    expect(platformLocals).toContain("domain => local.is_staging ? local.environment_zone : var.root_domain");
+    expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
+    expect(platformMain).toContain("zone = local.app_domain_zones[local.admin_domain]");
     expect(platformMain).toContain('name                 = "marketplace"');
     expect(platformMain).toContain('name                 = "platform-api"');
+  });
+
+  it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
+    expect(environmentDnsVariables).toContain('condition     = var.environment == "staging"');
+    expect(environmentDnsLocals).toContain('environment_zone = "${var.environment}.${var.root_domain}"');
+    expect(environmentDnsMain).toContain('resource "digitalocean_domain" "environment"');
+    expect(environmentDnsMain).toContain('resource "digitalocean_record" "delegation"');
+    expect(environmentDnsMain).toContain('type   = "NS"');
+    expect(environmentDnsMain).toContain('type     = "MX"');
+    expect(environmentDnsLocals).toContain('value    = "smtp.google.com"');
+    expect(environmentDnsMain).toContain('name   = "google._domainkey"');
+    expect(environmentDnsMain).toContain('value  = "v=spf1 include:_spf.google.com ~all"');
+    expect(environmentDnsMain).toContain('resource "digitalocean_record" "ses_dkim"');
+    expect(environmentDnsMain).toContain('resource "digitalocean_record" "catalog_assets"');
+    expect(environmentDnsLocals).toContain(
+      'catalog_asset_cdn_endpoint = "chase-sets-${var.environment}-catalog-assets.${var.data_region}.cdn.digitaloceanspaces.com"',
+    );
+    expect(platformProductionWorkflow).toContain("Terraform apply staging environment DNS");
+    expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
   });
 
   it("splits app and data regions and manages uptime checks", () => {

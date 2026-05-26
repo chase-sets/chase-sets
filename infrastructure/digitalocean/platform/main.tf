@@ -88,7 +88,7 @@ resource "digitalocean_app" "platform" {
       content {
         name = domain.value
         type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"
-        zone = var.root_domain
+        zone = local.app_domain_zones[domain.value]
       }
     }
 
@@ -97,7 +97,7 @@ resource "digitalocean_app" "platform" {
       content {
         name = domain.value
         type = "ALIAS"
-        zone = var.root_domain
+        zone = local.app_domain_zones[domain.value]
       }
     }
 
@@ -106,7 +106,7 @@ resource "digitalocean_app" "platform" {
       content {
         name = domain.value
         type = "ALIAS"
-        zone = var.root_domain
+        zone = local.app_domain_zones[domain.value]
       }
     }
 
@@ -115,14 +115,14 @@ resource "digitalocean_app" "platform" {
       content {
         name = domain.value
         type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"
-        zone = var.root_domain
+        zone = local.app_domain_zones[domain.value]
       }
     }
 
     domain {
       name = local.admin_domain
       type = "ALIAS"
-      zone = var.root_domain
+      zone = local.app_domain_zones[local.admin_domain]
     }
 
     alert {

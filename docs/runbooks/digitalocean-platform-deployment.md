@@ -11,11 +11,13 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
   - PR previews: `platform/previews/pr-<number>.tfstate`.
   - Staging: `landing/staging.tfstate`.
   - Production: `landing/production.tfstate`.
+- Environment DNS state keys:
+  - Staging: `environment-dns/staging.tfstate`.
 - Catalog asset state keys:
   - Preview assets: `catalog-assets/preview.tfstate`.
   - Staging assets: `catalog-assets/staging.tfstate`.
   - Production assets: `catalog-assets/production.tfstate`.
-- DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before Terraform runs.
+- DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before Terraform runs. Staging also uses `infrastructure/digitalocean/environment-dns` to delegate and populate the stable `staging.chasesets.com` child zone before App Platform deploy/reset operations.
 - Catalog asset storage: preview, staging, and production each have a dedicated DigitalOcean Spaces bucket with a CDN-backed custom domain. PR previews share `assets.preview.chasesets.com` instead of creating per-PR buckets or CDNs.
 - Deploy orchestration: GitHub Actions is the canonical deploy owner. Label-gated PR previews and staging build one platform container image in GitHub Actions with bounded Docker Buildx cache, push it to DigitalOcean Container Registry, record the digest, and point App Platform components at that immutable image tag. Production verifies and promotes the staging-built commit image instead of rebuilding a second artifact. A change-scope classifier gates CI and CD work so documentation-only, workflow-only, and non-deployable changes do not build images or deploy App Platform.
 - Preview and staging environments run the full platform shape. Production currently remains on the landing/admin-support component set until marketplace production promotion is planned.
@@ -54,9 +56,9 @@ The long-lived staging environment uses the same full-platform shape as PR previ
 - `admin.staging.chasesets.com`: admin web.
 - Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-The staging environment root, `staging.chasesets.com`, is attached to App Platform as the staging app's managed primary domain in the `chasesets.com` zone. This mirrors production apex ownership: DigitalOcean manages App Platform routing and certificates with `A`/`AAAA`-style records, while exact-name Google Workspace MX/TXT records remain valid at the same owner name. A managed App Platform subdomain alias or self-managed alias is not correct for this host because those modes expect CNAME ownership and conflict with exact-name mail.
+The staging environment root, `staging.chasesets.com`, is delegated from `chasesets.com` into its own DigitalOcean DNS zone and attached to App Platform as the staging app's managed primary domain in that child zone. This mirrors production apex ownership by making the staging root a real apex: DigitalOcean manages App Platform routing and certificates with apex-compatible records, while exact-name Google Workspace MX/TXT records remain valid at the same owner name. A managed App Platform subdomain alias or self-managed alias is not correct for this host because those modes expect CNAME ownership and conflict with exact-name mail.
 
-When Google Workspace mail is enabled for an environment root, configure that root like the production apex: App Platform owns the root as a managed primary domain in the DigitalOcean DNS zone, Gmail owns exact-name MX/TXT records, and no CNAME exists at the environment root.
+When Google Workspace mail is enabled for an environment root, configure that root like the production apex. For staging, the parent zone owns only the `NS staging` delegation; the child zone owns Gmail MX/SPF, optional Google DKIM, SES bounce/DKIM/DMARC, the asset CDN CNAME, and App Platform-managed domain records. No CNAME exists at the environment root.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
@@ -96,6 +98,10 @@ Optional `preview` and `staging` variables:
 Optional `preview`, `staging`, and `production` variables:
 
 - `PLATFORM_ALERT_EMAILS`: JSON list of alert recipients, for example `["ops@example.com"]`.
+
+Optional `staging` variable:
+
+- `GOOGLE_WORKSPACE_DKIM_TXT_VALUE`: the Google Admin Console-provided DKIM TXT value for `google._domainkey.staging.chasesets.com`. Leave unset until Google generates the key; MX and SPF remain managed without it.
 
 SES values configured for platform environments:
 

@@ -41,18 +41,19 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 `www.staging.chasesets.com` is the canonical staging public-web host.
 
-The environment root, `staging.chasesets.com`, is the launch-facing staging marketplace entry point. It is attached to App Platform as the staging app's managed primary domain in the `chasesets.com` zone.
+The environment root, `staging.chasesets.com`, is the launch-facing staging marketplace entry point. It is delegated from the parent `chasesets.com` zone into its own DigitalOcean DNS zone and attached to App Platform as the staging app's managed primary domain in that child zone.
 
-When an environment root also receives mail through Google Workspace, it must not be a CNAME and must not be a managed App Platform subdomain alias that expects a CNAME. Use a managed App Platform primary-domain attachment so DigitalOcean maintains the platform routing and certificate while the root keeps exact-name `A`/`AAAA` records that can coexist with exact-name Gmail MX/TXT records. This is the same record-family pattern used by the production apex.
+When an environment root also receives mail through Google Workspace, it must not be a CNAME and must not be a managed App Platform subdomain alias that expects a CNAME. Delegate the environment root as a child DNS zone, then use a managed App Platform primary-domain attachment in that child zone so DigitalOcean maintains platform routing and certificates with apex-compatible records while exact-name Gmail MX/TXT records coexist. This is the same DNS rule used by the production apex, applied to staging by making `staging.chasesets.com` a real apex.
 
 The Gmail-compatible environment-root record shape is:
 
-- `A <environment>` and `AAAA <environment>` to the current App Platform ingress addresses, managed through the App Platform primary domain attachment.
-- `MX <environment>` to Google Workspace.
-- `TXT <environment>` for Google Workspace SPF.
-- No `CNAME <environment>`.
+- Parent zone: `NS staging` delegation to DigitalOcean nameservers.
+- Child zone apex: App Platform-managed apex routing records for `staging.chasesets.com`.
+- Child zone apex: `MX @` to Google Workspace and `TXT @` for Google Workspace SPF.
+- Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, and the catalog asset CDN CNAME.
+- No `CNAME @` in the child zone and no `CNAME staging` in the parent zone.
 
-On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. Use the managed primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`.
+On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. On May 26, 2026, using `zone = chasesets.com` with `type = PRIMARY` still left `staging.chasesets.com` in `CONFIGURING` with `DomainZoneInvalid` and `DomainCNAMEMismatch`; DigitalOcean treated it as a subdomain and still expected CNAME ownership. Use the delegated child-zone primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`.
 
 Staging application hosts are:
 
@@ -82,4 +83,4 @@ If a hosting platform requires app-specific wildcard routing, an adapter may use
 
 ## Implementation Notes
 
-DigitalOcean App Platform, Terraform, GitHub environment variables, provider callback URLs, smoke checks, and tests must use the same canonical hostnames. Legacy host redirects should be explicit so old staging links fail closed or redirect predictably instead of silently becoming a second canonical namespace.
+DigitalOcean App Platform, environment DNS Terraform, GitHub environment variables, provider callback URLs, smoke checks, and tests must use the same canonical hostnames. Legacy host redirects should be explicit so old staging links fail closed or redirect predictably instead of silently becoming a second canonical namespace.
