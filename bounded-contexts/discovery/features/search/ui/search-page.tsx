@@ -720,7 +720,7 @@ export function SearchPage({
           />
         ) : data ? (
           <>
-            <Grid columns={hasFocusedResults ? { base: 1, lg: 2, "2xl": 3 } : { base: 1, sm: 2, xl: 3 }} gap={4}>
+            <Grid columns={hasFocusedResults ? { base: 1, xl: 2 } : { base: 1, md: 2 }} gap={4}>
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
@@ -805,16 +805,19 @@ export function SearchPage({
                     fulfillment={formatAvailability(item)}
                     availability={null}
                     valueCue={formatSearchResultMetadata(item)}
-                    promotion={
-                      hasActiveListings
-                        ? t("discovery.features.search.ui.searchPage.available.now")
-                        : t("discovery.features.search.ui.searchPage.supply.wanted")
-                    }
                     primaryAction={
-                      <Inline gap={2}>
-                        <LinkButton href={primaryIntent.href} aria-label={primaryIntent.accessibleLabel} size="sm">
-                          {primaryIntent.label}
-                        </LinkButton>
+                      <LinkButton
+                        href={primaryIntent.href}
+                        aria-label={primaryIntent.accessibleLabel}
+                        size="sm"
+                        tone="primary"
+                        block
+                      >
+                        {primaryIntent.label}
+                      </LinkButton>
+                    }
+                    secondaryAction={
+                      <Inline gap={1}>
                         {secondaryIntents.map((intent) => (
                           <LinkButton
                             key={intent.accessibleLabel}
@@ -828,7 +831,6 @@ export function SearchPage({
                         ))}
                       </Inline>
                     }
-                    secondaryAction={false}
                   />
                 );
               })}

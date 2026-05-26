@@ -49,7 +49,7 @@ Real product media renders as the collectible, not as a framed UI thumbnail. Use
 
 Product media must use the shared responsive image source contract. Routes should pass the role-appropriate source, `srcset`, `sizes`, width, and height from the owning bounded context's asset set instead of hand-authoring route-local image policy. Search-card product media renders in the compact product slot so Catalog's 160 CSS pixel `search-card` role can use its 320w variant on high-DPR displays without being stretched blurry.
 
-Search result cards use the `search-result` card layout. This layout keeps product media compact in multi-column grids, reserves status badges such as `Available now` and `Supply wanted` in the content plane instead of over the product image, and uses short visible Buy / Sell / Watch labels with one dominant primary action. Repeated metadata such as default language and common blueprint labels should not appear before the product title on every search result.
+Search result cards use the `search-result` card layout. This layout keeps product media compact in multi-column grids, avoids image-overlay status badges, and uses one dominant Buy or Sell action with secondary intents set quieter below it. Repeated metadata such as default language and common blueprint labels should not appear before the product title on every search result.
 
 ## Product Options Display Contract
 
@@ -82,7 +82,7 @@ Marketplace search filters must preserve buyer momentum: selections stay visible
 
 Marketplace product actions use three user-facing intents: Buy, Sell, and Watch. Search captures intent quickly from item cards. Item detail resolves the exact Product and, when needed, the selected Listing or Offer.
 
-- Search result cards may use compact Buy / Sell / Watch actions because the user is still scanning. The primary action should target the selected or default Product, and secondary menu choices can reveal immediate listing/offer actions.
+- Search result cards may use compact Buy / Sell / Watch language because the user is still scanning, but the card should show one dominant primary action at a time. Buy is primary when active supply exists; Sell is primary when supply is wanted. Watch and the opposite trade-side intent stay visually secondary.
 - Item detail should use an action accordion rail, not a long flat action list. Buy, Sell, and Watch are the rail's top-level intent sections.
 - Inside Buy and Sell, show selected counterparty actions before product-level actions. For Buy, selected Listing actions are `Buy now` and `Add selected listing to buy cart`; product actions are `Add product to buy cart`, `Make offer`, and `Watch listings`. For Sell, selected Offer actions are `Sell now` and `Add selected offer to sell list`; product actions are `Add product to sell list`, `Create listing`, and `Watch offers`.
 - Watch belongs beside Buy and Sell in the intent control. Listing alerts and offer alerts should not appear as buying or selling actions.
