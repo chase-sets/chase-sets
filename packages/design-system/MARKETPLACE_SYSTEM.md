@@ -49,7 +49,7 @@ Real product media renders as the collectible, not as a framed UI thumbnail. Use
 
 Product media must use the shared responsive image source contract. Routes should pass the role-appropriate source, `srcset`, `sizes`, width, and height from the owning bounded context's asset set instead of hand-authoring route-local image policy. Search-card product media renders in the compact product slot so Catalog's 160 CSS pixel `search-card` role can use its 320w variant on high-DPR displays without being stretched blurry.
 
-Search result cards use the `search-result` card layout. This layout keeps product media compact in multi-column grids, avoids image-overlay status badges, and uses one dominant Buy or Sell action with secondary intents set quieter below it. Repeated metadata such as default language and common blueprint labels should not appear before the product title on every search result.
+Search result cards use the `search-result` card layout. This layout is a compact horizontal card on mobile and a gallery card on desktop, so product media is prominent without forcing the title and market signals into a narrow side column. It avoids image-overlay and body status badges, keeps the Catalog `search-card` responsive image within its crisp source-size contract, and uses one dominant Buy or Sell action with secondary intents quieter beside it. Repeated metadata such as default language and common blueprint labels should not appear before the product title on every search result.
 
 ## Product Options Display Contract
 

@@ -56,12 +56,12 @@ const languageOptions = [
   { label: t("discovery.features.search.ui.searchPage.japanese"), value: "ja" },
 ];
 
-function formatListingMeta(item: DiscoverySearchItem): string {
+function formatListingMeta(item: DiscoverySearchItem): string | undefined {
   const listingCount = item.market_summary?.active_listing_count ?? 0;
   const visibleQuantity = item.market_summary?.total_visible_quantity ?? 0;
 
   if (listingCount === 0) {
-    return t("discovery.features.search.ui.searchPage.no.active.listings");
+    return undefined;
   }
 
   return t("discovery.features.search.ui.searchPage.listing.meta", {
@@ -98,7 +98,7 @@ function formatSellerSignal(item: DiscoverySearchItem): string {
 
   return listingCount > 0
     ? t("discovery.features.search.ui.searchPage.verified.marketplace.sellers")
-    : t("discovery.features.search.ui.searchPage.no.active.sellers.yet");
+    : t("discovery.features.search.ui.searchPage.supply.wanted");
 }
 
 function formatSearchResultMetadata(item: DiscoverySearchItem): string | undefined {
@@ -720,7 +720,7 @@ export function SearchPage({
           />
         ) : data ? (
           <>
-            <Grid columns={hasFocusedResults ? { base: 1, xl: 2 } : { base: 1, md: 2 }} gap={4}>
+            <Grid columns={{ base: 1, md: 2, xl: 3 }} gap={4}>
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
@@ -811,7 +811,6 @@ export function SearchPage({
                         aria-label={primaryIntent.accessibleLabel}
                         size="sm"
                         tone="primary"
-                        block
                       >
                         {primaryIntent.label}
                       </LinkButton>
