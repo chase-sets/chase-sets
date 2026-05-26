@@ -7,7 +7,7 @@ Staging admin pages are returning 500s because catalog API route loaders cannot 
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260525-staging-prod-runtime-budgets`
-- Branch: `codex/staging-runtime-budget-restore` follow-up from merged `origin/main`; original PR branch was `codex/staging-prod-runtime-budgets`.
+- Branch: `codex/staging-prod-db-scale` follow-up from merged `origin/main`; original PR branches were `codex/staging-prod-runtime-budgets` and `codex/staging-runtime-budget-restore`.
 - Sandbox id: `2bf274e4`
 - Dependency setup: `node ./scripts/worktree-deps.mjs install` completed.
 - pnpm store: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\.chase-sets-pnpm-store`
@@ -26,22 +26,26 @@ Staging admin pages are returning 500s because catalog API route loaders cannot 
 - Staging App Platform currently sets `DATABASE_POOL_MAX=1`.
 - Staging managed PgBouncer context pools are all size `1`.
 - Platform worker currently starts 102 runners with runner group concurrency of projections `2`, jobs `1`, dispatch `1`, and scheduled `1`, which exceeds a pool of `1` before counting control-plane and health queries.
-- First deployment of the component-specific runtime budgets failed because enlarged DigitalOcean managed PgBouncer pool sizes exceeded the staging database tier's available server connections. Terraform deleted several old size-1 pools before the replacement creation failed, so the follow-up must restore missing managed pools at size `1`.
+- First deployment of the component-specific runtime budgets failed because enlarged DigitalOcean managed PgBouncer pool sizes exceeded the staging database tier's available server connections. Terraform deleted several old size-1 pools before the replacement creation failed.
+- The tier-safe restore recreated 19 of 20 staging managed pools at size `1`, then failed creating `public-presence-runtime`; the live `db-s-1vcpu-1gb` staging tier does not have enough available server connections for one pool per full-platform context.
 
 ## Resolved Decisions
 
 - Use component-specific app client pools instead of one global `database_pool_max`.
 - Keep staging/preview production-like App Platform component counts unchanged.
-- Keep production database cluster size unchanged for this fix because production still runs the smaller landing/admin-support topology.
-- Keep preview and staging managed PgBouncer context pool sizes at `1` until the database tier is scaled; managed pool size consumes server connection capacity and is not the same as app-side client concurrency.
+- Keep preview on the smallest database tier with size-1 managed pools.
+- Scale staging to `db-s-2vcpu-4gb` and restore hot-context managed PgBouncer pool sizes because staging runs the shared full-platform topology and active projection backlog.
+- Scale production to the same `db-s-2vcpu-4gb` baseline so the production landing/admin-support topology has connection headroom for the component-specific pool budgets after deployment.
 - Set worker concurrency explicitly in Terraform so database pool sizing and runner capacity cannot drift silently.
 - Update the deployment runbook to replace the obsolete statement that non-production caps every per-context client pool at one connection.
-- Restore staging by recreating any missing managed context pools through Terraform at the tier-safe size.
+- Restore staging by resizing the database tier and recreating any missing managed context pools through Terraform.
 
 ## Implementation Checklist
 
 - [x] Add Terraform locals for component-specific API, worker, and bootstrap database pool sizes.
-- [x] Keep non-production DigitalOcean managed connection pool sizes tier-safe at `1` per context.
+- [x] Keep preview DigitalOcean managed connection pool sizes tier-safe at `1` per context.
+- [x] Set staging/prod database size to `db-s-2vcpu-4gb`.
+- [x] Restore staging hot-context managed PgBouncer pool sizes.
 - [x] Wire component-specific values into platform-api, platform-worker, admin-support-api, admin-support-worker, platform-bootstrap, and admin-support-bootstrap.
 - [x] Wire explicit worker runner concurrency env vars into non-production and production workers.
 - [x] Update deployment docs and config tests.
