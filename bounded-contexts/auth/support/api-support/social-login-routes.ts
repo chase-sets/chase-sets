@@ -60,8 +60,28 @@ function getSafeReturnToFromUrl(url: URL) {
   return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : SOCIAL_LOGIN_SUCCESS_PATH;
 }
 
-function buildSocialRedirectUri(requestUrl: URL, providerName: string) {
-  return new URL(`/api/auth/social/${providerName}/callback`, requestUrl.origin).toString();
+function firstForwardedValue(value: string | null) {
+  return value?.split(",")[0]?.trim().toLowerCase();
+}
+
+function isLocalHost(host: string) {
+  const hostname = (host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0])?.toLowerCase() ?? "";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function buildPublicOrigin(request: Request) {
+  const requestUrl = new URL(request.url);
+  const forwardedProto = firstForwardedValue(request.headers.get("x-forwarded-proto"));
+  const forwardedHost = firstForwardedValue(request.headers.get("x-forwarded-host"));
+  const host = forwardedHost || request.headers.get("host") || requestUrl.host;
+  const protocol =
+    forwardedProto === "http" || forwardedProto === "https" ? forwardedProto : requestUrl.protocol.replace(/:$/, "");
+
+  return `${protocol === "http" && !isLocalHost(host) ? "https" : protocol}://${host}`;
+}
+
+function buildSocialRedirectUri(request: Request, providerName: string) {
+  return new URL(`/api/auth/social/${providerName}/callback`, buildPublicOrigin(request)).toString();
 }
 
 function getFallbackPath(journey: SocialLoginJourney) {
@@ -204,7 +224,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     return createRedirectResponse(
       provider.createAuthorizationUrl({
         state,
-        redirectUri: buildSocialRedirectUri(requestUrl, providerName),
+        redirectUri: buildSocialRedirectUri(c.req.raw, providerName),
         hostedDomain: getHostedDomainHint(services, journey),
       }),
     );
@@ -237,7 +257,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     try {
       profile = await provider.exchangeCallback({
         code,
-        redirectUri: buildSocialRedirectUri(requestUrl, providerName),
+        redirectUri: buildSocialRedirectUri(c.req.raw, providerName),
       });
     } catch {
       return redirectToFallback(t("auth.support.apiSupport.socialLoginRoutes.provider.failed"), journey);
