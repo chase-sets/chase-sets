@@ -66,13 +66,19 @@ export type AuthServices = Readonly<{
   sessions: ReturnType<typeof createSessionRuntime>;
   notificationOutbox: NotificationOutbox;
   socialLoginProviders: readonly SocialLoginProvider[];
+  adminGoogleWorkspaceSso: AdminGoogleWorkspaceSsoConfig | null;
   projectors: readonly ProjectionHandlerSet[];
+}>;
+
+export type AdminGoogleWorkspaceSsoConfig = Readonly<{
+  allowedHostedDomains: readonly string[];
 }>;
 
 export type AuthHostPorts = Readonly<{
   transactionalEmailOutbox?: TransactionalEmailOutbox;
   notificationOutbox?: NotificationOutbox;
   socialLoginProviders?: readonly SocialLoginProvider[];
+  adminGoogleWorkspaceSso?: AdminGoogleWorkspaceSsoConfig | null;
 }>;
 
 export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPorts = {}): AuthServices {
@@ -112,6 +118,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
     sessions,
     notificationOutbox,
     socialLoginProviders: ports.socialLoginProviders ?? [],
+    adminGoogleWorkspaceSso: ports.adminGoogleWorkspaceSso ?? null,
     projectors: [...sessions.projectors],
   };
 }

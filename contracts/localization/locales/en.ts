@@ -375,7 +375,9 @@ export const englishTranslations = {
   "auth.features.signIn.ui.signInPage.continue.with.facebook": "Continue with Facebook",
   "auth.features.signIn.ui.signInPage.continue.with.code": "Continue With Code",
   "auth.features.signIn.ui.signInPage.continue.with.google": "Continue with Google",
+  "auth.features.signIn.ui.signInPage.continue.with.google.workspace": "Continue with Google Workspace",
   "auth.features.signIn.ui.signInPage.continue.with.social.login": "Use an account you already have.",
+  "auth.features.signIn.ui.signInPage.continue.with.workspace.account": "Use your Chase Sets Google Workspace account.",
   "auth.features.signIn.ui.signInPage.continue.with.token": "Continue With Token",
   "auth.features.signIn.ui.signInPage.change": "Change",
   "auth.features.signIn.ui.signInPage.email": "Email",
@@ -444,8 +446,16 @@ export const englishTranslations = {
     "Social login provider could not be reached. Try again or use another sign-in method.",
   "auth.support.apiSupport.socialLoginRoutes.provider.already.linked":
     "This social login is already connected to another Chase Sets user.",
+  "auth.support.apiSupport.socialLoginRoutes.admin.permission.required":
+    "This Workspace user does not have access to this admin area.",
+  "auth.support.apiSupport.socialLoginRoutes.admin.user.required": "This Workspace user is not set up in Chase Sets.",
+  "auth.support.apiSupport.socialLoginRoutes.admin.workspace.domain.required":
+    "Use a Google Workspace account from an approved Chase Sets domain.",
+  "auth.support.apiSupport.socialLoginRoutes.admin.workspace.not.configured":
+    "Google Workspace SSO is not configured for admin sign-in.",
   "auth.support.apiSupport.socialLoginRoutes.state.invalid":
     "Social login could not be completed. Try again or use another sign-in method.",
+  "auth.support.apiSupport.socialLoginRoutes.unsupported.admin.provider": "Admin SSO only supports Google Workspace.",
   "auth.support.apiSupport.socialLoginRoutes.unsupported.provider": "Social login provider is unsupported.",
   "auth.support.apiSupport.socialLoginRoutes.user.unavailable": "This user cannot sign in right now.",
   "auth.support.apiSupport.socialLoginRoutes.verified.email.required":

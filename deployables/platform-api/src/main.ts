@@ -166,6 +166,7 @@ const runtime = createPlatformApiHost({
     catalogAssetStorage,
     listingPhotoStorage,
     socialLoginProviders,
+    adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
 });

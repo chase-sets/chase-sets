@@ -59,6 +59,10 @@ export type PlatformApiSocialLoginConfig = Readonly<{
   facebook?: PlatformApiSocialLoginProviderConfig;
 }>;
 
+export type PlatformApiAdminGoogleWorkspaceSsoConfig = Readonly<{
+  allowedHostedDomains: readonly string[];
+}>;
+
 export type PlatformApiCatalogAssetStorageConfig =
   | Readonly<{
       kind: "filesystem";
@@ -154,6 +158,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     mobileMessaging: PlatformApiMobileMessagingConfig;
     postage: PlatformApiPostageConfig;
     socialLogin: PlatformApiSocialLoginConfig;
+    adminGoogleWorkspaceSso: PlatformApiAdminGoogleWorkspaceSsoConfig | null;
     catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     stripeGoLive: StripeGoLiveCheckReport;
@@ -552,6 +557,9 @@ export function loadConfig(): PlatformApiConfig {
   const easyPostMode = getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
   const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
   const googleSocialLoginClientSecret = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET");
+  const adminGoogleWorkspaceSsoDomains = getOptionalCsvEnv("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS").map((value) =>
+    value.toLowerCase(),
+  );
   const facebookSocialLoginClientId = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_ID");
   const facebookSocialLoginClientSecret = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET");
   const mobileMessagingProvider = getOptionalEnv("MOBILE_MESSAGING_PROVIDER");
@@ -590,6 +598,11 @@ export function loadConfig(): PlatformApiConfig {
   if (productionLike && Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)) {
     throw new Error("GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.");
   }
+  if (adminGoogleWorkspaceSsoDomains.length > 0 && (!googleSocialLoginClientId || !googleSocialLoginClientSecret)) {
+    throw new Error(
+      "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS requires GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET.",
+    );
+  }
   if (productionLike && Boolean(facebookSocialLoginClientId) !== Boolean(facebookSocialLoginClientSecret)) {
     throw new Error(
       "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID and FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.",
@@ -619,6 +632,12 @@ export function loadConfig(): PlatformApiConfig {
         }
       : {}),
   };
+  const adminGoogleWorkspaceSso =
+    adminGoogleWorkspaceSsoDomains.length > 0
+      ? {
+          allowedHostedDomains: adminGoogleWorkspaceSsoDomains,
+        }
+      : null;
 
   const moneyMovement =
     stripeSecretKey && stripeWebhookSecret
@@ -669,6 +688,7 @@ export function loadConfig(): PlatformApiConfig {
       catalogAssetStorage,
       listingPhotoStorage,
       socialLogin,
+      adminGoogleWorkspaceSso,
       ucpBusinessSigningKeys,
       paymentProcessor: {
         kind: "stripe",
@@ -705,6 +725,7 @@ export function loadConfig(): PlatformApiConfig {
     catalogAssetStorage,
     listingPhotoStorage,
     socialLogin,
+    adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,
     paymentProcessor: {
       kind: "fake",

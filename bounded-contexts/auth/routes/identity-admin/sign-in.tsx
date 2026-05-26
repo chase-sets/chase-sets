@@ -1,6 +1,7 @@
 import type { MetaFunction } from "react-router";
 import { useActionData } from "react-router";
 import { Container } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import { identityAdminAuthHostConfig } from "../../support/route-support/host-config";
 import { identityAdminAuthHost } from "../../support/route-support/auth-host.server";
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
@@ -16,8 +17,19 @@ export default function IdentityAdminSignInRoute() {
       <SignInPage
         errorMessage={actionData && "error" in actionData ? actionData.error : null}
         notice={actionData && "status" in actionData ? actionData : null}
+        returnTo={identityAdminAuthHostConfig.defaultSuccessPath}
         signInMethods={identityAdminAuthHostConfig.signInMethods}
         allowManualMagicLinkTokenEntry={identityAdminAuthHostConfig.allowManualMagicLinkTokenEntry}
+        socialLoginDescription={t("auth.features.signIn.ui.signInPage.continue.with.workspace.account")}
+        socialLoginLinks={[
+          {
+            href: `/api/auth/social/google/start?journey=identity-admin&returnTo=${encodeURIComponent(
+              identityAdminAuthHostConfig.defaultSuccessPath,
+            )}`,
+            label: t("auth.features.signIn.ui.signInPage.continue.with.google.workspace"),
+            icon: "badgeCheck",
+          },
+        ]}
       />
     </Container>
   );

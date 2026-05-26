@@ -29,6 +29,27 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
   });
 
+  it("can render an admin Google Workspace SSO entry point", () => {
+    render(
+      <SignInPage
+        socialLoginDescription="Use your Chase Sets Google Workspace account."
+        socialLoginLinks={[
+          {
+            href: "/api/auth/social/google/start?journey=identity-admin&returnTo=%2Fidentity%2Faccounts",
+            label: "Continue with Google Workspace",
+            icon: "badgeCheck",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Use your Chase Sets Google Workspace account.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Continue with Google Workspace" }).getAttribute("href")).toBe(
+      "/api/auth/social/google/start?journey=identity-admin&returnTo=%2Fidentity%2Faccounts",
+    );
+    expect(screen.queryByRole("link", { name: "Continue with Facebook" })).toBeNull();
+  });
+
   it("recommends passkey first after an email identifier", () => {
     render(<SignInPage />);
 
