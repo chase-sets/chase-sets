@@ -7,7 +7,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260526-environment-audit`
-- Branch: `codex/environment-audit`
+- Branch: `codex/staging-environment-zone`
 - Base: fresh `origin/main` at `44637eacc9d1dd66f73147f83218d6080ada3f42`
 - Sandbox id: not initialized yet
 - Dependency setup status: installed with `pnpm run deps:install`
@@ -23,7 +23,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 
 ## Resolved Decisions
 
-- Staging root DNS must support both App Platform routing and exact-name Google Workspace MX/TXT records. Attach `staging.chasesets.com` as the staging app's managed primary domain in the `chasesets.com` zone so DigitalOcean manages A/AAAA-style platform records and Gmail MX/TXT records coexist without a CNAME.
+- Staging root DNS must support both App Platform routing and exact-name Google Workspace MX/TXT records. A May 26 deploy proved `staging.chasesets.com` cannot be made CNAME-free by setting App Platform `type = PRIMARY` with `zone = chasesets.com`; DigitalOcean still treated it as a subdomain, reported `DomainZoneInvalid`, and waited for CNAME ownership. Delegate `staging.chasesets.com` as its own DigitalOcean DNS zone, put Gmail/SES/asset DNS in that child zone, and attach the staging root to App Platform as a managed primary domain in `zone = staging.chasesets.com`.
 - Uptime checks should be Terraform-managed and alert only when `alert_emails` is configured. The deployment workflows will pass `TF_VAR_alert_emails` from a GitHub Environment variable so recipient management does not require code changes.
 - Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, canonical marketplace, and the staging root marketplace host where present.
 - Catalog asset custom domains must be deployment-verified because direct Spaces origins can continue working after a CDN custom domain disappears. Staging reset should verify the CDN, DNS CNAME, and HTTPS response after recreating catalog assets; staging/production smoke should also check `CATALOG_ASSET_PUBLIC_BASE_URL`.
@@ -47,12 +47,16 @@ Address the environment audit findings with infrastructure, workflow, and operat
 - [x] Fix remote-dev cloud-init placeholders and add generator test coverage.
 - [x] Update runbooks/docs for staging root, uptime alerts, registry retention, remote-dev pruning, and production/staging shape.
 - [x] Restore the missing staging Catalog asset CDN custom domain and add workflow checks for CDN/DNS/HTTPS regression coverage.
+- [x] Add stable staging environment DNS Terraform for `staging.chasesets.com` child-zone delegation, Gmail MX/SPF, optional Google DKIM, SES DNS, and the staging asset CDN CNAME.
+- [x] Point staging App Platform nested/root domains at the delegated child zone while keeping legacy dash-based redirect hosts in `chasesets.com`.
 - [x] Install dependencies and run targeted tests/validation.
 
 ## Documentation To Promote
 
 - Update `docs/runbooks/digitalocean-platform-deployment.md`.
 - Update `docs/architecture/environment-domain-names.md`.
+- Update `docs/runbooks/email-operations.md`.
+- Update `docs/runbooks/catalog-asset-storage.md`.
 - Update `docs/runbooks/remote-dev.md`.
 
 ## Goal Completion Criteria
