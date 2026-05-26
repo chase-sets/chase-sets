@@ -53,7 +53,7 @@ resource "digitalocean_record" "ses_bounce_mx" {
   domain   = digitalocean_domain.environment.name
   type     = "MX"
   name     = "bounce"
-  value    = "feedback-smtp.us-east-2.amazonses.com"
+  value    = "feedback-smtp.us-east-2.amazonses.com."
   priority = 10
   ttl      = 1800
 }

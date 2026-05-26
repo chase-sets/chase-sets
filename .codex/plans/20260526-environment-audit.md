@@ -24,6 +24,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 ## Resolved Decisions
 
 - Staging root DNS must support both App Platform routing and exact-name Google Workspace MX/TXT records. A May 26 deploy proved `staging.chasesets.com` cannot be made CNAME-free by setting App Platform `type = PRIMARY` with `zone = chasesets.com`; DigitalOcean still treated it as a subdomain, reported `DomainZoneInvalid`, and waited for CNAME ownership. Delegate `staging.chasesets.com` as its own DigitalOcean DNS zone, put Gmail/SES/asset DNS in that child zone, and attach the staging root to App Platform as a managed primary domain in `zone = staging.chasesets.com`.
+- DigitalOcean's DNS API requires FQDN record data for NS/MX/CNAME targets to end with a trailing dot. Keep environment DNS Terraform values normalized with trailing dots even though `doctl compute domain records list` prints them without trailing dots.
 - Uptime checks should be Terraform-managed and alert only when `alert_emails` is configured. The deployment workflows will pass `TF_VAR_alert_emails` from a GitHub Environment variable so recipient management does not require code changes.
 - Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, canonical marketplace, and the staging root marketplace host where present.
 - Catalog asset custom domains must be deployment-verified because direct Spaces origins can continue working after a CDN custom domain disappears. Staging reset should verify the CDN, DNS CNAME, and HTTPS response after recreating catalog assets; staging/production smoke should also check `CATALOG_ASSET_PUBLIC_BASE_URL`.
@@ -48,6 +49,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 - [x] Update runbooks/docs for staging root, uptime alerts, registry retention, remote-dev pruning, and production/staging shape.
 - [x] Restore the missing staging Catalog asset CDN custom domain and add workflow checks for CDN/DNS/HTTPS regression coverage.
 - [x] Add stable staging environment DNS Terraform for `staging.chasesets.com` child-zone delegation, Gmail MX/SPF, optional Google DKIM, SES DNS, and the staging asset CDN CNAME.
+- [x] Normalize staging environment DNS NS/MX/CNAME target values with trailing dots for DigitalOcean API compatibility.
 - [x] Point staging App Platform nested/root domains at the delegated child zone while keeping legacy dash-based redirect hosts in `chasesets.com`.
 - [x] Install dependencies and run targeted tests/validation.
 
