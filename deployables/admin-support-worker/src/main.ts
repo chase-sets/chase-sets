@@ -10,12 +10,13 @@ import {
   type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
 import { assertRunnerCapacity, summarizeRunnerCapacity } from "@chase-sets/platform-runtime/worker-capacity";
+import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { getObservabilityRuntime } from "@chase-sets/observability";
-import { loadConfig } from "./config";
+import { loadConfig, type AdminSupportWorkerCatalogAssetStorageConfig } from "./config";
 import { closeAdminSupportWorkerPools, createAdminSupportWorkerPools } from "./database-pools";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
@@ -25,8 +26,12 @@ const config = loadConfig();
 const pools = createAdminSupportWorkerPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
+const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const runtime = createWorkerHost(workerContextRegistry, "admin-support-worker", {
   pools,
+  hostPorts: {
+    catalogAssetStorage,
+  },
 });
 const projectionRunners = collectWorkerRunners(runtime, {
   controlPlane,
@@ -291,4 +296,10 @@ function createCatalogBulkJobRunners(
   }
 
   return runners;
+}
+
+function createCatalogAssetStorage(storageConfig: AdminSupportWorkerCatalogAssetStorageConfig): ObjectStorage {
+  return storageConfig.kind === "s3"
+    ? createS3ObjectStorage(storageConfig)
+    : createFilesystemObjectStorage(storageConfig);
 }

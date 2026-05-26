@@ -38,6 +38,7 @@
     "@chase-sets/notification-center": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
     "@chase-sets/notifications": "workspace:*",
+    "@chase-sets/object-storage": "workspace:*",
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/ordering": "workspace:*",
     "@chase-sets/payment-processing-testing": "workspace:*",

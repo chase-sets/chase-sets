@@ -178,6 +178,76 @@ describe("source observation runtime", () => {
     );
   });
 
+  it("fails image-backed promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Mega Evolution",
+          seriesName: "Mega Evolution",
+        }),
+        imageBaseUrl: "https://assets.tcgdex.example/me01-001",
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).rejects.toThrow("Catalog asset storage is required to promote TCGDex image assets.");
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("reuses a partially promoted TCGdex draft Catalog Item when retrying an observed Source Observation", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      partialCatalogItemId: "cat_partial",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_partial",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promoted",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_partial",
+        }),
+      }),
+    );
+  });
+
   it("repromotes promoted observations by resyncing the linked Catalog Item", async () => {
     const harness = createChangedObservationRefreshHarness({ status: "promoted" });
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
@@ -530,6 +600,7 @@ function createChangedObservationRefreshHarness(
     status?: string;
     promotedCatalogItemId?: string | null;
     reusableCatalogItemId?: string | null;
+    partialCatalogItemId?: string | null;
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -608,6 +679,14 @@ function createChangedObservationRefreshHarness(
           return {
             rowCount: 1,
             rows: [observationRow] as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_items AS item")) {
+          const row = input.partialCatalogItemId ? { catalog_item_id: input.partialCatalogItemId } : null;
+          return {
+            rowCount: row ? 1 : 0,
+            rows: (row ? [row] : []) as T[],
           };
         }
 

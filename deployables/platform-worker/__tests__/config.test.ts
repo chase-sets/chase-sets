@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 
 const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
   "NODE_ENV",
+  "PORT",
   "STRIPE_SECRET_KEY",
   "STRIPE_PUBLISHABLE_KEY",
   "STRIPE_WEBHOOK_SECRET",
@@ -33,12 +34,30 @@ const envNames = [
   "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
   "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS",
   "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
+  "CATALOG_ASSET_STORAGE_KIND",
+  "CATALOG_ASSET_LOCAL_ROOT",
+  "CATALOG_ASSET_PUBLIC_BASE_URL",
+  "CATALOG_ASSET_S3_BUCKET",
+  "CATALOG_ASSET_S3_REGION",
+  "CATALOG_ASSET_S3_ENDPOINT",
+  "CATALOG_ASSET_S3_ACCESS_KEY_ID",
+  "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
+  "CATALOG_ASSET_S3_FORCE_PATH_STYLE",
+  "PLATFORM_API_URL",
 ];
 
-afterEach(() => {
+function clearConfigEnv() {
   for (const envName of envNames) {
     delete process.env[envName];
   }
+}
+
+beforeEach(() => {
+  clearConfigEnv();
+});
+
+afterEach(() => {
+  clearConfigEnv();
 });
 
 describe("platform worker config", () => {
@@ -51,6 +70,33 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toEqual({ kind: "fake" });
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
+    expect(config.catalogAssetStorage).toEqual({
+      kind: "filesystem",
+      rootDir: "artifacts/catalog-assets",
+      publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
+    });
+  });
+
+  it("loads S3 Catalog asset storage for worker-hosted promotion jobs", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_S3_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+    process.env.CATALOG_ASSET_S3_ACCESS_KEY_ID = "spaces-key";
+    process.env.CATALOG_ASSET_S3_SECRET_ACCESS_KEY = "spaces-secret";
+
+    expect(loadConfig().catalogAssetStorage).toEqual({
+      kind: "s3",
+      bucket: "catalog-assets",
+      region: "nyc3",
+      endpoint: "https://nyc3.digitaloceanspaces.com",
+      publicBaseUrl: "https://assets.chasesets.test",
+      accessKeyId: "spaces-key",
+      secretAccessKey: "spaces-secret",
+      forcePathStyle: false,
+    });
   });
 
   it("keeps default runner concurrency within shared-resource capacity", () => {
@@ -158,6 +204,10 @@ describe("platform worker config", () => {
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.EASYPOST_MODE = "test";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-staging";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.com";
 
     const config = loadConfig();
 

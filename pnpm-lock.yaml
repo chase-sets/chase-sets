@@ -1270,6 +1270,9 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../../bounded-contexts/identity
+      '@chase-sets/object-storage':
+        specifier: workspace:*
+        version: link:../../infrastructure/object-storage
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../../infrastructure/observability
@@ -1698,6 +1701,9 @@ importers:
       '@chase-sets/notifications':
         specifier: workspace:*
         version: link:../../contracts/notifications
+      '@chase-sets/object-storage':
+        specifier: workspace:*
+        version: link:../../infrastructure/object-storage
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../../infrastructure/observability

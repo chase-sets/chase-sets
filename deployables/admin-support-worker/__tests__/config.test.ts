@@ -38,10 +38,39 @@ describe("admin-support worker configuration", () => {
   it("keeps default runner concurrency within shared-resource capacity", () => {
     vi.stubEnv("DATABASE_URL", "postgres://shared");
 
-    expect(loadConfig()).toMatchObject({
+    const config = loadConfig();
+
+    expect(config).toMatchObject({
       maxConcurrentRunners: 4,
       projectionMaxConcurrentRunners: 2,
       jobMaxConcurrentRunners: 1,
+      catalogAssetStorage: {
+        kind: "filesystem",
+        rootDir: "artifacts/catalog-assets",
+        publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
+      },
+    });
+  });
+
+  it("loads S3 Catalog asset storage for admin-support worker jobs", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("CATALOG_ASSET_STORAGE_KIND", "s3");
+    vi.stubEnv("CATALOG_ASSET_S3_BUCKET", "catalog-assets");
+    vi.stubEnv("CATALOG_ASSET_S3_REGION", "nyc3");
+    vi.stubEnv("CATALOG_ASSET_S3_ENDPOINT", "https://nyc3.digitaloceanspaces.com");
+    vi.stubEnv("CATALOG_ASSET_PUBLIC_BASE_URL", "https://assets.chasesets.test");
+    vi.stubEnv("CATALOG_ASSET_S3_ACCESS_KEY_ID", "spaces-key");
+    vi.stubEnv("CATALOG_ASSET_S3_SECRET_ACCESS_KEY", "spaces-secret");
+
+    expect(loadConfig().catalogAssetStorage).toEqual({
+      kind: "s3",
+      bucket: "catalog-assets",
+      region: "nyc3",
+      endpoint: "https://nyc3.digitaloceanspaces.com",
+      publicBaseUrl: "https://assets.chasesets.test",
+      accessKeyId: "spaces-key",
+      secretAccessKey: "spaces-secret",
+      forcePathStyle: false,
     });
   });
 });
