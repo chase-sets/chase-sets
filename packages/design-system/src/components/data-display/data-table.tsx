@@ -107,7 +107,7 @@ export function DataTable<T>({
   }
 
   const table = (
-    <div className="glass-surface overflow-x-auto rounded-tokenLg border border-muted shadow-tokenSm">
+    <div className="inset-surface overflow-x-auto rounded-tokenMd border">
       <table className="min-w-full border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-muted bg-surface-2">
@@ -204,10 +204,7 @@ export function DataTable<T>({
     <div role="list" className="space-y-3 md:hidden">
       {loading
         ? Array.from({ length: loadingRows }, (_, i) => (
-            <div
-              key={`skeleton-card-${i}`}
-              className="glass-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm"
-            >
+            <div key={`skeleton-card-${i}`} className="inset-surface rounded-tokenMd border p-4">
               <div className="space-y-3">
                 {columns.map((column, colIndex) => (
                   <div key={column.key} className="flex items-start justify-between gap-4">
@@ -234,7 +231,7 @@ export function DataTable<T>({
                 key={rowId}
                 role="listitem"
                 className={cx(
-                  "glass-surface rounded-tokenLg border p-4 shadow-tokenSm",
+                  "inset-surface rounded-tokenMd border p-4",
                   isSelected ? "border-accent bg-surface-2" : "border-muted",
                 )}
               >

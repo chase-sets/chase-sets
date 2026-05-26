@@ -415,6 +415,14 @@
     box-shadow: inset 0 1px 0 var(--surface-line);
   }
 
+  .inset-surface {
+    background-color: var(--surface-2);
+    border-color: var(--border);
+    box-shadow:
+      inset 0 1px 0 var(--surface-line),
+      inset 0 0 0 1px color-mix(in srgb, var(--background) 28%, transparent);
+  }
+
   .neon-text {
     color: var(--foreground);
   }

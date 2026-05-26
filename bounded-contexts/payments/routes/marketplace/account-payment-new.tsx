@@ -12,6 +12,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  Inset,
   LinkButton,
   MarketplaceNotice,
   NativeSelect,
@@ -320,9 +321,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 </Text>
               </Stack>
               {actionData?.error ? (
-                <Surface tone="subtle">
+                <Inset>
                   <Text>{actionData.error}</Text>
-                </Surface>
+                </Inset>
               ) : null}
               <Form id="payment-start-form" method="post" ref={formRef}>
                 <Stack gap={3}>

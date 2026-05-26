@@ -27,6 +27,7 @@ Application code should not introduce:
 - Application entrypoints must import `@chase-sets/design-system/styles.css` exactly once.
 - `ChaseRoot` owns reduced-motion policy through `reducedMotion="user" | "always" | "never"` and all component motion should flow through that root contract.
 - Layout should be built from primitives such as `Page`, `Grid`, `Stack`, `SplitPane`, `Surface`, and shell components.
+- Do not nest cards or elevated surfaces. One nested child level is allowed only through `Inset`, which renders as a recessed cutout for metrics, fields, tables, and grouped controls. `Inset` must not contain another `Inset`, `Card`, `Surface`, or `DetailPanel`.
 - Form screens should use `Field`, `FormSection`, and field controls rather than direct inputs.
 - Panel interactions must use the canonical pattern taxonomy from [Panel Interaction Patterns](./PANEL_INTERACTIONS.md): `NavigationDrawer`, `Sidebar`, `SideSheet`, `BottomSheet`, `ModalDialog`, `Popover`/`Menu`, and `FullPage`. The package does not expose generic drawer or legacy dropdown aliases.
 - Overlays should use design-system Dialog, Sheet, Popover, Tooltip, Menu, and AlertDialog primitives instead of route-local overlay CSS.

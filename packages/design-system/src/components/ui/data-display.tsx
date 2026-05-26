@@ -19,16 +19,16 @@ export function Stat({
   icon?: ReactNode;
 }) {
   return (
-    <Card className="p-4">
-      <CardContent className="gap-2 p-0">
+    <div className="inset-surface rounded-[var(--radius)] border p-4">
+      <div className="grid gap-2">
         <div className="flex items-center justify-between gap-2 text-sm text-[var(--muted-foreground)]">
           <span>{label}</span>
           {icon}
         </div>
         <div className="ds-display text-3xl text-[var(--foreground)]">{value}</div>
         {trend ? <div className="text-xs text-[var(--success)]">{trend}</div> : null}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -168,7 +168,7 @@ export function OrderSummary({
             ))}
           </TableBody>
         </Table>
-        <div className="flex items-center justify-between rounded-[var(--radius-lg)] bg-[var(--secondary)] p-4">
+        <div className="inset-surface flex items-center justify-between rounded-[var(--radius)] border p-4">
           <span className="font-semibold">Total</span>
           <span className="text-2xl font-bold text-[var(--primary)]">{total}</span>
         </div>

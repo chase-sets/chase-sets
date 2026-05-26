@@ -197,11 +197,28 @@ export function Spacer({ axis = "vertical", size = 4, flexible = false, ...rest 
 
 export interface InsetProps extends BoxProps {}
 
-export function Inset({ children, padding = 4, ...rest }: InsetProps) {
+export function Inset({
+  children,
+  element = "div",
+  padding = 4,
+  paddingX,
+  paddingY,
+  gap,
+  textAlign,
+  ...rest
+}: InsetProps) {
+  const Component = element;
+
   return (
-    <Box {...rest} padding={padding}>
+    <Component
+      {...rest}
+      className={cx(
+        "inset-surface min-w-0 max-w-full rounded-tokenMd border",
+        resolveSystemProps({ padding, paddingX, paddingY, gap, textAlign }),
+      )}
+    >
       {children}
-    </Box>
+    </Component>
   );
 }
 
