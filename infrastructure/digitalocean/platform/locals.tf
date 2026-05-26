@@ -37,7 +37,7 @@ locals {
   api_component_name = local.is_non_production ? "platform-api" : "admin-support-api"
   api_private_url    = local.is_non_production ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
   marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
-  database_size      = local.is_non_production ? var.non_production_database_size : var.database_size
+  database_size      = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
 
   api_database_pool_max               = "6"
   worker_database_pool_max            = local.is_non_production ? "8" : "6"
@@ -112,7 +112,20 @@ locals {
     context_name => 1
   }
 
-  context_database_connection_pool_sizes = local.is_non_production ? local.default_context_database_connection_pool_sizes : {}
+  staging_context_database_connection_pool_sizes = merge(local.default_context_database_connection_pool_sizes, {
+    auth            = 3
+    catalog         = 6
+    control         = 4
+    discovery       = 3
+    identity        = 3
+    marketplace     = 3
+    notifications   = 2
+    public-presence = 3
+  })
+
+  context_database_connection_pool_sizes = local.is_staging ? local.staging_context_database_connection_pool_sizes : (
+    local.is_non_production ? local.default_context_database_connection_pool_sizes : {}
+  )
 
   non_production_connection_pool_contexts = local.is_non_production ? local.context_databases : {}
 

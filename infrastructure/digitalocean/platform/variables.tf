@@ -55,14 +55,20 @@ variable "postgres_version" {
 
 variable "database_size" {
   type        = string
-  default     = "db-s-1vcpu-1gb"
-  description = "Production database cluster size. Non-production uses non_production_database_size because it runs the full platform."
+  default     = "db-s-2vcpu-4gb"
+  description = "Production database cluster size. Keep enough connection and CPU headroom for the deployed component pool budgets."
 }
 
 variable "non_production_database_size" {
   type        = string
   default     = "db-s-1vcpu-1gb"
-  description = "Preview and staging database cluster size. Non-production uses managed Postgres connection pools to fit the full platform on the smallest tier."
+  description = "Preview database cluster size. Staging uses staging_database_size because it runs the shared full-platform environment."
+}
+
+variable "staging_database_size" {
+  type        = string
+  default     = "db-s-2vcpu-4gb"
+  description = "Staging database cluster size. Staging needs enough server connection capacity for the full-platform managed PgBouncer pool shape."
 }
 
 variable "database_node_count" {
