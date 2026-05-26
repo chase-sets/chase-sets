@@ -127,7 +127,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     throw new Response(await response.text(), { status: response.status });
   }
 
-  return (await response.json()) as ProjectionOperationsSnapshot;
+  return normalizeProjectionOperationsSnapshot(await response.json());
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -443,6 +443,136 @@ export default function ProjectionOperationsRoute() {
       </Grid>
     </Page>
   );
+}
+
+export function normalizeProjectionOperationsSnapshot(value: unknown): ProjectionOperationsSnapshot {
+  const snapshot = isRecord(value) ? value : {};
+  const summary = isRecord(snapshot.summary) ? snapshot.summary : {};
+
+  return {
+    summary: {
+      status: summary.status === "degraded" ? "degraded" : "ok",
+      totalGroups: readNumber(summary.totalGroups),
+      caughtUpGroups: readNumber(summary.caughtUpGroups),
+      behindGroups: readNumber(summary.behindGroups),
+      staleGroups: readNumber(summary.staleGroups),
+      runningGroups: readNumber(summary.runningGroups),
+      errorGroups: readNumber(summary.errorGroups),
+      outstandingEventCount: readString(summary.outstandingEventCount),
+    },
+    projectionGroups: readArray(snapshot.projectionGroups).map(normalizeProjectionGroupStatus),
+    blockedProjections: readArray(snapshot.blockedProjections).map(normalizeBlockedProjectionDetails),
+    workers: readArray(snapshot.workers).filter(isRecord),
+    runners: readArray(snapshot.runners).filter(isRecord),
+  };
+}
+
+function normalizeProjectionGroupStatus(value: unknown): ProjectionGroupStatus {
+  const group = isRecord(value) ? value : {};
+
+  return {
+    projectionName: readString(group.projectionName),
+    projectionRevision: readNumber(group.projectionRevision),
+    storedProjectionRevision:
+      group.storedProjectionRevision === null ? null : readNumber(group.storedProjectionRevision),
+    revisionStale: group.revisionStale === true,
+    targetContextName: readString(group.targetContextName),
+    sourceContextNames: readArray(group.sourceContextNames).map(readString),
+    ownedTables: readArray(group.ownedTables).map(readString),
+    requiredDuringBootstrap: group.requiredDuringBootstrap === true,
+    initialized: group.initialized === true,
+    caughtUp: group.caughtUp === true,
+    state: readProjectionState(group.state),
+    lastError: group.lastError == null ? null : readString(group.lastError),
+    outstandingEventCount: readString(group.outstandingEventCount),
+    blockedStreamCount: readNumber(group.blockedStreamCount),
+    poisonEventCount: readNumber(group.poisonEventCount),
+    updatedAt: readString(group.updatedAt),
+    subscriptions: readArray(group.subscriptions).map(normalizeProjectionSubscriptionStatus),
+  };
+}
+
+function normalizeProjectionSubscriptionStatus(value: unknown): ProjectionSubscriptionStatus {
+  const subscription = isRecord(value) ? value : {};
+
+  return {
+    checkpointKey: readString(subscription.checkpointKey),
+    subscriptionName: readString(subscription.subscriptionName),
+    projectionName: readString(subscription.projectionName),
+    sourceContextName: readString(subscription.sourceContextName),
+    targetContextName: readString(subscription.targetContextName),
+    subscriptionVersion: readNumber(subscription.subscriptionVersion),
+    lastGlobalPosition: readString(subscription.lastGlobalPosition),
+    sourceHeadGlobalPosition: readString(subscription.sourceHeadGlobalPosition),
+    outstandingEventCount: readString(subscription.outstandingEventCount),
+    state: readProjectionState(subscription.state),
+    lastError: subscription.lastError == null ? null : readString(subscription.lastError),
+    blockedStreamCount: readNumber(subscription.blockedStreamCount),
+    poisonEventCount: readNumber(subscription.poisonEventCount),
+  };
+}
+
+function normalizeBlockedProjectionDetails(value: unknown): BlockedProjectionDetails {
+  const projection = isRecord(value) ? value : {};
+
+  return {
+    projectionKey: readString(projection.projectionKey),
+    blockedStreams: readArray(projection.blockedStreams).map(normalizeBlockedStream),
+    poisonEvents: readArray(projection.poisonEvents).map(normalizePoisonEvent),
+  };
+}
+
+function normalizeBlockedStream(value: unknown): BlockedStream {
+  const stream = isRecord(value) ? value : {};
+
+  return {
+    projectionKey: readString(stream.projectionKey),
+    streamId: readString(stream.streamId),
+    firstBlockedGlobalPosition: readString(stream.firstBlockedGlobalPosition),
+    firstBlockedStreamVersion: readNumber(stream.firstBlockedStreamVersion),
+    lastSeenGlobalPosition: readString(stream.lastSeenGlobalPosition),
+    deferredEventCount: readNumber(stream.deferredEventCount),
+    state: readString(stream.state),
+  };
+}
+
+function normalizePoisonEvent(value: unknown): PoisonEvent {
+  const event = isRecord(value) ? value : {};
+
+  return {
+    eventId: readString(event.eventId),
+    eventType: readString(event.eventType),
+    streamId: readString(event.streamId),
+    streamVersion: readNumber(event.streamVersion),
+    globalPosition: readString(event.globalPosition),
+    errorMessage: readString(event.errorMessage),
+    retryCount: readNumber(event.retryCount),
+    firstSeenAt: readString(event.firstSeenAt),
+    lastSeenAt: readString(event.lastSeenAt),
+    state: readString(event.state),
+  };
+}
+
+function readProjectionState(value: unknown): ProjectionState {
+  return value === "behind" || value === "running" || value === "caught-up" || value === "degraded" || value === "error"
+    ? value
+    : "idle";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : String(value ?? "0");
 }
 
 function stateTone(state: string) {
