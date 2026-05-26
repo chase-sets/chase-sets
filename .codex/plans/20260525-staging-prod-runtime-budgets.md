@@ -28,6 +28,7 @@ Staging admin pages are returning 500s because catalog API route loaders cannot 
 - Platform worker currently starts 102 runners with runner group concurrency of projections `2`, jobs `1`, dispatch `1`, and scheduled `1`, which exceeds a pool of `1` before counting control-plane and health queries.
 - First deployment of the component-specific runtime budgets failed because enlarged DigitalOcean managed PgBouncer pool sizes exceeded the staging database tier's available server connections. Terraform deleted several old size-1 pools before the replacement creation failed.
 - The tier-safe restore recreated 19 of 20 staging managed pools at size `1`, then failed creating `public-presence-runtime`; the live `db-s-1vcpu-1gb` staging tier does not have enough available server connections for one pool per full-platform context.
+- After the infrastructure deploy succeeded, staging catalog admin routes returned 200s, but `/operations/projections` still returned 500 because the admin route assumed optional projection operation API arrays such as `runners` were always present during deploy/version skew.
 
 ## Resolved Decisions
 
@@ -39,6 +40,7 @@ Staging admin pages are returning 500s because catalog API route loaders cannot 
 - Set worker concurrency explicitly in Terraform so database pool sizing and runner capacity cannot drift silently.
 - Update the deployment runbook to replace the obsolete statement that non-production caps every per-context client pool at one connection.
 - Restore staging by resizing the database tier and recreating any missing managed context pools through Terraform.
+- Normalize projection operation snapshots at the admin route loader boundary so missing optional arrays do not crash the operator page.
 
 ## Implementation Checklist
 
@@ -49,6 +51,7 @@ Staging admin pages are returning 500s because catalog API route loaders cannot 
 - [x] Wire component-specific values into platform-api, platform-worker, admin-support-api, admin-support-worker, platform-bootstrap, and admin-support-bootstrap.
 - [x] Wire explicit worker runner concurrency env vars into non-production and production workers.
 - [x] Update deployment docs and config tests.
+- [x] Add projection operations snapshot normalization and regression coverage.
 - [x] Run formatting/static/config tests.
 - [ ] Submit follow-up PR, verify CI, merge, and verify staging plus production deployment.
 - [ ] Confirm staging admin catalog routes stop returning 500 after deployment.
