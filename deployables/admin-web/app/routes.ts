@@ -27,6 +27,14 @@ const experienceRootRoutes = contextRoutes
       route,
     }),
   );
+const operationsRootRoutes = contextRoutes
+  .filter((routeRecord) => routeRecord.section === "operations" && (routeRecord.placement ?? "layout") === "root")
+  .map((routeRecord) =>
+    toRouteConfigEntry(routeRecord, {
+      index,
+      route,
+    }),
+  );
 const catalogLayoutRoutes = contextRoutes
   .filter((routeRecord) => routeRecord.section === "catalog" && (routeRecord.placement ?? "layout") === "layout")
   .map((routeRecord) =>
@@ -60,10 +68,10 @@ export default [
   route("health/ready", "routes/health-ready.ts"),
   route("offline", "routes/offline.tsx"),
   route("/", "routes/index.tsx"),
-  route("operations/projections", "routes/projection-operations.tsx"),
   ...catalogRootRoutes,
   ...identityRootRoutes,
   ...experienceRootRoutes,
+  layout("routes/operations-layout.tsx", [...operationsRootRoutes]),
   layout("routes/catalog-layout.tsx", [route("catalog", "routes/catalog-home.tsx"), ...catalogLayoutRoutes]),
   layout("routes/identity-layout.tsx", [route("identity", "routes/identity-home.tsx"), ...identityLayoutRoutes]),
   layout("routes/experience-layout.tsx", [

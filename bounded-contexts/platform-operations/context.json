@@ -1,0 +1,48 @@
+{
+  "contextName": "platform-operations",
+  "packageName": "@chase-sets/platform-operations",
+  "ownedNouns": ["projection-operation", "platform-operation-attention"],
+  "streamPrefix": "platform-operations.",
+  "apiBasePath": "/api/platform",
+  "slices": ["projection-operations"],
+  "allowedSupportDirectories": [],
+  "publicExports": [".", "./context", "./routes/*"],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "eventSubscriptions": [],
+  "projectionGroups": [],
+  "hostPorts": [],
+  "apiDeployables": [],
+  "apiMounts": [],
+  "deployableContributions": [
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "projection-operations",
+          "routePath": "projections",
+          "fileExport": "./routes/admin/projection-operations",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "placement": "root"
+        }
+      ]
+    }
+  ],
+  "shellContributions": [],
+  "directoryIntent": {
+    "projection-operations": {
+      "classification": "slice",
+      "purpose": "Own projection-operations operator workflow, UI contracts, and admin console language for Platform Operations.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose platform-operations route modules consumed by generated deployable adapters.",
+      "allowedWhen": "Required whenever Platform Operations contributes routes to a deployable.",
+      "expectedConsumers": ["Generated deployable route adapters"]
+    }
+  },
+  "runtimeDeployables": []
+}

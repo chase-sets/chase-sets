@@ -363,7 +363,7 @@ describe("platform host web registry", () => {
         label: "Dimensions",
       }),
     ]);
-    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity", "experience"]);
+    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity", "experience", "operations"]);
   });
 
   it("places public-presence waitlist review in the experience admin section", () => {
