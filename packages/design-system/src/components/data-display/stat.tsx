@@ -12,7 +12,7 @@ export interface StatProps extends Omit<HTMLAttributes<HTMLDivElement>, "classNa
 
 export function Stat({ label, value, trend, icon, ...rest }: StatProps) {
   return (
-    <div {...rest} className="glass-surface rounded-tokenLg border border-muted p-4 shadow-tokenSm">
+    <div {...rest} className="inset-surface rounded-tokenMd border p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-semibold uppercase tracking-wide text-secondary">{label}</div>
         {icon ? <div className="text-accent">{icon}</div> : null}

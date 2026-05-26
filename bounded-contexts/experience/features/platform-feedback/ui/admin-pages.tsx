@@ -6,6 +6,7 @@ import {
   DataTable,
   DetailPanel,
   Grid,
+  Inset,
   Inline,
   KeyValueList,
   LinkButton,
@@ -18,7 +19,6 @@ import {
   Stack,
   StatGrid,
   Stat,
-  Surface,
   Text,
 } from "@chase-sets/design-system";
 import type { PlatformFeedbackDetail, PlatformFeedbackListItem, PlatformFeedbackMetrics } from "../api/contracts";
@@ -253,74 +253,68 @@ export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: Platfo
         ) : null}
       </ActionBar>
       <Grid columns={{ base: 1, xl: 2 }} gap={4}>
-        <Surface elevated>
-          <Stack gap={4}>
+        <DetailPanel title={t("experience.platformFeedbackAdmin.feedback")}>
+          <Stack gap={3}>
             <Inline gap={2}>
               <Badge tone={statusTone(feedback.status)}>{statusLabel(feedback.status)}</Badge>
               <Rating value={feedback.rating} />
             </Inline>
-            <DetailPanel title={t("experience.platformFeedbackAdmin.feedback")}>
-              <Stack gap={3}>
-                <KeyValueList
-                  items={[
-                    { key: t("experience.platformFeedbackAdmin.topic"), value: topicLabel(feedback.topic) },
-                    { key: t("experience.platformFeedbackAdmin.workflow"), value: workflowLabel(feedback.workflow) },
-                    {
-                      key: t("experience.platformFeedbackAdmin.followUp"),
-                      value: feedback.follow_up_consent
-                        ? t("experience.platformFeedbackAdmin.yes")
-                        : t("experience.platformFeedbackAdmin.no"),
-                    },
-                    { key: t("experience.platformFeedbackAdmin.sourceRoute"), value: feedback.source_route_path },
-                    { key: t("experience.platformFeedbackAdmin.submitted"), value: formatDate(feedback.submitted_at) },
-                  ]}
-                />
-                <Surface tone="subtle">
-                  <Text>{feedback.comment ?? t("experience.platformFeedbackAdmin.noComment")}</Text>
-                </Surface>
-              </Stack>
-            </DetailPanel>
+            <KeyValueList
+              items={[
+                { key: t("experience.platformFeedbackAdmin.topic"), value: topicLabel(feedback.topic) },
+                { key: t("experience.platformFeedbackAdmin.workflow"), value: workflowLabel(feedback.workflow) },
+                {
+                  key: t("experience.platformFeedbackAdmin.followUp"),
+                  value: feedback.follow_up_consent
+                    ? t("experience.platformFeedbackAdmin.yes")
+                    : t("experience.platformFeedbackAdmin.no"),
+                },
+                { key: t("experience.platformFeedbackAdmin.sourceRoute"), value: feedback.source_route_path },
+                { key: t("experience.platformFeedbackAdmin.submitted"), value: formatDate(feedback.submitted_at) },
+              ]}
+            />
+            <Inset>
+              <Text>{feedback.comment ?? t("experience.platformFeedbackAdmin.noComment")}</Text>
+            </Inset>
           </Stack>
-        </Surface>
-        <Surface elevated>
-          <Stack gap={4}>
-            <DetailPanel title={t("experience.platformFeedbackAdmin.attribution")}>
-              <KeyValueList
-                items={[
-                  { key: t("experience.platformFeedbackAdmin.user"), value: feedback.user_id },
-                  { key: t("experience.platformFeedbackAdmin.account"), value: feedback.account_id },
-                  { key: t("experience.platformFeedbackAdmin.updated"), value: formatDate(feedback.updated_at) },
-                  {
-                    key: t("experience.platformFeedbackAdmin.reviewedBy"),
-                    value: feedback.reviewed_by_user_id ?? t("experience.platformFeedbackAdmin.notSet"),
-                  },
-                  {
-                    key: t("experience.platformFeedbackAdmin.archivedBy"),
-                    value: feedback.archived_by_user_id ?? t("experience.platformFeedbackAdmin.notSet"),
-                  },
-                ]}
-              />
-            </DetailPanel>
-            <DetailPanel title={t("experience.platformFeedbackAdmin.relatedEntities")}>
-              <Stack gap={2}>
-                {feedback.related_entities.length === 0 ? (
-                  <Text tone="secondary">{t("experience.platformFeedbackAdmin.noRelatedEntities")}</Text>
-                ) : (
-                  feedback.related_entities.map((entity) => {
-                    const href = relatedEntityHref(entity);
-                    return href ? (
-                      <LinkButton key={`${entity.type}:${entity.id}`} href={href} tone="secondary">
-                        {entityLabel(entity)}
-                      </LinkButton>
-                    ) : (
-                      <Text key={`${entity.type}:${entity.id}`}>{entityLabel(entity)}</Text>
-                    );
-                  })
-                )}
-              </Stack>
-            </DetailPanel>
-          </Stack>
-        </Surface>
+        </DetailPanel>
+        <Stack gap={4}>
+          <DetailPanel title={t("experience.platformFeedbackAdmin.attribution")}>
+            <KeyValueList
+              items={[
+                { key: t("experience.platformFeedbackAdmin.user"), value: feedback.user_id },
+                { key: t("experience.platformFeedbackAdmin.account"), value: feedback.account_id },
+                { key: t("experience.platformFeedbackAdmin.updated"), value: formatDate(feedback.updated_at) },
+                {
+                  key: t("experience.platformFeedbackAdmin.reviewedBy"),
+                  value: feedback.reviewed_by_user_id ?? t("experience.platformFeedbackAdmin.notSet"),
+                },
+                {
+                  key: t("experience.platformFeedbackAdmin.archivedBy"),
+                  value: feedback.archived_by_user_id ?? t("experience.platformFeedbackAdmin.notSet"),
+                },
+              ]}
+            />
+          </DetailPanel>
+          <DetailPanel title={t("experience.platformFeedbackAdmin.relatedEntities")}>
+            <Stack gap={2}>
+              {feedback.related_entities.length === 0 ? (
+                <Text tone="secondary">{t("experience.platformFeedbackAdmin.noRelatedEntities")}</Text>
+              ) : (
+                feedback.related_entities.map((entity) => {
+                  const href = relatedEntityHref(entity);
+                  return href ? (
+                    <LinkButton key={`${entity.type}:${entity.id}`} href={href} tone="secondary">
+                      {entityLabel(entity)}
+                    </LinkButton>
+                  ) : (
+                    <Text key={`${entity.type}:${entity.id}`}>{entityLabel(entity)}</Text>
+                  );
+                })
+              )}
+            </Stack>
+          </DetailPanel>
+        </Stack>
       </Grid>
     </Page>
   );

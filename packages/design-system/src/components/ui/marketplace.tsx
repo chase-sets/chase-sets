@@ -33,6 +33,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { Inset } from "../../primitives/layout";
 import { ProductMediaImage } from "../data-display/product-media";
 import { Badge } from "./badge";
 import { Button } from "./button";
@@ -415,11 +416,11 @@ export interface AccountQualityIndicatorProps {
 
 export function AccountQualityIndicator({ label, value, detail }: AccountQualityIndicatorProps) {
   return (
-    <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3">
+    <Inset padding={3}>
       <div className="text-xs font-medium text-[var(--muted-foreground)]">{label}</div>
       <div className="text-base font-bold tabular-nums text-[var(--foreground)]">{value}</div>
       {detail ? <div className="mt-1 text-xs leading-4 text-[var(--text-secondary)]">{detail}</div> : null}
-    </div>
+    </Inset>
   );
 }
 
@@ -2094,13 +2095,10 @@ export function AccountProfileHeader({
         {stats.length ? (
           <div className="grid gap-2 sm:grid-cols-4">
             {stats.map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
-              >
+              <Inset key={stat.label} padding={3}>
                 <div className="text-lg font-bold tabular-nums text-[var(--foreground)]">{stat.value}</div>
                 <div className="text-xs text-[var(--muted-foreground)]">{stat.label}</div>
-              </div>
+              </Inset>
             ))}
           </div>
         ) : null}
@@ -2148,13 +2146,10 @@ export function AccountCredibilityHeader({
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {facts.map((fact) => (
-          <div
-            key={String(fact.label)}
-            className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
-          >
+          <Inset key={String(fact.label)} padding={3}>
             <div className="text-sm font-semibold text-[var(--foreground)]">{fact.value}</div>
             <div className="text-xs text-[var(--muted-foreground)]">{fact.label}</div>
-          </div>
+          </Inset>
         ))}
       </div>
       {policies.length ? (
@@ -2441,16 +2436,13 @@ export function MarketplaceDashboardPanel({ title, description, metrics, action 
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-3">
           {metrics.map((metric) => (
-            <div
-              key={metric.label}
-              className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
-            >
+            <Inset key={metric.label} padding={3}>
               <div className="text-2xl font-bold tabular-nums text-[var(--foreground)]">{metric.value}</div>
               <div className="text-sm font-medium text-[var(--text-secondary)]">{metric.label}</div>
               {metric.detail ? (
                 <div className="mt-1 text-xs text-[var(--muted-foreground)]">{metric.detail}</div>
               ) : null}
-            </div>
+            </Inset>
           ))}
         </div>
       </CardContent>

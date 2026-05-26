@@ -5,6 +5,7 @@ import {
   Badge,
   Card,
   DataTable,
+  Inset,
   LinkButton,
   Page,
   PageHeader,
@@ -186,7 +187,7 @@ export function InventoryItemListPage({
                 </Text>
               ) : null}
               {catalogItem ? (
-                <Card>
+                <Inset>
                   <Stack gap={2}>
                     <Text weight="semibold">{catalogItem.title}</Text>
                     {catalogItem.subtitle ? (
@@ -230,7 +231,7 @@ export function InventoryItemListPage({
                       </Text>
                     )}
                   </Stack>
-                </Card>
+                </Inset>
               ) : null}
               {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
               <NativeSelect

@@ -709,44 +709,40 @@ function WorkersTable({
 function DiagnosticsPanel({ data }: Readonly<{ data: ProjectionOperationsSnapshot }>) {
   return (
     <Grid columns={{ base: 1, xl: 2 }} gap={4}>
-      <Surface>
-        <DetailPanel title={t(`${routeKey}.snapshotDiagnostics`)}>
-          <KeyValueList
-            items={[
-              { key: t(`${routeKey}.statusSource`), value: data.projectionStatusSource },
-              { key: t(`${routeKey}.groups`), value: data.summary.totalGroups },
-              { key: t(`${routeKey}.caughtUp`), value: data.summary.caughtUpGroups },
-              { key: t(`${routeKey}.behind`), value: data.summary.behindGroups },
-              { key: t(`${routeKey}.errorGroups`), value: data.summary.errorGroups },
-            ]}
-          />
-        </DetailPanel>
-      </Surface>
-      <Surface>
-        <DetailPanel title={t(`${routeKey}.operationDiagnostics`)}>
-          <KeyValueList
-            items={[
-              {
-                key: t(`${routeKey}.queuedOperations`),
-                value: formatDecimalCount(data.operationSummary?.queuedCount ?? "0"),
-              },
-              {
-                key: t(`${routeKey}.runningOperations`),
-                value: formatDecimalCount(data.operationSummary?.runningCount ?? "0"),
-              },
-              {
-                key: t(`${routeKey}.failedOperations`),
-                value: formatDecimalCount(data.operationSummary?.failedCount ?? "0"),
-              },
-              { key: t(`${routeKey}.oldestQueuedAt`), value: formatDate(data.operationSummary?.oldestQueuedAt ?? "") },
-              {
-                key: t(`${routeKey}.oldestRunningAt`),
-                value: formatDate(data.operationSummary?.oldestRunningAt ?? ""),
-              },
-            ]}
-          />
-        </DetailPanel>
-      </Surface>
+      <DetailPanel title={t(`${routeKey}.snapshotDiagnostics`)}>
+        <KeyValueList
+          items={[
+            { key: t(`${routeKey}.statusSource`), value: data.projectionStatusSource },
+            { key: t(`${routeKey}.groups`), value: data.summary.totalGroups },
+            { key: t(`${routeKey}.caughtUp`), value: data.summary.caughtUpGroups },
+            { key: t(`${routeKey}.behind`), value: data.summary.behindGroups },
+            { key: t(`${routeKey}.errorGroups`), value: data.summary.errorGroups },
+          ]}
+        />
+      </DetailPanel>
+      <DetailPanel title={t(`${routeKey}.operationDiagnostics`)}>
+        <KeyValueList
+          items={[
+            {
+              key: t(`${routeKey}.queuedOperations`),
+              value: formatDecimalCount(data.operationSummary?.queuedCount ?? "0"),
+            },
+            {
+              key: t(`${routeKey}.runningOperations`),
+              value: formatDecimalCount(data.operationSummary?.runningCount ?? "0"),
+            },
+            {
+              key: t(`${routeKey}.failedOperations`),
+              value: formatDecimalCount(data.operationSummary?.failedCount ?? "0"),
+            },
+            { key: t(`${routeKey}.oldestQueuedAt`), value: formatDate(data.operationSummary?.oldestQueuedAt ?? "") },
+            {
+              key: t(`${routeKey}.oldestRunningAt`),
+              value: formatDate(data.operationSummary?.oldestRunningAt ?? ""),
+            },
+          ]}
+        />
+      </DetailPanel>
     </Grid>
   );
 }
@@ -754,36 +750,34 @@ function DiagnosticsPanel({ data }: Readonly<{ data: ProjectionOperationsSnapsho
 function SelectedDetail({ detail }: Readonly<{ detail: SelectedRecord }>) {
   return (
     <PageSection title={t(`${routeKey}.selectedDetail`)}>
-      <Surface>
-        <DetailPanel title={detail.title} actions={detail.actions}>
-          <Stack gap={3}>
-            <KeyValueList items={[...detail.items]} />
-            {detail.error ? <Text tone="secondary">{detail.error}</Text> : null}
-            {detail.poisonEvents && detail.poisonEvents.length > 0 ? (
-              <DataTable
-                density="compact"
-                rows={[...detail.poisonEvents]}
-                getRowId={(event) => event.eventId}
-                columns={[
-                  { key: "type", header: t(`${routeKey}.eventType`), cell: (event) => event.eventType },
-                  {
-                    key: "state",
-                    header: t(`${routeKey}.state`),
-                    cell: (event) => <Badge tone={stateTone(event.state)}>{event.state}</Badge>,
-                  },
-                  {
-                    key: "position",
-                    header: t(`${routeKey}.position`),
-                    align: "right",
-                    cell: (event) => event.globalPosition,
-                  },
-                  { key: "error", header: t(`${routeKey}.error`), cell: (event) => event.errorMessage },
-                ]}
-              />
-            ) : null}
-          </Stack>
-        </DetailPanel>
-      </Surface>
+      <DetailPanel title={detail.title} actions={detail.actions}>
+        <Stack gap={3}>
+          <KeyValueList items={[...detail.items]} />
+          {detail.error ? <Text tone="secondary">{detail.error}</Text> : null}
+          {detail.poisonEvents && detail.poisonEvents.length > 0 ? (
+            <DataTable
+              density="compact"
+              rows={[...detail.poisonEvents]}
+              getRowId={(event) => event.eventId}
+              columns={[
+                { key: "type", header: t(`${routeKey}.eventType`), cell: (event) => event.eventType },
+                {
+                  key: "state",
+                  header: t(`${routeKey}.state`),
+                  cell: (event) => <Badge tone={stateTone(event.state)}>{event.state}</Badge>,
+                },
+                {
+                  key: "position",
+                  header: t(`${routeKey}.position`),
+                  align: "right",
+                  cell: (event) => event.globalPosition,
+                },
+                { key: "error", header: t(`${routeKey}.error`), cell: (event) => event.errorMessage },
+              ]}
+            />
+          ) : null}
+        </Stack>
+      </DetailPanel>
     </PageSection>
   );
 }

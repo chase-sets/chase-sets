@@ -28,6 +28,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  Inset,
   LinkButton,
   MarketplaceNotice,
   Page,
@@ -583,9 +584,9 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
         <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
         <div ref={containerRef} />
         {errorMessage ? (
-          <Surface tone="subtle">
+          <Inset>
             <Text>{errorMessage}</Text>
-          </Surface>
+          </Inset>
         ) : null}
         <Button type="button" onClick={handleConfirm} disabled={!isReady || isSubmitting} size="lg" leadingIcon="lock">
           {isSubmitting
@@ -683,13 +684,13 @@ function GuestClaimPrompt({
                 value={displayName}
                 onChange={(event) => setDisplayName(event.currentTarget.value)}
               />
-              <Surface tone="subtle">
+              <Inset>
                 <Text size="sm" tone="secondary">
                   {t("payments.routes.marketplace.accountPayment.we.will.save.this.order.to", {
                     email: claimContext.contactEmail,
                   })}
                 </Text>
-              </Surface>
+              </Inset>
               <Button type="submit" leadingIcon="shield" loading={isCreatingPasskey}>
                 {t("payments.routes.marketplace.accountPayment.save.with.passkey")}
               </Button>
@@ -711,7 +712,7 @@ function GuestClaimPrompt({
             </Stack>
           </Form>
           {actionData && "status" in actionData ? (
-            <Surface tone="subtle">
+            <Inset>
               <Form method="post">
                 <Stack gap={2}>
                   <Text size="sm" tone="secondary">
@@ -730,7 +731,7 @@ function GuestClaimPrompt({
                   </Button>
                 </Stack>
               </Form>
-            </Surface>
+            </Inset>
           ) : null}
           <ProgressiveDisclosure
             title={t("payments.routes.marketplace.accountPayment.other.options")}
