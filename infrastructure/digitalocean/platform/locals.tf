@@ -177,19 +177,6 @@ locals {
       (local.admin_domain) = local.is_staging ? local.environment_zone : var.root_domain
     },
   )
-  staging_app_alias_record_names = local.is_staging ? toset([
-    "admin",
-    "marketplace",
-    "www",
-  ]) : toset([])
-  staging_root_app_platform_ipv4_records = local.is_staging ? toset([
-    "162.159.140.98",
-    "172.66.0.96",
-  ]) : toset([])
-  staging_root_app_platform_ipv6_records = local.is_staging ? toset([
-    "2606:4700:7::60",
-    "2a06:98c1:58::60",
-  ]) : toset([])
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {

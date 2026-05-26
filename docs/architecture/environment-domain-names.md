@@ -48,7 +48,7 @@ When an environment root also receives mail through Google Workspace, it must no
 The Gmail-compatible environment-root record shape is:
 
 - Parent zone: `NS staging` delegation to DigitalOcean nameservers.
-- Child zone apex: platform Terraform-managed App Platform A/AAAA routing records for `staging.chasesets.com`.
+- Child zone apex: App Platform-managed A/AAAA routing records for `staging.chasesets.com`, created from the platform Terraform App Platform domain attachment.
 - Child zone apex: `MX @` to Google Workspace and `TXT @` for Google Workspace SPF.
 - Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, the catalog asset CDN CNAME, and CNAME records for App Platform subdomain aliases.
 - No `CNAME @` in the child zone and no `CNAME staging` in the parent zone.
