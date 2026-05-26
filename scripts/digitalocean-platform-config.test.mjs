@@ -85,7 +85,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
   });
 
-  it("routes staging root as a DigitalOcean-managed marketplace host", () => {
+  it("routes staging root as a self-managed marketplace host", () => {
     expect(platformLocals).toContain("staging_root_marketplace_domains = local.is_staging");
     expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');
     expect(platformLocals).toContain(
@@ -98,7 +98,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("for_each = local.all_marketplace_domains");
     expect(platformMain).toContain('name                 = "marketplace"');
     expect(platformMain).toContain('name                 = "platform-api"');
-    expect(platformMain).toContain(
+    expect(platformMain).not.toContain(
       `for_each = local.staging_root_marketplace_domains
       content {
         name = domain.value
