@@ -8,6 +8,7 @@ import {
   deployApp,
   pendingDomains,
   planAppChanged,
+  resetStaleDomainAttachment,
   waitForDomains,
   waitForDeployments,
 } from "./digitalocean-app-deployment.mjs";
@@ -286,5 +287,94 @@ describe("digitalocean-app-deployment", () => {
         },
       }),
     ).rejects.toThrow("deployment-id finished with phase 'ERROR' instead of ACTIVE");
+  });
+
+  it("resets stale App Platform domain attachments by removing and restoring the domain", async () => {
+    const calls = [];
+    const app = {
+      domains: [
+        {
+          spec: { domain: "staging.test" },
+          phase: "CONFIGURING",
+          progress: { steps: [{ reason: { code: "DomainCNAMEMismatch" } }] },
+        },
+      ],
+      spec: {
+        name: "test-app",
+        domains: [
+          { domain: "www.staging.test", type: "ALIAS", zone: "staging.test" },
+          { domain: "staging.test", type: "PRIMARY", zone: "staging.test" },
+        ],
+        ingress: {
+          rules: [
+            {
+              match: { authority: { exact: "staging.test" }, path: { prefix: "/" } },
+              component: { name: "marketplace", preserve_path_prefix: true },
+            },
+            {
+              match: { path: { prefix: "/" } },
+              component: { name: "worker" },
+            },
+          ],
+        },
+      },
+    };
+    const latestApp = {
+      spec: {
+        name: "test-app",
+        domains: [{ domain: "www.staging.test", type: "ALIAS", zone: "staging.test" }],
+        ingress: {
+          rules: [
+            {
+              match: { path: { prefix: "/" } },
+              component: { name: "worker" },
+            },
+          ],
+        },
+      },
+    };
+    const responses = [[app], [latestApp]];
+
+    await expect(
+      resetStaleDomainAttachment("app-id", "staging.test", {
+        commandJson: async (command, args) => {
+          calls.push([command, args]);
+          return responses.shift();
+        },
+        commandOutput: async (command, args, options) => {
+          calls.push([command, args, JSON.parse(options.input)]);
+          return "";
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(calls[0]).toEqual(["doctl", ["apps", "get", "app-id", "--output", "json"]]);
+    expect(calls[1][0]).toBe("doctl");
+    expect(calls[1][1]).toEqual(["apps", "update", "app-id", "--spec", "-", "--wait"]);
+    expect(calls[1][2].domains).toEqual([{ domain: "www.staging.test", type: "ALIAS", zone: "staging.test" }]);
+    expect(calls[1][2].ingress.rules).toHaveLength(1);
+    expect(calls[2]).toEqual(["doctl", ["apps", "get", "app-id", "--output", "json"]]);
+    expect(calls[3][2].domains).toContainEqual({
+      domain: "staging.test",
+      type: "PRIMARY",
+      zone: "staging.test",
+    });
+    expect(calls[3][2].ingress.rules[0].match.authority.exact).toBe("staging.test");
+  });
+
+  it("skips App Platform domain reset when the domain is not stale", async () => {
+    await expect(
+      resetStaleDomainAttachment("app-id", "staging.test", {
+        commandJson: async () => [
+          {
+            domains: [{ spec: { domain: "staging.test" }, phase: "CONFIGURING", progress: { steps: [] } }],
+            spec: { domains: [{ domain: "staging.test" }], ingress: { rules: [] } },
+          },
+        ],
+        commandOutput: async () => {
+          throw new Error("update should not be called");
+        },
+      }),
+    ).resolves.toBe(false);
   });
 });
