@@ -10,6 +10,7 @@ export type CheckoutCartLineRow = Readonly<{
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;
+  item_image_srcset: string | null;
   item_image_loading_url: string | null;
   item_image_loading_alt: string | null;
   item_image_loading_srcset: string | null;
@@ -46,6 +47,7 @@ type CartLinePageRow = Readonly<{
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;
+  item_image_srcset: string | null;
   item_image_loading_url: string | null;
   item_image_loading_alt: string | null;
   item_image_loading_srcset: string | null;
@@ -133,6 +135,7 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
        line.item_title,
        line.item_subtitle,
        line.item_image_url,
+       line.item_image_srcset,
        line.item_image_loading_url,
        line.item_image_loading_alt,
        line.item_image_loading_srcset,

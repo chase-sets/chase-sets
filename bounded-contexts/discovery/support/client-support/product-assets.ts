@@ -1,3 +1,4 @@
+import type { ResponsiveImageSource } from "@chase-sets/design-system";
 import type { DiscoveryProductAssetRole, DiscoveryProductAssetSet, DiscoveryProductAssetVariant } from "./contracts";
 
 export function selectDiscoveryProductAssetVariant(
@@ -44,4 +45,29 @@ export function buildDiscoveryProductAssetSrcSet(
   }
 
   return variants.map((variant) => `${variant.publicUrl} ${variant.width}w`).join(", ");
+}
+
+export function buildDiscoveryProductAssetImage(
+  assetSets: readonly DiscoveryProductAssetSet[] | null | undefined,
+  role: Exclude<DiscoveryProductAssetRole, "source">,
+  sizes: string,
+): ResponsiveImageSource | null {
+  for (const assetSet of assetSets ?? []) {
+    const variants = assetSet.variants
+      .filter((variant) => variant.role === role)
+      .sort((left, right) => left.width - right.width);
+    const oneX = variants.find((variant) => variant.density === 1) ?? variants[0] ?? null;
+
+    if (oneX) {
+      return {
+        src: oneX.publicUrl,
+        srcSet: variants.map((variant) => `${variant.publicUrl} ${variant.width}w`).join(", "),
+        sizes,
+        width: oneX.width,
+        height: oneX.height,
+      };
+    }
+  }
+
+  return null;
 }

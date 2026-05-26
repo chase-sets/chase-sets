@@ -19,6 +19,7 @@ export type CheckoutCartLine = Readonly<{
   itemTitle: string;
   itemSubtitle: string | null;
   itemImageUrl: string | null;
+  itemImageSrcSet: string | null;
   itemImageLoadingUrl: string | null;
   itemImageLoadingAlt: string | null;
   itemImageLoadingSrcSet: string | null;
@@ -53,6 +54,7 @@ export type AddCartLineCommand = Readonly<{
   itemTitle: string;
   itemSubtitle: string | null;
   itemImageUrl: string | null;
+  itemImageSrcSet?: string | null;
   itemImageLoadingUrl?: string | null;
   itemImageLoadingAlt?: string | null;
   itemImageLoadingSrcSet?: string | null;
@@ -108,6 +110,7 @@ export type CartLineAddedEvent = DomainEvent<
     itemTitle: string;
     itemSubtitle: string | null;
     itemImageUrl: string | null;
+    itemImageSrcSet?: string | null;
     itemImageLoadingUrl?: string | null;
     itemImageLoadingAlt?: string | null;
     itemImageLoadingSrcSet?: string | null;
@@ -209,6 +212,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
             itemTitle: normalizeRequiredText(command.itemTitle, "Cart lines must include an item title snapshot."),
             itemSubtitle: normalizeOptionalText(command.itemSubtitle),
             itemImageUrl: normalizeOptionalText(command.itemImageUrl),
+            itemImageSrcSet: normalizeOptionalText(command.itemImageSrcSet),
             itemImageLoadingUrl: normalizeOptionalText(command.itemImageLoadingUrl),
             itemImageLoadingAlt: normalizeOptionalText(command.itemImageLoadingAlt),
             itemImageLoadingSrcSet: normalizeOptionalText(command.itemImageLoadingSrcSet),
@@ -293,6 +297,7 @@ export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCar
             itemTitle: event.data.itemTitle,
             itemSubtitle: event.data.itemSubtitle,
             itemImageUrl: event.data.itemImageUrl,
+            itemImageSrcSet: normalizeOptionalText(event.data.itemImageSrcSet),
             itemImageLoadingUrl: normalizeOptionalText(event.data.itemImageLoadingUrl),
             itemImageLoadingAlt: normalizeOptionalText(event.data.itemImageLoadingAlt),
             itemImageLoadingSrcSet: normalizeOptionalText(event.data.itemImageLoadingSrcSet),

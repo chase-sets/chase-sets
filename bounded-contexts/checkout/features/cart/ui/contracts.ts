@@ -7,6 +7,7 @@ export interface CheckoutCartLine {
   item_title: string;
   item_subtitle: string | null;
   item_image_url: string | null;
+  item_image_srcset: string | null;
   item_image_loading_url: string | null;
   item_image_loading_alt: string | null;
   item_image_loading_srcset: string | null;

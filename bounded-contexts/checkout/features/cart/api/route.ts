@@ -105,6 +105,7 @@ function parseCartLineBody(body: Record<string, unknown>) {
     itemTitle: String(body.itemTitle ?? ""),
     itemSubtitle: body.itemSubtitle === null || body.itemSubtitle === undefined ? null : String(body.itemSubtitle),
     itemImageUrl: body.itemImageUrl === null || body.itemImageUrl === undefined ? null : String(body.itemImageUrl),
+    itemImageSrcSet: optionalBodyString(body.itemImageSrcSet),
     itemImageLoadingUrl: optionalBodyString(body.itemImageLoadingUrl),
     itemImageLoadingAlt: optionalBodyString(body.itemImageLoadingAlt),
     itemImageLoadingSrcSet: optionalBodyString(body.itemImageLoadingSrcSet),

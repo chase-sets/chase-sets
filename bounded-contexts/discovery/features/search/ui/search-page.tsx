@@ -33,10 +33,7 @@ import type {
 } from "../../../support/client-support/contracts";
 import type { DiscoveryBulkCartPreview } from "../read-model/queries";
 import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
-import {
-  buildDiscoveryProductAssetSrcSet,
-  selectDiscoveryProductAssetUrl,
-} from "../../../support/client-support/product-assets";
+import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
@@ -725,12 +722,16 @@ export function SearchPage({
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
                 const itemDetailHref = buildItemDetailHref(item.slug, dynamicFilters);
+                const productAssetImage = buildDiscoveryProductAssetImage(
+                  item.product_asset_sets,
+                  "search-card",
+                  "160px",
+                );
                 const imageSrc =
-                  selectDiscoveryProductAssetUrl(item.product_asset_sets, "search-card") ??
+                  productAssetImage?.src ??
                   item.image_urls[0] ??
                   (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined) ??
                   discoveryAssetUrls.defaultProductImage;
-                const imageSrcSet = buildDiscoveryProductAssetSrcSet(item.product_asset_sets, "search-card");
                 const buyHref = withMarketIntent(itemDetailHref, "buy");
                 const sellHref = withMarketIntent(itemDetailHref, "sell");
                 const watchHref = withMarketIntent(itemDetailHref, "watch");
@@ -740,9 +741,9 @@ export function SearchPage({
                     key={item.catalog_item_id}
                     href={itemDetailHref}
                     title={item.title}
+                    image={productAssetImage ?? undefined}
                     imageSrc={imageSrc}
-                    imageSrcSet={imageSrcSet}
-                    imageSizes="(min-width: 1536px) 160px, (min-width: 640px) 160px, 100vw"
+                    imageSlot="compact-product"
                     imageAlt={item.title}
                     imageFallbackSrc={item.image_fallback?.url ?? discoveryAssetUrls.defaultProductImage}
                     imageFallbackAlt={

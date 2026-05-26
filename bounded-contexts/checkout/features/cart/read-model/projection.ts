@@ -13,6 +13,7 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
         itemTitle: string;
         itemSubtitle: string | null;
         itemImageUrl?: string | null;
+        itemImageSrcSet?: string | null;
         itemImageLoadingUrl?: string | null;
         itemImageLoadingAlt?: string | null;
         itemImageLoadingSrcSet?: string | null;
@@ -35,6 +36,7 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
            item_title,
            item_subtitle,
            item_image_url,
+           item_image_srcset,
            item_image_loading_url,
            item_image_loading_alt,
            item_image_loading_srcset,
@@ -47,7 +49,7 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
            availability_state,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20)
          ON CONFLICT (buyer_account_id, line_id) DO UPDATE
          SET catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
@@ -55,6 +57,7 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
              item_title = EXCLUDED.item_title,
              item_subtitle = EXCLUDED.item_subtitle,
              item_image_url = EXCLUDED.item_image_url,
+             item_image_srcset = EXCLUDED.item_image_srcset,
              item_image_loading_url = EXCLUDED.item_image_loading_url,
              item_image_loading_alt = EXCLUDED.item_image_loading_alt,
              item_image_loading_srcset = EXCLUDED.item_image_loading_srcset,
@@ -75,6 +78,7 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
           data.itemTitle,
           data.itemSubtitle,
           data.itemImageUrl ?? null,
+          data.itemImageSrcSet ?? null,
           data.itemImageLoadingUrl ?? null,
           data.itemImageLoadingAlt ?? null,
           data.itemImageLoadingSrcSet ?? null,

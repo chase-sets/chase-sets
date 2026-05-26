@@ -71,4 +71,94 @@ describe("MarketplaceListingDetailPage", () => {
     expect(screen.getByText(/Buyer shipping credit 7.5%/)).toBeTruthy();
     expect(container.querySelector('input[name="feeQuoteFingerprint"][value="current-fingerprint"]')).toBeTruthy();
   });
+
+  it("renders listing photo gallery with responsive variants", () => {
+    render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          listing_photos: [
+            {
+              photoId: "lpho_1",
+              originalFilename: "front.webp",
+              altText: "Charizard front photo",
+              sortOrder: 0,
+              uploadedAt: "2026-04-01T00:00:00.000Z",
+              assetSet: {
+                kind: "listing-photo",
+                sourceHash: "source_hash",
+                source: {
+                  role: "source",
+                  width: 1200,
+                  height: 1600,
+                  density: null,
+                  mediaType: "image/webp",
+                  storageKey: "marketplace/listings/lst_1/lpho_1/source.webp",
+                  publicUrl: "/listing-source.webp",
+                  byteSize: 200,
+                  generatedAt: "2026-04-01T00:00:00.000Z",
+                },
+                variants: [
+                  {
+                    role: "catalog-detail",
+                    width: 480,
+                    height: 640,
+                    density: 1,
+                    mediaType: "image/webp",
+                    storageKey: "marketplace/listings/lst_1/lpho_1/catalog-detail-480w.webp",
+                    publicUrl: "/listing-detail-480w.webp",
+                    byteSize: 100,
+                    generatedAt: "2026-04-01T00:00:00.000Z",
+                  },
+                  {
+                    role: "catalog-detail",
+                    width: 960,
+                    height: 1280,
+                    density: 2,
+                    mediaType: "image/webp",
+                    storageKey: "marketplace/listings/lst_1/lpho_1/catalog-detail-960w.webp",
+                    publicUrl: "/listing-detail-960w.webp",
+                    byteSize: 150,
+                    generatedAt: "2026-04-01T00:00:00.000Z",
+                  },
+                  {
+                    role: "thumbnail",
+                    width: 96,
+                    height: 128,
+                    density: 1,
+                    mediaType: "image/webp",
+                    storageKey: "marketplace/listings/lst_1/lpho_1/thumbnail-96w.webp",
+                    publicUrl: "/listing-thumbnail-96w.webp",
+                    byteSize: 40,
+                    generatedAt: "2026-04-01T00:00:00.000Z",
+                  },
+                  {
+                    role: "thumbnail",
+                    width: 192,
+                    height: 256,
+                    density: 2,
+                    mediaType: "image/webp",
+                    storageKey: "marketplace/listings/lst_1/lpho_1/thumbnail-192w.webp",
+                    publicUrl: "/listing-thumbnail-192w.webp",
+                    byteSize: 60,
+                    generatedAt: "2026-04-01T00:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          ],
+        }}
+        feeHistory={[]}
+        priceDraftAmount="20.00"
+        pricePreview={currentQuote}
+      />,
+    );
+
+    const image = screen.getByRole("img", { name: "Charizard front photo" });
+    expect(image.getAttribute("src")).toBe("/listing-detail-480w.webp");
+    expect(image.getAttribute("srcset")).toBe("/listing-detail-480w.webp 480w, /listing-detail-960w.webp 960w");
+    expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 480px, min(100vw, 276px)");
+    expect(image.getAttribute("width")).toBe("480");
+    expect(image.getAttribute("height")).toBe("640");
+  });
 });

@@ -47,6 +47,8 @@ Cards may adapt to products, services, rentals, bookings, digital goods, quotes,
 
 Real product media renders as the collectible, not as a framed UI thumbnail. Use the shared product media treatment for catalog imagery so alpha-shaped assets, such as Pokemon cards with transparent rounded corners, remain chrome-less in light and dark mode. Do not add image borders, square media backgrounds, wrapper shadows, padding, or forced corner radii around real product images. Empty states, placeholders, and loading-only fallbacks may use neutral surfaces because they describe UI state rather than the physical card.
 
+Product media must use the shared responsive image source contract. Routes should pass the role-appropriate source, `srcset`, `sizes`, width, and height from the owning bounded context's asset set instead of hand-authoring route-local image policy. Search-card product media renders in the compact product slot so Catalog's 160 CSS pixel `search-card` role can use its 320w variant on high-DPR displays without being stretched blurry.
+
 ## Product Options Display Contract
 
 Use `ProductOptions` whenever a resolved product's selected options are displayed. Visual presentation is option-only: `Raw • Excellent` or `Graded • PSA • 10 Gem Mint`. Do not show Dimension labels such as `Form:` or `Condition:` in the visual label unless the surface is explicitly Catalog authoring or technical diagnostics.

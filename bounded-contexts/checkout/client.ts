@@ -20,6 +20,7 @@ export type AddCheckoutCartLineRequest = Readonly<{
   itemTitle: string;
   itemSubtitle?: string | null;
   itemImageUrl?: string | null;
+  itemImageSrcSet?: string | null;
   itemImageLoadingUrl?: string | null;
   itemImageLoadingAlt?: string | null;
   itemImageLoadingSrcSet?: string | null;

@@ -198,6 +198,10 @@ describe("SearchPage", () => {
     expect(image.getAttribute("srcset")).toBe(
       "https://assets.example/search-card-160w.webp 160w, https://assets.example/search-card-320w.webp 320w",
     );
+    expect(image.getAttribute("sizes")).toBe("160px");
+    expect(image.getAttribute("width")).toBe("160");
+    expect(image.getAttribute("height")).toBe("224");
+    expect(image.className).toContain("max-w-[10rem]");
   });
 
   it("renders search result language codes as localized labels", () => {

@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Inset } from "../../primitives/layout";
-import { ProductMediaImage } from "../data-display/product-media";
+import { ProductMediaImage, type ResponsiveImageSource } from "../data-display/product-media";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
@@ -233,10 +233,14 @@ export function ProductOptions({
 }
 
 export interface MarketplaceCartLineItemProps {
+  image?: ResponsiveImageSource;
   imageSrc: string;
   imageAlt: string;
   imageSrcSet?: string;
   imageSizes?: string;
+  imageWidth?: ImgHTMLAttributes<HTMLImageElement>["width"];
+  imageHeight?: ImgHTMLAttributes<HTMLImageElement>["height"];
+  loadingImage?: ResponsiveImageSource;
   loadingImageSrc?: string;
   loadingImageAlt?: string;
   loadingImageSrcSet?: string;
@@ -250,10 +254,14 @@ export interface MarketplaceCartLineItemProps {
 }
 
 export function MarketplaceCartLineItem({
+  image,
   imageSrc,
   imageAlt,
   imageSrcSet,
   imageSizes,
+  imageWidth,
+  imageHeight,
+  loadingImage,
   loadingImageSrc,
   loadingImageAlt,
   loadingImageSrcSet,
@@ -266,6 +274,22 @@ export function MarketplaceCartLineItem({
   actions,
 }: MarketplaceCartLineItemProps) {
   const [loaded, setLoaded] = useState(false);
+  const resolvedImage = image ?? {
+    src: imageSrc,
+    srcSet: imageSrcSet,
+    sizes: imageSizes,
+    width: imageWidth,
+    height: imageHeight,
+  };
+  const resolvedLoadingImage =
+    loadingImage ??
+    (loadingImageSrc
+      ? {
+          src: loadingImageSrc,
+          srcSet: loadingImageSrcSet,
+          sizes: loadingImageSizes,
+        }
+      : undefined);
 
   return (
     <div
@@ -274,21 +298,25 @@ export function MarketplaceCartLineItem({
     >
       <div className="grid min-w-0 grid-cols-[4.75rem_minmax(0,1fr)] gap-3 sm:grid-cols-[5.5rem_minmax(0,1fr)] md:grid-cols-[5.5rem_minmax(0,1fr)_minmax(13rem,16rem)] md:gap-4">
         <div className="relative min-w-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] shadow-tokenSm">
-          {loadingImageSrc && !loaded ? (
+          {resolvedLoadingImage && !loaded ? (
             <img
-              src={loadingImageSrc}
+              src={resolvedLoadingImage.src}
               alt={loadingImageAlt ?? imageAlt}
-              srcSet={loadingImageSrcSet}
-              sizes={loadingImageSizes}
+              srcSet={resolvedLoadingImage.srcSet}
+              sizes={resolvedLoadingImage.sizes}
+              width={resolvedLoadingImage.width}
+              height={resolvedLoadingImage.height}
               className="absolute inset-0 aspect-[2.5/3.5] h-full w-full object-contain p-1.5"
               aria-hidden="true"
             />
           ) : null}
           <img
-            src={imageSrc}
+            src={resolvedImage.src}
             alt={imageAlt}
-            srcSet={imageSrcSet}
-            sizes={imageSizes}
+            srcSet={resolvedImage.srcSet}
+            sizes={resolvedImage.sizes}
+            width={resolvedImage.width}
+            height={resolvedImage.height}
             className="aspect-[2.5/3.5] h-full w-full object-contain p-1.5"
             loading="lazy"
             onLoad={() => setLoaded(true)}
@@ -558,6 +586,7 @@ export interface ListingCardProps {
   title: string;
   subtitle?: ReactNode;
   model?: ListingModel;
+  image?: ResponsiveImageSource;
   imageSrc?: string;
   imageSrcSet?: string;
   imageSizes?: string;
@@ -567,6 +596,8 @@ export interface ListingCardProps {
   imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
   imageWidth?: ImgHTMLAttributes<HTMLImageElement>["width"];
   imageHeight?: ImgHTMLAttributes<HTMLImageElement>["height"];
+  imageSlot?: "fluid" | "compact-product";
+  imageFallback?: ResponsiveImageSource;
   imageFallbackSrc?: string;
   imageFallbackAlt?: string;
   imageFallbackSrcSet?: string;
@@ -611,6 +642,7 @@ export function ListingCard({
   title,
   subtitle,
   model = "product",
+  image,
   imageSrc,
   imageSrcSet,
   imageSizes,
@@ -620,6 +652,8 @@ export function ListingCard({
   imageDecoding = "async",
   imageWidth,
   imageHeight,
+  imageSlot = "fluid",
+  imageFallback,
   imageFallbackSrc,
   imageFallbackAlt,
   imageFallbackSrcSet,
@@ -660,7 +694,23 @@ export function ListingCard({
 }: ListingCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
-  const hasMediaFrame = Boolean(imageSrc || showMediaPlaceholder);
+  const primaryImage =
+    image ??
+    (imageSrc
+      ? { src: imageSrc, srcSet: imageSrcSet, sizes: imageSizes, width: imageWidth, height: imageHeight }
+      : undefined);
+  const fallbackImage =
+    imageFallback ??
+    (imageFallbackSrc
+      ? {
+          src: imageFallbackSrc,
+          srcSet: imageFallbackSrcSet,
+          sizes: imageFallbackSizes,
+          width: imageWidth,
+          height: imageHeight,
+        }
+      : undefined);
+  const hasMediaFrame = Boolean(primaryImage || showMediaPlaceholder);
   const isLinked = Boolean(href);
   const resolvedSellerTrust =
     sellerTrust ??
@@ -696,13 +746,13 @@ export function ListingCard({
     </div>
   );
   const resolvedProtection = protection ? <OrderProtectionBadge label={protection} /> : null;
-  const canUseFallbackAsImage = Boolean(imageFallbackSrc) && imageFallbackMode === "permanent";
-  const resolvedImageSrc = imageSrc && !imageFailed ? imageSrc : canUseFallbackAsImage ? imageFallbackSrc : undefined;
+  const canUseFallbackAsImage = Boolean(fallbackImage) && imageFallbackMode === "permanent";
+  const resolvedImage = primaryImage && !imageFailed ? primaryImage : canUseFallbackAsImage ? fallbackImage : undefined;
+  const resolvedImageSrc = resolvedImage?.src;
   const resolvedImageAlt =
-    resolvedImageSrc === imageFallbackSrc ? (imageFallbackAlt ?? imageAlt ?? title) : (imageAlt ?? title);
-  const resolvedImageSrcSet = resolvedImageSrc === imageFallbackSrc ? imageFallbackSrcSet : imageSrcSet;
-  const resolvedImageSizes = resolvedImageSrc === imageFallbackSrc ? imageFallbackSizes : imageSizes;
-  const showLoadingFallback = Boolean(imageSrc && imageFallbackSrc && !imageLoaded && !imageFailed);
+    resolvedImageSrc === fallbackImage?.src ? (imageFallbackAlt ?? imageAlt ?? title) : (imageAlt ?? title);
+  const showLoadingFallback = Boolean(primaryImage && fallbackImage && !imageLoaded && !imageFailed);
+  const productMediaSlotClassName = imageSlot === "compact-product" ? "max-w-[10rem] justify-self-center" : undefined;
 
   return (
     <article
@@ -736,14 +786,14 @@ export function ListingCard({
             <ProductMediaImage
               src={imageFallbackSrc}
               alt={imageFallbackAlt ?? imageAlt ?? title}
-              srcSet={imageFallbackSrcSet}
-              sizes={imageFallbackSizes}
-              width={imageWidth}
-              height={imageHeight}
+              image={fallbackImage}
               fetchPriority={imageFetchPriority}
               loading={imageLoading}
               decoding={imageDecoding}
-              className="absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0"
+              className={cn(
+                "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0",
+                productMediaSlotClassName,
+              )}
               aria-hidden="true"
             />
           ) : null}
@@ -751,16 +801,13 @@ export function ListingCard({
             <ProductMediaImage
               src={resolvedImageSrc}
               alt={resolvedImageAlt}
-              srcSet={resolvedImageSrcSet}
-              sizes={resolvedImageSizes}
-              width={imageWidth}
-              height={imageHeight}
+              image={resolvedImage}
               loading={imageLoading}
               decoding={imageDecoding}
               fetchPriority={imageFetchPriority}
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageFailed(true)}
-              className="relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0"
+              className={cn("relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0", productMediaSlotClassName)}
             />
           ) : (
             <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">

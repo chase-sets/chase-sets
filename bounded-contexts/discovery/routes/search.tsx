@@ -206,6 +206,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     itemTitle: line.title,
     itemSubtitle: line.subtitle,
     itemImageUrl: line.image_url,
+    itemImageSrcSet: line.image_srcset,
     itemImageLoadingUrl: line.image_loading_url,
     itemImageLoadingAlt: line.image_loading_alt,
     itemImageLoadingSrcSet: line.image_loading_srcset,
