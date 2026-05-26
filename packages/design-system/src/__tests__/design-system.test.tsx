@@ -334,7 +334,7 @@ describe("design-system", () => {
     expect(markup).toContain("max-w-[10rem]");
   });
 
-  it("renders search result cards with compact media and content status badges", () => {
+  it("renders search result cards as mobile-compact desktop-gallery cards without status badges", () => {
     const markup = renderToString(
       <ListingCard
         cardLayout="search-result"
@@ -362,9 +362,12 @@ describe("design-system", () => {
 
     expect(markup).toContain('data-card-layout="search-result"');
     expect(markup).toContain("grid-cols-[minmax(5.75rem,6.5rem)_minmax(0,1fr)]");
+    expect(markup).toContain("md:grid-cols-1");
     expect(markup).toContain("max-w-[6.25rem]");
-    expect(markup).toContain("grid grid-cols-1 gap-1.5 pt-0");
-    expect(markup).toContain('data-card-promotion-placement="content"');
+    expect(markup).toContain("md:max-w-[8rem]");
+    expect(markup).toContain("flex flex-wrap items-center gap-2 pt-1");
+    expect(markup).not.toContain('data-card-promotion-placement="content"');
+    expect(markup).not.toContain("Supply wanted");
     expect(markup).not.toContain("absolute left-2 top-2");
   });
 

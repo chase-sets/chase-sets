@@ -314,7 +314,8 @@ describe("marketplace search route", () => {
     render(<SearchRoute />);
 
     expect(screen.getByText("Market open")).toBeTruthy();
-    expect(screen.queryByText("Supply wanted")).toBeNull();
+    expect(screen.getByText("Supply wanted")).toBeTruthy();
+    expect(screen.queryByText("No active listings")).toBeNull();
     expect(screen.getByText("Offer or list yours")).toBeTruthy();
     expect(screen.getByText("Jungle 60/64 Common")).toBeTruthy();
     expect(screen.queryByText("Make an offer or list yours to help this market form.")).toBeNull();

@@ -635,19 +635,21 @@ export function ListingCard({
   const productMediaSlotClassName =
     imageSlot === "compact-product"
       ? isSearchResultLayout
-        ? "max-w-[6.25rem] sm:max-w-[6.5rem] justify-self-center"
+        ? "max-w-[6.25rem] sm:max-w-[6.5rem] md:max-w-[8rem] justify-self-center"
         : "max-w-[10rem] justify-self-center"
       : undefined;
   const mediaContainerClassName = isSearchResultLayout
-    ? "relative grid min-h-32 place-items-start justify-items-center pt-3 pl-3 sm:min-h-32"
+    ? "relative grid min-h-32 place-items-start justify-items-center pt-3 pl-3 sm:min-h-32 md:min-h-[11rem] md:place-items-center md:p-3 md:pb-1"
     : "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center";
   const mediaImageClassName = isSearchResultLayout
-    ? "relative h-auto max-h-36 min-h-0"
+    ? "relative h-auto max-h-36 min-h-0 md:max-h-[11rem]"
     : "relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const loadingImageClassName = isSearchResultLayout
-    ? "absolute h-auto max-h-36 min-h-0"
+    ? "absolute h-auto max-h-36 min-h-0 md:max-h-[11rem]"
     : "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
-  const contentClassName = isSearchResultLayout ? "gap-2.5 p-3" : cn("gap-3", densityClasses[density]);
+  const contentClassName = isSearchResultLayout
+    ? "gap-2.5 p-3 md:gap-2 md:p-3 md:pt-1"
+    : cn("gap-3", densityClasses[density]);
 
   return (
     <article
@@ -655,7 +657,7 @@ export function ListingCard({
         "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
         hasMediaFrame
           ? isSearchResultLayout
-            ? "grid-cols-[minmax(5.75rem,6.5rem)_minmax(0,1fr)]"
+            ? "grid-cols-[minmax(5.75rem,6.5rem)_minmax(0,1fr)] md:grid-cols-1"
             : density === "compact"
               ? "grid-cols-1 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
               : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
@@ -715,7 +717,7 @@ export function ListingCard({
             </div>
           ) : null}
         </div>
-      ) : promotion ? (
+      ) : promotion && !isSearchResultLayout ? (
         <div className="px-3 pt-3">
           <div className="inline-flex rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]">
             {promotion}
@@ -725,29 +727,32 @@ export function ListingCard({
 
       <div className={cn("grid content-start", contentClassName, isLinked && "z-20 pointer-events-none")}>
         <div className="grid gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            {promotion && isSearchResultLayout ? (
-              <span
-                className="inline-flex rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]"
-                data-card-promotion-placement="content"
-              >
-                {promotion}
-              </span>
-            ) : null}
-            {condition ? <Badge variant="outline">{condition}</Badge> : null}
-            {availability ? (
-              <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span>
-            ) : null}
-          </div>
+          {condition || availability ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {condition ? <Badge variant="outline">{condition}</Badge> : null}
+              {availability ? (
+                <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span>
+              ) : null}
+            </div>
+          ) : null}
           <h3
             className={cn(
               "m-0 line-clamp-2 font-semibold text-[var(--foreground)]",
-              isSearchResultLayout ? "text-sm leading-5" : "text-base leading-6",
+              isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
             )}
           >
             {title}
           </h3>
-          {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">{subtitle}</p> : null}
+          {subtitle ? (
+            <p
+              className={cn(
+                "m-0 text-sm font-medium leading-5 text-[var(--foreground)]",
+                isSearchResultLayout && "line-clamp-1",
+              )}
+            >
+              {subtitle}
+            </p>
+          ) : null}
           {valueCue ? (
             <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
               {valueCue}
@@ -791,10 +796,7 @@ export function ListingCard({
         ) : null}
 
         <div
-          className={cn(
-            isSearchResultLayout ? "grid grid-cols-1 gap-1.5 pt-0" : "flex flex-wrap items-center gap-2 pt-1",
-            isLinked && "pointer-events-auto relative z-30",
-          )}
+          className={cn("flex flex-wrap items-center gap-2 pt-1", isLinked && "pointer-events-auto relative z-30")}
           data-primary-action-count="1"
         >
           {primaryAction}

@@ -254,7 +254,8 @@ describe("SearchPage", () => {
 
     expect(card?.getAttribute("data-card-layout")).toBe("search-result");
     expect(card?.querySelector('[data-card-promotion-placement="content"]')).toBeNull();
-    expect(screen.queryByText("Supply wanted")).toBeNull();
+    expect(screen.getByText("Supply wanted")).toBeTruthy();
+    expect(screen.queryByText("No active listings")).toBeNull();
     expect(screen.getByRole("link", { name: "Add product to Sell List" }).textContent).toBe("Sell");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).textContent).toBe("Buy");
     expect(screen.getByRole("link", { name: "Watch product" }).textContent).toBe("Watch");
