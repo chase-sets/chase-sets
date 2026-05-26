@@ -70,9 +70,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('worker_database_pool_max            = local.is_non_production ? "8" : "6"');
     expect(platformLocals).toContain('bootstrap_database_pool_max         = "4"');
     expect(platformLocals).toContain('worker_projection_concurrency       = "2"');
-    expect(platformLocals).toContain("staging_context_database_connection_pool_sizes");
-    expect(platformLocals).toContain("catalog         = 6");
-    expect(platformLocals).toContain("control         = 4");
+    expect(platformLocals).toContain(
+      "context_database_connection_pool_sizes = local.is_non_production ? local.default_context_database_connection_pool_sizes : {}",
+    );
+    expect(platformLocals).not.toContain("staging_context_database_connection_pool_sizes");
+    expect(platformLocals).not.toContain("catalog         = 6");
+    expect(platformLocals).not.toContain("control         = 4");
     expect(platformMain).toContain("size       = local.context_database_connection_pool_sizes[each.key]");
     expect(occurrenceCount(platformMain, "value = local.api_database_pool_max")).toBe(2);
     expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(2);
