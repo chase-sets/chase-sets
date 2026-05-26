@@ -7,7 +7,7 @@ Staging admin pages are returning 500s because catalog API route loaders cannot 
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260525-staging-prod-runtime-budgets`
-- Branch: `codex/staging-prod-runtime-budgets`
+- Branch: `codex/staging-runtime-budget-restore` follow-up from merged `origin/main`; original PR branch was `codex/staging-prod-runtime-budgets`.
 - Sandbox id: `2bf274e4`
 - Dependency setup: `node ./scripts/worktree-deps.mjs install` completed.
 - pnpm store: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\.chase-sets-pnpm-store`
@@ -26,25 +26,27 @@ Staging admin pages are returning 500s because catalog API route loaders cannot 
 - Staging App Platform currently sets `DATABASE_POOL_MAX=1`.
 - Staging managed PgBouncer context pools are all size `1`.
 - Platform worker currently starts 102 runners with runner group concurrency of projections `2`, jobs `1`, dispatch `1`, and scheduled `1`, which exceeds a pool of `1` before counting control-plane and health queries.
+- First deployment of the component-specific runtime budgets failed because enlarged DigitalOcean managed PgBouncer pool sizes exceeded the staging database tier's available server connections. Terraform deleted several old size-1 pools before the replacement creation failed, so the follow-up must restore missing managed pools at size `1`.
 
 ## Resolved Decisions
 
 - Use component-specific app client pools instead of one global `database_pool_max`.
 - Keep staging/preview production-like App Platform component counts unchanged.
 - Keep production database cluster size unchanged for this fix because production still runs the smaller landing/admin-support topology.
-- Increase staging managed context pools where the full-platform runtime is hot: catalog highest, control/auth/identity/public-presence/discovery/marketplace moderate, remaining contexts conservative.
+- Keep preview and staging managed PgBouncer context pool sizes at `1` until the database tier is scaled; managed pool size consumes server connection capacity and is not the same as app-side client concurrency.
 - Set worker concurrency explicitly in Terraform so database pool sizing and runner capacity cannot drift silently.
 - Update the deployment runbook to replace the obsolete statement that non-production caps every per-context client pool at one connection.
+- Restore staging by recreating any missing managed context pools through Terraform at the tier-safe size.
 
 ## Implementation Checklist
 
 - [x] Add Terraform locals for component-specific API, worker, and bootstrap database pool sizes.
-- [x] Add Terraform locals for environment/context-specific DigitalOcean managed connection pool sizes.
+- [x] Keep non-production DigitalOcean managed connection pool sizes tier-safe at `1` per context.
 - [x] Wire component-specific values into platform-api, platform-worker, admin-support-api, admin-support-worker, platform-bootstrap, and admin-support-bootstrap.
 - [x] Wire explicit worker runner concurrency env vars into non-production and production workers.
 - [x] Update deployment docs and config tests.
 - [x] Run formatting/static/config tests.
-- [ ] Submit PR, verify CI, merge, and verify staging plus production deployment.
+- [ ] Submit follow-up PR, verify CI, merge, and verify staging plus production deployment.
 - [ ] Confirm staging admin catalog routes stop returning 500 after deployment.
 - [ ] Clean worktree, remote branch, and local branch.
 

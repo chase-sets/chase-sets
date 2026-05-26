@@ -112,28 +112,7 @@ locals {
     context_name => 1
   }
 
-  preview_context_database_connection_pool_sizes = merge(local.default_context_database_connection_pool_sizes, {
-    auth            = 2
-    catalog         = 2
-    control         = 2
-    identity        = 2
-    public-presence = 2
-  })
-
-  staging_context_database_connection_pool_sizes = merge(local.default_context_database_connection_pool_sizes, {
-    auth            = 3
-    catalog         = 6
-    control         = 4
-    discovery       = 3
-    identity        = 3
-    marketplace     = 3
-    notifications   = 2
-    public-presence = 3
-  })
-
-  context_database_connection_pool_sizes = local.is_staging ? local.staging_context_database_connection_pool_sizes : (
-    local.is_non_production ? local.preview_context_database_connection_pool_sizes : {}
-  )
+  context_database_connection_pool_sizes = local.is_non_production ? local.default_context_database_connection_pool_sizes : {}
 
   non_production_connection_pool_contexts = local.is_non_production ? local.context_databases : {}
 
