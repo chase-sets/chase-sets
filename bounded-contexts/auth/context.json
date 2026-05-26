@@ -122,6 +122,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable notification outbox used for SMS sign-in codes and future Auth notification channels."
+    },
+    {
+      "portName": "socialLoginProviders",
+      "providedBy": "platform-api",
+      "purpose": "Configured Social Login Provider adapters used by Auth-owned sign-in and registration journeys."
     }
   ],
   "apiDeployables": ["admin-support-api", "platform-api"],
