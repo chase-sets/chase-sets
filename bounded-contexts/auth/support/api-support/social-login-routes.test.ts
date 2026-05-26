@@ -192,6 +192,38 @@ describe("social login routes", () => {
     );
   });
 
+  it("uses the forwarded HTTPS origin for provider callback redirects", async () => {
+    const services = createServices({ existingUser: null });
+    const app = buildApp(services);
+
+    const response = await app.request("http://internal-app/social/google/start?returnTo=/account", {
+      headers: {
+        "x-forwarded-host": "admin.staging.chasesets.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    expect(response.status).toBe(302);
+    expect(services.socialLoginProviders[0]!.createAuthorizationUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri: "https://admin.staging.chasesets.com/api/auth/social/google/callback",
+      }),
+    );
+  });
+
+  it("keeps local development callback redirects on HTTP", async () => {
+    const services = createServices({ existingUser: null });
+    const app = buildApp(services);
+
+    await app.request("http://localhost:3000/social/google/start?returnTo=/account");
+
+    expect(services.socialLoginProviders[0]!.createAuthorizationUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri: "http://localhost:3000/api/auth/social/google/callback",
+      }),
+    );
+  });
+
   it("links an existing verified-email user and starts a session", async () => {
     const services = createServices({
       existingUser: { user_id: "usr_existing", status: "active" },
@@ -212,6 +244,37 @@ describe("social login routes", () => {
       email: "buyer@example.com",
     });
     expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+  });
+
+  it("uses the forwarded HTTPS origin when exchanging provider callbacks", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("http://internal-app/social/google/start?returnTo=/account", {
+      headers: {
+        "x-forwarded-host": "admin.staging.chasesets.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+    const response = await app.request(
+      "http://internal-app/social/google/callback?state=social_token&code=provider-code",
+      {
+        headers: {
+          "x-forwarded-host": "admin.staging.chasesets.com",
+          "x-forwarded-proto": "https",
+        },
+      },
+    );
+
+    expect(response.status).toBe(302);
+    expect(services.socialLoginProviders[0]!.exchangeCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri: "https://admin.staging.chasesets.com/api/auth/social/google/callback",
+      }),
+    );
   });
 
   it("returns to fallback when provider email is missing or unverified", async () => {
