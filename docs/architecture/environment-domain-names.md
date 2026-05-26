@@ -50,7 +50,8 @@ The Gmail-compatible environment-root record shape is:
 - Parent zone: `NS staging` delegation to DigitalOcean nameservers.
 - Child zone apex: App Platform-managed A/AAAA routing records for `staging.chasesets.com`, created from the platform Terraform App Platform domain attachment.
 - Child zone apex: `MX @` to Google Workspace and `TXT @` for Google Workspace SPF.
-- Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, the catalog asset CDN CNAME, and CNAME records for App Platform subdomain aliases.
+- Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, and the catalog asset CDN CNAME.
+- Child zone nested App Platform hosts: platform Terraform-managed CNAME records for `www`, `marketplace`, and `admin`, because those host records depend on the app's generated ingress hostname.
 - No `CNAME @` in the child zone and no `CNAME staging` in the parent zone.
 
 On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. On May 26, 2026, using `zone = chasesets.com` with `type = PRIMARY` still left `staging.chasesets.com` in `CONFIGURING` with `DomainZoneInvalid` and `DomainCNAMEMismatch`; DigitalOcean treated it as a subdomain and still expected CNAME ownership. Use the delegated child-zone primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`.

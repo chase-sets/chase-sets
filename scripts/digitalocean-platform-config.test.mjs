@@ -123,13 +123,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("domain => local.is_staging ? local.environment_zone : var.root_domain");
     expect(platformMain).toContain("zone = local.app_domain_zones[domain.value]");
     expect(platformMain).toContain("zone = local.app_domain_zones[local.admin_domain]");
-    expect(platformLocals).not.toContain("staging_app_alias_record_names");
+    expect(platformLocals).toContain("staging_app_alias_record_names");
     expect(platformLocals).not.toContain("staging_root_app_platform_ipv4_records");
     expect(platformLocals).not.toContain("staging_root_app_platform_ipv6_records");
-    expect(platformMain).not.toContain('resource "digitalocean_record" "staging_app_alias"');
+    expect(platformMain).toContain('resource "digitalocean_record" "staging_app_alias"');
+    expect(platformMain).toContain('type   = "CNAME"');
+    expect(platformMain).toContain("digitalocean_app.platform.default_ingress");
     expect(platformMain).not.toContain('resource "digitalocean_record" "staging_root_app_platform_ipv4"');
     expect(platformMain).not.toContain('resource "digitalocean_record" "staging_root_app_platform_ipv6"');
-    expect(platformMain).not.toContain("digitalocean_app.platform.default_ingress");
     expect(platformMain).toContain('name                 = "marketplace"');
     expect(platformMain).toContain('name                 = "platform-api"');
   });

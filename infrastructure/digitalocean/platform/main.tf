@@ -1512,6 +1512,16 @@ resource "digitalocean_app" "platform" {
   ]
 }
 
+resource "digitalocean_record" "staging_app_alias" {
+  for_each = local.staging_app_alias_record_names
+
+  domain = local.environment_zone
+  type   = "CNAME"
+  name   = each.value
+  value  = "${trimsuffix(trimprefix(digitalocean_app.platform.default_ingress, "https://"), "/")}."
+  ttl    = 1800
+}
+
 resource "digitalocean_uptime_check" "platform" {
   for_each = var.uptime_checks_enabled ? local.uptime_check_targets : {}
 
@@ -1523,6 +1533,7 @@ resource "digitalocean_uptime_check" "platform" {
 
   depends_on = [
     digitalocean_app.platform,
+    digitalocean_record.staging_app_alias,
   ]
 }
 

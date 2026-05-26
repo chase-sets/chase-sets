@@ -7,7 +7,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260526-environment-audit`
-- Branch: `codex/staging-app-dns-ownership`
+- Branch: `codex/staging-cname-ownership`
 - Base: fresh `origin/main` at `c5a44c54ed80eab841529036bc0677cce60e62ee`
 - Sandbox id: `7649fb27`
 - Dependency setup status: installed with `pnpm run deps:install`
@@ -27,7 +27,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 - DigitalOcean's DNS API requires FQDN record data for NS/MX/CNAME targets to end with a trailing dot. Keep environment DNS Terraform values normalized with trailing dots even though `doctl compute domain records list` prints them without trailing dots.
 - The child-zone DNS apply restored the staging asset CDN CNAME and Gmail/SES records, and live HTTPS for `assets.staging.chasesets.com` returns 200. App Platform still left child-zone aliases in `CONFIGURING` because the child zone lacked App Platform routing records. Keep mail/provider records in `environment-dns`, and let App Platform own the routing DNS records through the platform Terraform root's App Platform domain attachments.
 - After the App Platform routing records were applied, `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com` became active, but `staging.chasesets.com` still failed TLS because DigitalOcean retained the stale root domain attachment with `DomainZoneInvalid` and `DomainCNAMEMismatch`. Removing and re-adding only that root attachment allowed App Platform to issue the certificate and `https://staging.chasesets.com/` returned 200. Deployment and staging reset workflows should run the same guarded reset before waiting on staging domains.
-- The May 26 post-deploy DNS audit found duplicate identical staging apex A/AAAA records because App Platform was already ensuring routing records while the platform root also declared raw `digitalocean_record` resources. Remove the raw platform DNS records so Terraform owns the App Platform domain attachments and App Platform owns its managed routing DNS. This preserves exact-name Gmail MX/TXT support because the staging root remains a delegated apex with A/AAAA records, not a CNAME.
+- The May 26 post-deploy DNS audit found duplicate identical staging apex A/AAAA records because App Platform was already ensuring apex routing records while the platform root also declared raw `digitalocean_record` resources. Remove only the raw platform apex A/AAAA resources so Terraform owns the App Platform domain attachments and App Platform owns its managed apex routing DNS. Keep the nested `www`, `marketplace`, and `admin` CNAME records in the platform root because App Platform did not recreate them after Terraform removed them and staging smoke failed with `ENOTFOUND`.
 - Uptime checks should be Terraform-managed and alert only when `alert_emails` is configured. The deployment workflows will pass `TF_VAR_alert_emails` from a GitHub Environment variable so recipient management does not require code changes.
 - Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, canonical marketplace, and the staging root marketplace host where present.
 - Catalog asset custom domains must be deployment-verified because direct Spaces origins can continue working after a CDN custom domain disappears. Staging reset should verify the CDN, DNS CNAME, and HTTPS response after recreating catalog assets; staging/production smoke should also check `CATALOG_ASSET_PUBLIC_BASE_URL`.
@@ -54,7 +54,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 - [x] Add stable staging environment DNS Terraform for `staging.chasesets.com` child-zone delegation, Gmail MX/SPF, optional Google DKIM, SES DNS, and the staging asset CDN CNAME.
 - [x] Normalize staging environment DNS NS/MX/CNAME target values with trailing dots for DigitalOcean API compatibility.
 - [x] Point staging App Platform nested/root domains at the delegated child zone while keeping legacy dash-based redirect hosts in `chasesets.com`.
-- [x] Attach staging child-zone App Platform domains from the platform Terraform root and leave the resulting routing DNS records owned by App Platform so App Platform routing and Gmail MX/TXT coexist without duplicate raw DNS ownership.
+- [x] Attach staging child-zone App Platform domains from the platform Terraform root, leave the staging apex A/AAAA routing DNS records owned by App Platform, and keep nested App Platform CNAMEs in Terraform so App Platform routing and Gmail MX/TXT coexist without duplicate apex DNS ownership.
 - [x] Add a guarded App Platform root-domain attachment reset for the stale staging apex certificate state.
 - [x] Install dependencies and run targeted tests/validation.
 
