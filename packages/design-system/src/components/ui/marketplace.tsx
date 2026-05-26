@@ -586,6 +586,7 @@ export interface ListingCardProps {
   title: string;
   subtitle?: ReactNode;
   model?: ListingModel;
+  cardLayout?: "standard" | "search-result";
   image?: ResponsiveImageSource;
   imageSrc?: string;
   imageSrcSet?: string;
@@ -642,6 +643,7 @@ export function ListingCard({
   title,
   subtitle,
   model = "product",
+  cardLayout = "standard",
   image,
   imageSrc,
   imageSrcSet,
@@ -752,20 +754,39 @@ export function ListingCard({
   const resolvedImageAlt =
     resolvedImageSrc === fallbackImage?.src ? (imageFallbackAlt ?? imageAlt ?? title) : (imageAlt ?? title);
   const showLoadingFallback = Boolean(primaryImage && fallbackImage && !imageLoaded && !imageFailed);
-  const productMediaSlotClassName = imageSlot === "compact-product" ? "max-w-[10rem] justify-self-center" : undefined;
+  const isSearchResultLayout = cardLayout === "search-result";
+  const productMediaSlotClassName =
+    imageSlot === "compact-product"
+      ? isSearchResultLayout
+        ? "max-w-[7rem] sm:max-w-[7.25rem] justify-self-center"
+        : "max-w-[10rem] justify-self-center"
+      : undefined;
+  const mediaContainerClassName = isSearchResultLayout
+    ? "relative grid min-h-36 place-items-start justify-items-center pt-3 pl-3 sm:min-h-36"
+    : "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center";
+  const mediaImageClassName = isSearchResultLayout
+    ? "relative h-auto max-h-40 min-h-0"
+    : "relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
+  const loadingImageClassName = isSearchResultLayout
+    ? "absolute h-auto max-h-40 min-h-0"
+    : "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
+  const contentClassName = isSearchResultLayout ? "gap-2.5 p-3" : cn("gap-3", densityClasses[density]);
 
   return (
     <article
       className={cn(
         "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
         hasMediaFrame
-          ? density === "compact"
-            ? "grid-cols-1 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
-            : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
+          ? isSearchResultLayout
+            ? "grid-cols-[minmax(6.75rem,7.25rem)_minmax(0,1fr)]"
+            : density === "compact"
+              ? "grid-cols-1 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
+              : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
           : "grid-cols-1",
         isLinked && "cursor-pointer",
         className,
       )}
+      data-card-layout={cardLayout}
     >
       {href ? (
         <a
@@ -777,7 +798,7 @@ export function ListingCard({
       {hasMediaFrame ? (
         <div
           className={cn(
-            "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center",
+            mediaContainerClassName,
             resolvedImageSrc || showLoadingFallback ? "bg-transparent" : "bg-[var(--surface-2)]",
             isLinked && "z-20 pointer-events-none",
           )}
@@ -790,10 +811,7 @@ export function ListingCard({
               fetchPriority={imageFetchPriority}
               loading={imageLoading}
               decoding={imageDecoding}
-              className={cn(
-                "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0",
-                productMediaSlotClassName,
-              )}
+              className={cn(loadingImageClassName, productMediaSlotClassName)}
               aria-hidden="true"
             />
           ) : null}
@@ -807,14 +825,14 @@ export function ListingCard({
               fetchPriority={imageFetchPriority}
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageFailed(true)}
-              className={cn("relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0", productMediaSlotClassName)}
+              className={cn(mediaImageClassName, productMediaSlotClassName)}
             />
           ) : (
             <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">
               {modelLabels[model]}
             </div>
           )}
-          {promotion ? (
+          {promotion && !isSearchResultLayout ? (
             <div className="absolute left-2 top-2 rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]">
               {promotion}
             </div>
@@ -828,9 +846,17 @@ export function ListingCard({
         </div>
       ) : null}
 
-      <div className={cn("grid content-start gap-3", densityClasses[density], isLinked && "z-20 pointer-events-none")}>
+      <div className={cn("grid content-start", contentClassName, isLinked && "z-20 pointer-events-none")}>
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
+            {promotion && isSearchResultLayout ? (
+              <span
+                className="inline-flex rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]"
+                data-card-promotion-placement="content"
+              >
+                {promotion}
+              </span>
+            ) : null}
             {condition ? <Badge variant="outline">{condition}</Badge> : null}
             {availability ? (
               <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span>

@@ -34,7 +34,6 @@ import type {
 import type { DiscoveryBulkCartPreview } from "../read-model/queries";
 import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
 import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
-import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
 const FACET_OPTION_SEARCH_THRESHOLD = 8;
@@ -99,10 +98,14 @@ function formatSellerSignal(item: DiscoverySearchItem): string {
 
   return listingCount > 0
     ? t("discovery.features.search.ui.searchPage.verified.marketplace.sellers")
-    : t("discovery.features.search.ui.searchPage.supply.wanted");
+    : t("discovery.features.search.ui.searchPage.no.active.sellers.yet");
 }
 
-function formatItemLanguage(item: DiscoverySearchItem): string {
+function formatSearchResultMetadata(item: DiscoverySearchItem): string | undefined {
+  if (!item.language_code || item.language_code === "en") {
+    return undefined;
+  }
+
   return formatLanguageCodeLabel(item.language_code);
 }
 
@@ -735,10 +738,47 @@ export function SearchPage({
                 const buyHref = withMarketIntent(itemDetailHref, "buy");
                 const sellHref = withMarketIntent(itemDetailHref, "sell");
                 const watchHref = withMarketIntent(itemDetailHref, "watch");
+                const primaryIntent = hasActiveListings
+                  ? {
+                      href: buyHref,
+                      label: t("discovery.features.search.ui.searchPage.buy.intent"),
+                      accessibleLabel: t("discovery.features.search.ui.searchPage.buy"),
+                    }
+                  : {
+                      href: sellHref,
+                      label: t("discovery.features.search.ui.searchPage.sell.intent"),
+                      accessibleLabel: t("discovery.features.search.ui.searchPage.sell"),
+                    };
+                const secondaryIntents = hasActiveListings
+                  ? [
+                      {
+                        href: sellHref,
+                        label: t("discovery.features.search.ui.searchPage.sell.intent"),
+                        accessibleLabel: t("discovery.features.search.ui.searchPage.sell"),
+                      },
+                      {
+                        href: watchHref,
+                        label: t("discovery.features.search.ui.searchPage.watch.intent"),
+                        accessibleLabel: t("discovery.features.search.ui.searchPage.watch"),
+                      },
+                    ]
+                  : [
+                      {
+                        href: buyHref,
+                        label: t("discovery.features.search.ui.searchPage.buy.intent"),
+                        accessibleLabel: t("discovery.features.search.ui.searchPage.buy"),
+                      },
+                      {
+                        href: watchHref,
+                        label: t("discovery.features.search.ui.searchPage.watch.intent"),
+                        accessibleLabel: t("discovery.features.search.ui.searchPage.watch"),
+                      },
+                    ];
 
                 return (
                   <ListingCard
                     key={item.catalog_item_id}
+                    cardLayout="search-result"
                     href={itemDetailHref}
                     title={item.title}
                     image={productAssetImage ?? undefined}
@@ -763,12 +803,8 @@ export function SearchPage({
                     }
                     sellerVerified={hasActiveListings}
                     fulfillment={formatAvailability(item)}
-                    availability={
-                      item.blueprint_name ??
-                      uniqueDisplayValues(item.category_names)[0] ??
-                      t("discovery.features.search.ui.searchPage.marketplace")
-                    }
-                    condition={formatItemLanguage(item)}
+                    availability={null}
+                    valueCue={formatSearchResultMetadata(item)}
                     promotion={
                       hasActiveListings
                         ? t("discovery.features.search.ui.searchPage.available.now")
@@ -776,15 +812,20 @@ export function SearchPage({
                     }
                     primaryAction={
                       <Inline gap={2}>
-                        <LinkButton href={buyHref} size="sm">
-                          {t("discovery.features.search.ui.searchPage.buy")}
+                        <LinkButton href={primaryIntent.href} aria-label={primaryIntent.accessibleLabel} size="sm">
+                          {primaryIntent.label}
                         </LinkButton>
-                        <LinkButton href={sellHref} tone="secondary" size="sm">
-                          {t("discovery.features.search.ui.searchPage.sell")}
-                        </LinkButton>
-                        <LinkButton href={watchHref} tone="ghost" size="sm">
-                          {t("discovery.features.search.ui.searchPage.watch")}
-                        </LinkButton>
+                        {secondaryIntents.map((intent) => (
+                          <LinkButton
+                            key={intent.accessibleLabel}
+                            href={intent.href}
+                            aria-label={intent.accessibleLabel}
+                            tone="ghost"
+                            size="sm"
+                          >
+                            {intent.label}
+                          </LinkButton>
+                        ))}
                       </Inline>
                     }
                     secondaryAction={false}
