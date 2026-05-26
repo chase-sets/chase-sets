@@ -295,9 +295,15 @@ jobs:
         run: |
           set -euo pipefail
           zone="staging.chasesets.com"
-          target="$(terraform output -raw live_url 2>/dev/null | sed -e 's#^https://##' -e 's#/$##' || true)"
+          app_id="$(terraform output -raw app_id 2>/dev/null || true)"
+          if [ -z "$app_id" ]; then
+            echo "No existing App Platform app was found in Terraform state; skipping alias DNS state reconciliation."
+            exit 0
+          fi
+
+          target="$(doctl apps get "$app_id" --format DefaultIngress --no-header | sed -e 's#^https://##' -e 's#/$##' || true)"
           if [ -z "$target" ]; then
-            echo "No existing App Platform live URL was found in Terraform state; skipping alias DNS state reconciliation."
+            echo "No App Platform default ingress was found for ${app_id}; skipping alias DNS state reconciliation."
             exit 0
           fi
 

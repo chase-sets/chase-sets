@@ -7,8 +7,8 @@ Address the environment audit findings with infrastructure, workflow, and operat
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260526-environment-audit`
-- Branch: `codex/staging-cname-ownership`
-- Base: fresh `origin/main` at `c5a44c54ed80eab841529036bc0677cce60e62ee`
+- Branch: `codex/staging-alias-default-ingress`
+- Base: fresh `origin/main` at `666dd876c9d4d128ece52862464f4c82834fc77d`
 - Sandbox id: `7649fb27`
 - Dependency setup status: installed with `pnpm run deps:install`
 - pnpm store path: default `.codex/worktrees/.chase-sets-pnpm-store`
@@ -29,6 +29,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 - After the App Platform routing records were applied, `www.staging.chasesets.com`, `marketplace.staging.chasesets.com`, and `admin.staging.chasesets.com` became active, but `staging.chasesets.com` still failed TLS because DigitalOcean retained the stale root domain attachment with `DomainZoneInvalid` and `DomainCNAMEMismatch`. Removing and re-adding only that root attachment allowed App Platform to issue the certificate and `https://staging.chasesets.com/` returned 200. Deployment and staging reset workflows should run the same guarded reset before waiting on staging domains.
 - The May 26 post-deploy DNS audit found duplicate identical staging apex A/AAAA records because App Platform was already ensuring apex routing records while the platform root also declared raw `digitalocean_record` resources. Remove only the raw platform apex A/AAAA resources so Terraform owns the App Platform domain attachments and App Platform owns its managed apex routing DNS. Keep the nested `www`, `marketplace`, and `admin` CNAME records in the platform root because App Platform did not recreate them after Terraform removed them and staging smoke failed with `ENOTFOUND`.
 - Restoring the nested CNAME resources after the live repair requires state reconciliation because the prior Terraform apply destroyed those resources in state before the CNAMEs were recreated manually. Staging deploy and reset workflows should import matching live CNAMEs before planning so Terraform adopts the records instead of failing on duplicate record creation.
+- The May 26 deploy for the first import workflow proved that matching against Terraform `live_url` is wrong for nested alias CNAME adoption: `live_url` is the staging custom root, while the live nested aliases point at the App Platform default ingress. Import reconciliation must resolve the existing app id from Terraform state, read `DefaultIngress` from DigitalOcean, strip the scheme/trailing slash, and match CNAME data against that default ingress host.
 - Uptime checks should be Terraform-managed and alert only when `alert_emails` is configured. The deployment workflows will pass `TF_VAR_alert_emails` from a GitHub Environment variable so recipient management does not require code changes.
 - Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, canonical marketplace, and the staging root marketplace host where present.
 - Catalog asset custom domains must be deployment-verified because direct Spaces origins can continue working after a CDN custom domain disappears. Staging reset should verify the CDN, DNS CNAME, and HTTPS response after recreating catalog assets; staging/production smoke should also check `CATALOG_ASSET_PUBLIC_BASE_URL`.
@@ -56,9 +57,9 @@ Address the environment audit findings with infrastructure, workflow, and operat
 - [x] Normalize staging environment DNS NS/MX/CNAME target values with trailing dots for DigitalOcean API compatibility.
 - [x] Point staging App Platform nested/root domains at the delegated child zone while keeping legacy dash-based redirect hosts in `chasesets.com`.
 - [x] Attach staging child-zone App Platform domains from the platform Terraform root, leave the staging apex A/AAAA routing DNS records owned by App Platform, and keep nested App Platform CNAMEs in Terraform so App Platform routing and Gmail MX/TXT coexist without duplicate apex DNS ownership.
-- [x] Import live staging nested App Platform CNAME records into Terraform state before staging deploy/reset plans when the records exist but state is missing them.
+- [x] Import live staging nested App Platform CNAME records into Terraform state before staging deploy/reset plans when the records exist but state is missing them, matching against the App Platform default ingress host rather than the custom root URL.
 - [x] Add a guarded App Platform root-domain attachment reset for the stale staging apex certificate state.
-- [x] Install dependencies and run targeted tests/validation.
+- [x] Install dependencies and run targeted tests/validation (`pnpm run test:digitalocean-app-deployment`, `terraform fmt -check -recursive infrastructure/digitalocean/platform infrastructure/digitalocean/environment-dns`, `git diff --check`, `pnpm run verify:static`, `pnpm run sandbox:doctor`).
 
 ## Documentation To Promote
 
