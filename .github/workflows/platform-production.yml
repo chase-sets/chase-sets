@@ -13,6 +13,11 @@ on:
         required: false
         default: main
         type: string
+      force_deploy:
+        description: Force deployment even when release diff has no deploy-scoped files.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -103,6 +108,12 @@ jobs:
           set -euo pipefail
           release_commit="${{ steps.release.outputs.release_commit }}"
           git fetch origin production || true
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_deploy }}" = "true" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Manual force deployment requested for ${release_commit}."
+            exit 0
+          fi
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && git show-ref --verify --quiet refs/remotes/origin/production; then
             base_commit="$(git rev-parse origin/production)"
