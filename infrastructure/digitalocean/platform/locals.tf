@@ -49,7 +49,8 @@ locals {
   worker_job_concurrency              = "1"
   worker_dispatch_concurrency         = "1"
   worker_scheduled_concurrency        = "1"
-  catalog_asset_s3_endpoint           = "https://${var.region}.digitaloceanspaces.com"
+  realtime_stream_limiter             = local.is_non_production ? "local" : "postgres"
+  catalog_asset_s3_endpoint           = "https://${var.data_region}.digitaloceanspaces.com"
   catalog_asset_s3_buckets = {
     preview    = "chase-sets-preview-catalog-assets"
     staging    = "chase-sets-staging-catalog-assets"
@@ -165,4 +166,21 @@ locals {
   api_instances        = local.is_production ? 2 : 1
   admin_web_instances  = 1
   worker_instances     = 1
+
+  public_uptime_check_targets = {
+    for domain in local.public_domains :
+    "public-${replace(domain, ".", "-")}" => "https://${domain}"
+  }
+  admin_uptime_check_targets = {
+    (format("admin-%s", replace(local.admin_domain, ".", "-"))) = "https://${local.admin_domain}/health/ready"
+  }
+  marketplace_uptime_check_targets = {
+    for domain in local.all_marketplace_domains :
+    "marketplace-${replace(domain, ".", "-")}" => "https://${domain}/health/ready"
+  }
+  uptime_check_targets = merge(
+    local.public_uptime_check_targets,
+    local.admin_uptime_check_targets,
+    local.marketplace_uptime_check_targets,
+  )
 }

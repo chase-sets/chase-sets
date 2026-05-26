@@ -34,6 +34,7 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_stripe_connect_return_url: https://marketplace.staging.chasesets.com/account/payouts
       TF_VAR_stripe_connect_refresh_url: https://marketplace.staging.chasesets.com/account/payouts/setup
+      TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
@@ -470,7 +471,8 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           mapfile -t legacy_public_redirect_domains < <(terraform output -json legacy_public_redirect_domains | jq -r '.[]')
           mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
-          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ]; then
+          mapfile -t staging_root_marketplace_domains < <(terraform output -json staging_root_marketplace_domains | jq -r '.[]')
+          if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ "${#marketplace_domains[@]}" -eq 0 ] || [ "${#staging_root_marketplace_domains[@]}" -eq 0 ]; then
             echo "Required staging domains were not present in Terraform outputs." >&2
             exit 1
           fi
@@ -481,6 +483,7 @@ jobs:
             "$admin_domain" \
             "${legacy_public_redirect_domains[@]}" \
             "${marketplace_domains[@]}" \
+            "${staging_root_marketplace_domains[@]}" \
             --timeout-seconds=1800 \
             --poll-seconds=30
 

@@ -88,11 +88,13 @@ pnpm run remote-dev -- prune-expired --force
 
 The session name is generated from branch, short SHA, and a random suffix. Pass `--name <slug>` to choose one.
 
-GitHub Actions can create label-gated PR previews through
-`.github/workflows/platform-preview.yml`. Add the `preview` label to create or
-refresh one preview session for a same-repository PR; closing the PR destroys
-it. Forked PRs do not receive DigitalOcean credentials. A scheduled prune runs
-every six hours as a TTL backstop.
+GitHub Actions can create label-gated App Platform PR previews through
+`.github/workflows/platform-pr.yml`. Add the `preview` label to create or
+refresh one same-repository PR preview; closing the PR destroys the App
+Platform preview through `.github/workflows/platform-preview-cleanup.yml`.
+Forked PRs do not receive DigitalOcean credentials. Remote dev sessions remain
+manual operator-owned Droplets for branch-level HTTPS review or remote Codex
+work when a disposable VM is more useful than App Platform.
 
 ## URLs
 
@@ -144,7 +146,7 @@ DigitalOcean tags and resource names are canonical. Local files under `artifacts
 
 The tooling warns when more than three active sessions exist. Use `--force` when intentional.
 
-`prune-expired` reads expiration tags from DigitalOcean and destroys expired sessions. The preview workflow runs it on a schedule; run it manually when cleaning up local experiments:
+`prune-expired` reads expiration tags from DigitalOcean and destroys expired sessions. Run it manually from an operator machine with DigitalOcean credentials when cleaning up local experiments or before creating more sessions:
 
 ```bash
 pnpm run remote-dev -- prune-expired --force

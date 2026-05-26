@@ -38,8 +38,21 @@ variable "preview_identifier" {
 }
 
 variable "region" {
-  type    = string
-  default = "nyc3"
+  type        = string
+  default     = "nyc3"
+  description = "Deprecated compatibility variable. Use app_region for App Platform and data_region for managed Postgres and Spaces."
+}
+
+variable "app_region" {
+  type        = string
+  default     = "nyc"
+  description = "DigitalOcean App Platform region slug."
+}
+
+variable "data_region" {
+  type        = string
+  default     = "nyc3"
+  description = "DigitalOcean managed Postgres and Spaces region slug."
 }
 
 variable "root_domain" {
@@ -299,6 +312,24 @@ variable "ses_source_arn" {
 }
 
 variable "alert_emails" {
-  type    = list(string)
-  default = []
+  type        = list(string)
+  default     = []
+  description = "Email recipients for App Platform deployment alerts and uptime alerts."
+}
+
+variable "uptime_checks_enabled" {
+  type        = bool
+  default     = true
+  description = "Create DigitalOcean uptime checks for public platform endpoints."
+}
+
+variable "uptime_check_regions" {
+  type        = list(string)
+  default     = ["us_east", "us_west", "eu_west"]
+  description = "DigitalOcean uptime check regions."
+
+  validation {
+    condition     = length(var.uptime_check_regions) > 0
+    error_message = "uptime_check_regions must include at least one region."
+  }
 }

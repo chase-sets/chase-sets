@@ -245,12 +245,21 @@ api.${slug}.${normalizedDomain} {
 `;
 }
 
+function replaceTemplateToken(template, token, value) {
+  const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return template.replace(new RegExp(`\\{\\s*\\{\\s*${escapedToken}\\s*\\}\\s*\\}`, "g"), () => value);
+}
+
 export function buildCloudInit({ sshPublicKey, helperScript, sessionSlug, expiresAt }) {
-  return readTemplate(cloudInitTemplatePath)
-    .replaceAll("{{SSH_PUBLIC_KEY}}", indentYamlScalar(assertNonBlank(sshPublicKey, "SSH public key"), 6))
-    .replaceAll("{{REMOTE_HELPER_B64}}", Buffer.from(helperScript, "utf8").toString("base64"))
-    .replaceAll("{{SESSION_SLUG}}", sessionSlug)
-    .replaceAll("{{EXPIRES_AT}}", expiresAt.toISOString());
+  return [
+    ["SSH_PUBLIC_KEY", indentYamlScalar(assertNonBlank(sshPublicKey, "SSH public key"), 6)],
+    ["REMOTE_HELPER_B64", Buffer.from(helperScript, "utf8").toString("base64")],
+    ["SESSION_SLUG", sessionSlug],
+    ["EXPIRES_AT", expiresAt.toISOString()],
+  ].reduce(
+    (template, [token, value]) => replaceTemplateToken(template, token, value),
+    readTemplate(cloudInitTemplatePath),
+  );
 }
 
 export function buildSessionEnv({ domain, slug, providerMode = remoteDevDefaults.providerMode, extraEnv = {} }) {
