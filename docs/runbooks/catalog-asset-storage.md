@@ -6,6 +6,8 @@ Catalog uses owned asset storage for provider-fed product imagery. TCGdex import
 
 Catalog stores browser delivery variants by pixel dimensions and device-pixel-ratio targets. Embedded DPI/PPI metadata is not used for web delivery decisions.
 
+Each role's width is also a rendering contract. Product UI should render the role at its listed CSS slot and pass the matching `srcset`/`sizes` metadata so the browser can select a source whose intrinsic width is at least the rendered slot multiplied by device pixel ratio. Do not stretch a role beyond its CSS slot to fill a larger frame; use a larger role or add a new role when the design intentionally needs a larger rendered image.
+
 | Role | Widths | Use |
 | --- | ---: | --- |
 | `thumbnail` | 96w, 192w | compact card thumbnails, cart line item art, admin rows |

@@ -39,10 +39,7 @@ import type {
   DiscoveryReferenceRecordRef,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
-import {
-  buildDiscoveryProductAssetSrcSet,
-  selectDiscoveryProductAssetUrl,
-} from "../../../support/client-support/product-assets";
+import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
 import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
 import { ProductSelector } from "./product-selector";
 import {
@@ -230,18 +227,23 @@ function ReferenceDetailDialog({
 }
 
 function buildItemDetailImages(data: DiscoveryItemDetail) {
-  const detailSrc = selectDiscoveryProductAssetUrl(data.product_asset_sets, "catalog-detail");
+  const detailImage = buildDiscoveryProductAssetImage(
+    data.product_asset_sets,
+    "catalog-detail",
+    "(min-width: 768px) 308px, min(100vw, 276px)",
+  );
+  const detailSrc = detailImage?.src;
 
   if (detailSrc) {
-    const thumbnailSrc = selectDiscoveryProductAssetUrl(data.product_asset_sets, "thumbnail");
+    const thumbnailImage = buildDiscoveryProductAssetImage(data.product_asset_sets, "thumbnail", "64px");
 
     return [
       {
+        ...detailImage,
         src: detailSrc,
-        srcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "catalog-detail"),
-        sizes: "(min-width: 768px) 308px, min(100vw, 276px)",
-        thumbnailSrc: thumbnailSrc ?? detailSrc,
-        thumbnailSrcSet: buildDiscoveryProductAssetSrcSet(data.product_asset_sets, "thumbnail"),
+        thumbnailSrc: thumbnailImage?.src ?? detailSrc,
+        thumbnailSrcSet: thumbnailImage?.srcSet,
+        thumbnailSizes: thumbnailImage?.sizes,
         alt: t("discovery.features.itemDetail.ui.itemDetailPage.image.alt", {
           title: data.title,
           index: 1,

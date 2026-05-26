@@ -12,6 +12,7 @@ const cartLine: CheckoutCartLine = {
   item_title: "Charizard",
   item_subtitle: "Base Set 4/102 Holo Rare",
   item_image_url: "/fake-cdn/assets/charizard.png",
+  item_image_srcset: "/fake-cdn/assets/charizard.png 1x, /fake-cdn/assets/charizard@2x.png 2x",
   item_image_loading_url: "/fake-cdn/assets/pokemon_tcg_back.png",
   item_image_loading_alt: "Pokemon card back",
   item_image_loading_srcset: "/fake-cdn/assets/pokemon_tcg_back.png 1x",
@@ -88,6 +89,8 @@ describe("checkout cart page", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
 
     expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
+    expect(markup).toContain('srcSet="/fake-cdn/assets/charizard.png 1x, /fake-cdn/assets/charizard@2x.png 2x"');
+    expect(markup).toContain('sizes="5.5rem"');
     expect(markup).toContain("Charizard");
     expect(markup).toContain("Japanese");
     expect(markup).toContain("Base Set 4/102 Holo Rare");

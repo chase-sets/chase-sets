@@ -11,7 +11,7 @@ export {
   type ActivityListProps,
 } from "./timeline";
 export { Card, type CardProps, DetailPanel, type DetailPanelProps } from "./card";
-export { ProductMediaImage, type ProductMediaImageProps } from "./product-media";
+export { ProductMediaImage, type ProductMediaImageProps, type ResponsiveImageSource } from "./product-media";
 export { ActorIdentityCue, type ActorIdentityCueProps, type ActorIdentityCueVariant } from "./actor-identity-cue";
 export {
   ActionBar,

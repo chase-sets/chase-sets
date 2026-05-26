@@ -263,6 +263,9 @@ describe("item detail commerce panel", () => {
     const image = screen.getByRole("img", { name: "Charizard image 1" });
     expect(image.getAttribute("src")).toBe("/catalog-detail-480w.webp");
     expect(image.getAttribute("srcset")).toBe("/catalog-detail-480w.webp 480w, /catalog-detail-960w.webp 960w");
+    expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 308px, min(100vw, 276px)");
+    expect(image.getAttribute("width")).toBe("480");
+    expect(image.getAttribute("height")).toBe("672");
   });
 
   it("renders item detail language codes as localized labels", async () => {

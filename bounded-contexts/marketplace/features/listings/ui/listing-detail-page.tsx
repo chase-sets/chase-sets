@@ -32,23 +32,49 @@ import type {
   MarketplaceListingTermsPreview,
 } from "./contracts";
 
-function listingPhotoUrl(
+function listingPhotoImage(
   photo: MarketplaceListingDetail["listing_photos"][number],
   role: "thumbnail" | "search-card" | "catalog-detail",
+  sizes: string,
 ) {
-  return (
-    photo.assetSet.variants.find((variant) => variant.role === role && variant.density === 1)?.publicUrl ??
-    photo.assetSet.source.publicUrl
-  );
+  const variants = photo.assetSet.variants
+    .filter((variant) => variant.role === role)
+    .sort((left, right) => left.width - right.width);
+  const oneX = variants.find((variant) => variant.density === 1) ?? variants[0] ?? null;
+
+  if (!oneX) {
+    return {
+      src: photo.assetSet.source.publicUrl,
+      srcSet: undefined,
+      sizes,
+      width: photo.assetSet.source.width,
+      height: photo.assetSet.source.height,
+    };
+  }
+
+  return {
+    src: oneX.publicUrl,
+    srcSet: variants.map((variant) => `${variant.publicUrl} ${variant.width}w`).join(", "),
+    sizes,
+    width: oneX.width,
+    height: oneX.height,
+  };
 }
 
 function listingPhotoImages(listing: MarketplaceListingDetail) {
-  return listing.listing_photos.map((photo, index) => ({
-    src: listingPhotoUrl(photo, "catalog-detail"),
-    thumbnailSrc: listingPhotoUrl(photo, "thumbnail"),
-    alt: photo.altText ?? `${listing.item_title ?? listing.catalog_catalog_item_id} photo ${index + 1}`,
-    label: photo.originalFilename ?? `Photo ${index + 1}`,
-  }));
+  return listing.listing_photos.map((photo, index) => {
+    const detailImage = listingPhotoImage(photo, "catalog-detail", "(min-width: 768px) 480px, min(100vw, 276px)");
+    const thumbnailImage = listingPhotoImage(photo, "thumbnail", "64px");
+
+    return {
+      ...detailImage,
+      thumbnailSrc: thumbnailImage.src,
+      thumbnailSrcSet: thumbnailImage.srcSet,
+      thumbnailSizes: thumbnailImage.sizes,
+      alt: photo.altText ?? `${listing.item_title ?? listing.catalog_catalog_item_id} photo ${index + 1}`,
+      label: photo.originalFilename ?? `Photo ${index + 1}`,
+    };
+  });
 }
 
 function formatMoney(amount: string) {

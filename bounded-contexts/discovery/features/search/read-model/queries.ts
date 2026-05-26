@@ -52,6 +52,7 @@ export type DiscoveryBulkCartPreviewLine = Readonly<{
   title: string;
   subtitle: string | null;
   image_url: string | null;
+  image_srcset: string | null;
   image_loading_url: string | null;
   image_loading_alt: string | null;
   image_loading_srcset: string | null;
@@ -466,6 +467,61 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
+function assetVariantString(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const text = record[key];
+  return typeof text === "string" && text.trim().length > 0 ? text : null;
+}
+
+function assetVariantNumber(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const number = Number((value as Record<string, unknown>)[key]);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function productAssetRoleImage(
+  item: Pick<DiscoverySearchItemRow, "image_urls" | "product_asset_sets">,
+  role: "thumbnail" | "search-card" | "catalog-detail",
+) {
+  for (const assetSet of jsonArray<Record<string, unknown>>(item.product_asset_sets)) {
+    const variants = jsonArray<unknown>(assetSet.variants)
+      .filter((variant) => assetVariantString(variant, "role") === role)
+      .sort((left, right) => (assetVariantNumber(left, "width") ?? 0) - (assetVariantNumber(right, "width") ?? 0));
+    const oneX = variants.find((variant) => assetVariantNumber(variant, "density") === 1) ?? variants[0] ?? null;
+
+    if (oneX) {
+      const src = assetVariantString(oneX, "publicUrl");
+      if (src) {
+        const srcSet = variants
+          .map((variant) => {
+            const publicUrl = assetVariantString(variant, "publicUrl");
+            const width = assetVariantNumber(variant, "width");
+            return publicUrl && width ? `${publicUrl} ${width}w` : null;
+          })
+          .filter((entry): entry is string => entry !== null)
+          .join(", ");
+
+        return {
+          src,
+          srcSet: srcSet || null,
+        };
+      }
+    }
+  }
+
+  return {
+    src: stringArray(item.image_urls)[0] ?? null,
+    srcSet: null,
+  };
+}
+
 async function loadProductSchemasForBlueprints(
   db: PgQueryable,
   blueprintIds: readonly string[],
@@ -575,13 +631,16 @@ function resolvePreviewLine(
   schema: ProductSchema | null,
   selections: ReadonlyMap<string, string>,
 ): DiscoveryBulkCartPreviewLine | DiscoveryBulkCartPreviewSkippedItem {
+  const thumbnailImage = productAssetRoleImage(item, "thumbnail");
+
   if (!schema || schema.dimensions.length === 0) {
     return {
       catalog_item_id: item.catalog_item_id,
       slug: item.slug,
       title: item.title,
       subtitle: item.subtitle,
-      image_url: stringArray(item.image_urls)[0] ?? null,
+      image_url: thumbnailImage.src,
+      image_srcset: thumbnailImage.srcSet,
       image_loading_url: null,
       image_loading_alt: null,
       image_loading_srcset: null,
@@ -636,7 +695,8 @@ function resolvePreviewLine(
     slug: item.slug,
     title: item.title,
     subtitle: item.subtitle,
-    image_url: stringArray(item.image_urls)[0] ?? null,
+    image_url: thumbnailImage.src,
+    image_srcset: thumbnailImage.srcSet,
     image_loading_url: null,
     image_loading_alt: null,
     image_loading_srcset: null,

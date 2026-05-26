@@ -304,6 +304,36 @@ describe("design-system", () => {
     expect(markup).not.toContain("object-contain p-3");
   });
 
+  it("renders listing product media from responsive image descriptors", () => {
+    const markup = renderToString(
+      <ListingCard
+        title="2020 Pikachu VMAX"
+        image={{
+          src: "/assets/pikachu-160w.webp",
+          srcSet: "/assets/pikachu-160w.webp 160w, /assets/pikachu-320w.webp 320w",
+          sizes: "160px",
+          width: 160,
+          height: 224,
+        }}
+        imageAlt="2020 Pikachu VMAX card"
+        imageSlot="compact-product"
+        price="$1,250.00"
+        sellerName="Vaulted Collectibles"
+        sellerTrustLabel="Verified account"
+        fulfillment="Arrives May 9-11"
+        availability="1 available"
+        primaryAction={<Button>Buy now</Button>}
+      />,
+    );
+
+    expect(markup).toContain('src="/assets/pikachu-160w.webp"');
+    expect(markup).toContain('srcSet="/assets/pikachu-160w.webp 160w, /assets/pikachu-320w.webp 320w"');
+    expect(markup).toContain('sizes="160px"');
+    expect(markup).toContain('width="160"');
+    expect(markup).toContain('height="224"');
+    expect(markup).toContain("max-w-[10rem]");
+  });
+
   it("renders linked account reputation summaries", () => {
     render(
       <div>

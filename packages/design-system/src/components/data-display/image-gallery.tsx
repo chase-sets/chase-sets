@@ -2,13 +2,12 @@ import { useState } from "react";
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../utils/cx";
 import { ProductMediaImage } from "./product-media";
+import type { ResponsiveImageSource } from "./product-media";
 
-export interface GalleryImage {
-  src: string;
-  srcSet?: string;
-  sizes?: string;
+export interface GalleryImage extends ResponsiveImageSource {
   thumbnailSrc?: string;
   thumbnailSrcSet?: string;
+  thumbnailSizes?: string;
   alt: string;
 }
 
@@ -150,7 +149,7 @@ export function ImageGallery({
                   alt=""
                   aria-hidden="true"
                   srcSet={thumbnail.thumbnailSrcSet ?? thumbnail.srcSet}
-                  sizes="64px"
+                  sizes={thumbnail.thumbnailSizes ?? "64px"}
                   onError={() => markImageFailed(thumbnail.thumbnailSrc ?? thumbnail.src)}
                   className="h-full w-full object-cover"
                 />
@@ -190,6 +189,8 @@ export function ImageGallery({
                 alt={loadingFallback.alt}
                 srcSet={loadingFallback.srcSet}
                 sizes={loadingFallback.sizes}
+                width={loadingFallback.width}
+                height={loadingFallback.height}
                 className="absolute inset-0"
                 aria-hidden="true"
               />
@@ -199,6 +200,8 @@ export function ImageGallery({
               alt={active.alt}
               srcSet={active.srcSet}
               sizes={active.sizes}
+              width={active.width}
+              height={active.height}
               onLoad={() => markImageLoaded(active.src)}
               onError={() => markImageFailed(active.src)}
               className="relative"

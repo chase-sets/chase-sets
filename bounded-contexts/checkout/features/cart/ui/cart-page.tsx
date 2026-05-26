@@ -132,6 +132,8 @@ export function CheckoutCartPage({
           imageAlt={t("checkout.features.cart.ui.cartPage.product.image.alt", {
             title: line.item_title,
           })}
+          imageSrcSet={line.item_image_srcset ?? undefined}
+          imageSizes="5.5rem"
           loadingImageSrc={line.item_image_loading_url ?? undefined}
           loadingImageAlt={line.item_image_loading_alt ?? undefined}
           loadingImageSrcSet={line.item_image_loading_srcset ?? undefined}

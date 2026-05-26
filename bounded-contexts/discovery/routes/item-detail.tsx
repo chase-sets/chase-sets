@@ -42,7 +42,10 @@ import type {
   DiscoveryAccountOfferMatch,
 } from "../support/client-support/contracts";
 import { discoveryAssetUrls, imageVariantSrcSet } from "../support/client-support/assets";
-import { selectDiscoveryProductAssetUrl } from "../support/client-support/product-assets";
+import {
+  buildDiscoveryProductAssetImage,
+  selectDiscoveryProductAssetUrl,
+} from "../support/client-support/product-assets";
 import {
   createMarketplaceRequestApiClient,
   type MarketplaceListingInventoryItemOption,
@@ -240,15 +243,30 @@ function selectItemImageUrl(
   item: Partial<Pick<DiscoveryItemDetail, "image_urls" | "product_asset_sets" | "image_fallback">>,
   role: "thumbnail" | "catalog-detail" = "catalog-detail",
 ): string | null {
+  return selectItemImage(item, role).src;
+}
+
+function selectItemImage(
+  item: Partial<Pick<DiscoveryItemDetail, "image_urls" | "product_asset_sets" | "image_fallback">>,
+  role: "thumbnail" | "catalog-detail" = "catalog-detail",
+): { src: string | null; srcSet: string | null } {
   const productAssetSets = Array.isArray(item.product_asset_sets) ? item.product_asset_sets : [];
   const imageUrls = Array.isArray(item.image_urls) ? item.image_urls : [];
-
-  return (
-    selectDiscoveryProductAssetUrl(productAssetSets, role) ??
-    imageUrls[0] ??
-    (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : null) ??
-    null
+  const productAssetImage = buildDiscoveryProductAssetImage(
+    productAssetSets,
+    role,
+    role === "thumbnail" ? "96px" : "(min-width: 768px) 308px, min(100vw, 276px)",
   );
+
+  return {
+    src:
+      productAssetImage?.src ??
+      selectDiscoveryProductAssetUrl(productAssetSets, role) ??
+      imageUrls[0] ??
+      (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : null) ??
+      null,
+    srcSet: productAssetImage?.srcSet ?? null,
+  };
 }
 
 function formatTermsSource(terms: MarketplaceListingTermsPreview) {
@@ -2065,12 +2083,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (intent === "add-to-cart") {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
+      const itemImage = selectItemImage(item, "thumbnail");
       const cartLine = {
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
-        itemImageUrl: selectItemImageUrl(item, "thumbnail"),
+        itemImageUrl: itemImage.src,
+        itemImageSrcSet: itemImage.srcSet,
         itemImageLoadingUrl: item.image_fallback?.url ?? null,
         itemImageLoadingAlt: item.image_fallback?.alt ?? null,
         itemImageLoadingSrcSet: imageVariantSrcSet(item.image_fallback, "thumbnail") ?? null,
