@@ -5614,8 +5614,11 @@ export const englishTranslations = {
   "discovery.features.itemDetail.ui.itemDetailPage.no.additional.details": "No additional item details are available.",
   "discovery.features.search.ui.searchPage.default.product.image": "Default product image",
   "discovery.features.search.ui.searchPage.buy": "Add product to Buy Cart",
+  "discovery.features.search.ui.searchPage.buy.intent": "Buy",
   "discovery.features.search.ui.searchPage.sell": "Add product to Sell List",
+  "discovery.features.search.ui.searchPage.sell.intent": "Sell",
   "discovery.features.search.ui.searchPage.watch": "Watch product",
+  "discovery.features.search.ui.searchPage.watch.intent": "Watch",
   "discovery.features.itemDetail.ui.itemDetailPage.default.product.image": "Default product image",
   "discovery.routes.itemDetail.watch.card.description":
     "Create alerts for the selected product without starting a buy or sell workflow.",

@@ -334,6 +334,39 @@ describe("design-system", () => {
     expect(markup).toContain("max-w-[10rem]");
   });
 
+  it("renders search result cards with compact media and content status badges", () => {
+    const markup = renderToString(
+      <ListingCard
+        cardLayout="search-result"
+        title="Abra 054/132"
+        image={{
+          src: "/assets/abra-160w.webp",
+          srcSet: "/assets/abra-160w.webp 160w, /assets/abra-320w.webp 320w",
+          sizes: "160px",
+          width: 160,
+          height: 224,
+        }}
+        imageAlt="Abra card"
+        imageSlot="compact-product"
+        price="Market open"
+        priceDetail="No active listings"
+        sellerName="No active sellers yet"
+        sellerTrustLabel="Offers open"
+        fulfillment="Offer or list yours"
+        availability={null}
+        promotion="Supply wanted"
+        primaryAction={<Button>Sell</Button>}
+        secondaryAction={false}
+      />,
+    );
+
+    expect(markup).toContain('data-card-layout="search-result"');
+    expect(markup).toContain("grid-cols-[minmax(6.75rem,7.25rem)_minmax(0,1fr)]");
+    expect(markup).toContain("max-w-[7rem]");
+    expect(markup).toContain('data-card-promotion-placement="content"');
+    expect(markup).not.toContain("absolute left-2 top-2");
+  });
+
   it("renders linked account reputation summaries", () => {
     render(
       <div>

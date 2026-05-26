@@ -49,6 +49,8 @@ Real product media renders as the collectible, not as a framed UI thumbnail. Use
 
 Product media must use the shared responsive image source contract. Routes should pass the role-appropriate source, `srcset`, `sizes`, width, and height from the owning bounded context's asset set instead of hand-authoring route-local image policy. Search-card product media renders in the compact product slot so Catalog's 160 CSS pixel `search-card` role can use its 320w variant on high-DPR displays without being stretched blurry.
 
+Search result cards use the `search-result` card layout. This layout keeps product media compact in multi-column grids, reserves status badges such as `Available now` and `Supply wanted` in the content plane instead of over the product image, and uses short visible Buy / Sell / Watch labels with one dominant primary action. Repeated metadata such as default language and common blueprint labels should not appear before the product title on every search result.
+
 ## Product Options Display Contract
 
 Use `ProductOptions` whenever a resolved product's selected options are displayed. Visual presentation is option-only: `Raw • Excellent` or `Graded • PSA • 10 Gem Mint`. Do not show Dimension labels such as `Form:` or `Condition:` in the visual label unless the surface is explicitly Catalog authoring or technical diagnostics.

@@ -201,7 +201,7 @@ describe("SearchPage", () => {
     expect(image.getAttribute("sizes")).toBe("160px");
     expect(image.getAttribute("width")).toBe("160");
     expect(image.getAttribute("height")).toBe("224");
-    expect(image.className).toContain("max-w-[10rem]");
+    expect(image.className).toContain("max-w-[7rem]");
   });
 
   it("renders search result language codes as localized labels", () => {
@@ -232,8 +232,31 @@ describe("SearchPage", () => {
     expect(screen.getAllByText("Abra")).toHaveLength(2);
     expect(screen.getByText("Base Set 43 Standard Set Common")).toBeTruthy();
     expect(screen.getByText("Base Set 43 Parallel Set - Reverse Foil Common")).toBeTruthy();
-    expect(screen.getAllByText("Pokemon Card Single")).toHaveLength(2);
+    expect(screen.queryByText("Pokemon Card Single")).toBeNull();
     expect(screen.queryByText("Make an offer or list yours to help this market form.")).toBeNull();
+  });
+
+  it("uses a scan-first search result card hierarchy", () => {
+    renderSearchPage({
+      committedSearch: "abra",
+      data: {
+        items: [standardAbraSearchResult],
+        facets: [],
+        total: 1,
+        count: 1,
+        nextCursor: null,
+      },
+      categories: [],
+    });
+
+    const title = screen.getByRole("heading", { name: "Abra" });
+    const card = title.closest("article");
+
+    expect(card?.getAttribute("data-card-layout")).toBe("search-result");
+    expect(card?.querySelector('[data-card-promotion-placement="content"]')?.textContent).toBe("Supply wanted");
+    expect(screen.getByRole("link", { name: "Add product to Sell List" }).textContent).toBe("Sell");
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).textContent).toBe("Buy");
+    expect(screen.getByRole("link", { name: "Watch product" }).textContent).toBe("Watch");
   });
 
   it("renders language as a top-level desktop filter", () => {
