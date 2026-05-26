@@ -286,6 +286,37 @@ jobs:
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
+      - name: Reconcile staging App Platform alias DNS state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          zone="staging.chasesets.com"
+          target="$(terraform output -raw live_url 2>/dev/null | sed -e 's#^https://##' -e 's#/$##' || true)"
+          if [ -z "$target" ]; then
+            echo "No existing App Platform live URL was found in Terraform state; skipping alias DNS state reconciliation."
+            exit 0
+          fi
+
+          records_json="$(doctl compute domain records list "$zone" --output json)"
+          for name in admin marketplace www; do
+            address="digitalocean_record.staging_app_alias[\"${name}\"]"
+            if terraform state show "$address" >/dev/null 2>&1; then
+              continue
+            fi
+
+            record_id="$(printf '%s' "$records_json" | jq -r --arg name "$name" --arg target "$target" 'first(.[] | select(.type == "CNAME" and .name == $name and (.data | rtrimstr(".")) == $target) | .id) // empty')"
+            if [ -z "$record_id" ]; then
+              echo "No live CNAME found for ${name}.${zone}; Terraform will create it."
+              continue
+            fi
+
+            terraform import "$address" "$record_id"
+          done
+
       - name: Wait for previous App Platform deployment
         working-directory: infrastructure/digitalocean/platform
         env:
