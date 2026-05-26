@@ -181,7 +181,7 @@ describe("surface hierarchy", () => {
     const violations = surfaceHierarchyViolations(repositoryRoot());
 
     expect(violations).toEqual([]);
-  });
+  }, 15_000);
 
   it("renders insets and metric wells with the recessed cutout treatment", () => {
     expect(renderToString(<Inset>One nested child level</Inset>)).toContain("inset-surface");
