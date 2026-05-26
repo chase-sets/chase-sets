@@ -66,7 +66,7 @@ Each SES identity needs:
 
 DigitalOcean DNS hosts `chasesets.com`; do not enable Route 53 automatic publishing for these identities.
 
-`staging.chasesets.com` is also the staging marketplace root. If Google Workspace receives mail for that exact environment root, do not use a CNAME there. Use exact-name `A` and `AAAA` records for the App Platform ingress plus exact-name Gmail MX/TXT records. App Platform should keep `staging.chasesets.com` as a self-managed alias without a DNS `zone` field so it does not create or replace records that conflict with Gmail. SES bounce and DKIM records still belong on child names such as `bounce.staging.chasesets.com`, `_dmarc.staging.chasesets.com`, and provider DKIM records.
+`staging.chasesets.com` is also the staging marketplace root. If Google Workspace receives mail for that exact environment root, do not use a CNAME there. App Platform should own the root as a managed primary domain in the DigitalOcean DNS zone so platform routing and certificates use `A`/`AAAA`-style records that coexist with exact-name Gmail MX/TXT records. SES bounce and DKIM records still belong on child names such as `bounce.staging.chasesets.com`, `_dmarc.staging.chasesets.com`, and provider DKIM records. Google Workspace DKIM for staging should be added as the Admin Console-provided TXT record at `google._domainkey.staging.chasesets.com`.
 
 ## Operational Posture
 

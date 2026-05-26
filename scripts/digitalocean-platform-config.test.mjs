@@ -4,9 +4,12 @@ import { describe, expect, it } from "vitest";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
+const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
+const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
@@ -44,6 +47,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("chase-sets-preview-catalog-assets");
     expect(platformLocals).toContain("https://assets.preview.${var.root_domain}");
     expect(platformLocals).toContain("catalog_asset_public_base_url");
+    expect(platformOutputs).toContain('output "catalog_asset_public_base_url"');
     expect(platformVariables).not.toContain('variable "catalog_asset_s3_bucket"');
     expect(platformVariables).not.toContain('variable "catalog_asset_public_base_url"');
   });
@@ -57,6 +61,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(catalogAssetsLocals).toContain('preview    = "chase-sets-preview-catalog-assets"');
     expect(catalogAssetsLocals).toContain('staging    = "assets.staging.${var.root_domain}"');
     expect(catalogAssetsLocals).toContain('production = "assets.${var.root_domain}"');
+    expect(platformStagingResetWorkflow).toContain("Verify staging catalog asset CDN");
+    expect(platformStagingResetWorkflow).toContain("terraform import digitalocean_cdn.catalog_assets");
+    expect(platformStagingResetWorkflow).toContain("doctl compute cdn list --output json");
+    expect(platformStagingResetWorkflow).toContain("doctl compute domain records list chasesets.com --output json");
+    expect(platformStagingResetWorkflow).toContain('"https://${custom_domain}/" >/dev/null');
+    expect(platformProductionWorkflow).toContain("catalog_asset_public_base_url");
+    expect(platformProductionWorkflow).toContain('"${catalog_asset_public_base_url}/" >/dev/null');
   });
 
   it("routes non-production UCP agent discovery and transport paths to platform-api", () => {
@@ -85,27 +96,25 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
   });
 
-  it("routes staging root as a self-managed marketplace host", () => {
+  it("routes staging root as the managed primary marketplace host", () => {
     expect(platformLocals).toContain("staging_root_marketplace_domains = local.is_staging");
     expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');
     expect(platformLocals).toContain(
       "all_marketplace_domains = concat(local.marketplace_domains, local.staging_root_marketplace_domains)",
     );
     expect(platformLocals).toContain(
+      "app_primary_domain      = local.is_staging ? local.staging_root_marketplace_domains[0] : local.public_domains[0]",
+    );
+    expect(platformLocals).toContain(
       "concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains)",
     );
+    expect(platformLocals).toContain("for domain in local.all_marketplace_domains");
     expect(platformMain).toContain("for_each = local.staging_root_marketplace_domains");
     expect(platformMain).toContain("for_each = local.all_marketplace_domains");
+    expect(platformMain).toContain('type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"');
+    expect(occurrenceCount(platformMain, "zone = var.root_domain")).toBeGreaterThanOrEqual(5);
     expect(platformMain).toContain('name                 = "marketplace"');
     expect(platformMain).toContain('name                 = "platform-api"');
-    expect(platformMain).not.toContain(
-      `for_each = local.staging_root_marketplace_domains
-      content {
-        name = domain.value
-        type = "ALIAS"
-        zone = var.root_domain
-      }`,
-    );
   });
 
   it("splits app and data regions and manages uptime checks", () => {

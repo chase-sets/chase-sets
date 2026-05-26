@@ -35,6 +35,10 @@ output "staging_root_marketplace_domains" {
   value = local.staging_root_marketplace_domains
 }
 
+output "catalog_asset_public_base_url" {
+  value = local.catalog_asset_public_base_url
+}
+
 output "admin_domain" {
   value = local.admin_domain
 }

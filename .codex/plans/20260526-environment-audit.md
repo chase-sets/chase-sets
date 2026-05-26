@@ -23,9 +23,10 @@ Address the environment audit findings with infrastructure, workflow, and operat
 
 ## Resolved Decisions
 
-- Staging root DNS must stay self-managed because environment roots can carry exact-name Google Workspace MX/TXT records. Use exact-name A/AAAA records for App Platform ingress and keep the App Platform domain attachment without a DNS `zone` field.
+- Staging root DNS must support both App Platform routing and exact-name Google Workspace MX/TXT records. Attach `staging.chasesets.com` as the staging app's managed primary domain in the `chasesets.com` zone so DigitalOcean manages A/AAAA-style platform records and Gmail MX/TXT records coexist without a CNAME.
 - Uptime checks should be Terraform-managed and alert only when `alert_emails` is configured. The deployment workflows will pass `TF_VAR_alert_emails` from a GitHub Environment variable so recipient management does not require code changes.
-- Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, and canonical marketplace where present. Do not create a canonical uptime check for the staging root alias while it is operated as a Gmail-compatible self-managed hostname.
+- Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, canonical marketplace, and the staging root marketplace host where present.
+- Catalog asset custom domains must be deployment-verified because direct Spaces origins can continue working after a CDN custom domain disappears. Staging reset should verify the CDN, DNS CNAME, and HTTPS response after recreating catalog assets; staging/production smoke should also check `CATALOG_ASSET_PUBLIC_BASE_URL`.
 - Staging must not scale `platform-api` beyond one instance while realtime coordination is local. Add a Terraform validation invariant so future scaling cannot silently break SSE coordination.
 - DOCR non-release image retention should be reduced from 30 days to 7 days because release tags and live App Platform tags are already protected.
 - Remote-dev cloud-init placeholders should match the generator and have test coverage.
@@ -40,11 +41,12 @@ Address the environment audit findings with infrastructure, workflow, and operat
 
 - [x] Add Terraform uptime checks and alerts for platform hosts.
 - [x] Wire `TF_VAR_alert_emails` through staging, production, preview, and staging reset workflows.
-- [x] Keep staging root DNS self-managed so App Platform ingress A/AAAA records can coexist with exact-name Gmail MX/TXT records.
+- [x] Make staging root the managed App Platform primary domain so platform A/AAAA records can coexist with exact-name Gmail MX/TXT records.
 - [x] Add Terraform invariants for realtime coordination and API instance count.
 - [x] Tighten DOCR cleanup retention from 30 days to 7 days.
 - [x] Fix remote-dev cloud-init placeholders and add generator test coverage.
 - [x] Update runbooks/docs for staging root, uptime alerts, registry retention, remote-dev pruning, and production/staging shape.
+- [x] Restore the missing staging Catalog asset CDN custom domain and add workflow checks for CDN/DNS/HTTPS regression coverage.
 - [x] Install dependencies and run targeted tests/validation.
 
 ## Documentation To Promote

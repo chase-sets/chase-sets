@@ -87,7 +87,7 @@ resource "digitalocean_app" "platform" {
       for_each = local.public_domains
       content {
         name = domain.value
-        type = tostring(domain.key) == "0" ? "PRIMARY" : "ALIAS"
+        type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"
         zone = var.root_domain
       }
     }
@@ -114,7 +114,8 @@ resource "digitalocean_app" "platform" {
       for_each = local.staging_root_marketplace_domains
       content {
         name = domain.value
-        type = "ALIAS"
+        type = domain.value == local.app_primary_domain ? "PRIMARY" : "ALIAS"
+        zone = var.root_domain
       }
     }
 
