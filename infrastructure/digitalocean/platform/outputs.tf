@@ -38,3 +38,7 @@ output "staging_root_marketplace_domains" {
 output "admin_domain" {
   value = local.admin_domain
 }
+
+output "uptime_check_targets" {
+  value = local.uptime_check_targets
+}

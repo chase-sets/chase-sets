@@ -85,7 +85,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
   });
 
-  it("routes staging root as a self-managed marketplace host", () => {
+  it("routes staging root as a DigitalOcean-managed marketplace host", () => {
     expect(platformLocals).toContain("staging_root_marketplace_domains = local.is_staging");
     expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');
     expect(platformLocals).toContain(
@@ -98,7 +98,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("for_each = local.all_marketplace_domains");
     expect(platformMain).toContain('name                 = "marketplace"');
     expect(platformMain).toContain('name                 = "platform-api"');
-    expect(platformMain).not.toContain(
+    expect(platformMain).toContain(
       `for_each = local.staging_root_marketplace_domains
       content {
         name = domain.value
@@ -106,5 +106,19 @@ describe("DigitalOcean platform configuration", () => {
         zone = var.root_domain
       }`,
     );
+  });
+
+  it("splits app and data regions and manages uptime checks", () => {
+    expect(platformVariables).toContain('variable "app_region"');
+    expect(platformVariables).toContain('default     = "nyc"');
+    expect(platformVariables).toContain('variable "data_region"');
+    expect(platformVariables).toContain('default     = "nyc3"');
+    expect(platformMain).toContain("region     = var.data_region");
+    expect(platformMain).toContain("region = var.app_region");
+    expect(platformMain).toContain('resource "digitalocean_uptime_check" "platform"');
+    expect(platformMain).toContain('resource "digitalocean_uptime_alert" "platform_down"');
+    expect(platformLocals).toContain("uptime_check_targets = merge(");
+    expect(platformLocals).toContain("realtime_stream_limiter");
+    expect(platformMain).toContain('check "api_realtime_coordination"');
   });
 });

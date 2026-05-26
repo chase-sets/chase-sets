@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCaddyfile,
+  buildCloudInit,
   buildCreatePlan,
   buildDestroyPlan,
   createSessionSlug,
@@ -49,6 +50,23 @@ describe("remote-dev planning helpers", () => {
       root: "smoke-test",
       wildcard: "*.smoke-test",
     });
+  });
+
+  it("renders cloud-init placeholders for SSH and helper bootstrap", () => {
+    const helperScript = "#!/usr/bin/env bash\necho ready\n";
+    const cloudInit = buildCloudInit({
+      sshPublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey dev@example",
+      helperScript,
+      sessionSlug: "abc",
+      expiresAt: new Date("2026-05-05T12:00:00.000Z"),
+    });
+
+    expect(cloudInit).toContain("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKey dev@example");
+    expect(cloudInit).toContain(Buffer.from(helperScript, "utf8").toString("base64"));
+    expect(cloudInit).toContain("slug=abc");
+    expect(cloudInit).toContain("expires_at=2026-05-05T12:00:00.000Z");
+    expect(cloudInit).not.toContain("SSH_PUBLIC_KEY");
+    expect(cloudInit).not.toContain("REMOTE_HELPER_B64");
   });
 
   it("builds create plans with DigitalOcean droplet, firewall, and DNS commands", () => {

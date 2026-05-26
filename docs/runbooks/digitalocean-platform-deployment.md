@@ -4,7 +4,7 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
 
 ## Architecture
 
-- Region: `nyc3`.
+- Regions: App Platform runs in `nyc`; managed Postgres and Spaces stay in `nyc3`.
 - Infrastructure: Terraform root at `infrastructure/digitalocean/platform`.
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
 - State keys:
@@ -21,7 +21,8 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
 - Preview and staging environments run the full platform shape. Production currently remains on the landing/admin-support component set until marketplace production promotion is planned.
 - Database connections: App Platform components use component-specific per-context Postgres client pool budgets. API components keep enough clients for concurrent route loaders, workers keep enough clients for their configured runner groups plus control-plane work, and bootstrap jobs keep a smaller bounded pool. Preview and staging route runtime traffic through managed PgBouncer transaction pools. Preview stays on the smallest database tier with size-1 context pools; staging runs the full shared platform on `db-s-2vcpu-4gb` so hot contexts such as Catalog, Control, Auth, Identity, Public Presence, Discovery, and Marketplace can use larger managed pools without exhausting server connections. Production also uses `db-s-2vcpu-4gb` as the baseline for its component pool budgets. Managed pool `size` consumes database server connection capacity; scale the database tier before increasing managed PgBouncer pool sizes further.
 - Production branch: `production` is a smoke-verified deployed release marker. The production workflow fast-forwards it only after App Platform deployment and production smoke pass. It also creates an annotated `release-<yyyymmddHHMMSS>-<sha>` Git tag and a matching DOCR image tag for audit and rollback.
-- Image retention: the `chase-sets-platform` DOCR repository uses immutable commit, PR, and release tags. `.github/workflows/platform-registry-cleanup.yml` preserves App Platform-referenced tags, release-prefixed image tags, and images updated in the last 30 days; it deletes older unreferenced tags and then starts DigitalOcean registry garbage collection.
+- Image retention: the `chase-sets-platform` DOCR repository uses immutable commit, PR, and release tags. `.github/workflows/platform-registry-cleanup.yml` preserves App Platform-referenced tags, release-prefixed image tags, and images updated in the last 7 days; it deletes older unreferenced tags and then starts DigitalOcean registry garbage collection.
+- Availability checks: Terraform creates DigitalOcean uptime checks for public, admin, and marketplace endpoints. Uptime alert emails are created only when `PLATFORM_ALERT_EMAILS` is configured for the GitHub environment.
 - Image groups are intentionally deferred. The platform still deploys one shared image across App Platform components because splitting deployables into separate image groups would add Docker, registry, Terraform, promotion, rollback, and smoke-test complexity before there is enough deployment data to justify it.
 
 ## Preview Hosts
@@ -53,7 +54,7 @@ The long-lived staging environment uses the same full-platform shape as PR previ
 - `admin.staging.chasesets.com`: admin web.
 - Legacy dash-based staging hosts temporarily redirect to their nested replacements.
 
-The staging environment root, `staging.chasesets.com`, is attached to App Platform without a DNS `zone` field and must eventually resolve as a CNAME to the staging App Platform ingress. A May 17, 2026 attempt to attach it as a DigitalOcean-managed App Platform marketplace alias left the domain in `CONFIGURING` until the staging deployment was canceled. A second attempt to make it the staging App Platform primary domain also left the root in `CONFIGURING` with no certificate. A third attempt attached it as a self-managed App Platform alias without a DNS `zone`, but DigitalOcean still reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present. Keep exact-name mail records off `staging.chasesets.com`; staging mail identity must use child records such as `bounce.staging.chasesets.com`, `_dmarc.staging.chasesets.com`, and provider DKIM records. Automated staging deployment and reset checks intentionally do not block on `staging.chasesets.com` while this root-domain DNS issue remains unresolved; `marketplace.staging.chasesets.com` is the required staging marketplace host.
+The staging environment root, `staging.chasesets.com`, is attached as a DigitalOcean-managed App Platform alias in the `chasesets.com` zone and must resolve to the current staging App Platform ingress. A May 17, 2026 attempt to attach it as a DigitalOcean-managed App Platform marketplace alias left the domain in `CONFIGURING` until the staging deployment was canceled. A second attempt to make it the staging App Platform primary domain also left the root in `CONFIGURING` with no certificate. A third attempt attached it as a self-managed App Platform alias without a DNS `zone`, but DigitalOcean still reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present. Exact-name mail records have since been moved off `staging.chasesets.com`; staging mail identity must use child records such as `bounce.staging.chasesets.com`, `_dmarc.staging.chasesets.com`, and provider DKIM records. Staging deployment and reset checks wait for `staging.chasesets.com` along with the canonical marketplace host so DNS drift fails before smoke checks.
 
 Staging is intentionally `noindex,nofollow` for landing and marketplace. Use it to test incremental merge changes against durable state after the fresh PR preview has already passed.
 
@@ -89,6 +90,10 @@ Optional `preview` and `staging` variables:
 - `SES_AWS_REGION`
 - `SES_FROM_EMAIL`
 - `SES_CONFIGURATION_SET_NAME`
+
+Optional `preview`, `staging`, and `production` variables:
+
+- `PLATFORM_ALERT_EMAILS`: JSON list of alert recipients, for example `["ops@example.com"]`.
 
 SES values configured for platform environments:
 
@@ -212,7 +217,7 @@ The staging job:
 10. Runs Terraform apply for `environment=staging`, which runs the App Platform `PRE_DEPLOY` bootstrap and migration path before runtime traffic is validated.
 11. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 12. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-13. Waits for landing, admin, marketplace, and legacy redirect domains. The unresolved staging root marketplace alias is excluded until `staging.chasesets.com` DNS is fixed.
+13. Waits for landing, admin, marketplace, staging root marketplace, and legacy redirect domains.
 14. Runs `pnpm run smoke:platform` against landing, admin, and marketplace with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
 
 Production starts automatically only after this staging job deploys and smokes the release commit. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.

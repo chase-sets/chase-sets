@@ -55,7 +55,7 @@ jobs:
 
           node ./scripts/digitalocean-registry-cleanup.mjs cleanup \
             --repository="${PLATFORM_IMAGE_REPOSITORY}" \
-            --retention-days=30 \
+            --retention-days=7 \
             --app-name=chase-sets-staging-platform \
             --app-name=chase-sets-platform \
             ${dry_run_arg}

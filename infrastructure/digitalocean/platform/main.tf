@@ -8,9 +8,16 @@ resource "digitalocean_database_cluster" "postgres" {
   engine     = "pg"
   version    = var.postgres_version
   size       = local.database_size
-  region     = var.region
+  region     = var.data_region
   node_count = var.database_node_count
   tags       = [var.environment, "platform", "managed-by-terraform"]
+}
+
+check "api_realtime_coordination" {
+  assert {
+    condition     = local.api_instances <= 1 || local.realtime_stream_limiter != "local"
+    error_message = "API instance_count cannot exceed 1 while REALTIME_STREAM_LIMITER is local; use a shared limiter before horizontal API scaling."
+  }
 }
 
 resource "digitalocean_database_db" "contexts" {
@@ -74,7 +81,7 @@ resource "terraform_data" "context_database_grants" {
 resource "digitalocean_app" "platform" {
   spec {
     name   = "${local.name_prefix}-platform"
-    region = var.region
+    region = var.app_region
 
     dynamic "domain" {
       for_each = local.public_domains
@@ -108,6 +115,7 @@ resource "digitalocean_app" "platform" {
       content {
         name = domain.value
         type = "ALIAS"
+        zone = var.root_domain
       }
     }
 
@@ -454,7 +462,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "REALTIME_STREAM_LIMITER"
-          value = local.is_non_production ? "local" : "postgres"
+          value = local.realtime_stream_limiter
           scope = "RUN_TIME"
         }
 
@@ -484,7 +492,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "CATALOG_ASSET_S3_REGION"
-          value = var.region
+          value = var.data_region
           scope = "RUN_TIME"
         }
 
@@ -619,7 +627,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "CATALOG_ASSET_S3_REGION"
-          value = var.region
+          value = var.data_region
           scope = "RUN_TIME"
         }
 
@@ -771,7 +779,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "CATALOG_ASSET_S3_REGION"
-          value = var.region
+          value = var.data_region
           scope = "RUN_TIME"
         }
 
@@ -1035,7 +1043,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "CATALOG_ASSET_S3_REGION"
-          value = var.region
+          value = var.data_region
           scope = "RUN_TIME"
         }
 
@@ -1168,7 +1176,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "CATALOG_ASSET_S3_REGION"
-          value = var.region
+          value = var.data_region
           scope = "RUN_TIME"
         }
 
@@ -1301,7 +1309,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "CATALOG_ASSET_S3_REGION"
-          value = var.region
+          value = var.data_region
           scope = "RUN_TIME"
         }
 
@@ -1490,4 +1498,31 @@ resource "digitalocean_app" "platform" {
     digitalocean_database_user.contexts,
     terraform_data.context_database_grants,
   ]
+}
+
+resource "digitalocean_uptime_check" "platform" {
+  for_each = var.uptime_checks_enabled ? local.uptime_check_targets : {}
+
+  name    = "${local.name_prefix}-${each.key}"
+  target  = each.value
+  type    = "https"
+  regions = var.uptime_check_regions
+  enabled = true
+
+  depends_on = [
+    digitalocean_app.platform,
+  ]
+}
+
+resource "digitalocean_uptime_alert" "platform_down" {
+  for_each = var.uptime_checks_enabled && length(var.alert_emails) > 0 ? digitalocean_uptime_check.platform : {}
+
+  name     = "${local.name_prefix}-${each.key}-down"
+  check_id = each.value.id
+  type     = "down_global"
+  period   = "2m"
+
+  notifications {
+    email = var.alert_emails
+  }
 }
