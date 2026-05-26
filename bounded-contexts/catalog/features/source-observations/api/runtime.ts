@@ -52,6 +52,8 @@ import {
 } from "./tcgdex-client";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
+const BULK_REVIEW_JOB_BATCH_SIZE = 25;
+const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
 
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
@@ -713,41 +715,60 @@ export function createSourceObservationRuntime(
 
     try {
       const context = claimed.eventContext;
-      let progressWrite = Promise.resolve();
-      const progressHandler = (progress: BulkSourceObservationProgress) => {
-        progressWrite = progressWrite.then(() =>
-          updateBulkReviewJobProgress(deps.db, claimed.jobId, progress, input.claimTtlMs),
-        );
-      };
-      const result =
-        claimed.action === "promote"
-          ? claimed.selectionMode === "ids"
+      const previousResult = claimed.result ?? summarizePromotionOutcomes(claimed.progress.total, []);
+      const completedObservationIds = new Set(previousResult.outcomes.map((outcome) => outcome.observationId));
+      const eligibleObservationIds =
+        claimed.selectionMode === "ids"
+          ? claimed.observationIds
+          : await listSourceObservationIdsForPromotion(deps.db, claimed.scope);
+      const remainingObservationIds = eligibleObservationIds.filter(
+        (observationId) => !completedObservationIds.has(observationId),
+      );
+      const total = Math.max(previousResult.requested, previousResult.outcomes.length + remainingObservationIds.length);
+      const batchObservationIds = remainingObservationIds.slice(0, BULK_REVIEW_JOB_BATCH_SIZE);
+
+      if (batchObservationIds.length === 0) {
+        await completeBulkReviewJob(deps.db, claimed.jobId, summarizePromotionOutcomes(total, previousResult.outcomes));
+        return 1;
+      }
+
+      const turnOutcomes: BulkSourceObservationPromotionOutcome[] = [];
+      for (const observationId of batchObservationIds) {
+        const itemResult =
+          claimed.action === "promote"
             ? await promoteObservationIds({
-                observationIds: claimed.observationIds,
+                observationIds: [observationId],
                 context,
-                onProgress: progressHandler,
-              })
-            : await promoteObservationIds({
-                observationIds: await listSourceObservationIdsForPromotion(deps.db, claimed.scope),
-                context,
-                onProgress: progressHandler,
-              })
-          : claimed.selectionMode === "ids"
-            ? await rejectObservationIds({
-                observationIds: claimed.observationIds,
-                reason: claimed.reason ?? "Rejected during review.",
-                context,
-                onProgress: progressHandler,
               })
             : await rejectObservationIds({
-                observationIds: await listSourceObservationIdsForPromotion(deps.db, claimed.scope),
+                observationIds: [observationId],
                 reason: claimed.reason ?? "Rejected during review.",
                 context,
-                onProgress: progressHandler,
               });
+        turnOutcomes.push(...itemResult.outcomes);
+        const partialResult = summarizePromotionOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
+        const latestOutcome = itemResult.outcomes[itemResult.outcomes.length - 1];
+        await updateBulkReviewJobTurnResult(
+          deps.db,
+          claimed.jobId,
+          bulkProgress(partialResult.outcomes.length, total, null, latestOutcome?.status ?? null, "processing"),
+          partialResult,
+          input.claimTtlMs,
+        );
+      }
 
-      await progressWrite;
-      await completeBulkReviewJob(deps.db, claimed.jobId, result);
+      const updatedResult = summarizePromotionOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
+      const completedCount = updatedResult.outcomes.length;
+      if (completedCount >= total || remainingObservationIds.length <= batchObservationIds.length) {
+        await completeBulkReviewJob(deps.db, claimed.jobId, updatedResult);
+      } else {
+        await continueBulkReviewJob(
+          deps.db,
+          claimed.jobId,
+          bulkProgress(completedCount, total, null, null, "processing"),
+          updatedResult,
+        );
+      }
       return 1;
     } catch (error) {
       await failBulkReviewJob(
@@ -797,27 +818,22 @@ export function createSourceObservationRuntime(
     }
 
     try {
-      let progressWrite = Promise.resolve();
-      const progressHandler = (progress: BulkSourceObservationProgress) => {
-        progressWrite = progressWrite.then(() =>
-          updateIntegrationJobProgress(deps.db, claimed.jobId, progress, input.claimTtlMs),
-        );
-      };
-      const result =
+      const turnResult =
         claimed.action === "import"
-          ? await processIntegrationImportJob({
-              scope: claimed.scope,
-              context: claimed.eventContext,
-              onProgress: progressHandler,
+          ? await processIntegrationImportJobTurn({
+              job: claimed,
+              claimTtlMs: input.claimTtlMs,
             })
-          : await processIntegrationReapplyJob({
-              scope: claimed.scope,
-              context: claimed.eventContext,
-              onProgress: progressHandler,
+          : await processIntegrationReapplyJobTurn({
+              job: claimed,
+              claimTtlMs: input.claimTtlMs,
             });
 
-      await progressWrite;
-      await completeIntegrationJob(deps.db, claimed.jobId, result);
+      if (turnResult.complete) {
+        await completeIntegrationJob(deps.db, claimed.jobId, turnResult.result);
+      } else {
+        await continueIntegrationJob(deps.db, claimed.jobId, turnResult.progress, turnResult.result);
+      }
       return 1;
     } catch (error) {
       await failIntegrationJob(
@@ -827,6 +843,142 @@ export function createSourceObservationRuntime(
       );
       return 1;
     }
+  }
+
+  async function processIntegrationImportJobTurn(input: {
+    job: ClaimedSourceObservationIntegrationJob;
+    claimTtlMs: number;
+  }): Promise<
+    Readonly<{
+      complete: boolean;
+      progress: BulkSourceObservationProgress;
+      result: SourceObservationIntegrationJobResult;
+    }>
+  > {
+    const scope = normalizeIntegrationJobScope(input.job.scope);
+    if (scope.provider && scope.provider !== "tcgdex") {
+      throw new Error(`Provider '${scope.provider}' does not support background import.`);
+    }
+
+    const languageCode = scope.language || "en";
+    const expansions = scope.setId
+      ? [
+          {
+            expansionId: scope.setId,
+            name: scope.setId,
+          },
+        ]
+      : await fetchTcgdexExpansionOptions({
+          languageCode,
+          seriesId: scope.seriesId || null,
+        });
+    const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(expansions.length, []);
+    const completedExpansionIds = new Set(
+      previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean),
+    );
+    const nextExpansion = expansions.find((expansion) => !completedExpansionIds.has(expansion.expansionId));
+
+    if (!nextExpansion) {
+      const result = summarizeIntegrationJobOutcomes(expansions.length, previousResult.outcomes);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, null, "completed"),
+        result,
+      };
+    }
+
+    await updateIntegrationJobProgress(
+      deps.db,
+      input.job.jobId,
+      bulkProgress(previousResult.outcomes.length, expansions.length, nextExpansion.name),
+      input.claimTtlMs,
+    );
+
+    const outcome = await importIntegrationExpansion({
+      expansion: nextExpansion,
+      languageCode,
+      context: input.job.eventContext,
+    });
+    const result = summarizeIntegrationJobOutcomes(expansions.length, [...previousResult.outcomes, outcome]);
+    const progress = bulkProgress(result.outcomes.length, result.requested, nextExpansion.name, outcome.status);
+
+    return {
+      complete: result.outcomes.length >= result.requested,
+      progress,
+      result,
+    };
+  }
+
+  async function processIntegrationReapplyJobTurn(input: {
+    job: ClaimedSourceObservationIntegrationJob;
+    claimTtlMs: number;
+  }): Promise<
+    Readonly<{
+      complete: boolean;
+      progress: BulkSourceObservationProgress;
+      result: SourceObservationIntegrationJobResult;
+    }>
+  > {
+    const scope = integrationScopeToObservationScope(input.job.scope);
+    const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(input.job.progress.total, []);
+    const completedObservationIds = new Set(
+      previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean),
+    );
+    const remainingObservationIds = (await listSourceObservationIdsForReapply(deps.db, scope)).filter(
+      (observationId) => !completedObservationIds.has(observationId),
+    );
+    const total = Math.max(previousResult.requested, previousResult.outcomes.length + remainingObservationIds.length);
+    const batchObservationIds = remainingObservationIds.slice(0, INTEGRATION_REAPPLY_JOB_BATCH_SIZE);
+
+    if (batchObservationIds.length === 0) {
+      const result = summarizeIntegrationJobOutcomes(total, previousResult.outcomes);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, null, "completed"),
+        result,
+      };
+    }
+
+    let progressWrite = Promise.resolve();
+    const progressHandler = (progress: BulkSourceObservationProgress) => {
+      const persistedProgress = bulkProgress(
+        previousResult.outcomes.length + progress.completed,
+        total,
+        progress.currentName,
+        progress.status,
+        progress.phase === "failed" ? "failed" : "processing",
+      );
+      progressWrite = progressWrite.then(() =>
+        updateIntegrationJobProgress(deps.db, input.job.jobId, persistedProgress, input.claimTtlMs),
+      );
+    };
+    const batchResult = await reapplyObservationIds({
+      observationIds: batchObservationIds,
+      context: input.job.eventContext,
+      onProgress: progressHandler,
+    });
+    await progressWrite;
+
+    const outcomes: SourceObservationIntegrationJobOutcome[] = [
+      ...previousResult.outcomes,
+      ...batchResult.outcomes.map((outcome) => ({
+        providerKey: input.job.scope.provider || "tcgdex",
+        languageCode: input.job.scope.language || "",
+        expansionId: outcome.observationId,
+        status: outcome.status,
+        observed: 0,
+        reapplied: outcome.status === "reapplied" ? 1 : 0,
+        reason: outcome.reason,
+      })),
+    ];
+    const result = summarizeIntegrationJobOutcomes(total, outcomes);
+
+    return {
+      complete:
+        result.outcomes.length >= result.requested || remainingObservationIds.length <= batchObservationIds.length,
+      progress: bulkProgress(result.outcomes.length, result.requested, null, null, "processing"),
+      result,
+    };
   }
 
   async function processIntegrationImportJob(input: {
@@ -889,6 +1041,39 @@ export function createSourceObservationRuntime(
     input.onProgress?.(bulkProgress(expansions.length, expansions.length, null, null, "completed"));
 
     return summarizeIntegrationJobOutcomes(expansions.length, outcomes);
+  }
+
+  async function importIntegrationExpansion(input: {
+    expansion: Readonly<{ expansionId: string; name: string }>;
+    languageCode: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJobOutcome> {
+    try {
+      const result = await importTcgdexSetScope({
+        languageCode: input.languageCode,
+        setId: input.expansion.expansionId,
+        context: input.context,
+      });
+      return {
+        providerKey: "tcgdex",
+        languageCode: input.languageCode,
+        expansionId: input.expansion.expansionId,
+        status: "imported",
+        observed: result.observed,
+        reapplied: 0,
+        reason: null,
+      };
+    } catch (error) {
+      return {
+        providerKey: "tcgdex",
+        languageCode: input.languageCode,
+        expansionId: input.expansion.expansionId,
+        status: "failed",
+        observed: 0,
+        reapplied: 0,
+        reason: error instanceof Error ? error.message : "Import failed.",
+      };
+    }
   }
 
   async function processIntegrationReapplyJob(input: {
@@ -2072,6 +2257,48 @@ async function updateBulkReviewJobProgress(
   );
 }
 
+async function updateBulkReviewJobTurnResult(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  progress: BulkSourceObservationProgress,
+  result: BulkSourceObservationPromotionResult,
+  claimTtlMs: number,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_bulk_jobs
+     SET
+       progress = $2::jsonb,
+       result = $3::jsonb,
+       claim_expires_at = now() + ($4::integer * interval '1 millisecond'),
+       updated_at = now()
+     WHERE job_id = $1
+       AND status = 'running'`,
+    [jobId, JSON.stringify(progress), JSON.stringify(result), Math.max(1_000, Math.floor(claimTtlMs))],
+  );
+}
+
+async function continueBulkReviewJob(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  progress: BulkSourceObservationProgress,
+  result: BulkSourceObservationPromotionResult,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_bulk_jobs
+     SET
+       status = 'queued',
+       progress = $2::jsonb,
+       result = $3::jsonb,
+       error_message = NULL,
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       updated_at = now()
+     WHERE job_id = $1
+       AND status = 'running'`,
+    [jobId, JSON.stringify(progress), JSON.stringify(result)],
+  );
+}
+
 async function completeBulkReviewJob(
   db: CatalogRuntimeDeps["db"],
   jobId: string,
@@ -2256,6 +2483,28 @@ async function updateIntegrationJobProgress(
      WHERE job_id = $1
        AND status = 'running'`,
     [jobId, JSON.stringify(progress), Math.max(1_000, Math.floor(claimTtlMs))],
+  );
+}
+
+async function continueIntegrationJob(
+  db: CatalogRuntimeDeps["db"],
+  jobId: string,
+  progress: BulkSourceObservationProgress,
+  result: SourceObservationIntegrationJobResult,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_integration_jobs
+     SET
+       status = 'queued',
+       progress = $2::jsonb,
+       result = $3::jsonb,
+       error_message = NULL,
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       updated_at = now()
+     WHERE job_id = $1
+       AND status = 'running'`,
+    [jobId, JSON.stringify(progress), JSON.stringify(result)],
   );
 }
 
