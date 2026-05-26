@@ -154,6 +154,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
+    expect(platformProductionWorkflow).toContain("Reset stale staging root domain attachment");
+    expect(platformProductionWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
+    expect(platformStagingResetWorkflow).toContain("Reset stale staging root domain attachment");
+    expect(platformStagingResetWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
   });
 
   it("splits app and data regions and manages uptime checks", () => {

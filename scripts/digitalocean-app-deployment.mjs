@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -8,7 +8,32 @@ const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANC
 
 const ACTIVE_DOMAIN_PHASE = "ACTIVE";
 
-function commandOutput(command, args) {
+function commandOutput(command, args, options = {}) {
+  if (options.input !== undefined) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, { windowsHide: true });
+      const stdoutChunks = [];
+      const stderrChunks = [];
+
+      child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+      child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+      child.on("error", reject);
+      child.on("close", (code) => {
+        const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+        const stderr = Buffer.concat(stderrChunks).toString("utf8");
+        if (code !== 0) {
+          const message = stderr.trim() || stdout.trim() || `${command} exited with code ${code}`;
+          reject(new Error(`${command} ${args.join(" ")} failed: ${message}`));
+          return;
+        }
+
+        resolve(stdout);
+      });
+
+      child.stdin.end(options.input);
+    });
+  }
+
   return new Promise((resolve, reject) => {
     execFile(command, args, { maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
@@ -53,6 +78,53 @@ function normalizeDomain(domain) {
     name: domain.spec?.domain ?? domain.domain ?? domain.name ?? "",
     phase: domain.phase ?? "",
   };
+}
+
+function normalizeAppResponse(appResponse) {
+  return Array.isArray(appResponse) ? appResponse[0] : appResponse;
+}
+
+function domainReasonCodes(domain) {
+  return new Set(
+    (domain?.progress?.steps ?? [])
+      .map((step) => step.reason?.code)
+      .filter((code) => typeof code === "string" && code.length > 0),
+  );
+}
+
+function staleDomainAttachment(domain) {
+  if (!domain || domain.phase === ACTIVE_DOMAIN_PHASE) {
+    return false;
+  }
+
+  const reasonCodes = domainReasonCodes(domain);
+  return reasonCodes.has("DomainZoneInvalid") || reasonCodes.has("DomainCNAMEMismatch");
+}
+
+function cloneSpec(spec) {
+  return JSON.parse(JSON.stringify(spec));
+}
+
+function removeDomainAttachment(spec, hostname) {
+  const nextSpec = cloneSpec(spec);
+  nextSpec.domains = (nextSpec.domains ?? []).filter((domain) => domain.domain !== hostname);
+  nextSpec.ingress = nextSpec.ingress ?? {};
+  nextSpec.ingress.rules = (nextSpec.ingress.rules ?? []).filter((rule) => rule?.match?.authority?.exact !== hostname);
+  return nextSpec;
+}
+
+function restoreDomainAttachment(spec, domainSpecs, hostname, ingressRules) {
+  const nextSpec = cloneSpec(spec);
+  const restoredDomainNames = new Set(domainSpecs.map((domain) => domain.domain));
+  nextSpec.domains = (nextSpec.domains ?? []).filter((domain) => !restoredDomainNames.has(domain.domain));
+  nextSpec.domains.push(...domainSpecs);
+
+  nextSpec.ingress = nextSpec.ingress ?? {};
+  nextSpec.ingress.rules = (nextSpec.ingress.rules ?? []).filter((rule) => rule?.match?.authority?.exact !== hostname);
+
+  const insertAt = nextSpec.ingress.rules.findIndex((rule) => !rule?.match?.authority?.exact);
+  nextSpec.ingress.rules.splice(insertAt >= 0 ? insertAt : nextSpec.ingress.rules.length, 0, ...ingressRules);
+  return nextSpec;
 }
 
 export function appPlatformChanges(plan) {
@@ -208,6 +280,43 @@ export async function waitForDomains(appId, hostnames, options = {}) {
   }
 }
 
+export async function resetStaleDomainAttachment(appId, hostname, options = {}) {
+  const runJson = options.commandJson ?? commandJson;
+  const command = options.commandOutput ?? commandOutput;
+  const appResponse = await runJson("doctl", ["apps", "get", appId, "--output", "json"], options);
+  const app = normalizeAppResponse(appResponse);
+  const domain = (app?.domains ?? []).find((candidate) => normalizeDomain(candidate).name === hostname);
+
+  if (!domain) {
+    throw new Error(`App Platform domain '${hostname}' was not found on app '${appId}'.`);
+  }
+
+  if (!options.force && !staleDomainAttachment(domain)) {
+    console.log(`App Platform domain '${hostname}' is not in a stale resettable state; skipping reset.`);
+    return false;
+  }
+
+  const domainSpec = (app.spec?.domains ?? []).find((candidate) => candidate.domain === hostname);
+  const domainSpecs = app.spec?.domains ?? [];
+  const ingressRules = (app.spec?.ingress?.rules ?? []).filter((rule) => rule?.match?.authority?.exact === hostname);
+  if (!domainSpec) {
+    throw new Error(`App Platform spec does not contain domain '${hostname}'.`);
+  }
+
+  console.log(`Resetting stale App Platform domain attachment '${hostname}'.`);
+  await command("doctl", ["apps", "update", appId, "--spec", "-", "--wait"], {
+    input: JSON.stringify(removeDomainAttachment(app.spec, hostname)),
+  });
+
+  const latestAppResponse = await runJson("doctl", ["apps", "get", appId, "--output", "json"], options);
+  const latestApp = normalizeAppResponse(latestAppResponse);
+  await command("doctl", ["apps", "update", appId, "--spec", "-", "--wait"], {
+    input: JSON.stringify(restoreDomainAttachment(latestApp.spec, domainSpecs, hostname, ingressRules)),
+  });
+
+  return true;
+}
+
 export async function deployApp(appId, options = {}) {
   const command = options.commandOutput ?? commandOutput;
   const createArgs = ["apps", "create-deployment", appId, "--wait", "--format", "ID", "--no-header"];
@@ -303,8 +412,18 @@ async function main(argv) {
     return;
   }
 
+  if (command === "reset-domain") {
+    const [appId, hostname, ...options] = args;
+    if (!appId || !hostname) {
+      throw new Error("Usage: node ./scripts/digitalocean-app-deployment.mjs reset-domain <app-id> <hostname>");
+    }
+
+    await resetStaleDomainAttachment(appId, hostname, { force: options.includes("--force") });
+    return;
+  }
+
   throw new Error(
-    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|wait|deploy|wait-domains>",
+    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|wait|deploy|wait-domains|reset-domain>",
   );
 }
 

@@ -460,6 +460,17 @@ jobs:
           app_id="$(terraform output -raw app_id)"
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
+      - name: Reset stale staging root domain attachment
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          app_id="$(terraform output -raw app_id)"
+          node ../../../scripts/digitalocean-app-deployment.mjs reset-domain "$app_id" staging.chasesets.com
+
       - name: Deploy App Platform image
         if: steps.latest_main.outputs.should_deploy != 'false' && steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform

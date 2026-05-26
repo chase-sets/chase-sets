@@ -225,8 +225,9 @@ The staging job:
 10. Runs Terraform apply for `environment=staging`, which runs the App Platform `PRE_DEPLOY` bootstrap and migration path before runtime traffic is validated.
 11. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 12. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-13. Waits for landing, admin, marketplace, staging root marketplace, and legacy redirect domains. Staging root is deployment-gated because it is the launch-facing marketplace root and App Platform routing/certificate validation depends on child-zone records while Gmail MX/TXT records coexist at the same owner name.
-14. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the staging marketplace root with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
+13. Resets only the `staging.chasesets.com` App Platform domain attachment when DigitalOcean reports the stale `DomainZoneInvalid` or `DomainCNAMEMismatch` state left by an earlier subdomain/CNAME configuration.
+14. Waits for landing, admin, marketplace, staging root marketplace, and legacy redirect domains. Staging root is deployment-gated because it is the launch-facing marketplace root and App Platform routing/certificate validation depends on child-zone records while Gmail MX/TXT records coexist at the same owner name.
+15. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the staging marketplace root with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
 
 Production starts automatically only after this staging job deploys and smokes the release commit. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.
 
