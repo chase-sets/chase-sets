@@ -361,8 +361,9 @@ describe("design-system", () => {
     );
 
     expect(markup).toContain('data-card-layout="search-result"');
-    expect(markup).toContain("grid-cols-[minmax(6.75rem,7.25rem)_minmax(0,1fr)]");
-    expect(markup).toContain("max-w-[7rem]");
+    expect(markup).toContain("grid-cols-[minmax(5.75rem,6.5rem)_minmax(0,1fr)]");
+    expect(markup).toContain("max-w-[6.25rem]");
+    expect(markup).toContain("grid grid-cols-1 gap-1.5 pt-0");
     expect(markup).toContain('data-card-promotion-placement="content"');
     expect(markup).not.toContain("absolute left-2 top-2");
   });

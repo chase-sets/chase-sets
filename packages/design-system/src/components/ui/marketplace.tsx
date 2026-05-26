@@ -635,17 +635,17 @@ export function ListingCard({
   const productMediaSlotClassName =
     imageSlot === "compact-product"
       ? isSearchResultLayout
-        ? "max-w-[7rem] sm:max-w-[7.25rem] justify-self-center"
+        ? "max-w-[6.25rem] sm:max-w-[6.5rem] justify-self-center"
         : "max-w-[10rem] justify-self-center"
       : undefined;
   const mediaContainerClassName = isSearchResultLayout
-    ? "relative grid min-h-36 place-items-start justify-items-center pt-3 pl-3 sm:min-h-36"
+    ? "relative grid min-h-32 place-items-start justify-items-center pt-3 pl-3 sm:min-h-32"
     : "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center";
   const mediaImageClassName = isSearchResultLayout
-    ? "relative h-auto max-h-40 min-h-0"
+    ? "relative h-auto max-h-36 min-h-0"
     : "relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const loadingImageClassName = isSearchResultLayout
-    ? "absolute h-auto max-h-40 min-h-0"
+    ? "absolute h-auto max-h-36 min-h-0"
     : "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const contentClassName = isSearchResultLayout ? "gap-2.5 p-3" : cn("gap-3", densityClasses[density]);
 
@@ -655,7 +655,7 @@ export function ListingCard({
         "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
         hasMediaFrame
           ? isSearchResultLayout
-            ? "grid-cols-[minmax(6.75rem,7.25rem)_minmax(0,1fr)]"
+            ? "grid-cols-[minmax(5.75rem,6.5rem)_minmax(0,1fr)]"
             : density === "compact"
               ? "grid-cols-1 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
               : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
@@ -739,7 +739,14 @@ export function ListingCard({
               <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span>
             ) : null}
           </div>
-          <h3 className="m-0 line-clamp-2 text-base font-semibold leading-6 text-[var(--foreground)]">{title}</h3>
+          <h3
+            className={cn(
+              "m-0 line-clamp-2 font-semibold text-[var(--foreground)]",
+              isSearchResultLayout ? "text-sm leading-5" : "text-base leading-6",
+            )}
+          >
+            {title}
+          </h3>
           {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">{subtitle}</p> : null}
           {valueCue ? (
             <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
@@ -750,7 +757,14 @@ export function ListingCard({
 
         <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
           <div className="grid gap-1">
-            <div className="text-xl font-bold leading-7 tabular-nums text-[var(--foreground)]">{price}</div>
+            <div
+              className={cn(
+                "font-bold tabular-nums text-[var(--foreground)]",
+                isSearchResultLayout ? "text-lg leading-6" : "text-xl leading-7",
+              )}
+            >
+              {price}
+            </div>
             {priceDetail ? <div className="text-xs leading-4 text-[var(--muted-foreground)]">{priceDetail}</div> : null}
             {priceExplanation ? (
               <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div>
@@ -777,7 +791,10 @@ export function ListingCard({
         ) : null}
 
         <div
-          className={cn("flex flex-wrap items-center gap-2 pt-1", isLinked && "pointer-events-auto relative z-30")}
+          className={cn(
+            isSearchResultLayout ? "grid grid-cols-1 gap-1.5 pt-0" : "flex flex-wrap items-center gap-2 pt-1",
+            isLinked && "pointer-events-auto relative z-30",
+          )}
           data-primary-action-count="1"
         >
           {primaryAction}
