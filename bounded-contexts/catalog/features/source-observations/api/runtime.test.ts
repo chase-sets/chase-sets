@@ -454,6 +454,53 @@ describe("source observation runtime", () => {
       },
     });
   });
+
+  it("processes persisted bulk review jobs in bounded resumable worker turns", async () => {
+    const harness = createBulkReviewJobHarness(30);
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(
+      services.processNextBulkReviewJob({
+        claimOwnerId: "worker-1",
+        claimTtlMs: 120_000,
+      }),
+    ).resolves.toBe(1);
+
+    expect(harness.job.status).toBe("queued");
+    expect(harness.job.progress).toMatchObject({
+      phase: "processing",
+      completed: 25,
+      total: 30,
+    });
+    expect(harness.job.result?.outcomes).toHaveLength(25);
+    expect(harness.appendedEvents).toHaveLength(25);
+
+    await expect(
+      services.processNextBulkReviewJob({
+        claimOwnerId: "worker-2",
+        claimTtlMs: 120_000,
+      }),
+    ).resolves.toBe(1);
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.progress).toMatchObject({
+      phase: "completed",
+      completed: 30,
+      total: 30,
+    });
+    expect(harness.job.result).toMatchObject({
+      requested: 30,
+      rejected: 30,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(harness.job.result?.outcomes).toHaveLength(30);
+    expect(harness.appendedEvents).toHaveLength(30);
+  });
 });
 
 function pokemonObservation(input: {
@@ -785,6 +832,158 @@ function createChangedObservationRefreshHarness(
     itemCommands,
     appendedSourceEvents,
     projectorRuns: () => itemProjectorRuns + referenceProjectorRuns,
+  };
+}
+
+function createBulkReviewJobHarness(count: number) {
+  const observationIds = Array.from({ length: count }, (_, index) => `obs_${index + 1}`);
+  const observations = new Map(
+    observationIds.map((observationId, index) => [
+      observationId,
+      {
+        observation_id: observationId,
+        provider_key: "tcgdex",
+        external_key: `card-${index + 1}`,
+        source_url: `https://api.tcgdex.net/v2/en/cards/card-${index + 1}`,
+        language_code: "en",
+        source_record_hash: `hash-${index + 1}`,
+        source_updated_at: "2026-05-20T00:00:00.000Z",
+        observed_at: "2026-05-20T00:00:00.000Z",
+        normalized: pokemonObservation({
+          expansionName: "Base Set",
+          seriesName: "Base",
+          name: `Card ${index + 1}`,
+        }),
+        source_payload: { id: `card-${index + 1}` },
+        status: "observed",
+        status_reason: null,
+        promoted_catalog_item_id: null,
+        promoted_at: null,
+        updated_at: "2026-05-20T00:00:00.000Z",
+      },
+    ]),
+  );
+  const job = {
+    job_id: "job_bulk_review",
+    action: "reject",
+    selection_mode: "ids",
+    observation_ids: observationIds,
+    scope: {},
+    reason: "Out of scope.",
+    event_context: context,
+    status: "queued",
+    progress: {
+      phase: "queued",
+      completed: 0,
+      total: 0,
+      currentName: null,
+      status: null,
+    },
+    result: null as null | Record<string, unknown>,
+    error_message: null as string | null,
+    created_at: "2026-05-20T00:00:00.000Z",
+    started_at: null as string | null,
+    completed_at: null as string | null,
+    updated_at: "2026-05-20T00:00:00.000Z",
+  };
+  const appendedEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
+
+  const deps = {
+    db: {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("UPDATE catalog_source_observation_bulk_jobs AS job")) {
+          if (job.status !== "queued") {
+            return { rowCount: 0, rows: [] as T[] };
+          }
+          job.status = "running";
+          job.started_at ??= "2026-05-20T00:00:00.000Z";
+          return { rowCount: 1, rows: [job] as T[] };
+        }
+
+        if (sql.includes("UPDATE catalog_source_observation_bulk_jobs")) {
+          if (sql.includes("status = 'queued'")) {
+            job.status = "queued";
+            job.progress = JSON.parse(String(values[1]));
+            job.result = JSON.parse(String(values[2]));
+          } else if (sql.includes("status = 'completed'")) {
+            job.status = "completed";
+            job.progress = JSON.parse(String(values[1]));
+            job.result = JSON.parse(String(values[2]));
+            job.completed_at = "2026-05-20T00:00:00.000Z";
+          } else if (sql.includes("status = 'failed'")) {
+            job.status = "failed";
+            job.progress = JSON.parse(String(values[1]));
+            job.error_message = String(values[2]);
+            job.completed_at = "2026-05-20T00:00:00.000Z";
+          } else if (sql.includes("result = $3::jsonb")) {
+            job.progress = JSON.parse(String(values[1]));
+            job.result = JSON.parse(String(values[2]));
+          } else {
+            job.progress = JSON.parse(String(values[1]));
+          }
+          return { rowCount: 1, rows: [] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_source_observation_bulk_jobs")) {
+          return { rowCount: 1, rows: [job] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_source_observations")) {
+          const row = observations.get(String(values[0]));
+          return { rowCount: row ? 1 : 0, rows: (row ? [row] : []) as T[] };
+        }
+
+        return { rowCount: 0, rows: [] as T[] };
+      },
+    },
+    eventStore: {
+      readStream: async (input: { streamId: string }) => {
+        const observationId = input.streamId.replace("catalog.source-observation-", "");
+        const row = observations.get(observationId);
+        if (!row) {
+          return [];
+        }
+        return [
+          storedEvent(1, input.streamId, "catalog.source-observation.recorded", {
+            observationId: row.observation_id,
+            providerKey: row.provider_key,
+            externalKey: row.external_key,
+            sourceUrl: row.source_url,
+            languageCode: row.language_code,
+            sourceRecordHash: row.source_record_hash,
+            sourceUpdatedAt: row.source_updated_at,
+            observedAt: row.observed_at,
+            normalized: row.normalized,
+            sourcePayload: row.source_payload,
+          }),
+        ];
+      },
+      appendToStream: async (input: {
+        streamId: string;
+        events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
+      }) => {
+        const observationId = input.streamId.replace("catalog.source-observation-", "");
+        const row = observations.get(observationId);
+        if (row) {
+          row.status = "rejected";
+        }
+        appendedEvents.push(...input.events);
+        return input.events.map((event, index) =>
+          storedEvent(2 + index, input.streamId, event.eventType, event.payload),
+        );
+      },
+      readAll: async () => [],
+    },
+    checkpointStore: {
+      loadCheckpoint: async () => "0",
+      saveCheckpoint: async () => undefined,
+    },
+  } as unknown as CatalogRuntimeDeps;
+
+  return {
+    deps,
+    job,
+    appendedEvents,
   };
 }
 
