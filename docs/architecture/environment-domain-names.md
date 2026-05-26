@@ -41,16 +41,16 @@ The platform currently routes `/api/*` same-origin from public-web, marketplace,
 
 `www.staging.chasesets.com` is the canonical staging public-web host.
 
-The environment root, `staging.chasesets.com`, is the launch-facing staging marketplace entry point. It is delegated from the parent `chasesets.com` zone into its own DigitalOcean DNS zone and attached to App Platform as the staging app's managed primary domain in that child zone.
+The environment root, `staging.chasesets.com`, is the launch-facing staging marketplace entry point. It is delegated from the parent `chasesets.com` zone into its own DigitalOcean DNS zone and attached to App Platform as the staging app's primary domain in that child zone.
 
-When an environment root also receives mail through Google Workspace, it must not be a CNAME and must not be a managed App Platform subdomain alias that expects a CNAME. Delegate the environment root as a child DNS zone, then use a managed App Platform primary-domain attachment in that child zone so DigitalOcean maintains platform routing and certificates with apex-compatible records while exact-name Gmail MX/TXT records coexist. This is the same DNS rule used by the production apex, applied to staging by making `staging.chasesets.com` a real apex.
+When an environment root also receives mail through Google Workspace, it must not be a CNAME and must not be an App Platform subdomain alias mode that expects a CNAME. Delegate the environment root as a child DNS zone, then use an App Platform primary-domain attachment in that child zone with apex A/AAAA records so platform routing and certificates can coexist with exact-name Gmail MX/TXT records. This is the same DNS rule used by the production apex, applied to staging by making `staging.chasesets.com` a real apex.
 
 The Gmail-compatible environment-root record shape is:
 
 - Parent zone: `NS staging` delegation to DigitalOcean nameservers.
-- Child zone apex: App Platform-managed apex routing records for `staging.chasesets.com`.
+- Child zone apex: platform Terraform-managed App Platform A/AAAA routing records for `staging.chasesets.com`.
 - Child zone apex: `MX @` to Google Workspace and `TXT @` for Google Workspace SPF.
-- Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, and the catalog asset CDN CNAME.
+- Child zone: provider records such as SES bounce/DKIM, DMARC, optional Google Workspace DKIM, the catalog asset CDN CNAME, and CNAME records for App Platform subdomain aliases.
 - No `CNAME @` in the child zone and no `CNAME staging` in the parent zone.
 
 On May 17, 2026, attaching `staging.chasesets.com` as a DigitalOcean-managed App Platform alias left the domain in `CONFIGURING` and prevented staging deployment from reaching smoke checks. A later self-managed alias attempt proved the app shape, but DigitalOcean reported `DomainCNAMEMismatch` while exact-name A/AAAA, MX, and TXT records were present because that attachment mode expects a CNAME. On May 26, 2026, using `zone = chasesets.com` with `type = PRIMARY` still left `staging.chasesets.com` in `CONFIGURING` with `DomainZoneInvalid` and `DomainCNAMEMismatch`; DigitalOcean treated it as a subdomain and still expected CNAME ownership. Use the delegated child-zone primary-domain mode for root environment hosts that must support both App Platform routing and Google Workspace mail. Staging deployment workflows wait on both `marketplace.staging.chasesets.com` and `staging.chasesets.com`.

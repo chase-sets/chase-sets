@@ -1500,6 +1500,36 @@ resource "digitalocean_app" "platform" {
   ]
 }
 
+resource "digitalocean_record" "staging_app_alias" {
+  for_each = local.staging_app_alias_record_names
+
+  domain = local.environment_zone
+  type   = "CNAME"
+  name   = each.value
+  value  = "${trimsuffix(trimprefix(digitalocean_app.platform.default_ingress, "https://"), "/")}."
+  ttl    = 1800
+}
+
+resource "digitalocean_record" "staging_root_app_platform_ipv4" {
+  for_each = local.staging_root_app_platform_ipv4_records
+
+  domain = local.environment_zone
+  type   = "A"
+  name   = "@"
+  value  = each.value
+  ttl    = 30
+}
+
+resource "digitalocean_record" "staging_root_app_platform_ipv6" {
+  for_each = local.staging_root_app_platform_ipv6_records
+
+  domain = local.environment_zone
+  type   = "AAAA"
+  name   = "@"
+  value  = each.value
+  ttl    = 30
+}
+
 resource "digitalocean_uptime_check" "platform" {
   for_each = var.uptime_checks_enabled ? local.uptime_check_targets : {}
 
@@ -1511,6 +1541,9 @@ resource "digitalocean_uptime_check" "platform" {
 
   depends_on = [
     digitalocean_app.platform,
+    digitalocean_record.staging_app_alias,
+    digitalocean_record.staging_root_app_platform_ipv4,
+    digitalocean_record.staging_root_app_platform_ipv6,
   ]
 }
 
