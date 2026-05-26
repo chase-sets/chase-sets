@@ -134,13 +134,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(environmentDnsMain).toContain('resource "digitalocean_record" "delegation"');
     expect(environmentDnsMain).toContain('type   = "NS"');
     expect(environmentDnsMain).toContain('type     = "MX"');
-    expect(environmentDnsLocals).toContain('value    = "smtp.google.com"');
+    expect(environmentDnsLocals).toContain('value    = "smtp.google.com."');
     expect(environmentDnsMain).toContain('name   = "google._domainkey"');
     expect(environmentDnsMain).toContain('value  = "v=spf1 include:_spf.google.com ~all"');
     expect(environmentDnsMain).toContain('resource "digitalocean_record" "ses_dkim"');
     expect(environmentDnsMain).toContain('resource "digitalocean_record" "catalog_assets"');
     expect(environmentDnsLocals).toContain(
-      'catalog_asset_cdn_endpoint = "chase-sets-${var.environment}-catalog-assets.${var.data_region}.cdn.digitaloceanspaces.com"',
+      'catalog_asset_cdn_endpoint = "chase-sets-${var.environment}-catalog-assets.${var.data_region}.cdn.digitaloceanspaces.com."',
     );
     expect(platformProductionWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
