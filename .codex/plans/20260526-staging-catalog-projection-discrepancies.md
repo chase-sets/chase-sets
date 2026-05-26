@@ -7,7 +7,8 @@ Investigate staging discrepancies between Catalog Items, Source Observations / I
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260526-staging-catalog-projection-discrepancies`
-- Branch: `codex/staging-catalog-projection-discrepancies`
+- Initial branch: `codex/staging-catalog-projection-discrepancies`
+- Deployment follow-up branch: `codex/staging-worker-catalog-assets`
 - Sandbox id: `bfccf5f5`
 - Dependency setup status: `pnpm run deps:install` completed; `pnpm run sandbox:doctor` passed
 - pnpm store path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\.chase-sets-pnpm-store`
@@ -26,6 +27,8 @@ Investigate staging discrepancies between Catalog Items, Source Observations / I
 - The 328 `me01` Source Observations remain `observed` and have no promoted Catalog Item link, so Catalog Integrations correctly still reports 328 needing review.
 - The failed promotion wrote partial Catalog Item events before failing: 328 item streams and 3,608 item events during the `me01` promotion window, with 0 image URL events and 0 external reference events.
 - Catalog realtime has 4,510 retained patches for the `catalog:admin:catalog-items` topic and 450 distinct retained summary change IDs. The admin client opens fresh SSE subscriptions without a persisted cursor, so refresh can replay retained historical invalidations even when projection source lag is zero.
+- PR #290 merged the application fix at merge commit `1e4d6f1eb08ce3405b432fd33369034e53cd4d1b`; the main Platform PR workflow completed successfully.
+- The first post-merge staging deployment failed during Terraform apply because the DigitalOcean `platform-worker` component exited during deploy. The worker runtime now requires Catalog asset storage in production-like environments, but the DigitalOcean worker service did not receive the `CATALOG_ASSET_*` env vars already wired for API and bootstrap components.
 
 ## Likely Causes
 
@@ -48,6 +51,7 @@ Investigate staging discrepancies between Catalog Items, Source Observations / I
 - [x] Stop fresh realtime subscriptions from replaying retained historical invalidations.
 - [x] Update focused tests.
 - [x] Run affected verification.
+- [x] Add DigitalOcean Catalog asset storage env wiring to the staging `platform-worker` service and production `admin-support-worker`.
 
 ## Verification
 

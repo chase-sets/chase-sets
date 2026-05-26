@@ -758,6 +758,50 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "CATALOG_ASSET_STORAGE_KIND"
+          value = "s3"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_BUCKET"
+          value = local.catalog_asset_s3_bucket
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_REGION"
+          value = var.region
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_ENDPOINT"
+          value = local.catalog_asset_s3_endpoint
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_PUBLIC_BASE_URL"
+          value = local.catalog_asset_public_base_url
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_ACCESS_KEY_ID"
+          value = var.spaces_access_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_SECRET_ACCESS_KEY"
+          value = var.spaces_secret_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "STRIPE_SECRET_KEY"
           value = var.stripe_secret_key
           type  = "SECRET"
@@ -975,6 +1019,50 @@ resource "digitalocean_app" "platform" {
             type  = "SECRET"
             scope = "RUN_TIME"
           }
+        }
+
+        env {
+          key   = "CATALOG_ASSET_STORAGE_KIND"
+          value = "s3"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_BUCKET"
+          value = local.catalog_asset_s3_bucket
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_REGION"
+          value = var.region
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_ENDPOINT"
+          value = local.catalog_asset_s3_endpoint
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_PUBLIC_BASE_URL"
+          value = local.catalog_asset_public_base_url
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_ACCESS_KEY_ID"
+          value = var.spaces_access_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_ASSET_S3_SECRET_ACCESS_KEY"
+          value = var.spaces_secret_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
         }
       }
     }

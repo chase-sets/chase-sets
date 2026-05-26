@@ -19,7 +19,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('"landing-${var.environment}.${var.root_domain}"     = local.landing_domain');
   });
 
-  it("wires Catalog asset storage into production and non-production API/bootstrap components", () => {
+  it("wires Catalog asset storage into production and non-production Catalog promotion components", () => {
     for (const key of [
       "CATALOG_ASSET_STORAGE_KIND",
       "CATALOG_ASSET_S3_BUCKET",
@@ -29,12 +29,14 @@ describe("DigitalOcean platform configuration", () => {
       "CATALOG_ASSET_S3_ACCESS_KEY_ID",
       "CATALOG_ASSET_S3_SECRET_ACCESS_KEY",
     ]) {
-      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(4);
+      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(6);
     }
 
     expect(platformMain).toContain('name               = "platform-api"');
+    expect(platformMain).toContain('name               = "platform-worker"');
     expect(platformMain).toContain('name               = "platform-bootstrap"');
     expect(platformMain).toContain('name               = "admin-support-api"');
+    expect(platformMain).toContain('name               = "admin-support-worker"');
     expect(platformMain).toContain('name               = "admin-support-bootstrap"');
     expect(platformMain).toContain("value = var.spaces_access_id");
     expect(platformMain).toContain("value = var.spaces_secret_key");
