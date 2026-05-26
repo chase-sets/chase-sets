@@ -2,9 +2,18 @@ import ts from "typescript";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 
-const englishFilePath = "contracts/localization/locales/en.ts";
-const englishSource = fs.readFileSync(englishFilePath, "utf8");
-const englishKeys = new Set([...englishSource.matchAll(/^  "([^"]+)":/gm)].map((match) => match[1]));
+const englishFilePaths = [
+  "contracts/localization/locales/en.ts",
+  ...fs
+    .readdirSync("contracts/localization/locales/en", { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+    .map((entry) => `contracts/localization/locales/en/${entry.name}`),
+];
+const englishKeys = new Set(
+  englishFilePaths.flatMap((filePath) =>
+    [...fs.readFileSync(filePath, "utf8").matchAll(/^  "([^"]+)":/gm)].map((match) => match[1]),
+  ),
+);
 
 const files = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
   encoding: "utf8",
