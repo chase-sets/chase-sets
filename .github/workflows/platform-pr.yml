@@ -440,6 +440,26 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - name: Terraform init staging environment DNS without remote backend
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: terraform init -backend=false
+
+      - name: Terraform format staging environment DNS
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate staging environment DNS
+        working-directory: infrastructure/digitalocean/environment-dns
+        run: terraform validate
+
+      - name: Terraform plan staging environment DNS
+        run: |
+          tmp="$(mktemp -d)"
+          cp -R infrastructure/digitalocean/environment-dns/. "$tmp/"
+          sed -i '/backend "s3" {}/d' "$tmp/versions.tf"
+          terraform -chdir="$tmp" init -backend=false
+          terraform -chdir="$tmp" plan -refresh=false -lock=false -out=tfplan
+
       - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform
         run: terraform init -backend=false

@@ -53,7 +53,7 @@ CATALOG_ASSET_S3_ACCESS_KEY_ID=...
 CATALOG_ASSET_S3_SECRET_ACCESS_KEY=...
 ```
 
-Production rejects filesystem-backed Catalog asset storage. The `infrastructure/digitalocean/catalog-assets` Terraform root owns bucket permissions, CDN policy, managed certificates, and CDN custom domains. DigitalOcean creates the matching DNS records when the CDN domains are attached. Catalog owns only the provider import decision and the public URL it stores.
+Production rejects filesystem-backed Catalog asset storage. The `infrastructure/digitalocean/catalog-assets` Terraform root owns bucket permissions, CDN policy, managed certificates, and CDN custom domains. The staging CDN DNS record is also declared in `infrastructure/digitalocean/environment-dns` because `assets.staging.chasesets.com` lives inside the delegated `staging.chasesets.com` child zone. Catalog owns only the provider import decision and the public URL it stores.
 
 The CDN custom domain is required, not cosmetic. If an asset URL works through the direct Spaces origin but fails through `assets.<environment>.chasesets.com`, verify that `doctl compute cdn list` contains the environment custom domain and that DigitalOcean DNS has a CNAME from that custom domain to the CDN endpoint. Staging reset verifies both after recreating catalog assets, and platform staging/production smoke checks verify the configured `CATALOG_ASSET_PUBLIC_BASE_URL` over HTTPS.
 
