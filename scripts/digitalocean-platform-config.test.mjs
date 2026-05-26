@@ -65,6 +65,21 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('name                 = "platform-api"');
   });
 
+  it("keeps App Platform database and runner budgets explicit by component", () => {
+    expect(platformLocals).toContain('api_database_pool_max               = "6"');
+    expect(platformLocals).toContain('worker_database_pool_max            = local.is_non_production ? "8" : "6"');
+    expect(platformLocals).toContain('bootstrap_database_pool_max         = "4"');
+    expect(platformLocals).toContain('worker_projection_concurrency       = "2"');
+    expect(platformLocals).toContain("staging_context_database_connection_pool_sizes");
+    expect(platformLocals).toContain("catalog         = 6");
+    expect(platformLocals).toContain("control         = 4");
+    expect(platformMain).toContain("size       = local.context_database_connection_pool_sizes[each.key]");
+    expect(occurrenceCount(platformMain, "value = local.api_database_pool_max")).toBe(2);
+    expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(2);
+    expect(occurrenceCount(platformMain, "value = local.bootstrap_database_pool_max")).toBe(2);
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
+  });
+
   it("routes staging root as a self-managed marketplace host", () => {
     expect(platformLocals).toContain("staging_root_marketplace_domains = local.is_staging");
     expect(platformLocals).toContain('"${var.environment}.${var.root_domain}"');

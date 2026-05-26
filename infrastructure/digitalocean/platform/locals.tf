@@ -39,9 +39,16 @@ locals {
   marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size      = local.is_non_production ? var.non_production_database_size : var.database_size
 
-  database_pool_max                   = "1"
+  api_database_pool_max               = "6"
+  worker_database_pool_max            = local.is_non_production ? "8" : "6"
+  bootstrap_database_pool_max         = "4"
   database_pool_idle_timeout_ms       = "5000"
   database_pool_connection_timeout_ms = "10000"
+  worker_max_concurrent_runners       = "5"
+  worker_projection_concurrency       = "2"
+  worker_job_concurrency              = "1"
+  worker_dispatch_concurrency         = "1"
+  worker_scheduled_concurrency        = "1"
   catalog_asset_s3_endpoint           = "https://${var.region}.digitaloceanspaces.com"
   catalog_asset_s3_buckets = {
     preview    = "chase-sets-preview-catalog-assets"
@@ -99,6 +106,34 @@ locals {
     for context_name in local.context_names :
     context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}"
   }
+
+  default_context_database_connection_pool_sizes = {
+    for context_name in local.context_names :
+    context_name => 1
+  }
+
+  preview_context_database_connection_pool_sizes = merge(local.default_context_database_connection_pool_sizes, {
+    auth            = 2
+    catalog         = 2
+    control         = 2
+    identity        = 2
+    public-presence = 2
+  })
+
+  staging_context_database_connection_pool_sizes = merge(local.default_context_database_connection_pool_sizes, {
+    auth            = 3
+    catalog         = 6
+    control         = 4
+    discovery       = 3
+    identity        = 3
+    marketplace     = 3
+    notifications   = 2
+    public-presence = 3
+  })
+
+  context_database_connection_pool_sizes = local.is_staging ? local.staging_context_database_connection_pool_sizes : (
+    local.is_non_production ? local.preview_context_database_connection_pool_sizes : {}
+  )
 
   non_production_connection_pool_contexts = local.is_non_production ? local.context_databases : {}
 
