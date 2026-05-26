@@ -2,6 +2,19 @@
 
 Use `/api/platform/projections` for snapshot-first projection status. The summary endpoint is intentionally cheap during incidents; load blocked stream details with `/api/platform/projections/:projectionKey/blocked-streams` only when needed.
 
+## Admin Console
+
+Open Admin > Operations > Projection Operations.
+
+The console is owned by the Platform Operations bounded context. It should be used as an attention-first triage surface, not as a raw table dump:
+
+1. Start with the summary band and confirm whether the console says `Healthy`, `Running`, `Review`, `Stale`, or `Needs attention`.
+2. Review the Attention tab before scanning routine projection groups.
+3. Select a failed operation, degraded projection group, blocked stream, stale worker, or stale revision to open its detail panel.
+4. Retry blocked streams only from blocked-stream detail after the handler or data issue is fixed.
+5. Rebuild a projection group only from projection-group detail and only when replay is the safer repair path.
+6. Cancel queued or running operations from operation detail when the work should stop at the next safe lease or transaction boundary.
+
 ## Backlog
 
 - Check `sourceLagEventCount` for drain distance.
@@ -16,7 +29,7 @@ Use `/api/platform/projections` for snapshot-first projection status. The summar
 - Rebuild operations also acquire the target projection-group runner lease before resetting checkpoints or replaying events.
 - If an operation is `running` but the claiming worker disappears, wait for the claim TTL to expire; another worker can then reclaim it.
 - If an operation is `cancel_requested`, the owning worker should stop at the next lease guard or transaction boundary and mark it `cancelled`.
-- Use the Projection Operations table in Admin to inspect queued, running, succeeded, failed, and cancelled operations.
+- Use the Operations tab in Admin to inspect queued, running, succeeded, failed, cancel-requested, and cancelled operations.
 - The operation history API supports filters for `contextName`, `projectionName`, `state`, and `requestedByUserId`.
 - Operation summaries expose queued count, running count, failed count, cancel-requested count, oldest queued/running timestamps, and average operation duration.
 

@@ -318,6 +318,15 @@
       "@chase-sets/payments/server": [
         "./bounded-contexts/payments/server.ts"
       ],
+      "@chase-sets/platform-operations": [
+        "./bounded-contexts/platform-operations/index.ts"
+      ],
+      "@chase-sets/platform-operations/context": [
+        "./bounded-contexts/platform-operations/context.json"
+      ],
+      "@chase-sets/platform-operations/routes/*": [
+        "./bounded-contexts/platform-operations/routes/*.tsx"
+      ],
       "@chase-sets/platform-runtime": [
         "./infrastructure/platform-runtime/index.ts"
       ],

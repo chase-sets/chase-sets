@@ -52,6 +52,10 @@ export default defineConfig({
         target: platformApiTarget,
         changeOrigin: true,
       },
+      "/api/platform": {
+        target: platformApiTarget,
+        changeOrigin: true,
+      },
       "/api/public-presence": {
         target: platformApiTarget,
         changeOrigin: true,

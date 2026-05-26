@@ -18,6 +18,7 @@
     "@chase-sets/experience": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/platform-operations": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/public-presence": "workspace:*",
     "@react-router/node": "7.14.0",

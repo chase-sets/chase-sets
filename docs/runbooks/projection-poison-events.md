@@ -7,17 +7,17 @@ Use this runbook when a worker or projection group reports `degraded`.
 ## Triage
 
 1. Open Admin > Operations > Projection Operations.
-2. Identify the runner or projection group with `state = degraded`.
-3. Check outstanding events, blocked stream count, and poison event count.
-4. Inspect the latest poison event details: projection key, event type, stream id, stream version, global position, and error message.
+2. Start in the Attention tab and select the blocked stream or degraded projection group.
+3. Check source lag, applicable lag, blocked stream count, and poison event count.
+4. Inspect poison event detail: projection key, event type, stream id, stream version, global position, retry count, first/last seen timestamps, and error message.
 5. Decide whether the failure is a handler bug, malformed historical data, missing reference data, or a projection definition change.
 
 Do not ask publishers to re-run the command as the first response. Publishers already wrote durable events; the projection consumer owns catch-up and repair.
 
 ## Repair Choices
 
-- Fix a handler bug, then retry the blocked stream from Admin > Operations > Projection Operations.
-- Fix missing reference data, then retry the blocked stream from the same operations page.
+- Fix a handler bug, then retry the blocked stream from the blocked-stream detail panel.
+- Fix missing reference data, then retry the blocked stream from the same detail panel.
 - Mark a poison event ignored only when the owning context documents why the event is irrelevant or safely lossy for that projection.
 - Rebuild the projection group when the projection definition changed or when many blocked streams indicate replay is safer than individual repair.
 

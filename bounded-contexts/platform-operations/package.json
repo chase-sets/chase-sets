@@ -1,0 +1,31 @@
+{
+  "name": "@chase-sets/platform-operations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
+    "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:fast": "vitest run --config ./tests/vitest.config.mjs"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./context": "./context.json",
+    "./routes/*": "./routes/*.tsx"
+  },
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/design-system": "workspace:*",
+    "@chase-sets/localization": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*",
+    "react": "^19.2.5",
+    "react-router": "^7.14.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitejs/plugin-react": "^6.0.1",
+    "jsdom": "^29.0.2",
+    "vitest": "^4.1.4"
+  }
+}
