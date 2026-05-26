@@ -2041,11 +2041,11 @@ export function SpecificationList({ title, specs }: SpecificationListProps) {
         </CardHeader>
       ) : null}
       <CardContent>
-        <dl className="grid gap-0 overflow-hidden rounded-[var(--radius)] border border-[var(--border)]">
+        <dl className="grid gap-0">
           {specs.map((spec) => (
             <div
               key={spec.label}
-              className="grid grid-cols-[minmax(8rem,0.8fr)_1fr] gap-3 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 last:border-b-0"
+              className="grid grid-cols-[minmax(8rem,0.8fr)_1fr] gap-3 border-b border-[var(--border)] py-2.5 first:pt-0 last:border-b-0 last:pb-0"
             >
               <dt className="text-sm text-[var(--muted-foreground)]">{spec.label}</dt>
               <dd className="m-0 text-sm font-semibold text-[var(--foreground)]">{spec.value}</dd>
