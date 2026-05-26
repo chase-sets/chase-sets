@@ -557,11 +557,18 @@ export function createRealtimeRoutes(
       return c.json({ error: { code: "authorization_forbidden", message: "Forbidden." } }, 403);
     }
 
+    const requestedCursor = c.req.header("last-event-id") ?? url.searchParams.get("cursor");
     let cursor = decodeRealtimeCursor(
-      c.req.header("last-event-id") ?? url.searchParams.get("cursor"),
+      requestedCursor,
       routeConfig.cursorSigningKeys ?? routeConfig.cursorSigningSecret,
     );
     const matchingStores = selectRealtimeStoresForTopics(options.stores, authorizedTopics);
+    if (!requestedCursor) {
+      cursor = {
+        ...cursor,
+        ...(await readRealtimeContextHeads(matchingStores)),
+      };
+    }
     const connectionKey = resolveRealtimeConnectionKey(c.req.raw, actor);
     let streamLease;
     try {

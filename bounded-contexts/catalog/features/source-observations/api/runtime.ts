@@ -313,6 +313,8 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
+    requirePromotionAssetPorts({ deps, normalized: input.observation.normalized });
+
     const existingCatalogItemId =
       input.observation.status === "changed" || input.observation.status === "promoted"
         ? (input.observation.promoted_catalog_item_id as CatalogItemId | null)
@@ -331,14 +333,22 @@ export function createSourceObservationRuntime(
         providerKey: input.observation.provider_key,
         externalKey: sourceReferenceExternalKey,
       }));
-    const catalogItemId = referencedCatalogItemId ?? (createId("cat") as CatalogItemId);
+    const partiallyPromotedCatalogItemId =
+      referencedCatalogItemId || existingCatalogItemId
+        ? null
+        : await findPartiallyPromotedCatalogItemIdForObservation({
+            deps,
+            normalized: input.observation.normalized,
+          });
+    const reusableCatalogItemId = referencedCatalogItemId ?? partiallyPromotedCatalogItemId;
+    const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
 
-    if (referencedCatalogItemId) {
+    if (reusableCatalogItemId) {
       await refreshCatalogItemFromObservation({
         items,
         referenceData,
         deps,
-        catalogItemId: referencedCatalogItemId,
+        catalogItemId: reusableCatalogItemId,
         normalized: input.observation.normalized,
         providerKey: input.observation.provider_key,
         externalKey: input.observation.external_key,
@@ -443,6 +453,8 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
+    requirePromotionAssetPorts({ deps, normalized: input.observation.normalized });
+
     if (input.observation.status !== "promoted") {
       throw new Error("Only promoted source observations can be reapplied.");
     }
@@ -1385,6 +1397,12 @@ function isPromotableObservationStatus(status: string): boolean {
   return status === "observed" || status === "changed" || status === "promoted";
 }
 
+function requirePromotionAssetPorts(input: { deps: CatalogRuntimeDeps; normalized: SourceObservationNormalized }) {
+  if (input.normalized.imageBaseUrl) {
+    requireCatalogAssetStorage(input.deps.assetStorage);
+  }
+}
+
 function formatSourceReferenceExternalKey(
   observation: Pick<SourceObservationDetailRow, "normalized" | "external_key">,
 ) {
@@ -1406,6 +1424,45 @@ async function findReusableCatalogItemIdForSourceReference(input: {
        AND item.status NOT IN ('archived', 'removed')
      LIMIT 1`,
     [input.providerKey, input.externalKey],
+  );
+
+  return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
+}
+
+async function findPartiallyPromotedCatalogItemIdForObservation(input: {
+  deps: CatalogRuntimeDeps;
+  normalized: SourceObservationNormalized;
+}): Promise<CatalogItemId | null> {
+  const profile = await loadPokemonTcgPromotionProfile(input.deps);
+  const reusableTags = [
+    "tcgdex",
+    `expansion:${input.normalized.expansionId}`,
+    `variant:${input.normalized.cardVariantKey}`,
+  ];
+  const cardNumberField = [{ fieldId: profile.fieldIds.cardNumber, value: input.normalized.cardNumber }];
+  const cardNameField = [{ fieldId: profile.fieldIds.cardName, value: localizedJsonText(input.normalized.name) }];
+  const cardVariantField = [{ fieldId: profile.fieldIds.cardVariant, value: input.normalized.cardVariantLabel }];
+  const result = await input.deps.db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM catalog_items AS item
+     LEFT JOIN catalog_external_product_references AS reference
+       ON reference.catalog_item_id = item.catalog_item_id
+     WHERE item.status = 'draft'
+       AND item.language_code = $1
+       AND item.tags @> $2::jsonb
+       AND item.field_values @> $3::jsonb
+       AND item.field_values @> $4::jsonb
+       AND item.field_values @> $5::jsonb
+       AND reference.catalog_item_id IS NULL
+     ORDER BY item.updated_at DESC, item.catalog_item_id ASC
+     LIMIT 1`,
+    [
+      input.normalized.languageCode,
+      JSON.stringify(reusableTags),
+      JSON.stringify(cardNumberField),
+      JSON.stringify(cardNameField),
+      JSON.stringify(cardVariantField),
+    ],
   );
 
   return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;

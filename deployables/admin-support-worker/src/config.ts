@@ -14,6 +14,7 @@ export type AdminSupportWorkerConfig = Readonly<{
   controlDatabaseUrl: string;
   contextDatabaseUrls: Readonly<Partial<Record<AdminSupportWorkerContextName, string>>>;
   pool: AdminSupportWorkerPoolConfig;
+  catalogAssetStorage: AdminSupportWorkerCatalogAssetStorageConfig;
   port: number;
   workerId: string;
   maxConcurrentRunners: number;
@@ -23,6 +24,23 @@ export type AdminSupportWorkerConfig = Readonly<{
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
 }>;
+
+export type AdminSupportWorkerCatalogAssetStorageConfig =
+  | Readonly<{
+      kind: "filesystem";
+      rootDir: string;
+      publicBaseUrl: string;
+    }>
+  | Readonly<{
+      kind: "s3";
+      bucket: string;
+      region: string;
+      publicBaseUrl: string;
+      endpoint?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      forcePathStyle?: boolean;
+    }>;
 
 const adminSupportContexts = getWorkerHostContextNames(workerContextRegistry, "admin-support-worker");
 
@@ -38,6 +56,15 @@ function getOptionalPositiveNumberEnv(name: string, defaultValue: number) {
 
 function getPositiveNumberEnv(name: string, defaultValue: number) {
   return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
+}
+
+function getBooleanEnv(name: string, defaultValue: boolean) {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    return defaultValue;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
 export function getContextDatabaseEnvName(contextName: AdminSupportWorkerContextName) {
@@ -68,6 +95,8 @@ export function loadConfig(): AdminSupportWorkerConfig {
     );
   }
 
+  const port = Number(process.env.PORT ?? 6193);
+  const productionLike = process.env.NODE_ENV === "production";
   const maxConcurrentRunners = getPositiveNumberEnv("WORKER_MAX_CONCURRENT_RUNNERS", 4);
 
   return {
@@ -79,7 +108,8 @@ export function loadConfig(): AdminSupportWorkerConfig {
       idleTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 30_000),
       connectionTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS", 5_000),
     },
-    port: Number(process.env.PORT ?? 6193),
+    catalogAssetStorage: loadCatalogAssetStorageConfig(port, productionLike),
+    port,
     workerId: getOptionalEnv("WORKER_ID") ?? `admin-support-worker-${process.pid}-${Date.now().toString(36)}`,
     maxConcurrentRunners,
     projectionMaxConcurrentRunners: getPositiveNumberEnv(
@@ -90,5 +120,58 @@ export function loadConfig(): AdminSupportWorkerConfig {
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),
+  };
+}
+
+function loadCatalogAssetStorageConfig(
+  port: number,
+  productionLike: boolean,
+): AdminSupportWorkerCatalogAssetStorageConfig {
+  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ?? (productionLike ? "s3" : "filesystem");
+
+  if (kind === "filesystem") {
+    if (productionLike) {
+      throw new Error("CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.");
+    }
+
+    return {
+      kind: "filesystem",
+      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ?? "artifacts/catalog-assets",
+      publicBaseUrl:
+        getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ??
+        `${(getOptionalEnv("ADMIN_SUPPORT_API_URL") ?? `http://localhost:${port}`).replace(/\/$/, "")}/catalog-assets`,
+    };
+  }
+
+  if (kind !== "s3") {
+    throw new Error("CATALOG_ASSET_STORAGE_KIND must be filesystem or s3.");
+  }
+
+  const bucket = getOptionalEnv("CATALOG_ASSET_S3_BUCKET");
+  const region = getOptionalEnv("CATALOG_ASSET_S3_REGION");
+  const publicBaseUrl = getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL");
+  const accessKeyId = getOptionalEnv("CATALOG_ASSET_S3_ACCESS_KEY_ID");
+  const secretAccessKey = getOptionalEnv("CATALOG_ASSET_S3_SECRET_ACCESS_KEY");
+
+  if (!bucket || !region || !publicBaseUrl) {
+    throw new Error(
+      "CATALOG_ASSET_S3_BUCKET, CATALOG_ASSET_S3_REGION, and CATALOG_ASSET_PUBLIC_BASE_URL are required when CATALOG_ASSET_STORAGE_KIND=s3.",
+    );
+  }
+  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
+    throw new Error(
+      "CATALOG_ASSET_S3_ACCESS_KEY_ID and CATALOG_ASSET_S3_SECRET_ACCESS_KEY must be configured together.",
+    );
+  }
+
+  return {
+    kind: "s3",
+    bucket,
+    region,
+    publicBaseUrl,
+    endpoint: getOptionalEnv("CATALOG_ASSET_S3_ENDPOINT") ?? undefined,
+    accessKeyId: accessKeyId ?? undefined,
+    secretAccessKey: secretAccessKey ?? undefined,
+    forcePathStyle: getBooleanEnv("CATALOG_ASSET_S3_FORCE_PATH_STYLE", false),
   };
 }

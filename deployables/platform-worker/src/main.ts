@@ -19,6 +19,7 @@ import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testi
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
+import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
@@ -45,7 +46,7 @@ import {
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { getObservabilityRuntime } from "@chase-sets/observability";
-import { loadConfig } from "./config";
+import { loadConfig, type PlatformWorkerCatalogAssetStorageConfig } from "./config";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
@@ -115,6 +116,7 @@ const postageLabelProvider =
         mode: config.postage.mode,
       })
     : createSandboxPostageLabelProvider();
+const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({ db: pools["commercial-terms"] })
   : undefined;
@@ -129,6 +131,7 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
+    catalogAssetStorage,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
   },
@@ -489,6 +492,12 @@ function createCatalogBulkJobRunners(
   }
 
   return runners;
+}
+
+function createCatalogAssetStorage(storageConfig: PlatformWorkerCatalogAssetStorageConfig): ObjectStorage {
+  return storageConfig.kind === "s3"
+    ? createS3ObjectStorage(storageConfig)
+    : createFilesystemObjectStorage(storageConfig);
 }
 
 function createTransactionalEmailDispatchRunners(

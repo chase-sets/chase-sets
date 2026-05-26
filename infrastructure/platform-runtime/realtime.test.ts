@@ -264,6 +264,42 @@ describe("realtime SSE routes", () => {
     ]);
   });
 
+  it("starts fresh subscriptions at the current context head instead of replaying retained history", async () => {
+    const app = createRealtimeRoutes({
+      stores: [
+        {
+          contextName: "discovery",
+          db: {
+            query: async (sql: string) => {
+              if (sql.includes("COALESCE(MAX(outbox_id), 0)::text AS head")) {
+                return { rows: [{ head: "42" }] };
+              }
+
+              return { rows: [] };
+            },
+          },
+        },
+      ],
+      resolveActor: async () => null,
+      pollIntervalMs: 60_000,
+      heartbeatIntervalMs: 60_000,
+    });
+    const abort = new AbortController();
+
+    const response = await app.request("/public/events?topic=public%3Amarket", {
+      signal: abort.signal,
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+
+    const text = await readSseTextUntil(reader!, (value) => value.includes("event: heartbeat"), 1);
+    abort.abort();
+    await reader!.cancel();
+
+    expect(response.status).toBe(200);
+    expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "42" })}`);
+  });
+
   it("treats malformed Last-Event-ID as an empty cursor", async () => {
     const queryParams: unknown[][] = [];
     const db = {
@@ -274,6 +310,10 @@ describe("realtime SSE routes", () => {
 
         if (sql.includes("DELETE FROM realtime_projection_outbox")) {
           return { rows: [] };
+        }
+
+        if (sql.includes("COALESCE(MAX(outbox_id), 0)::text AS head")) {
+          return { rows: [{ head: "0" }] };
         }
 
         if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
@@ -326,6 +366,10 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
+        if (sql.includes("COALESCE(MAX(outbox_id), 0)::text AS head")) {
+          return { rows: [{ head: "0" }] };
+        }
+
         if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return { rows: [] };
         }
@@ -368,6 +412,10 @@ describe("realtime SSE routes", () => {
           return { rows: [] };
         }
 
+        if (sql.includes("COALESCE(MAX(outbox_id), 0)::text AS head")) {
+          return { rows: [{ head: "0" }] };
+        }
+
         if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           return { rows: [] };
         }
@@ -406,6 +454,10 @@ describe("realtime SSE routes", () => {
       query: async (sql: string) => {
         if (sql.includes("DELETE FROM realtime_projection_outbox")) {
           return { rows: [] };
+        }
+
+        if (sql.includes("COALESCE(MAX(outbox_id), 0)::text AS head")) {
+          return { rows: [{ head: "0" }] };
         }
 
         if (sql.includes("SELECT outbox.outbox_id AS outbox_id")) {
@@ -495,6 +547,9 @@ describe("realtime SSE routes", () => {
     const abort = new AbortController();
 
     const response = await app.request("/public/events?topic=public%3Amarket", {
+      headers: {
+        "Last-Event-ID": encodeRealtimeCursor({ discovery: "0" }),
+      },
       signal: abort.signal,
     });
     const reader = response.body?.getReader();

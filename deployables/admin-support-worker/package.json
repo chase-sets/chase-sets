@@ -24,6 +24,7 @@
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/experience": "workspace:*",
     "@chase-sets/identity": "workspace:*",
+    "@chase-sets/object-storage": "workspace:*",
     "@chase-sets/observability": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/public-presence": "workspace:*",
