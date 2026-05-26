@@ -51,7 +51,8 @@
         "checkout_catalog_dimensions",
         "checkout_catalog_dimension_options"
       ],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "apiDeployables": ["platform-api"],

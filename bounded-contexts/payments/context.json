@@ -50,19 +50,22 @@
       "projectionName": "payments-order-input-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["payments_order_inputs"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-support-refund-effect",
       "sourceContextNames": ["support"],
       "ownedTables": ["payments_support_refund_effects"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "payments-order-cancellation-refund-effect",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["payments_order_cancellation_refund_effects"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

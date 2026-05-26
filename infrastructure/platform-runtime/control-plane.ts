@@ -1,6 +1,8 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { platformUcpRuntimeSchemaSql } from "./ucp";
 
+const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
+
 export const platformControlPlaneSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_control_leases (
   lease_name text PRIMARY KEY,
@@ -52,6 +54,41 @@ ALTER TABLE platform_projection_status_snapshots
 CREATE INDEX IF NOT EXISTS platform_projection_status_snapshots_updated_at_idx
   ON platform_projection_status_snapshots (updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS platform_projection_operations (
+  operation_id text PRIMARY KEY,
+  operation_kind text NOT NULL CHECK (
+    operation_kind IN ('rebuild-projection-group', 'rebuild-context', 'retry-blocked-stream', 'replay-stream')
+  ),
+  state text NOT NULL CHECK (
+    state IN ('queued', 'running', 'succeeded', 'failed', 'cancel_requested', 'cancelled')
+  ),
+  context_name text NOT NULL,
+  projection_name text NULL,
+  projection_key text NULL,
+  stream_id text NULL,
+  requested_by_user_id text NULL,
+  requested_by_account_id text NULL,
+  claim_owner_id text NULL,
+  claim_fencing_token bigint NULL,
+  claimed_until timestamptz NULL,
+  progress jsonb NOT NULL DEFAULT '{}'::jsonb,
+  result jsonb NULL,
+  error jsonb NULL,
+  requested_at timestamptz NOT NULL,
+  started_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  completed_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS platform_projection_operations_state_requested_idx
+  ON platform_projection_operations (state, requested_at ASC);
+
+CREATE INDEX IF NOT EXISTS platform_projection_operations_target_idx
+  ON platform_projection_operations (context_name, projection_name, requested_at DESC);
+
+CREATE INDEX IF NOT EXISTS platform_projection_operations_actor_requested_idx
+  ON platform_projection_operations (requested_by_user_id, requested_at DESC);
+
 CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases (
   lease_id text PRIMARY KEY,
   connection_key text NOT NULL,
@@ -73,6 +110,54 @@ export type PlatformLease = Readonly<{
   ownerId: string;
   fencingToken: string;
   expiresAt: string;
+}>;
+
+export type ProjectionOperationKind =
+  | "rebuild-projection-group"
+  | "rebuild-context"
+  | "retry-blocked-stream"
+  | "replay-stream";
+
+export type ProjectionOperationState = "queued" | "running" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
+
+export type ProjectionOperationRecord = Readonly<{
+  operationId: string;
+  operationKind: ProjectionOperationKind;
+  state: ProjectionOperationState;
+  contextName: string;
+  projectionName: string | null;
+  projectionKey: string | null;
+  streamId: string | null;
+  requestedByUserId: string | null;
+  requestedByAccountId: string | null;
+  claimOwnerId: string | null;
+  claimFencingToken: string | null;
+  claimedUntil: string | null;
+  progress: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  requestedAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+  completedAt: string | null;
+}>;
+
+export type ProjectionOperationListFilter = Readonly<{
+  limit?: number;
+  contextName?: string;
+  projectionName?: string;
+  state?: ProjectionOperationState;
+  requestedByUserId?: string;
+}>;
+
+export type ProjectionOperationSummary = Readonly<{
+  queuedCount: string;
+  runningCount: string;
+  failedCount: string;
+  cancelRequestedCount: string;
+  oldestQueuedAt: string | null;
+  oldestRunningAt: string | null;
+  averageDurationMs: string | null;
 }>;
 
 export type PlatformControlPlane = Readonly<{
@@ -120,6 +205,61 @@ export type PlatformControlPlane = Readonly<{
   listWorkerHeartbeats: () => Promise<readonly Record<string, unknown>[]>;
   listRunnerStatuses: () => Promise<readonly Record<string, unknown>[]>;
   listLeases: () => Promise<readonly Record<string, unknown>[]>;
+  enqueueProjectionOperation: (
+    input: Readonly<{
+      operationKind: ProjectionOperationKind;
+      contextName: string;
+      projectionName?: string | null;
+      projectionKey?: string | null;
+      streamId?: string | null;
+      requestedByUserId?: string | null;
+      requestedByAccountId?: string | null;
+      progress?: Record<string, unknown>;
+    }>,
+  ) => Promise<ProjectionOperationRecord>;
+  claimProjectionOperation: (
+    input: Readonly<{
+      ownerId: string;
+      claimTtlMs: number;
+      operationKinds?: readonly ProjectionOperationKind[];
+    }>,
+  ) => Promise<ProjectionOperationRecord | null>;
+  recordProjectionOperationProgress: (
+    input: Readonly<{
+      operationId: string;
+      ownerId: string;
+      fencingToken: string;
+      progress: Record<string, unknown>;
+    }>,
+  ) => Promise<boolean>;
+  completeProjectionOperation: (
+    input: Readonly<{
+      operationId: string;
+      ownerId: string;
+      fencingToken: string;
+      result?: Record<string, unknown>;
+    }>,
+  ) => Promise<boolean>;
+  failProjectionOperation: (
+    input: Readonly<{
+      operationId: string;
+      ownerId: string;
+      fencingToken: string;
+      error: Record<string, unknown>;
+      retryable?: boolean;
+    }>,
+  ) => Promise<boolean>;
+  cancelProjectionOperation: (
+    input: Readonly<{
+      operationId: string;
+      requestedByUserId?: string | null;
+    }>,
+  ) => Promise<boolean>;
+  getProjectionOperation: (operationId: string) => Promise<ProjectionOperationRecord | null>;
+  listProjectionOperations: (input?: ProjectionOperationListFilter) => Promise<readonly ProjectionOperationRecord[]>;
+  summarizeProjectionOperations: (
+    input?: Omit<ProjectionOperationListFilter, "limit">,
+  ) => Promise<ProjectionOperationSummary>;
 }>;
 
 type LeaseRow = Readonly<{
@@ -127,6 +267,28 @@ type LeaseRow = Readonly<{
   owner_id: string;
   fencing_token: string | number | bigint;
   expires_at: Date | string;
+}>;
+
+type ProjectionOperationRow = Readonly<{
+  operation_id: string;
+  operation_kind: ProjectionOperationKind;
+  state: ProjectionOperationState;
+  context_name: string;
+  projection_name: string | null;
+  projection_key: string | null;
+  stream_id: string | null;
+  requested_by_user_id: string | null;
+  requested_by_account_id: string | null;
+  claim_owner_id: string | null;
+  claim_fencing_token: string | number | bigint | null;
+  claimed_until: Date | string | null;
+  progress: unknown;
+  result: unknown;
+  error: unknown;
+  requested_at: Date | string;
+  started_at: Date | string | null;
+  updated_at: Date | string;
+  completed_at: Date | string | null;
 }>;
 
 export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<void> {
@@ -317,7 +479,273 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
          ORDER BY lease_name`,
         )
       ).rows,
+    enqueueProjectionOperation: async (input) => {
+      const result = await db.query<ProjectionOperationRow>(
+        `INSERT INTO platform_projection_operations (
+           operation_id,
+           operation_kind,
+           state,
+           context_name,
+           projection_name,
+           projection_key,
+           stream_id,
+           requested_by_user_id,
+           requested_by_account_id,
+           progress,
+           requested_at,
+           updated_at
+         ) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9::jsonb, now(), now())
+         RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
+        [
+          createProjectionOperationId(),
+          input.operationKind,
+          input.contextName,
+          input.projectionName ?? null,
+          input.projectionKey ?? null,
+          input.streamId ?? null,
+          input.requestedByUserId ?? null,
+          input.requestedByAccountId ?? null,
+          JSON.stringify(input.progress ?? {}),
+        ],
+      );
+
+      return mapProjectionOperationRow(result.rows[0]);
+    },
+    claimProjectionOperation: async (input) => {
+      const operationKinds = input.operationKinds?.length ? [...new Set(input.operationKinds)] : null;
+      const result = await db.query<ProjectionOperationRow>(
+        `WITH claimable AS (
+           SELECT operation_id
+           FROM platform_projection_operations
+           WHERE (
+               state = 'queued'
+               OR (
+                 state = 'running'
+                 AND claimed_until <= now()
+               )
+             )
+             AND ($3::text[] IS NULL OR operation_kind = ANY($3::text[]))
+           ORDER BY requested_at ASC
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE platform_projection_operations AS operation
+         SET state = 'running',
+             claim_owner_id = $1,
+             claim_fencing_token = COALESCE(operation.claim_fencing_token, 0) + 1,
+             claimed_until = now() + ($2::text || ' milliseconds')::interval,
+             started_at = COALESCE(operation.started_at, now()),
+             updated_at = now()
+         FROM claimable
+         WHERE operation.operation_id = claimable.operation_id
+         RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
+        [input.ownerId, input.claimTtlMs, operationKinds],
+      );
+
+      return result.rows[0] ? mapProjectionOperationRow(result.rows[0]) : null;
+    },
+    recordProjectionOperationProgress: async (input) => {
+      const result = await db.query(
+        `UPDATE platform_projection_operations
+         SET progress = $4::jsonb,
+             claimed_until = GREATEST(claimed_until, now()),
+             updated_at = now()
+         WHERE operation_id = $1
+           AND claim_owner_id = $2
+           AND claim_fencing_token = $3::bigint
+           AND state IN ('running', 'cancel_requested')`,
+        [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.progress)],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+    completeProjectionOperation: async (input) => {
+      const result = await db.query(
+        `UPDATE platform_projection_operations
+         SET state = CASE WHEN state = 'cancel_requested' THEN 'cancelled' ELSE 'succeeded' END,
+             result = $4::jsonb,
+             error = NULL,
+             claimed_until = NULL,
+             completed_at = now(),
+             updated_at = now()
+         WHERE operation_id = $1
+           AND claim_owner_id = $2
+           AND claim_fencing_token = $3::bigint
+           AND state IN ('running', 'cancel_requested')`,
+        [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.result ?? {})],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+    failProjectionOperation: async (input) => {
+      const result = await db.query(
+        `UPDATE platform_projection_operations
+         SET state = $4,
+             error = $5::jsonb,
+             claimed_until = NULL,
+             completed_at = CASE WHEN $4 = 'failed' THEN now() ELSE completed_at END,
+             updated_at = now()
+         WHERE operation_id = $1
+           AND claim_owner_id = $2
+           AND claim_fencing_token = $3::bigint
+           AND state IN ('running', 'cancel_requested')`,
+        [
+          input.operationId,
+          input.ownerId,
+          input.fencingToken,
+          input.retryable ? "queued" : "failed",
+          JSON.stringify(input.error),
+        ],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+    cancelProjectionOperation: async (input) => {
+      const result = await db.query(
+        `UPDATE platform_projection_operations
+         SET state = CASE
+               WHEN state = 'queued' THEN 'cancelled'
+               WHEN state = 'running' THEN 'cancel_requested'
+               ELSE state
+             END,
+             error = CASE
+               WHEN state = 'queued' THEN $2::jsonb
+               ELSE error
+             END,
+             completed_at = CASE
+               WHEN state = 'queued' THEN now()
+               ELSE completed_at
+             END,
+             updated_at = now()
+         WHERE operation_id = $1
+           AND state IN ('queued', 'running')`,
+        [
+          input.operationId,
+          JSON.stringify({
+            code: "cancel_requested",
+            requestedByUserId: input.requestedByUserId ?? null,
+          }),
+        ],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+    getProjectionOperation: async (operationId) => {
+      const result = await db.query<ProjectionOperationRow>(
+        `SELECT ${PROJECTION_OPERATION_COLUMNS}
+         FROM platform_projection_operations
+         WHERE operation_id = $1`,
+        [operationId],
+      );
+
+      return result.rows[0] ? mapProjectionOperationRow(result.rows[0]) : null;
+    },
+    listProjectionOperations: async (input = {}) => {
+      const { predicates, params } = buildProjectionOperationPredicates(input);
+
+      const limit = Math.max(1, Math.min(input.limit ?? DEFAULT_PROJECTION_OPERATION_LIMIT, 200));
+      params.push(limit);
+
+      const whereSql = predicates.length ? `WHERE ${predicates.join(" AND ")}` : "";
+      const result = await db.query<ProjectionOperationRow>(
+        `SELECT ${PROJECTION_OPERATION_COLUMNS}
+         FROM platform_projection_operations
+         ${whereSql}
+         ORDER BY requested_at DESC
+         LIMIT $${params.length}`,
+        params,
+      );
+
+      return result.rows.map(mapProjectionOperationRow);
+    },
+    summarizeProjectionOperations: async (input = {}) => {
+      const { predicates, params } = buildProjectionOperationPredicates(input);
+      const whereSql = predicates.length ? `WHERE ${predicates.join(" AND ")}` : "";
+      const result = await db.query<
+        Readonly<{
+          queued_count: string | number | bigint;
+          running_count: string | number | bigint;
+          failed_count: string | number | bigint;
+          cancel_requested_count: string | number | bigint;
+          oldest_queued_at: Date | string | null;
+          oldest_running_at: Date | string | null;
+          average_duration_ms: string | number | null;
+        }>
+      >(
+        `SELECT
+           COUNT(*) FILTER (WHERE state = 'queued') AS queued_count,
+           COUNT(*) FILTER (WHERE state = 'running') AS running_count,
+           COUNT(*) FILTER (WHERE state = 'failed') AS failed_count,
+           COUNT(*) FILTER (WHERE state = 'cancel_requested') AS cancel_requested_count,
+           MIN(requested_at) FILTER (WHERE state = 'queued') AS oldest_queued_at,
+           MIN(started_at) FILTER (WHERE state IN ('running', 'cancel_requested')) AS oldest_running_at,
+           AVG(EXTRACT(EPOCH FROM (COALESCE(completed_at, now()) - started_at)) * 1000)
+             FILTER (WHERE started_at IS NOT NULL) AS average_duration_ms
+         FROM platform_projection_operations
+         ${whereSql}`,
+        params,
+      );
+      const row = result.rows[0];
+
+      return {
+        queuedCount: String(row?.queued_count ?? "0"),
+        runningCount: String(row?.running_count ?? "0"),
+        failedCount: String(row?.failed_count ?? "0"),
+        cancelRequestedCount: String(row?.cancel_requested_count ?? "0"),
+        oldestQueuedAt: formatNullableTimestamp(row?.oldest_queued_at ?? null),
+        oldestRunningAt: formatNullableTimestamp(row?.oldest_running_at ?? null),
+        averageDurationMs:
+          row?.average_duration_ms == null ? null : String(Math.round(Number(row.average_duration_ms))),
+      };
+    },
   };
+}
+
+function buildProjectionOperationPredicates(input: Omit<ProjectionOperationListFilter, "limit">) {
+  const predicates: string[] = [];
+  const params: unknown[] = [];
+
+  if (input.contextName) {
+    params.push(input.contextName);
+    predicates.push(`context_name = $${params.length}`);
+  }
+  if (input.projectionName) {
+    params.push(input.projectionName);
+    predicates.push(`projection_name = $${params.length}`);
+  }
+  if (input.state) {
+    params.push(input.state);
+    predicates.push(`state = $${params.length}`);
+  }
+  if (input.requestedByUserId) {
+    params.push(input.requestedByUserId);
+    predicates.push(`requested_by_user_id = $${params.length}`);
+  }
+
+  return { predicates, params };
+}
+
+const PROJECTION_OPERATION_COLUMNS = `
+  operation_id,
+  operation_kind,
+  state,
+  context_name,
+  projection_name,
+  projection_key,
+  stream_id,
+  requested_by_user_id,
+  requested_by_account_id,
+  claim_owner_id,
+  claim_fencing_token,
+  claimed_until,
+  progress,
+  result,
+  error,
+  requested_at,
+  started_at,
+  updated_at,
+  completed_at
+`;
+
+function createProjectionOperationId(): string {
+  const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  return `projection-operation-${cryptoLike?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
 }
 
 function mapLeaseRow(row: LeaseRow): PlatformLease {
@@ -327,4 +755,59 @@ function mapLeaseRow(row: LeaseRow): PlatformLease {
     fencingToken: String(row.fencing_token),
     expiresAt: row.expires_at instanceof Date ? row.expires_at.toISOString() : String(row.expires_at),
   };
+}
+
+function mapProjectionOperationRow(row: ProjectionOperationRow | undefined): ProjectionOperationRecord {
+  if (!row) {
+    throw new Error("Projection operation query did not return a row.");
+  }
+
+  return {
+    operationId: row.operation_id,
+    operationKind: row.operation_kind,
+    state: row.state,
+    contextName: row.context_name,
+    projectionName: row.projection_name,
+    projectionKey: row.projection_key,
+    streamId: row.stream_id,
+    requestedByUserId: row.requested_by_user_id,
+    requestedByAccountId: row.requested_by_account_id,
+    claimOwnerId: row.claim_owner_id,
+    claimFencingToken: row.claim_fencing_token === null ? null : String(row.claim_fencing_token),
+    claimedUntil: formatNullableTimestamp(row.claimed_until),
+    progress: readJsonRecord(row.progress) ?? {},
+    result: readJsonRecord(row.result),
+    error: readJsonRecord(row.error),
+    requestedAt: formatTimestamp(row.requested_at),
+    startedAt: formatNullableTimestamp(row.started_at),
+    updatedAt: formatTimestamp(row.updated_at),
+    completedAt: formatNullableTimestamp(row.completed_at),
+  };
+}
+
+function formatTimestamp(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function formatNullableTimestamp(value: Date | string | null): string | null {
+  return value === null ? null : formatTimestamp(value);
+}
+
+function readJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }

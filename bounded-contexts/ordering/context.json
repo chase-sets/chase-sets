@@ -103,43 +103,50 @@
       "projectionName": "ordering-account-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["ordering_account_pages"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-marketplace-supply-input-projection",
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["ordering_market_listing_inputs"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-inventory-supply-input-projection",
       "sourceContextNames": ["inventory"],
       "ownedTables": ["ordering_inventory_item_inputs", "ordering_inventory_hold_inputs"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-inventory-reservation-outcomes",
       "sourceContextNames": ["inventory"],
       "ownedTables": ["ordering_order_pages", "ordering_order_hold_pages"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-marketplace-offer-acceptance",
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["ordering_offer_acceptance_inputs"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-payment-capture",
       "sourceContextNames": ["payments"],
       "ownedTables": ["ordering_payment_capture_inputs"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "ordering-fulfillment-cancellation-inputs",
       "sourceContextNames": ["fulfillment"],
       "ownedTables": ["ordering_fulfillment_cancellation_inputs"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [],

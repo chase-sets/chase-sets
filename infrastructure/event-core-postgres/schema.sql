@@ -78,6 +78,9 @@ CREATE INDEX IF NOT EXISTS event_store_events_stream_prefix_global_idx
 CREATE INDEX IF NOT EXISTS event_store_events_context_category_type_global_idx
   ON event_store_events (stream_context_name, stream_category, event_type, global_position ASC);
 
+CREATE INDEX IF NOT EXISTS event_store_events_context_category_global_idx
+  ON event_store_events (stream_context_name, stream_category, global_position ASC);
+
 CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   projector_name text PRIMARY KEY,
   last_global_position bigint NOT NULL CHECK (last_global_position >= 0),

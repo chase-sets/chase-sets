@@ -28,9 +28,11 @@ import {
   createWorkerHost,
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
+  type WorkerRuntimeObserver,
   type WorkerRunner,
   type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
+import { assertRunnerCapacity, summarizeRunnerCapacity } from "@chase-sets/platform-runtime/worker-capacity";
 import {
   createPostgresTransactionalEmailOutbox,
   createTransactionalEmailOutboxDispatcher,
@@ -132,7 +134,13 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   },
 });
 
-const projectionRunners = collectWorkerRunners(runtime);
+const projectionRunners = collectWorkerRunners(runtime, {
+  controlPlane,
+  projectionOperationClaimTtlMs: config.leaseTtlMs * 4,
+  projectionOperationLeaseTtlMs: config.leaseTtlMs,
+  projectionOperationLeaseRenewIntervalMs: config.leaseRenewIntervalMs,
+  observer: createWorkerObserver("platform-worker"),
+});
 const bulkJobRunners = createCatalogBulkJobRunners(runtime.services, config);
 const notificationDispatchRunners = createNotificationDispatchRunners(
   runtime,
@@ -165,6 +173,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: config.pollIntervalMs,
+    observer: createWorkerObserver("platform-worker", group.name),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
         type: "platform-worker.runner.failed",
@@ -177,11 +186,16 @@ const runnerLoops = runnerGroups.map((group) => ({
   }),
 }));
 const runnerCount = runnerGroups.reduce((total, group) => total + group.runners.length, 0);
+const runnerCapacity = summarizeRunnerCapacity(config.pool.max, runnerGroupCapacityInputs(runnerGroups));
+assertRunnerCapacity(runnerCapacity, {
+  workerName: "Platform worker",
+  allowOverPoolCapacity: process.env.ALLOW_WORKER_OVER_POOL_CAPACITY === "true",
+});
 
 await controlPlane.heartbeatWorker({
   workerId: config.workerId,
   workerKind: "platform-worker",
-  metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups) },
+  metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups), runnerCapacity },
 });
 const heartbeatTimer = setInterval(
   () => {
@@ -189,7 +203,7 @@ const heartbeatTimer = setInterval(
       .heartbeatWorker({
         workerId: config.workerId,
         workerKind: "platform-worker",
-        metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups) },
+        metadata: { runnerCount, runnerGroups: runnerGroupMetadata(runnerGroups), runnerCapacity },
       })
       .catch((error) => {
         logger.error("Platform worker heartbeat failed.", {
@@ -221,7 +235,7 @@ app.get("/internal/workers/status", async (c) => {
   return c.json({
     status: "ok",
     loop: summarizeLoopStatuses(config.workerId, loopStatuses),
-    capacity: summarizeRunnerCapacity(config.pool.max, runnerGroups),
+    capacity: runnerCapacity,
     loops: loopStatuses,
     workers: await controlPlane.listWorkerHeartbeats(),
     runners: await controlPlane.listRunnerStatuses(),
@@ -236,6 +250,7 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
     workerId: config.workerId,
     runnerCount,
     runnerGroups: runnerGroupMetadata(runnerGroups),
+    runnerCapacity,
   });
 });
 
@@ -275,6 +290,14 @@ function runnerGroupMetadata(groups: readonly RunnerGroup[]) {
   );
 }
 
+function runnerGroupCapacityInputs(groups: readonly RunnerGroup[]) {
+  return groups.map((group) => ({
+    name: group.name,
+    runnerCount: group.runners.length,
+    maxConcurrentRunners: group.maxConcurrentRunners,
+  }));
+}
+
 function summarizeLoopStatuses(workerId: string, loopStatuses: readonly ReturnType<WorkerRunnerLoop["status"]>[]) {
   return {
     workerId,
@@ -283,19 +306,62 @@ function summarizeLoopStatuses(workerId: string, loopStatuses: readonly ReturnTy
   };
 }
 
-function summarizeRunnerCapacity(databasePoolMax: number, groups: readonly RunnerGroup[]) {
-  const configuredRunnerConcurrency = groups.reduce((total, group) => total + group.maxConcurrentRunners, 0);
-
-  return {
-    databasePoolMax,
-    configuredRunnerConcurrency,
-    overPoolCapacity: configuredRunnerConcurrency > databasePoolMax,
-    runnerGroups: runnerGroupMetadata(groups),
-  };
-}
-
 async function stopRunnerLoops(loops: readonly WorkerRunnerLoop[]) {
   await Promise.allSettled(loops.map((loop) => loop.stop()));
+}
+
+function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
+  return {
+    leaseMissed: (event) =>
+      logger.info("Worker runner lease missed.", {
+        type: "worker.runner.lease_missed",
+        workerKind,
+        runnerGroup,
+        ...event,
+      }),
+    leaseRenewFailed: (event) =>
+      logger.warn("Worker runner lease renewal failed.", {
+        type: "worker.runner.lease_renew_failed",
+        workerKind,
+        runnerGroup,
+        ...event,
+      }),
+    runnerCompleted: (event) =>
+      logger.info("Worker runner completed.", {
+        type: "worker.runner.completed",
+        workerKind,
+        runnerGroup,
+        ...event,
+      }),
+    runnerFailed: (event) =>
+      logger.error("Worker runner failed.", {
+        type: "worker.runner.failed",
+        workerKind,
+        runnerGroup,
+        ...event,
+      }),
+    projectionOperationStarted: (event) =>
+      logger.info("Projection operation started.", {
+        type: "projection.operation.started",
+        workerKind,
+        runnerGroup,
+        ...event,
+      }),
+    projectionOperationCompleted: (event) =>
+      logger.info("Projection operation completed.", {
+        type: "projection.operation.completed",
+        workerKind,
+        runnerGroup,
+        ...event,
+      }),
+    projectionOperationFailed: (event) =>
+      logger.error("Projection operation failed.", {
+        type: "projection.operation.failed",
+        workerKind,
+        runnerGroup,
+        ...event,
+      }),
+  };
 }
 
 function createScheduledJobRunners(

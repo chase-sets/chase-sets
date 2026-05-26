@@ -34,13 +34,15 @@
       "projectionName": "public-presence-waitlist-projection",
       "sourceContextNames": ["public-presence"],
       "ownedTables": ["public_presence_waitlist_signups"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "public-presence-waitlist-transactional-email-projection",
       "sourceContextNames": ["public-presence"],
       "ownedTables": ["transactional_email_outbox"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "append-only-no-reset"
     }
   ],
   "hostPorts": [

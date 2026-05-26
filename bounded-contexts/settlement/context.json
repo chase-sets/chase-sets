@@ -47,13 +47,15 @@
       "projectionName": "settlement-payment-input-projection",
       "sourceContextNames": ["payments"],
       "ownedTables": ["settlement_payment_sources", "settlement_refund_sources"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "settlement-support-hold-projection",
       "sourceContextNames": ["support"],
       "ownedTables": ["settlement_support_holds"],
-      "requiredDuringBootstrap": false
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

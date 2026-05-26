@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createCatalogAdminInvalidationPatch } from "../realtime-support/projection-patches";
@@ -19,12 +19,13 @@ export function withCatalogAdminRealtimeInvalidation(
   return Object.fromEntries(
     Object.entries(handlers).map(([eventType, handler]) => [
       eventType,
-      async (event: Parameters<ProjectorHandlerMap[string]>[0]) => {
-        await handler(event);
+      async (...args: Parameters<ProjectorHandlerMap[string]>) => {
+        const [event, context] = args;
+        await handler(event, context);
 
         const id = event.streamId || eventType;
         const topics = [catalogRealtimeTopics.adminSurface(input.surface)];
-        await recordRealtimeProjectionPatch(db, {
+        await recordRealtimeProjectionPatch(resolveProjectionDb(context, db), {
           sourceGlobalPosition: event.globalPosition,
           projectionName: input.projectionName,
           patchKey: `${input.surface}:${id}`,

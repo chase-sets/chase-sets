@@ -7,6 +7,7 @@ import type {
   EnvironmentDataProfile,
   BcProjectionGroup,
   BcProjectionHandlerSet,
+  BcProjectionGroupResetStrategy,
 } from "@chase-sets/bounded-context-module";
 import type {
   ProjectionBlockedStream,
@@ -39,6 +40,7 @@ const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
 const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
 const SUBSCRIPTION_CHECKPOINTS_TABLE = "event_subscription_checkpoints";
 const PROJECTION_GROUP_REVISIONS_TABLE = "event_projection_group_revisions";
+const PROJECTION_GROUP_GENERATIONS_TABLE = "event_projection_group_generations";
 const SQL_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const projectionDbContext = new AsyncLocalStorage<PgQueryable>();
 
@@ -108,6 +110,28 @@ CREATE TABLE IF NOT EXISTS ${PROJECTION_GROUP_REVISIONS_TABLE} (
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (target_context_name, projection_name)
 );
+
+CREATE TABLE IF NOT EXISTS ${PROJECTION_GROUP_GENERATIONS_TABLE} (
+  target_context_name text NOT NULL,
+  projection_name text NOT NULL,
+  active_generation bigint NOT NULL DEFAULT 1 CHECK (active_generation >= 1),
+  rebuilding_generation bigint NULL CHECK (rebuilding_generation IS NULL OR rebuilding_generation > active_generation),
+  previous_generation bigint NULL CHECK (previous_generation IS NULL OR previous_generation >= 1),
+  previous_generation_retain_until timestamptz NULL,
+  state text NOT NULL CHECK (state IN ('active', 'rebuilding', 'failed')),
+  operation_id text NULL,
+  started_at timestamptz NULL,
+  cutover_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (target_context_name, projection_name)
+);
+
+CREATE INDEX IF NOT EXISTS ${PROJECTION_GROUP_GENERATIONS_TABLE}_state_idx
+  ON ${PROJECTION_GROUP_GENERATIONS_TABLE} (state, updated_at DESC);
+
+ALTER TABLE ${PROJECTION_GROUP_GENERATIONS_TABLE}
+  ADD COLUMN IF NOT EXISTS previous_generation bigint NULL CHECK (previous_generation IS NULL OR previous_generation >= 1),
+  ADD COLUMN IF NOT EXISTS previous_generation_retain_until timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS event_subscription_applications (
   projection_key text NOT NULL,
@@ -229,6 +253,16 @@ export type ProjectionStreamRetryResult = Readonly<{
   errorMessage: string | null;
 }>;
 
+export type SubscriptionLedgerMetrics = Readonly<{
+  projectionKey: string;
+  targetContextName: string;
+  appliedRows: string;
+  startedRows: string;
+  poisonRows: string;
+  transientRows: string;
+  oldestStartedAt: string | null;
+}>;
+
 type SubscriptionCheckpointRow = Readonly<{
   last_global_position: string | number | bigint;
 }>;
@@ -273,6 +307,24 @@ function leaseFencingToken(context: ProjectionRunContext | undefined): string | 
   return context?.fencingToken && /^\d+$/.test(context.fencingToken) ? context.fencingToken : null;
 }
 
+async function withProjectionTransaction<T>(
+  pool: PgTransactionalPool,
+  context: ProjectionRunContext | undefined,
+  work: (client: PgQueryable) => Promise<T>,
+): Promise<T> {
+  context?.throwIfLeaseLost?.();
+  return withPgTransaction(pool, async (client) => {
+    if (context?.statementTimeoutMs && Number.isFinite(context.statementTimeoutMs) && context.statementTimeoutMs > 0) {
+      await client.query("SET LOCAL statement_timeout = $1", [Math.ceil(context.statementTimeoutMs)]);
+    }
+
+    context?.throwIfLeaseLost?.();
+    const result = await work(client);
+    context?.throwIfLeaseLost?.();
+    return result;
+  });
+}
+
 async function loadSubscriptionCheckpoint(
   db: PgTransactionalPool,
   checkpointKey: string,
@@ -295,7 +347,7 @@ async function saveSubscriptionCheckpoint(
   context?: ProjectionRunContext,
 ): Promise<void> {
   const fencingToken = leaseFencingToken(context);
-  await db.query(
+  const result = await db.query(
     `INSERT INTO ${SUBSCRIPTION_CHECKPOINTS_TABLE} (
        checkpoint_key,
        projection_name,
@@ -317,7 +369,10 @@ async function saveSubscriptionCheckpoint(
          COALESCE(${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token, 0),
          COALESCE(EXCLUDED.lease_fencing_token, 0)
        ),
-       updated_at = EXCLUDED.updated_at`,
+       updated_at = EXCLUDED.updated_at
+     WHERE EXCLUDED.lease_fencing_token IS NULL
+        OR ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token IS NULL
+        OR EXCLUDED.lease_fencing_token >= ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token`,
     [
       createCheckpointKey(subscription),
       subscription.projectionName,
@@ -328,6 +383,11 @@ async function saveSubscriptionCheckpoint(
       fencingToken,
     ],
   );
+  if (result.rowCount !== null && result.rowCount < 1) {
+    throw new Error(
+      `Subscription checkpoint '${createCheckpointKey(subscription)}' rejected stale lease fencing token.`,
+    );
+  }
 }
 
 async function loadSubscriptionApplicationStatus(
@@ -426,7 +486,7 @@ async function claimSubscriptionApplication(
     throw new Error(`Projection application '${projectionKey}:${eventId}' disappeared before it could be claimed.`);
   }
 
-  await db.query(
+  const updateResult = await db.query(
     `UPDATE event_subscription_applications
      SET status = 'started',
          error_message = NULL,
@@ -435,9 +495,17 @@ async function claimSubscriptionApplication(
          updated_at = now()
      WHERE projection_key = $1
        AND event_id = $2
-       AND status <> 'applied'`,
+       AND status <> 'applied'
+       AND (
+         $4::bigint IS NULL
+         OR lease_fencing_token IS NULL
+         OR $4::bigint >= lease_fencing_token
+       )`,
     [projectionKey, eventId, context?.ownerId ?? null, fencingToken],
   );
+  if (updateResult.rowCount !== null && updateResult.rowCount < 1) {
+    throw new Error(`Projection application '${projectionKey}:${eventId}' rejected stale lease fencing token.`);
+  }
 
   return "claimed";
 }
@@ -480,7 +548,7 @@ async function recordSubscriptionApplicationFailure(
   error: unknown,
   context?: ProjectionRunContext,
 ): Promise<SubscriptionApplicationClaimResult> {
-  return withPgTransaction(db, async (client) => {
+  return withProjectionTransaction(db, context, async (client) => {
     const claimResult = await claimSubscriptionApplication(client, projectionKey, event, context);
     if (claimResult === "already-applied") {
       return claimResult;
@@ -553,17 +621,149 @@ async function saveProjectionGroupRevision(
   );
 }
 
-async function deleteSubscriptionCheckpoint(db: PgTransactionalPool, checkpointKey: string): Promise<void> {
+async function startProjectionGroupGenerationRebuild(
+  db: PgTransactionalPool,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
   await db.query(
-    `DELETE FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
-     WHERE checkpoint_key = $1`,
-    [checkpointKey],
+    `INSERT INTO ${PROJECTION_GROUP_GENERATIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       active_generation,
+       rebuilding_generation,
+       previous_generation,
+       previous_generation_retain_until,
+       state,
+       operation_id,
+       started_at,
+       cutover_at,
+       updated_at
+     ) VALUES ($1, $2, 1, 2, NULL, NULL, 'rebuilding', $3, now(), NULL, now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       rebuilding_generation = ${PROJECTION_GROUP_GENERATIONS_TABLE}.active_generation + 1,
+       state = 'rebuilding',
+       operation_id = EXCLUDED.operation_id,
+       started_at = EXCLUDED.started_at,
+       cutover_at = NULL,
+       updated_at = EXCLUDED.updated_at`,
+    [group.targetContextName, group.projectionName, context?.operationId ?? null],
   );
+}
+
+async function completeProjectionGroupGenerationRebuild(
+  db: PgTransactionalPool,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
+  await db.query(
+    `INSERT INTO ${PROJECTION_GROUP_GENERATIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       active_generation,
+       rebuilding_generation,
+       previous_generation,
+       previous_generation_retain_until,
+       state,
+       operation_id,
+       started_at,
+       cutover_at,
+       updated_at
+     ) VALUES ($1, $2, 1, NULL, NULL, NULL, 'active', $3, NULL, now(), now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       previous_generation = ${PROJECTION_GROUP_GENERATIONS_TABLE}.active_generation,
+       previous_generation_retain_until = now() + interval '7 days',
+       active_generation = COALESCE(${PROJECTION_GROUP_GENERATIONS_TABLE}.rebuilding_generation, ${PROJECTION_GROUP_GENERATIONS_TABLE}.active_generation),
+       rebuilding_generation = NULL,
+       state = 'active',
+       operation_id = EXCLUDED.operation_id,
+       cutover_at = EXCLUDED.cutover_at,
+       updated_at = EXCLUDED.updated_at`,
+    [group.targetContextName, group.projectionName, context?.operationId ?? null],
+  );
+}
+
+async function failProjectionGroupGenerationRebuild(
+  db: PgTransactionalPool,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO ${PROJECTION_GROUP_GENERATIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       active_generation,
+       rebuilding_generation,
+       previous_generation,
+       previous_generation_retain_until,
+       state,
+       operation_id,
+       started_at,
+       cutover_at,
+       updated_at
+     ) VALUES ($1, $2, 1, NULL, NULL, NULL, 'failed', $3, now(), NULL, now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       rebuilding_generation = NULL,
+       state = 'failed',
+       operation_id = EXCLUDED.operation_id,
+       updated_at = EXCLUDED.updated_at`,
+    [group.targetContextName, group.projectionName, context?.operationId ?? null],
+  );
+}
+
+async function cleanupExpiredProjectionGroupGenerationRetention(db: PgTransactionalPool): Promise<number> {
+  const result = await db.query(
+    `UPDATE ${PROJECTION_GROUP_GENERATIONS_TABLE}
+     SET previous_generation = NULL,
+         previous_generation_retain_until = NULL,
+         updated_at = now()
+     WHERE previous_generation_retain_until IS NOT NULL
+       AND previous_generation_retain_until <= now()`,
+  );
+
+  return result.rowCount ?? 0;
+}
+
+async function deleteSubscriptionCheckpoint(
+  db: PgTransactionalPool,
+  checkpointKey: string,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
+  const fencingToken = leaseFencingToken(context);
+  const checkpointDelete = await db.query(
+    `DELETE FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
+     WHERE checkpoint_key = $1
+       AND (
+         $2::bigint IS NULL
+         OR lease_fencing_token IS NULL
+         OR $2::bigint >= lease_fencing_token
+       )`,
+    [checkpointKey, fencingToken],
+  );
+  if (checkpointDelete.rowCount === 0) {
+    const currentCheckpoint = await loadSubscriptionCheckpoint(db, checkpointKey);
+    if (currentCheckpoint !== null) {
+      throw new Error(`Subscription checkpoint '${checkpointKey}' rejected stale reset fencing token.`);
+    }
+  }
+  context?.throwIfLeaseLost?.();
   await db.query(
     `DELETE FROM event_subscription_applications
-     WHERE projection_key = $1`,
-    [checkpointKey],
+     WHERE projection_key = $1
+       AND (
+         $2::bigint IS NULL
+         OR lease_fencing_token IS NULL
+         OR $2::bigint >= lease_fencing_token
+       )`,
+    [checkpointKey, fencingToken],
   );
+  context?.throwIfLeaseLost?.();
   await clearProjectionErrors(db, checkpointKey);
 }
 
@@ -915,13 +1115,16 @@ function calculateOutstandingEventCount(
   return outstanding > 0n ? outstanding.toString() : "0";
 }
 
-function applyLagMetrics(status: {
-  outstandingEventCount: string;
-  sourceLagEventCount?: string;
-  applicableLagEstimate?: string | null;
-}): void {
+function applyLagMetrics(
+  status: {
+    outstandingEventCount: string;
+    sourceLagEventCount?: string;
+    applicableLagEstimate?: string | null;
+  },
+  applicableLagEstimate: string | null = null,
+): void {
   status.sourceLagEventCount = status.outstandingEventCount;
-  status.applicableLagEstimate = null;
+  status.applicableLagEstimate = applicableLagEstimate;
 }
 
 function deriveSubscriptionReplayState(
@@ -946,6 +1149,77 @@ async function readSourceHeadGlobalPosition(pool: PgTransactionalPool): Promise<
   );
 
   return parseGlobalPosition(String(result.rows[0]?.head ?? ZERO_GLOBAL_POSITION));
+}
+
+async function estimateApplicableLag(
+  pool: PgTransactionalPool,
+  afterGlobalPosition: GlobalPosition,
+  eventTypes: readonly string[],
+  streamPrefixes: readonly string[] | undefined,
+): Promise<string | null> {
+  if (eventTypes.length === 0) {
+    return null;
+  }
+
+  const predicates = ["global_position > $1::bigint", "event_type = ANY($2::text[])"];
+  const params: unknown[] = [afterGlobalPosition, [...new Set(eventTypes)]];
+
+  if (streamPrefixes?.length) {
+    const streamContextNames = normalizedStreamContextNames(streamPrefixes);
+    if (streamContextNames.length > 0) {
+      params.push(streamContextNames);
+      predicates.push(`stream_context_name = ANY($${params.length}::text[])`);
+    }
+
+    const streamCategories = normalizedStreamCategories(streamPrefixes);
+    if (streamCategories.length > 0) {
+      params.push(streamCategories);
+      predicates.push(`stream_category = ANY($${params.length}::text[])`);
+    }
+
+    const prefixPredicates = [...new Set(streamPrefixes)].map((prefix) => {
+      params.push(prefix);
+      return `stream_id LIKE $${params.length} || '%'`;
+    });
+    predicates.push(`(${prefixPredicates.join(" OR ")})`);
+  }
+
+  try {
+    const result = await pool.query<Readonly<{ count: string | number | bigint }>>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE ${predicates.join("\n         AND ")}`,
+      params,
+    );
+
+    return String(result.rows[0]?.count ?? "0");
+  } catch {
+    return null;
+  }
+}
+
+function normalizedStreamContextNames(streamPrefixes: readonly string[]): readonly string[] {
+  return [
+    ...new Set(
+      streamPrefixes
+        .map((prefix) => {
+          const separatorIndex = prefix.indexOf(".");
+          return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
+        })
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+}
+
+function normalizedStreamCategories(streamPrefixes: readonly string[]): readonly string[] {
+  return [
+    ...new Set(
+      streamPrefixes
+        .filter((prefix) => prefix.endsWith("-"))
+        .map((prefix) => prefix.slice(0, -1))
+        .filter(Boolean),
+    ),
+  ];
 }
 
 async function refreshSubscriptionStatus(
@@ -979,14 +1253,43 @@ async function refreshSubscriptionStatus(
 }
 
 function createDefaultProjectionGroupReset(
-  _pool: PgTransactionalPool,
+  pool: PgTransactionalPool,
   ownedTables: readonly string[],
-): () => Promise<void> {
+  resetStrategy: BcProjectionGroupResetStrategy | undefined,
+  targetContextName: string,
+  projectionName: string,
+): (context?: ProjectionRunContext) => Promise<void> {
   for (const tableName of ownedTables) {
     assertSqlIdentifier(tableName);
   }
 
-  return async () => undefined;
+  if (ownedTables.length > 0 && !resetStrategy) {
+    throw new Error(
+      `Projection group '${targetContextName}.${projectionName}' owns read-model tables but does not declare resetStrategy.`,
+    );
+  }
+
+  if (resetStrategy === "generation-cutover") {
+    throw new Error(
+      `Projection group '${targetContextName}.${projectionName}' declares generation-cutover, but no generation cutover adapter is configured yet.`,
+    );
+  }
+
+  if (resetStrategy === "truncate-owned-tables") {
+    return async (context) => {
+      context?.throwIfLeaseLost?.();
+      await withProjectionTransaction(pool, context, async (client) => {
+        for (const tableName of ownedTables) {
+          context?.throwIfLeaseLost?.();
+          await client.query(`TRUNCATE TABLE ${assertSqlIdentifier(tableName)}`);
+        }
+      });
+    };
+  }
+
+  return async (context) => {
+    context?.throwIfLeaseLost?.();
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1022,8 +1325,8 @@ export type ContextSubscriptionRunner = Readonly<{
   runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   getStatus: () => ContextSubscriptionStatus;
   refreshStatus: () => Promise<ContextSubscriptionStatus>;
-  reset: () => Promise<void>;
-  retryBlockedStream: (streamId: string) => Promise<ProjectionStreamRetryResult>;
+  reset: (context?: ProjectionRunContext) => Promise<void>;
+  retryBlockedStream: (streamId: string, context?: ProjectionRunContext) => Promise<ProjectionStreamRetryResult>;
 }>;
 
 export type ContextProjectionGroup = Readonly<{
@@ -1032,12 +1335,16 @@ export type ContextProjectionGroup = Readonly<{
   targetContextName: string;
   sourceContextNames: readonly string[];
   ownedTables: readonly string[];
+  resetStrategy?: BcProjectionGroupResetStrategy;
   requiredDuringBootstrap: boolean;
   subscriptionRunners: readonly ContextSubscriptionRunner[];
-  reset: () => Promise<void>;
+  reset: (context?: ProjectionRunContext) => Promise<void>;
   getStatus: () => ContextProjectionGroupStatus;
   refreshStatus: () => Promise<ContextProjectionGroupStatus>;
   markRevisionSynced: () => Promise<void>;
+  startGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
+  completeGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
+  failGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
 }>;
 
 export type MountedContextRuntimeEntry = Readonly<{
@@ -1174,7 +1481,10 @@ export function createSubscriptionRunner(
       status.lastGlobalPosition = checkpoint;
       status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
       status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
-      applyLagMetrics(status);
+      applyLagMetrics(
+        status,
+        await estimateApplicableLag(sourcePool, checkpoint, subscriptionEventTypes, subscription.streamPrefixes),
+      );
       status.blockedStreamCount = errorSummary.blockedStreamCount;
       status.poisonEventCount = errorSummary.poisonEventCount;
       if (status.state !== "running" && status.state !== "error") {
@@ -1183,8 +1493,8 @@ export function createSubscriptionRunner(
       status.updatedAt = new Date().toISOString();
       return { ...status };
     },
-    reset: async () => {
-      await deleteSubscriptionCheckpoint(targetPool, checkpointKey);
+    reset: async (context) => {
+      await deleteSubscriptionCheckpoint(targetPool, checkpointKey, context);
       status.initialized = false;
       status.lastGlobalPosition = ZERO_GLOBAL_POSITION;
       status.sourceHeadGlobalPosition = ZERO_GLOBAL_POSITION;
@@ -1197,7 +1507,8 @@ export function createSubscriptionRunner(
       status.poisonEventCount = 0;
       status.updatedAt = new Date().toISOString();
     },
-    retryBlockedStream: async (streamId) => {
+    retryBlockedStream: async (streamId, context) => {
+      context?.throwIfLeaseLost?.();
       const blockedStream = await loadProjectionBlockedStream(targetPool, checkpointKey, streamId);
       if (!blockedStream) {
         await refreshSubscriptionStatus(targetPool, sourcePool, checkpointKey, status);
@@ -1211,6 +1522,7 @@ export function createSubscriptionRunner(
         };
       }
 
+      context?.throwIfLeaseLost?.();
       await markProjectionBlockedStreamRetrying(targetPool, checkpointKey, streamId);
 
       let fromVersion = blockedStream.firstBlockedStreamVersion;
@@ -1219,6 +1531,7 @@ export function createSubscriptionRunner(
       let lastInspectedGlobalPosition = ZERO_GLOBAL_POSITION;
 
       while (true) {
+        context?.throwIfLeaseLost?.();
         const storedEvents = await sourceEventStore.readStream({
           streamId,
           fromVersion,
@@ -1230,6 +1543,7 @@ export function createSubscriptionRunner(
         }
 
         for (const storedEvent of storedEvents) {
+          context?.throwIfLeaseLost?.();
           const event = toTransportEvent(storedEvent);
           fromVersion = event.streamVersion + 1;
           inspectedEvents += 1;
@@ -1245,14 +1559,22 @@ export function createSubscriptionRunner(
           }
 
           try {
-            const applicationResult = await withPgTransaction(targetPool, async (client) => {
-              const claimResult = await claimSubscriptionApplication(client, checkpointKey, event);
+            const applicationResult = await withProjectionTransaction(targetPool, context, async (client) => {
+              const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
               if (claimResult === "already-applied") {
                 return "already-applied" as const;
               }
 
               await projectionDbContext.run(client, () => handler(event, { db: client }));
-              await recordSubscriptionApplicationCompleted(client, checkpointKey, String(event.id), "applied");
+              context?.throwIfLeaseLost?.();
+              await recordSubscriptionApplicationCompleted(
+                client,
+                checkpointKey,
+                String(event.id),
+                "applied",
+                null,
+                context,
+              );
               return "applied" as const;
             });
             if (applicationResult === "already-applied") {
@@ -1267,6 +1589,7 @@ export function createSubscriptionRunner(
               event,
               "poison",
               error,
+              context,
             );
             if (failureResult === "already-applied") {
               appliedEvents += 1;
@@ -1369,7 +1692,7 @@ export function createSubscriptionRunner(
           status.initialized = true;
           status.lastGlobalPosition = status.sourceHeadGlobalPosition;
           status.outstandingEventCount = "0";
-          applyLagMetrics(status);
+          applyLagMetrics(status, "0");
           status.state = deriveSubscriptionReplayState(
             status.sourceHeadGlobalPosition,
             status.sourceHeadGlobalPosition,
@@ -1438,7 +1761,7 @@ export function createSubscriptionRunner(
             }
 
             try {
-              const applicationResult = await withPgTransaction(targetPool, async (client) => {
+              const applicationResult = await withProjectionTransaction(targetPool, context, async (client) => {
                 const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
                 if (claimResult === "already-applied") {
                   return "already-applied" as const;
@@ -1566,7 +1889,7 @@ export function createSubscriptionRunner(
           lastGlobalPosition,
           status.sourceHeadGlobalPosition,
         );
-        applyLagMetrics(status);
+        applyLagMetrics(status, processed > 0 ? null : "0");
         status.processedEvents += processed;
         const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
         status.blockedStreamCount = errorSummary.blockedStreamCount;
@@ -1708,9 +2031,18 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       targetContextName: entry.contextName,
       sourceContextNames,
       ownedTables,
+      resetStrategy: group.resetStrategy,
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
       subscriptionRunners: [],
-      reset: group.reset ?? createDefaultProjectionGroupReset(entry.pool, ownedTables),
+      reset:
+        group.reset ??
+        createDefaultProjectionGroupReset(
+          entry.pool,
+          ownedTables,
+          group.resetStrategy,
+          entry.contextName,
+          group.projectionName,
+        ),
       getStatus: () => ({
         projectionName: group.projectionName,
         projectionRevision,
@@ -1757,6 +2089,24 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           subscriptions: [],
         };
       },
+      startGenerationRebuild: (context) =>
+        startProjectionGroupGenerationRebuild(
+          entry.pool,
+          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          context,
+        ),
+      completeGenerationRebuild: (context) =>
+        completeProjectionGroupGenerationRebuild(
+          entry.pool,
+          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          context,
+        ),
+      failGenerationRebuild: (context) =>
+        failProjectionGroupGenerationRebuild(
+          entry.pool,
+          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          context,
+        ),
       markRevisionSynced: async () => {
         await saveProjectionGroupRevision(entry.pool, entry.contextName, group.projectionName, projectionRevision);
         revisionState.storedProjectionRevision = projectionRevision;
@@ -1855,6 +2205,11 @@ export function resolveModuleProjectionGroups(
           const outstandingEventCount = sumDecimalCounts(
             subscriptions.map((subscription) => subscription.outstandingEventCount),
           );
+          const applicableLagEstimate = subscriptions.every(
+            (subscription) => subscription.applicableLagEstimate !== null,
+          )
+            ? sumDecimalCounts(subscriptions.map((subscription) => subscription.applicableLagEstimate ?? "0"))
+            : null;
           const state: SubscriptionReplayState = subscriptions.some((subscription) => subscription.state === "error")
             ? "error"
             : subscriptions.some((subscription) => subscription.state === "running")
@@ -1884,6 +2239,8 @@ export function resolveModuleProjectionGroups(
             state,
             lastError,
             outstandingEventCount,
+            sourceLagEventCount: outstandingEventCount,
+            applicableLagEstimate,
             blockedStreamCount,
             poisonEventCount,
             updatedAt: updatedAt > baseStatus.updatedAt ? updatedAt : baseStatus.updatedAt,
@@ -1907,56 +2264,95 @@ export function resolveModuleProjectionGroups(
   return sortProjectionGroups(groups);
 }
 
-export async function drainSubscriptionRunners(runners: readonly ContextSubscriptionRunner[]): Promise<void> {
+export async function drainSubscriptionRunners(
+  runners: readonly ContextSubscriptionRunner[],
+  context?: ProjectionRunContext,
+): Promise<void> {
   let processed = 0;
 
   do {
     processed = 0;
 
     for (const runner of sortSubscriptionRunners(runners)) {
-      const result = await runner.runOnce();
+      context?.throwIfLeaseLost?.();
+      const result = await runner.runOnce(context);
       processed += result.processed;
     }
   } while (processed > 0);
 }
 
-export async function drainContextProcesses(processSet: ContextProcessSet): Promise<void> {
+export async function drainContextProcesses(
+  processSet: ContextProcessSet,
+  context?: ProjectionRunContext,
+): Promise<void> {
   let processed = 0;
 
   do {
     processed = 0;
 
     for (const runner of sortSubscriptionRunners(processSet.subscriptionRunners ?? [])) {
-      const result = await runner.runOnce();
+      context?.throwIfLeaseLost?.();
+      const result = await runner.runOnce(context);
       processed += result.processed;
     }
   } while (processed > 0);
 }
 
-export async function syncProjectionGroup(group: ContextProjectionGroup): Promise<void> {
+export async function syncProjectionGroup(
+  group: ContextProjectionGroup,
+  context?: ProjectionRunContext,
+): Promise<void> {
   const status = await group.refreshStatus();
 
   if (status.revisionStale) {
-    await rebuildProjectionGroup(group);
+    await rebuildProjectionGroup(group, context);
     return;
   }
 
-  await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners });
+  await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+  context?.throwIfLeaseLost?.();
   await group.markRevisionSynced();
 }
 
-export async function resetProjectionGroup(group: ContextProjectionGroup): Promise<void> {
-  await group.reset();
+export async function resetProjectionGroup(
+  group: ContextProjectionGroup,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
+  await group.reset(context);
 
   for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
-    await runner.reset();
+    context?.throwIfLeaseLost?.();
+    await runner.reset(context);
   }
 }
 
-export async function rebuildProjectionGroup(group: ContextProjectionGroup): Promise<void> {
-  await resetProjectionGroup(group);
-  await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners });
-  await group.markRevisionSynced();
+export async function rebuildProjectionGroup(
+  group: ContextProjectionGroup,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const useGenerationRebuild = group.resetStrategy === "generation-cutover";
+
+  try {
+    if (useGenerationRebuild) {
+      await group.startGenerationRebuild?.(context);
+    }
+
+    await resetProjectionGroup(group, context);
+    await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+    context?.throwIfLeaseLost?.();
+
+    if (useGenerationRebuild) {
+      await group.completeGenerationRebuild?.(context);
+    }
+
+    await group.markRevisionSynced();
+  } catch (error) {
+    if (useGenerationRebuild) {
+      await group.failGenerationRebuild?.(context);
+    }
+    throw error;
+  }
 }
 
 export async function bootstrapContextDatabase(
@@ -2055,8 +2451,9 @@ export async function rebuildContextProjectionGroup(
   }>,
   contextName: string,
   projectionName: string,
+  context?: ProjectionRunContext,
 ): Promise<void> {
-  await rebuildProjectionGroup(getProjectionGroup(runtime, contextName, projectionName));
+  await rebuildProjectionGroup(getProjectionGroup(runtime, contextName, projectionName), context);
 }
 
 function getProjectionOperationsPool(
@@ -2103,6 +2500,7 @@ export async function retryProjectionBlockedStream(
   }>,
   projectionKey: string,
   streamId: string,
+  context?: ProjectionRunContext,
 ): Promise<ProjectionStreamRetryResult> {
   const runner = runtime.subscriptionRunners.find((candidate) => candidate.checkpointKey === projectionKey);
   if (!runner) {
@@ -2111,7 +2509,7 @@ export async function retryProjectionBlockedStream(
     );
   }
 
-  return runner.retryBlockedStream(streamId);
+  return runner.retryBlockedStream(streamId, context);
 }
 
 export function listProjectionGroupStatuses(
@@ -2266,6 +2664,7 @@ export async function rebuildAllContextProjectionGroups(
   options: Readonly<{
     requiredOnly?: boolean;
   }> = {},
+  context?: ProjectionRunContext,
 ): Promise<void> {
   const groups = sortProjectionGroups(
     runtime.projectionGroups.filter(
@@ -2278,7 +2677,8 @@ export async function rebuildAllContextProjectionGroups(
   }
 
   for (const group of groups) {
-    await rebuildProjectionGroup(group);
+    context?.throwIfLeaseLost?.();
+    await rebuildProjectionGroup(group, context);
   }
 }
 
@@ -2313,6 +2713,76 @@ export async function compactRuntimeSubscriptionLedgers(
   }
 
   return compacted;
+}
+
+export async function cleanupRuntimeProjectionGenerations(
+  runtime: Readonly<{
+    mountedContexts: readonly MountedContextRuntimeEntry[];
+  }>,
+): Promise<number> {
+  const targetPools = uniqueMountedContextPools(runtime.mountedContexts);
+  let cleaned = 0;
+
+  for (const pool of targetPools) {
+    cleaned += await cleanupExpiredProjectionGroupGenerationRetention(pool);
+  }
+
+  return cleaned;
+}
+
+function uniqueMountedContextPools(
+  mountedContexts: readonly Pick<MountedContextRuntimeEntry, "pool">[],
+): readonly PgTransactionalPool[] {
+  return [...new Set(mountedContexts.map((entry) => entry.pool))];
+}
+
+export async function summarizeRuntimeSubscriptionLedgers(
+  runtime: Readonly<{
+    mountedContexts: readonly MountedContextRuntimeEntry[];
+    subscriptionRunners: readonly ContextSubscriptionRunner[];
+  }>,
+): Promise<readonly SubscriptionLedgerMetrics[]> {
+  const poolsByContextName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry.pool]));
+  const metrics: SubscriptionLedgerMetrics[] = [];
+
+  for (const runner of runtime.subscriptionRunners) {
+    const pool = poolsByContextName.get(runner.targetContextName);
+    if (!pool) {
+      continue;
+    }
+
+    const result = await pool.query<
+      Readonly<{
+        applied_rows: string | number | bigint;
+        started_rows: string | number | bigint;
+        poison_rows: string | number | bigint;
+        transient_rows: string | number | bigint;
+        oldest_started_at: string | Date | null;
+      }>
+    >(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'applied') AS applied_rows,
+         COUNT(*) FILTER (WHERE status = 'started') AS started_rows,
+         COUNT(*) FILTER (WHERE status = 'poison') AS poison_rows,
+         COUNT(*) FILTER (WHERE status = 'transient') AS transient_rows,
+         MIN(started_at) FILTER (WHERE status = 'started') AS oldest_started_at
+       FROM event_subscription_applications
+       WHERE projection_key = $1`,
+      [runner.checkpointKey],
+    );
+    const row = result.rows[0];
+    metrics.push({
+      projectionKey: runner.checkpointKey,
+      targetContextName: runner.targetContextName,
+      appliedRows: String(row?.applied_rows ?? "0"),
+      startedRows: String(row?.started_rows ?? "0"),
+      poisonRows: String(row?.poison_rows ?? "0"),
+      transientRows: String(row?.transient_rows ?? "0"),
+      oldestStartedAt: row?.oldest_started_at ? new Date(row.oldest_started_at).toISOString() : null,
+    });
+  }
+
+  return metrics;
 }
 
 export function createContextServices<TServices, TPool, TPorts>(

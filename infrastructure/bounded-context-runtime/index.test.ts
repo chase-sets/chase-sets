@@ -29,6 +29,7 @@ const poisonEventsByPool = new Map<object, Set<string>>();
 const applicationStatusByPool = new Map<object, Map<string, string>>();
 const readAllCallsByPool = new Map<object, Record<string, unknown>[]>();
 const sourceHeadByPool = new Map<object, string>();
+const generationRetentionByPool = new Map<object, Set<string>>();
 
 type MockBlockedStream = Readonly<{
   projectionKey: string;
@@ -110,6 +111,16 @@ function getApplicationStatusStore(pool: object) {
   return store;
 }
 
+function getGenerationRetentionStore(pool: object) {
+  let store = generationRetentionByPool.get(pool);
+  if (!store) {
+    store = new Set();
+    generationRetentionByPool.set(pool, store);
+  }
+
+  return store;
+}
+
 function getReadAllCalls(pool: object) {
   let calls = readAllCallsByPool.get(pool);
   if (!calls) {
@@ -123,6 +134,10 @@ function getReadAllCalls(pool: object) {
 function createMockPool(): MockPool {
   const pool = {
     query: async (sql: string, params: readonly unknown[] = []) => {
+      if (sql === "SET LOCAL statement_timeout = $1") {
+        return { rows: [], rowCount: 0 };
+      }
+
       if (sql.includes("SELECT COALESCE(MAX(global_position), 0) AS head")) {
         const configuredHead = sourceHeadByPool.get(pool);
         if (configuredHead) {
@@ -135,6 +150,34 @@ function createMockPool(): MockPool {
           "0",
         );
         return { rows: [{ head }] };
+      }
+
+      if (sql.includes("SELECT COUNT(*) AS count") && sql.includes("FROM event_store_events")) {
+        const afterGlobalPosition = Number(params[0] ?? 0);
+        const eventTypes = Array.isArray(params[1]) ? params[1].map(String) : [];
+        const events = sourceEventsByPool.get(pool) ?? [];
+        const count = events.filter(
+          (event) =>
+            Number(event.globalPosition) > afterGlobalPosition &&
+            (eventTypes.length === 0 || eventTypes.includes(event.eventType)),
+        ).length;
+        return { rows: [{ count: String(count) }] };
+      }
+
+      if (sql.includes("COUNT(*) FILTER") && sql.includes("FROM event_subscription_applications")) {
+        const projectionKey = String(params[0]);
+        const rows = [...getApplicationStatusStore(pool)].filter(([key]) => key.startsWith(`${projectionKey}:`));
+        return {
+          rows: [
+            {
+              applied_rows: rows.filter(([, status]) => status === "applied").length,
+              started_rows: rows.filter(([, status]) => status === "started").length,
+              poison_rows: rows.filter(([, status]) => status === "poison").length,
+              transient_rows: rows.filter(([, status]) => status === "transient").length,
+              oldest_started_at: null,
+            },
+          ],
+        };
       }
 
       if (sql.includes("SELECT last_global_position")) {
@@ -247,6 +290,23 @@ function createMockPool(): MockPool {
         const key = `${params[0]}:${params[1]}`;
         getProjectionRevisionStore(pool).set(key, Number(params[2]));
         return { rows: [] };
+      }
+
+      if (sql.includes("INSERT INTO event_projection_group_generations")) {
+        const key = `${params[0]}:${params[1]}`;
+        if (sql.includes("state = 'active'")) {
+          getGenerationRetentionStore(pool).add(key);
+        }
+        if (sql.includes("state = 'failed'")) {
+          getGenerationRetentionStore(pool).delete(key);
+        }
+        return { rows: [], rowCount: 1 } as never;
+      }
+
+      if (sql.includes("UPDATE event_projection_group_generations")) {
+        const cleaned = getGenerationRetentionStore(pool).size;
+        getGenerationRetentionStore(pool).clear();
+        return { rows: [], rowCount: cleaned } as never;
       }
 
       if (sql.includes("DELETE FROM event_subscription_checkpoints")) {
@@ -429,6 +489,8 @@ vi.mock("@chase-sets/event-core-postgres", () => ({
 import {
   createSubscriptionRunner,
   compactRuntimeSubscriptionLedgers,
+  cleanupRuntimeProjectionGenerations,
+  eventSubscriptionSchemaSql,
   listProjectionBlockedStreamDetails,
   refreshProjectionGroupStatuses,
   rebuildProjectionGroup,
@@ -436,6 +498,7 @@ import {
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
   retryProjectionBlockedStream,
+  summarizeRuntimeSubscriptionLedgers,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
 } from "./index";
@@ -523,6 +586,13 @@ describe("bounded context projection replay", () => {
     applicationStatusByPool.clear();
     readAllCallsByPool.clear();
     sourceHeadByPool.clear();
+    generationRetentionByPool.clear();
+  });
+
+  it("creates projection generation metadata for generation-aware rebuilds", () => {
+    expect(eventSubscriptionSchemaSql).toContain("CREATE TABLE IF NOT EXISTS event_projection_group_generations");
+    expect(eventSubscriptionSchemaSql).toContain("active_generation bigint NOT NULL DEFAULT 1");
+    expect(eventSubscriptionSchemaSql).toContain("rebuilding_generation bigint NULL");
   });
 
   it("fails startup when declared event filters omit a handled event type", () => {
@@ -620,6 +690,31 @@ describe("bounded context projection replay", () => {
       sourceHeadGlobalPosition: "2",
       outstandingEventCount: "0",
     });
+  });
+
+  it("reports applicable lag separately from source scan lag", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+      createStoredEvent("2", "catalog.category.created", { categoryId: "ctg_1" }),
+      createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_2" }),
+    ]);
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+
+    const status = await runner.refreshStatus();
+
+    expect(status.sourceLagEventCount).toBe("3");
+    expect(status.applicableLagEstimate).toBe("2");
   });
 
   it("does not move in-memory status behind events observed after the captured source head", async () => {
@@ -870,6 +965,7 @@ describe("bounded context projection replay", () => {
           projectionName: "inventory-catalog-item-projection",
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
       ],
@@ -1098,6 +1194,49 @@ describe("bounded context projection replay", () => {
     expect(applicationStore.get("inventory-catalog-item-projection:catalog:v1:evt_10002")).toBe("applied");
   });
 
+  it("summarizes subscription ledger metrics by projection key", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+    const projectionKey = "inventory-catalog-item-projection:catalog:v1";
+    getApplicationStatusStore(targetPool).set(`${projectionKey}:evt_1`, "applied");
+    getApplicationStatusStore(targetPool).set(`${projectionKey}:evt_2`, "poison");
+
+    await expect(
+      summarizeRuntimeSubscriptionLedgers({
+        mountedContexts: [
+          {
+            contextName: "inventory",
+            module: {} as BcApiModule,
+            services: {},
+            pool: targetPool as never,
+            projectionHandlerSets: [],
+          },
+        ],
+        subscriptionRunners: [runner],
+      }),
+    ).resolves.toEqual([
+      {
+        projectionKey,
+        targetContextName: "inventory",
+        appliedRows: "1",
+        startedRows: "0",
+        poisonRows: "1",
+        transientRows: "0",
+        oldestStartedAt: null,
+      },
+    ]);
+  });
+
   it("lists blocked stream details for operator projection views", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
@@ -1197,6 +1336,7 @@ describe("bounded context projection replay", () => {
           projectionName: "discovery-market-projection",
           sourceContextNames: ["identity", "marketplace"],
           ownedTables: ["discovery_market_accounts", "discovery_market_listings"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
       ],
@@ -1208,6 +1348,59 @@ describe("bounded context projection replay", () => {
     expect(getCheckpointStore(targetPool).get("discovery-market-projection:identity:v1")).toBeUndefined();
     expect(getCheckpointStore(targetPool).get("discovery-market-projection:marketplace:v1")).toBeUndefined();
     expect(getTruncateLog(targetPool)).toEqual([]);
+  });
+
+  it("fails closed when an owned-table projection group omits reset strategy", async () => {
+    const targetPool = createMockPool();
+
+    expect(() =>
+      createProjectionGroupRuntime(
+        "inventory",
+        targetPool,
+        [
+          {
+            projectionName: "inventory-catalog-item-projection",
+            sourceContextNames: ["catalog"],
+            ownedTables: ["inventory_catalog_items"],
+            requiredDuringBootstrap: true,
+          },
+        ],
+        [],
+      ),
+    ).toThrow("owns read-model tables but does not declare resetStrategy");
+  });
+
+  it("only truncates owned read-model tables when the projection declares truncate reset", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+    const [group] = createProjectionGroupRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "truncate-owned-tables",
+          requiredDuringBootstrap: true,
+        },
+      ],
+      [runner],
+    );
+
+    await resetProjectionGroup(group);
+
+    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
   });
 
   it("rebuilding a projection group replays from origin without truncating live read tables", async () => {
@@ -1243,6 +1436,7 @@ describe("bounded context projection replay", () => {
           projectionName: "inventory-catalog-item-projection",
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items", "inventory_catalog_blueprints"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
       ],
@@ -1255,6 +1449,98 @@ describe("bounded context projection replay", () => {
     expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("2");
     expect(getTruncateLog(targetPool)).toEqual([]);
     expect(group.getStatus().caughtUp).toBe(true);
+  });
+
+  it("retains previous projection generations until the retention cleanup job runs", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" })]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+    const [group] = createProjectionGroupRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "generation-cutover",
+          reset: async () => undefined,
+          requiredDuringBootstrap: true,
+        } as BcProjectionGroupDeclaration,
+      ],
+      [runner],
+    );
+
+    await rebuildProjectionGroup(group, { operationId: "projection-operation-test" });
+
+    expect(getGenerationRetentionStore(targetPool)).toEqual(new Set(["inventory:inventory-catalog-item-projection"]));
+    await expect(
+      cleanupRuntimeProjectionGenerations({
+        mountedContexts: [
+          {
+            contextName: "inventory",
+            module: {} as BcApiModule,
+            services: {},
+            pool: targetPool as never,
+            projectionHandlerSets: [],
+          },
+        ],
+      }),
+    ).resolves.toBe(1);
+    expect(getGenerationRetentionStore(targetPool)).toEqual(new Set());
+  });
+
+  it("keeps the active projection generation retained when a generation rebuild fails", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" })]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => {
+          throw new Error("projection failed");
+        },
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+      errorPolicy: "global-strict",
+    });
+    const [group] = createProjectionGroupRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "generation-cutover",
+          reset: async () => undefined,
+          requiredDuringBootstrap: true,
+        } as BcProjectionGroupDeclaration,
+      ],
+      [runner],
+    );
+
+    await expect(rebuildProjectionGroup(group, { operationId: "projection-operation-test" })).rejects.toThrow(
+      "projection failed",
+    );
+
+    expect(getGenerationRetentionStore(targetPool)).toEqual(new Set());
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBeUndefined();
   });
 
   it("marks a projection revision after a successful sync without rebuilding unchanged projections", async () => {
@@ -1285,6 +1571,7 @@ describe("bounded context projection replay", () => {
           projectionRevision: 2,
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
       ],
@@ -1331,6 +1618,7 @@ describe("bounded context projection replay", () => {
           projectionRevision: 2,
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
       ],
@@ -1375,6 +1663,7 @@ describe("bounded context projection replay", () => {
           projectionRevision: 2,
           sourceContextNames: ["catalog"],
           ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
       ],
@@ -1426,6 +1715,7 @@ describe("bounded context projection replay", () => {
           projectionName: "pricing-catalog-input-projection",
           sourceContextNames: ["catalog"],
           ownedTables: ["pricing_catalog_item_inputs"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
       ],
@@ -1505,12 +1795,14 @@ describe("bounded context projection replay", () => {
           projectionName: "pricing-market-input-projection",
           sourceContextNames: ["marketplace"],
           ownedTables: ["pricing_market_listing_inputs"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: true,
         },
         {
           projectionName: "pricing-market-analytics-projection",
           sourceContextNames: ["marketplace"],
           ownedTables: ["pricing_market_analytics"],
+          resetStrategy: "replay-only",
           requiredDuringBootstrap: false,
         },
       ],

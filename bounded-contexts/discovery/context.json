@@ -240,7 +240,8 @@
         "discovery_category_catalog_items",
         "discovery_categories"
       ],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "discovery-search-item-projection",
@@ -252,7 +253,8 @@
         "discovery_search_catalog_reference_records",
         "discovery_search_items"
       ],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "discovery-item-detail-projection",
@@ -267,7 +269,8 @@
         "discovery_item_detail_catalog_dimension_options",
         "discovery_item_detail_pages"
       ],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "discovery-market-projection",
@@ -278,19 +281,22 @@
         "discovery_market_listings",
         "discovery_offer_demand_matches"
       ],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "discovery-product-alert-page-projection",
       "sourceContextNames": ["discovery"],
       "ownedTables": ["discovery_product_alert_pages"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "discovery-product-alert-notification-projection",
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["discovery_product_alert_market_activity", "discovery_product_alert_match_notifications"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

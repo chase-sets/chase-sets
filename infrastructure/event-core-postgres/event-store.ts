@@ -252,6 +252,11 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
   }
 
   if (input?.streamPrefixes?.length) {
+    const streamContextNames = normalizedStreamContextNames(input.streamPrefixes);
+    if (streamContextNames.length > 0) {
+      predicates.push(`stream_context_name = ANY($${nextParam}::text[])`);
+      nextParam += 1;
+    }
     const streamCategories = normalizedStreamCategories(input.streamPrefixes);
     if (streamCategories.length > 0) {
       predicates.push(`stream_category = ANY($${nextParam}::text[])`);
@@ -286,6 +291,10 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
   }
 
   if (input.streamPrefixes?.length) {
+    const streamContextNames = normalizedStreamContextNames(input.streamPrefixes);
+    if (streamContextNames.length > 0) {
+      params.push(streamContextNames);
+    }
     const streamCategories = normalizedStreamCategories(input.streamPrefixes);
     if (streamCategories.length > 0) {
       params.push(streamCategories);
@@ -295,6 +304,19 @@ function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
 
   params.push(input.limit);
   return params;
+}
+
+function normalizedStreamContextNames(streamPrefixes: readonly string[]): readonly string[] {
+  return [
+    ...new Set(
+      streamPrefixes
+        .map((prefix) => {
+          const separatorIndex = prefix.indexOf(".");
+          return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
+        })
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
 }
 
 function normalizedStreamCategories(streamPrefixes: readonly string[]): readonly string[] {

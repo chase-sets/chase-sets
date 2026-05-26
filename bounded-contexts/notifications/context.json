@@ -32,7 +32,8 @@
       "projectionName": "notifications-source-facts-outbox-projection",
       "sourceContextNames": ["ordering", "fulfillment"],
       "ownedTables": ["notification_outbox"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "append-only-no-reset"
     }
   ],
   "hostPorts": [

@@ -90,19 +90,22 @@
         "marketplace_catalog_dimensions",
         "marketplace_catalog_dimension_options"
       ],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "marketplace-identity-account-projection",
       "sourceContextNames": ["identity", "reputation"],
       "ownedTables": ["marketplace_account_pages", "marketplace_account_reviews"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "marketplace-inventory-supply-projection",
       "sourceContextNames": ["inventory"],
       "ownedTables": ["marketplace_supply_locations", "marketplace_supply_items", "marketplace_supply_holds"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

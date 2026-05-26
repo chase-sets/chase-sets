@@ -101,6 +101,38 @@ export type ProjectorHandler = (event: Readonly<TransportEvent>, context?: Proje
 
 export type ProjectorHandlerMap = Readonly<Record<string, ProjectorHandler>>;
 
+export type TransactionalProjectorHandlerContext = Readonly<
+  ProjectorHandlerContext & {
+    db: NonNullable<ProjectorHandlerContext["db"]>;
+  }
+>;
+
+export type TransactionalProjectorHandler = (
+  event: Readonly<TransportEvent>,
+  context: TransactionalProjectorHandlerContext,
+) => Promise<void>;
+
+export type TransactionalProjectorHandlerMap = Readonly<Record<string, TransactionalProjectorHandler>>;
+
+export function createTransactionalProjectorHandlerMap(
+  handlers: TransactionalProjectorHandlerMap,
+): ProjectorHandlerMap {
+  return Object.fromEntries(
+    Object.entries(handlers).map(([eventType, handler]) => [
+      eventType,
+      async (event, context) => {
+        if (!context?.db) {
+          throw new Error(
+            `Projection handler for event '${eventType}' requires the transaction-scoped projection database.`,
+          );
+        }
+
+        await handler(event, { ...context, db: context.db });
+      },
+    ]),
+  );
+}
+
 export function resolveProjectionDb<TDb>(context: ProjectorHandlerContext | undefined, fallbackDb: TDb): TDb {
   return (context?.db as TDb | undefined) ?? fallbackDb;
 }
@@ -116,7 +148,9 @@ export type ProjectorRunResult = Readonly<{
 export type ProjectionRunContext = Readonly<{
   ownerId?: string;
   fencingToken?: string;
+  operationId?: string;
   signal?: AbortSignal;
+  statementTimeoutMs?: number;
   throwIfLeaseLost?: () => void;
 }>;
 

@@ -39,6 +39,8 @@ type ProjectionGroupStatus = Readonly<{
   state: ProjectionState;
   lastError: string | null;
   outstandingEventCount: string;
+  sourceLagEventCount?: string;
+  applicableLagEstimate?: string | null;
   blockedStreamCount: number;
   poisonEventCount: number;
   updatedAt: string;
@@ -55,6 +57,8 @@ type ProjectionSubscriptionStatus = Readonly<{
   lastGlobalPosition: string;
   sourceHeadGlobalPosition: string;
   outstandingEventCount: string;
+  sourceLagEventCount?: string;
+  applicableLagEstimate?: string | null;
   state: ProjectionState;
   lastError: string | null;
   blockedStreamCount: number;
@@ -65,6 +69,23 @@ type BlockedProjectionDetails = Readonly<{
   projectionKey: string;
   blockedStreams: readonly BlockedStream[];
   poisonEvents: readonly PoisonEvent[];
+}>;
+
+type ProjectionOperation = Readonly<{
+  operationId: string;
+  operationKind: string;
+  state: string;
+  contextName: string;
+  projectionName: string | null;
+  projectionKey: string | null;
+  streamId: string | null;
+  requestedByUserId: string | null;
+  claimOwnerId: string | null;
+  requestedAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+  completedAt: string | null;
+  error: Record<string, unknown> | null;
 }>;
 
 type BlockedStream = Readonly<{
@@ -105,6 +126,18 @@ type ProjectionOperationsSnapshot = Readonly<{
   blockedProjections: readonly BlockedProjectionDetails[];
   workers: readonly Record<string, unknown>[];
   runners: readonly Record<string, unknown>[];
+  operations: readonly ProjectionOperation[];
+  operationSummary: ProjectionOperationSummary | null;
+}>;
+
+type ProjectionOperationSummary = Readonly<{
+  queuedCount: string;
+  runningCount: string;
+  failedCount: string;
+  cancelRequestedCount: string;
+  oldestQueuedAt: string | null;
+  oldestRunningAt: string | null;
+  averageDurationMs: string | null;
 }>;
 
 const routeKey = "adminWeb.app.routes.projectionOperations";
@@ -204,7 +237,66 @@ export default function ProjectionOperationsRoute() {
         <Stat label={t(`${routeKey}.activeWorkers`)} value={activeWorkerCount} />
         <Stat label={t(`${routeKey}.staleWorkers`)} value={staleWorkerCount} />
         <Stat label={t(`${routeKey}.blockedStreams`)} value={blockedRows.length} />
+        <Stat
+          label={t(`${routeKey}.queuedOperations`)}
+          value={formatDecimalCount(data.operationSummary?.queuedCount ?? "0")}
+        />
+        <Stat
+          label={t(`${routeKey}.runningOperations`)}
+          value={formatDecimalCount(data.operationSummary?.runningCount ?? "0")}
+        />
       </StatGrid>
+
+      <PageSection title={t(`${routeKey}.projectionOperations`)}>
+        <DataTable<ProjectionOperation>
+          columns={[
+            {
+              key: "operation",
+              header: t(`${routeKey}.operation`),
+              cell: (operation) => (
+                <Stack gap={1}>
+                  <Text weight="semibold">{operation.operationKind}</Text>
+                  <Text size="sm" tone="secondary">
+                    {operation.operationId}
+                  </Text>
+                </Stack>
+              ),
+            },
+            {
+              key: "target",
+              header: t(`${routeKey}.target`),
+              cell: (operation) => (
+                <Stack gap={1}>
+                  <Text>{operation.contextName}</Text>
+                  <Text size="sm" tone="secondary">
+                    {operation.projectionName ?? operation.projectionKey ?? operation.streamId ?? t(`${routeKey}.all`)}
+                  </Text>
+                </Stack>
+              ),
+            },
+            {
+              key: "state",
+              header: t(`${routeKey}.state`),
+              cell: (operation) => <Badge tone={stateTone(operation.state)}>{operation.state}</Badge>,
+            },
+            {
+              key: "owner",
+              header: t(`${routeKey}.owner`),
+              cell: (operation) =>
+                operation.claimOwnerId ?? operation.requestedByUserId ?? t(`${routeKey}.notRecorded`),
+            },
+            {
+              key: "updated",
+              header: t(`${routeKey}.updated`),
+              cell: (operation) => formatDate(operation.updatedAt, t(`${routeKey}.notRecorded`)),
+            },
+          ]}
+          rows={[...data.operations]}
+          getRowId={(operation) => operation.operationId}
+          emptyTitle={t(`${routeKey}.noProjectionOperations`)}
+          emptyDescription={t(`${routeKey}.noProjectionOperationsDescription`)}
+        />
+      </PageSection>
 
       <Grid columns={{ base: 1, xl: 2 }} gap={4}>
         <PageSection title={t(`${routeKey}.projectionGroups`)}>
@@ -242,6 +334,9 @@ export default function ProjectionOperationsRoute() {
                       {t(`${routeKey}.outstandingSummary`, {
                         count: formatDecimalCount(group.outstandingEventCount),
                       })}
+                    </Text>
+                    <Text size="sm" tone="secondary">
+                      {formatApplicableLag(group.applicableLagEstimate)}
                     </Text>
                     <Text size="sm" tone="secondary">
                       {t(`${routeKey}.issueSummary`, {
@@ -352,7 +447,14 @@ export default function ProjectionOperationsRoute() {
             {
               key: "outstanding",
               header: t(`${routeKey}.sourceLag`),
-              cell: (row) => formatDecimalCount(row.outstandingEventCount),
+              cell: (row) => (
+                <Stack gap={1}>
+                  <Text>{formatDecimalCount(row.sourceLagEventCount ?? row.outstandingEventCount)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {formatApplicableLag(row.applicableLagEstimate)}
+                  </Text>
+                </Stack>
+              ),
             },
             {
               key: "positions",
@@ -464,6 +566,24 @@ export function normalizeProjectionOperationsSnapshot(value: unknown): Projectio
     blockedProjections: readArray(snapshot.blockedProjections).map(normalizeBlockedProjectionDetails),
     workers: readArray(snapshot.workers).filter(isRecord),
     runners: readArray(snapshot.runners).filter(isRecord),
+    operations: readArray(snapshot.operations).map(normalizeProjectionOperation),
+    operationSummary: normalizeProjectionOperationSummary(snapshot.operationSummary),
+  };
+}
+
+function normalizeProjectionOperationSummary(value: unknown): ProjectionOperationSummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    queuedCount: readString(value.queuedCount),
+    runningCount: readString(value.runningCount),
+    failedCount: readString(value.failedCount),
+    cancelRequestedCount: readString(value.cancelRequestedCount),
+    oldestQueuedAt: value.oldestQueuedAt == null ? null : readString(value.oldestQueuedAt),
+    oldestRunningAt: value.oldestRunningAt == null ? null : readString(value.oldestRunningAt),
+    averageDurationMs: value.averageDurationMs == null ? null : readString(value.averageDurationMs),
   };
 }
 
@@ -485,6 +605,11 @@ function normalizeProjectionGroupStatus(value: unknown): ProjectionGroupStatus {
     state: readProjectionState(group.state),
     lastError: group.lastError == null ? null : readString(group.lastError),
     outstandingEventCount: readString(group.outstandingEventCount),
+    sourceLagEventCount: group.sourceLagEventCount === undefined ? undefined : readString(group.sourceLagEventCount),
+    applicableLagEstimate:
+      group.applicableLagEstimate === undefined || group.applicableLagEstimate === null
+        ? null
+        : readString(group.applicableLagEstimate),
     blockedStreamCount: readNumber(group.blockedStreamCount),
     poisonEventCount: readNumber(group.poisonEventCount),
     updatedAt: readString(group.updatedAt),
@@ -505,6 +630,12 @@ function normalizeProjectionSubscriptionStatus(value: unknown): ProjectionSubscr
     lastGlobalPosition: readString(subscription.lastGlobalPosition),
     sourceHeadGlobalPosition: readString(subscription.sourceHeadGlobalPosition),
     outstandingEventCount: readString(subscription.outstandingEventCount),
+    sourceLagEventCount:
+      subscription.sourceLagEventCount === undefined ? undefined : readString(subscription.sourceLagEventCount),
+    applicableLagEstimate:
+      subscription.applicableLagEstimate === undefined || subscription.applicableLagEstimate === null
+        ? null
+        : readString(subscription.applicableLagEstimate),
     state: readProjectionState(subscription.state),
     lastError: subscription.lastError == null ? null : readString(subscription.lastError),
     blockedStreamCount: readNumber(subscription.blockedStreamCount),
@@ -553,6 +684,27 @@ function normalizePoisonEvent(value: unknown): PoisonEvent {
   };
 }
 
+function normalizeProjectionOperation(value: unknown): ProjectionOperation {
+  const operation = isRecord(value) ? value : {};
+
+  return {
+    operationId: readString(operation.operationId),
+    operationKind: readString(operation.operationKind),
+    state: readString(operation.state),
+    contextName: readString(operation.contextName),
+    projectionName: operation.projectionName == null ? null : readString(operation.projectionName),
+    projectionKey: operation.projectionKey == null ? null : readString(operation.projectionKey),
+    streamId: operation.streamId == null ? null : readString(operation.streamId),
+    requestedByUserId: operation.requestedByUserId == null ? null : readString(operation.requestedByUserId),
+    claimOwnerId: operation.claimOwnerId == null ? null : readString(operation.claimOwnerId),
+    requestedAt: readString(operation.requestedAt),
+    startedAt: operation.startedAt == null ? null : readString(operation.startedAt),
+    updatedAt: readString(operation.updatedAt),
+    completedAt: operation.completedAt == null ? null : readString(operation.completedAt),
+    error: isRecord(operation.error) ? operation.error : null,
+  };
+}
+
 function readProjectionState(value: unknown): ProjectionState {
   return value === "behind" || value === "running" || value === "caught-up" || value === "degraded" || value === "error"
     ? value
@@ -579,6 +731,7 @@ function stateTone(state: string) {
   switch (state) {
     case "caught-up":
     case "resolved":
+    case "succeeded":
     case "ok":
       return "success" as const;
     case "running":
@@ -590,9 +743,14 @@ function stateTone(state: string) {
     case "expired":
     case "degraded":
     case "blocked":
+    case "queued":
+    case "cancel_requested":
       return "warning" as const;
     case "error":
+    case "failed":
       return "danger" as const;
+    case "cancelled":
+      return "neutral" as const;
     default:
       return "neutral" as const;
   }
@@ -624,6 +782,12 @@ function compareSubscriptionRows(left: ProjectionSubscriptionRow, right: Project
 
 function formatDecimalCount(value: string | number) {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function formatApplicableLag(value: string | null | undefined) {
+  return value === null || value === undefined
+    ? t(`${routeKey}.applicableLagUnknown`)
+    : t(`${routeKey}.applicableLag`, { count: formatDecimalCount(value) });
 }
 
 function resolveApiUrl(request: Request) {

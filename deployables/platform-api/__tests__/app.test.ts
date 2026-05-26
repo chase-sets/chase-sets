@@ -281,6 +281,25 @@ describe("platform api app", () => {
           listWorkerHeartbeats: vi.fn(async () => []),
           listRunnerStatuses: vi.fn(async () => []),
           listLeases: vi.fn(async () => []),
+          enqueueProjectionOperation: vi.fn(async () => {
+            throw new Error("not used");
+          }),
+          claimProjectionOperation: vi.fn(async () => null),
+          recordProjectionOperationProgress: vi.fn(async () => false),
+          completeProjectionOperation: vi.fn(async () => false),
+          failProjectionOperation: vi.fn(async () => false),
+          cancelProjectionOperation: vi.fn(async () => false),
+          getProjectionOperation: vi.fn(async () => null),
+          listProjectionOperations: vi.fn(async () => []),
+          summarizeProjectionOperations: vi.fn(async () => ({
+            queuedCount: "0",
+            runningCount: "0",
+            failedCount: "0",
+            cancelRequestedCount: "0",
+            oldestQueuedAt: null,
+            oldestRunningAt: null,
+            averageDurationMs: null,
+          })),
         },
       },
     );

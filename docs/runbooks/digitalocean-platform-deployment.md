@@ -272,6 +272,7 @@ Production secrets are scoped to validation, Terraform, smoke, and Git release-m
 If preview or staging deployment fails in `platform-bootstrap` with PostgreSQL `53300` / `remaining connection slots are reserved for roles with the SUPERUSER attribute`, the active non-production app or bootstrap job exceeded the database tier's connection budget.
 
 1. Confirm the Terraform spec includes component-specific `DATABASE_POOL_MAX` values and does not let a single worker process exceed the database tier's connection budget.
+   Worker startup now fails when configured runner concurrency exceeds `DATABASE_POOL_MAX`, unless `ALLOW_WORKER_OVER_POOL_CAPACITY=true` is explicitly set for local testing. Do not set that override in staging or production.
 2. Confirm preview has one `digitalocean_database_connection_pool.contexts` pool per context database in `transaction` mode with size `1`, and staging uses the explicit hot-context pool sizes on a `db-s-2vcpu-4gb` or larger database tier.
 3. Confirm runtime `PLATFORM_CONTROL_DATABASE_URL` and `DATABASE_URL_*` variables resolve to connection pool URIs, not direct database URLs.
 4. Re-run the PR workflow for preview or the deployment workflow for staging.

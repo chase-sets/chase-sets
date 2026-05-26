@@ -43,13 +43,15 @@
       "projectionName": "fulfillment-account-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["fulfillment_account_pages"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "fulfillment-order-source-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["fulfillment_order_sources", "fulfillment_order_source_lines"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [

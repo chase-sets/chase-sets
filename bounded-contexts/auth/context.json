@@ -87,25 +87,29 @@
       "projectionName": "auth-identity-account-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["auth_identity_accounts"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "auth-identity-user-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["auth_identity_users", "auth_identity_user_emails", "auth_identity_user_phones"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "auth-identity-membership-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["auth_identity_memberships", "auth_identity_user_memberships"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     },
     {
       "projectionName": "auth-identity-invitation-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["auth_identity_invitations"],
-      "requiredDuringBootstrap": true
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [
