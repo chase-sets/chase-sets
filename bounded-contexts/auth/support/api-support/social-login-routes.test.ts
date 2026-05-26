@@ -39,6 +39,7 @@ function createServices(
     profile?: {
       email: string | null;
       emailVerified: boolean;
+      hostedDomain?: string | null;
     };
     providerFails?: boolean;
     existingUser?: { user_id: string; status: string } | null;
@@ -157,11 +158,15 @@ function createServices(
             providerSubject: "google-subject",
             email: options.profile?.email ?? "buyer@example.com",
             emailVerified: options.profile?.emailVerified ?? true,
+            hostedDomain: options.profile?.hostedDomain,
             displayName: "Buyer Example",
           };
         }),
       },
     ],
+    adminGoogleWorkspaceSso: {
+      allowedHostedDomains: ["chasesets.com"],
+    },
     projectors: [],
   } as unknown as AuthServices;
 }
@@ -332,5 +337,111 @@ describe("social login routes", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("starts admin Google Workspace SSO with a hosted-domain hint", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+    });
+    const app = buildApp(services);
+
+    const response = await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("https://provider.test/auth?state=social_token");
+    expect(services.socialLoginProviders[0]!.createAuthorizationUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostedDomain: "chasesets.com",
+      }),
+    );
+    expect(services.db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO identity_social_login_states"),
+      expect.arrayContaining(["hashed:social_token", "google", "identity-admin", "/identity/accounts"]),
+    );
+  });
+
+  it("rejects admin Google Workspace SSO when the hosted domain is not allowed", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@example.com",
+        emailVerified: true,
+        hostedDomain: "example.com",
+      },
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/identity/sign-in?socialLoginError=");
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("does not create a personal identity during admin Google Workspace SSO", async () => {
+    const services = createServices({
+      existingUser: null,
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/identity/sign-in?socialLoginError=");
+    expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("filters admin account selection to memberships that can access the admin surface", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_admin",
+          accountId: "acc_admin",
+          roleKey: "platform-admin",
+          status: "active",
+          rolePermissions: ["security.manage"],
+        },
+        {
+          membershipId: "mbr_viewer",
+          accountId: "acc_viewer",
+          roleKey: "viewer",
+          status: "active",
+          rolePermissions: ["accounts.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/identity/accounts");
+    expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          accountId: "acc_admin",
+          availableAccountIds: ["acc_admin"],
+        }),
+      }),
+    );
   });
 });

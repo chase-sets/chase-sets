@@ -325,6 +325,7 @@ jobs:
           TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
           TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
@@ -481,6 +482,7 @@ jobs:
           TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
           TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
@@ -515,6 +517,7 @@ jobs:
           TF_VAR_easypost_mode: ${{ vars.EASYPOST_MODE || 'test' }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
           TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
@@ -571,6 +574,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
+          TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
           TF_VAR_facebook_social_login_client_id: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_facebook_social_login_client_secret: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}

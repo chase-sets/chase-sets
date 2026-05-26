@@ -32,6 +32,7 @@ function resetConfigEnv() {
   delete process.env.EASYPOST_MODE;
   delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_ID;
   delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET;
+  delete process.env.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS;
   delete process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID;
   delete process.env.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET;
   delete process.env.MOBILE_MESSAGING_PROVIDER;
@@ -453,6 +454,26 @@ describe("platform api config", () => {
         clientSecret: "facebook-secret",
       },
     });
+  });
+
+  it("loads admin Google Workspace SSO domains when Google credentials are configured", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_ID = "google-client";
+    process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET = "google-secret";
+    process.env.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS = "ChaseSets.com, internal.chasesets.com ";
+
+    expect(loadConfig().adminGoogleWorkspaceSso).toEqual({
+      allowedHostedDomains: ["chasesets.com", "internal.chasesets.com"],
+    });
+  });
+
+  it("requires Google credentials when admin Google Workspace SSO domains are configured", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS = "chasesets.com";
+
+    expect(() => loadConfig()).toThrow(
+      "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS requires GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET.",
+    );
   });
 
   it("can disable scheduled payout reconciliation", () => {

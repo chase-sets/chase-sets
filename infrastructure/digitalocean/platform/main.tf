@@ -447,6 +447,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
+          value = var.admin_google_workspace_hosted_domains
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID"
           value = var.facebook_social_login_client_id
           type  = "SECRET"
@@ -878,6 +884,12 @@ resource "digitalocean_app" "platform" {
           key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
           value = var.google_social_login_client_secret
           type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
+          value = var.admin_google_workspace_hosted_domains
           scope = "RUN_TIME"
         }
 

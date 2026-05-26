@@ -5,6 +5,7 @@ export type SocialLoginProfile = Readonly<{
   providerSubject: string;
   email: string | null;
   emailVerified: boolean;
+  hostedDomain?: string | null;
   displayName: string | null;
   givenName?: string | null;
   familyName?: string | null;
@@ -16,6 +17,7 @@ export type SocialLoginProvider = Readonly<{
     params: Readonly<{
       state: string;
       redirectUri: string;
+      hostedDomain?: string;
     }>,
   ) => string;
   exchangeCallback: (
@@ -34,7 +36,12 @@ type OAuthProviderConfig = Readonly<{
   tokenUrl: string;
   profileUrl: string;
   scopes: readonly string[];
-  profileMapper: (value: unknown) => SocialLoginProfile;
+  profileMapper: (
+    value: unknown,
+    context: Readonly<{
+      token: Readonly<Record<string, unknown>>;
+    }>,
+  ) => SocialLoginProfile;
   fetch?: typeof globalThis.fetch;
 }>;
 
@@ -48,6 +55,28 @@ function requireText(value: unknown, fieldName: string) {
 
 function getRecord(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function decodeJwtPayload(value: unknown) {
+  const token = readString(value);
+  if (!token) {
+    return {};
+  }
+
+  const [, payload] = token.split(".");
+  if (!payload) {
+    return {};
+  }
+
+  try {
+    return getRecord(JSON.parse(Buffer.from(payload, "base64url").toString("utf8")));
+  } catch {
+    return {};
+  }
 }
 
 async function parseOAuthJson(response: Response) {
@@ -64,13 +93,16 @@ export function createOAuthSocialLoginProvider(config: OAuthProviderConfig): Soc
 
   return {
     providerName: config.providerName,
-    createAuthorizationUrl({ state, redirectUri }) {
+    createAuthorizationUrl({ state, redirectUri, hostedDomain }) {
       const url = new URL(config.authorizationUrl);
       url.searchParams.set("client_id", config.clientId);
       url.searchParams.set("redirect_uri", redirectUri);
       url.searchParams.set("response_type", "code");
       url.searchParams.set("scope", config.scopes.join(" "));
       url.searchParams.set("state", state);
+      if (hostedDomain) {
+        url.searchParams.set("hd", hostedDomain);
+      }
       return url.toString();
     },
     async exchangeCallback({ code, redirectUri }) {
@@ -103,6 +135,7 @@ export function createOAuthSocialLoginProvider(config: OAuthProviderConfig): Soc
             },
           }),
         ),
+        { token },
       );
     },
   };
@@ -124,13 +157,15 @@ export function createGoogleSocialLoginProvider(
     profileUrl: "https://openidconnect.googleapis.com/v1/userinfo",
     scopes: ["openid", "email", "profile"],
     fetch: params.fetch,
-    profileMapper(value) {
+    profileMapper(value, context) {
       const profile = getRecord(value);
+      const idToken = decodeJwtPayload(context.token.id_token);
       return {
         providerName: "google",
         providerSubject: requireText(profile.sub, "subject"),
         email: typeof profile.email === "string" ? profile.email : null,
         emailVerified: profile.email_verified === true,
+        hostedDomain: readString(idToken.hd) ?? readString(profile.hd),
         displayName: typeof profile.name === "string" ? profile.name : null,
         givenName: typeof profile.given_name === "string" ? profile.given_name : null,
         familyName: typeof profile.family_name === "string" ? profile.family_name : null,

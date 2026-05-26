@@ -21,6 +21,23 @@ describe("social login providers", () => {
     expect(url.searchParams.get("scope")).toContain("email");
   });
 
+  it("adds a Google hosted-domain hint when requested", () => {
+    const provider = createGoogleSocialLoginProvider({
+      clientId: "google-client",
+      clientSecret: "google-secret",
+    });
+
+    const url = new URL(
+      provider.createAuthorizationUrl({
+        state: "state-token",
+        redirectUri: "https://market.test/api/auth/social/google/callback",
+        hostedDomain: "chasesets.com",
+      }),
+    );
+
+    expect(url.searchParams.get("hd")).toBe("chasesets.com");
+  });
+
   it("normalizes Google userinfo into a verified social login profile", async () => {
     const fetch = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -52,6 +69,37 @@ describe("social login providers", () => {
       email: "buyer@example.com",
       emailVerified: true,
       displayName: "Buyer Example",
+    });
+  });
+
+  it("maps the Google hosted-domain claim from the ID token", async () => {
+    const idTokenPayload = Buffer.from(JSON.stringify({ hd: "chasesets.com" })).toString("base64url");
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("token")) {
+        return Response.json({ access_token: "access-token", id_token: `header.${idTokenPayload}.signature` });
+      }
+
+      return Response.json({
+        sub: "google-subject",
+        email: "operator@chasesets.com",
+        email_verified: true,
+        name: "Operator Example",
+      });
+    });
+    const provider = createGoogleSocialLoginProvider({
+      clientId: "google-client",
+      clientSecret: "google-secret",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await expect(
+      provider.exchangeCallback({
+        code: "code",
+        redirectUri: "https://market.test/api/auth/social/google/callback",
+      }),
+    ).resolves.toMatchObject({
+      hostedDomain: "chasesets.com",
     });
   });
 

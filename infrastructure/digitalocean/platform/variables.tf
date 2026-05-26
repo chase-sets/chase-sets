@@ -251,6 +251,16 @@ variable "google_social_login_client_secret" {
   }
 }
 
+variable "admin_google_workspace_hosted_domains" {
+  type    = string
+  default = ""
+
+  validation {
+    condition     = trimspace(var.admin_google_workspace_hosted_domains) == "" || trimspace(var.google_social_login_client_id) != ""
+    error_message = "admin_google_workspace_hosted_domains requires google_social_login_client_id."
+  }
+}
+
 variable "facebook_social_login_client_id" {
   type      = string
   sensitive = true

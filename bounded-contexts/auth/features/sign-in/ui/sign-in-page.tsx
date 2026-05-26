@@ -24,6 +24,11 @@ import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/a
 
 type SignInMethodItem = SegmentedControlItem & Readonly<{ value: SignInMethod }>;
 type SignInIdentifierKind = "email" | "phone";
+type SocialLoginLink = Readonly<{
+  href: string;
+  label: string;
+  icon: "badgeCheck" | "users";
+}>;
 
 const SIGN_IN_METHOD_ITEMS = [
   { value: "password", labelKey: "auth.features.signIn.ui.signInPage.password", icon: "lock" },
@@ -86,6 +91,8 @@ export function SignInPage(
     returnTo?: string;
     signInMethods?: readonly SignInMethod[];
     allowManualMagicLinkTokenEntry?: boolean;
+    socialLoginDescription?: string;
+    socialLoginLinks?: readonly SocialLoginLink[];
   }>,
 ) {
   const signInMethods = props.signInMethods ?? DEFAULT_SIGN_IN_METHODS;
@@ -109,6 +116,20 @@ export function SignInPage(
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
   const challengeMethods = identifierKind ? methodItemsForIdentifier(identifierKind, signInMethods) : [];
   const hasIdentifier = identifier.trim().length > 0 && identifierKind !== null;
+  const socialLoginLinks =
+    props.socialLoginLinks ??
+    ([
+      {
+        href: `/api/auth/social/google/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`,
+        label: t("auth.features.signIn.ui.signInPage.continue.with.google"),
+        icon: "badgeCheck",
+      },
+      {
+        href: `/api/auth/social/facebook/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`,
+        label: t("auth.features.signIn.ui.signInPage.continue.with.facebook"),
+        icon: "users",
+      },
+    ] as const satisfies readonly SocialLoginLink[]);
 
   function handleIdentifierSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -199,23 +220,14 @@ export function SignInPage(
           <Card>
             <Stack gap={3}>
               <Text size="sm" tone="secondary">
-                {t("auth.features.signIn.ui.signInPage.continue.with.social.login")}
+                {props.socialLoginDescription ?? t("auth.features.signIn.ui.signInPage.continue.with.social.login")}
               </Text>
               <Inline>
-                <LinkButton
-                  href={`/api/auth/social/google/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
-                  leadingIcon="badgeCheck"
-                  block
-                >
-                  {t("auth.features.signIn.ui.signInPage.continue.with.google")}
-                </LinkButton>
-                <LinkButton
-                  href={`/api/auth/social/facebook/start?journey=sign-in&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
-                  leadingIcon="users"
-                  block
-                >
-                  {t("auth.features.signIn.ui.signInPage.continue.with.facebook")}
-                </LinkButton>
+                {socialLoginLinks.map((link) => (
+                  <LinkButton key={link.href} href={link.href} leadingIcon={link.icon} block>
+                    {link.label}
+                  </LinkButton>
+                ))}
               </Inline>
             </Stack>
           </Card>
