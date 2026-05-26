@@ -3,7 +3,7 @@ import path from "node:path";
 import { renderToString } from "react-dom/server";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { Inset, MarketplaceDashboardPanel, Stat } from "../index";
+import { DetailPanel, Inset, KeyValueList, MarketplaceDashboardPanel, SpecificationList, Stat } from "../index";
 
 type SurfaceKind = "surface" | "inset";
 
@@ -22,6 +22,7 @@ interface SurfaceViolation {
 
 const cardLikeExports = new Set(["Card", "UiCard", "Surface", "UiSurface", "DetailPanel"]);
 const insetExports = new Set(["Inset"]);
+const rowListExports = new Set(["KeyValueList"]);
 const scanRoots = ["bounded-contexts", "packages/design-system/src"];
 
 function repositoryRoot() {
@@ -78,9 +79,27 @@ function jsxTagName(tag: ts.JsxTagNameExpression): string {
   return "";
 }
 
+function hasSurfaceVariant(node: ts.JsxElement | ts.JsxSelfClosingElement) {
+  const attributes = ts.isJsxElement(node) ? node.openingElement.attributes.properties : node.attributes.properties;
+
+  return attributes.some((attribute) => {
+    if (
+      !ts.isJsxAttribute(attribute) ||
+      !ts.isIdentifier(attribute.name) ||
+      attribute.name.text !== "variant" ||
+      !attribute.initializer
+    ) {
+      return false;
+    }
+
+    return ts.isStringLiteral(attribute.initializer) && attribute.initializer.text === "surface";
+  });
+}
+
 function collectSurfaceNames(sourceFile: ts.SourceFile, filePath: string) {
   const cardLikeNames = new Set<string>();
   const insetNames = new Set<string>();
+  const rowListNames = new Set<string>();
 
   function visit(node: ts.Node) {
     if (ts.isImportDeclaration(node) && node.importClause?.namedBindings) {
@@ -97,6 +116,10 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, filePath: string) {
           if (insetExports.has(exportedName)) {
             insetNames.add(specifier.name.text);
           }
+
+          if (rowListExports.has(exportedName)) {
+            rowListNames.add(specifier.name.text);
+          }
         }
       }
     }
@@ -110,6 +133,10 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, filePath: string) {
         if (insetExports.has(node.name.text)) {
           insetNames.add(node.name.text);
         }
+
+        if (rowListExports.has(node.name.text)) {
+          rowListNames.add(node.name.text);
+        }
       }
     }
 
@@ -118,7 +145,7 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, filePath: string) {
 
   visit(sourceFile);
 
-  return { cardLikeNames, insetNames };
+  return { cardLikeNames, insetNames, rowListNames };
 }
 
 function surfaceHierarchyViolations(root: string): SurfaceViolation[] {
@@ -132,7 +159,7 @@ function surfaceHierarchyViolations(root: string): SurfaceViolation[] {
     return scanFiles(absoluteRoot).flatMap((filePath) => {
       const sourceText = fs.readFileSync(filePath, "utf8");
       const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-      const { cardLikeNames, insetNames } = collectSurfaceNames(sourceFile, filePath);
+      const { cardLikeNames, insetNames, rowListNames } = collectSurfaceNames(sourceFile, filePath);
       const violations: SurfaceViolation[] = [];
 
       function visit(node: ts.Node, stack: SurfaceFrame[]) {
@@ -159,6 +186,21 @@ function surfaceHierarchyViolations(root: string): SurfaceViolation[] {
 
             visitChildren(node, [...stack, { kind, tag }]);
             return;
+          }
+
+          if (rowListNames.has(tag) && hasSurfaceVariant(node)) {
+            const parent = nearestSurface(stack);
+
+            if (parent) {
+              const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+              violations.push({
+                file: path.relative(root, filePath),
+                line: position.line + 1,
+                tag,
+                parent: parent.tag,
+                reason: "framed key/value row lists must not sit inside card-like surfaces; use the default plain rows",
+              });
+            }
           }
         }
 
@@ -189,5 +231,23 @@ describe("surface hierarchy", () => {
     expect(
       renderToString(<MarketplaceDashboardPanel title="Operations" metrics={[{ label: "Attention", value: "1" }]} />),
     ).toContain("inset-surface");
+  });
+
+  it("keeps read-only detail rows visually flat inside panels", () => {
+    const keyValueMarkup = renderToString(
+      <DetailPanel title="projection-generation-retention">
+        <KeyValueList items={[{ key: "RUNNER_NAME", value: "projection-generation-retention" }]} />
+      </DetailPanel>,
+    );
+    const specsMarkup = renderToString(
+      <SpecificationList
+        title="Selected detail"
+        specs={[{ label: "RUNNER_NAME", value: "projection-generation-retention" }]}
+      />,
+    );
+
+    expect(keyValueMarkup).not.toContain("modern-surface");
+    expect(keyValueMarkup).not.toContain("inset-surface");
+    expect(specsMarkup).not.toContain("overflow-hidden rounded-[var(--radius)] border");
   });
 });

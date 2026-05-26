@@ -11,14 +11,12 @@ export interface KeyValueListProps extends Omit<HTMLAttributes<HTMLDListElement>
   variant?: "surface" | "plain";
 }
 
-export function KeyValueList({ items, density = "default", variant = "surface", ...rest }: KeyValueListProps) {
+export function KeyValueList({ items, density = "default", variant = "plain", ...rest }: KeyValueListProps) {
   return (
     <dl
       {...rest}
       className={
-        variant === "surface"
-          ? "modern-surface grid gap-3 rounded-tokenLg border border-muted p-4 shadow-tokenSm"
-          : "grid gap-0"
+        variant === "surface" ? "inset-surface grid gap-3 rounded-tokenMd border border-muted p-4" : "grid gap-0"
       }
     >
       {items.map((item, index) => (
