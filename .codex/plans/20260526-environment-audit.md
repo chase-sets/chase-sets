@@ -23,9 +23,9 @@ Address the environment audit findings with infrastructure, workflow, and operat
 
 ## Resolved Decisions
 
-- Staging root DNS should move back under App Platform/DigitalOcean-managed DNS now that exact-name staging mail records are no longer present. This removes the stale manual CNAME failure mode and keeps hostname, routing, certificate, and smoke ownership together.
+- Staging root DNS must stay self-managed because environment roots can carry exact-name Google Workspace MX/TXT records. Use exact-name A/AAAA records for App Platform ingress and keep the App Platform domain attachment without a DNS `zone` field.
 - Uptime checks should be Terraform-managed and alert only when `alert_emails` is configured. The deployment workflows will pass `TF_VAR_alert_emails` from a GitHub Environment variable so recipient management does not require code changes.
-- Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, marketplace where present, and the staging root marketplace alias.
+- Uptime checks should cover customer/operator entry points and same-origin API readiness: landing, admin, and canonical marketplace where present. Do not create a canonical uptime check for the staging root alias while it is operated as a Gmail-compatible self-managed hostname.
 - Staging must not scale `platform-api` beyond one instance while realtime coordination is local. Add a Terraform validation invariant so future scaling cannot silently break SSE coordination.
 - DOCR non-release image retention should be reduced from 30 days to 7 days because release tags and live App Platform tags are already protected.
 - Remote-dev cloud-init placeholders should match the generator and have test coverage.
@@ -40,7 +40,7 @@ Address the environment audit findings with infrastructure, workflow, and operat
 
 - [x] Add Terraform uptime checks and alerts for platform hosts.
 - [x] Wire `TF_VAR_alert_emails` through staging, production, preview, and staging reset workflows.
-- [x] Fix staging root DNS ownership by letting the staging root alias use the DigitalOcean DNS zone again.
+- [x] Keep staging root DNS self-managed so App Platform ingress A/AAAA records can coexist with exact-name Gmail MX/TXT records.
 - [x] Add Terraform invariants for realtime coordination and API instance count.
 - [x] Tighten DOCR cleanup retention from 30 days to 7 days.
 - [x] Fix remote-dev cloud-init placeholders and add generator test coverage.

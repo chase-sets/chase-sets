@@ -175,7 +175,7 @@ locals {
     (format("admin-%s", replace(local.admin_domain, ".", "-"))) = "https://${local.admin_domain}/health/ready"
   }
   marketplace_uptime_check_targets = {
-    for domain in local.all_marketplace_domains :
+    for domain in local.marketplace_domains :
     "marketplace-${replace(domain, ".", "-")}" => "https://${domain}/health/ready"
   }
   uptime_check_targets = merge(

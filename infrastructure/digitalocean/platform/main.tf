@@ -115,7 +115,6 @@ resource "digitalocean_app" "platform" {
       content {
         name = domain.value
         type = "ALIAS"
-        zone = var.root_domain
       }
     }
 
