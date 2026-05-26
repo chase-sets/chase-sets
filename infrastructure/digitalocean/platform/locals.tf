@@ -177,6 +177,11 @@ locals {
       (local.admin_domain) = local.is_staging ? local.environment_zone : var.root_domain
     },
   )
+  staging_app_alias_record_names = local.is_staging ? toset([
+    "admin",
+    "marketplace",
+    "www",
+  ]) : toset([])
   ucp_ingress_routes = {
     for route in setproduct(local.ucp_route_domains, local.ucp_route_prefixes) :
     "${route[0]}:${route[1]}" => {

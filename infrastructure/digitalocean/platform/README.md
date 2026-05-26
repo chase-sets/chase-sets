@@ -8,7 +8,7 @@ This root owns:
 - Preview and staging full-system `platform-api`, `platform-worker`, and platform bootstrap job.
 - Production landing/admin-support components until production marketplace promotion is ready.
 - DigitalOcean managed PostgreSQL with per-context databases plus a control database. Preview and staging also create managed PgBouncer transaction pools for those databases so the full-system app can fit on the smallest database tier.
-- DigitalOcean App Platform domain attachments for App Platform hosts plus temporary redirects from legacy dash-based staging hosts to their nested replacements. Stable staging mail, delegation, and asset DNS live in the sibling `environment-dns` Terraform root; App Platform owns the routing DNS records created for its attached domains.
+- DigitalOcean App Platform domain attachments for App Platform hosts plus temporary redirects from legacy dash-based staging hosts to their nested replacements. Stable staging mail, delegation, and asset DNS live in the sibling `environment-dns` Terraform root; staging nested alias CNAMEs live here because they depend on the app ingress. App Platform owns the apex A/AAAA records created for its primary domains.
 - App Platform environment wiring for the Catalog asset buckets and CDN domains owned by the sibling `catalog-assets` Terraform root.
 
 Initialize this root only after the state bucket has been created by [state-bootstrap](../state-bootstrap/README.md). Use `platform/previews/pr-<number>.tfstate` for PR previews, `landing/staging.tfstate` for staging, and `landing/production.tfstate` for production.
