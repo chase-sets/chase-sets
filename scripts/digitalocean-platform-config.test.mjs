@@ -154,9 +154,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("Terraform apply staging environment DNS");
     expect(platformProductionWorkflow).toContain("Reconcile staging App Platform alias DNS state");
     expect(platformProductionWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
+    expect(platformProductionWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
     expect(platformProductionWorkflow).toContain('terraform import "$address" "$record_id"');
     expect(platformStagingResetWorkflow).toContain("Reconcile staging App Platform alias DNS state");
     expect(platformStagingResetWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');
+    expect(platformStagingResetWorkflow).toContain("TF_VAR_platform_internal_auth_secret");
     expect(platformStagingResetWorkflow).toContain('terraform import "$address" "$record_id"');
     expect(platformProductionWorkflow).toContain("Reset stale staging root domain attachment");
     expect(platformProductionWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
