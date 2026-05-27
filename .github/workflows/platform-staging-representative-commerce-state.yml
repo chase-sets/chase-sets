@@ -1,0 +1,167 @@
+name: Platform Staging Representative Commerce State
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Ref containing the representative refresh code. Defaults to main.
+        required: false
+        default: main
+        type: string
+      catalog_item_limit:
+        description: Maximum untouched Catalog Items to cover in this pass.
+        required: false
+        default: "50"
+        type: string
+      confirm:
+        description: Type "seed staging commerce" to generate representative staging usage.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-representative-commerce-state-staging
+  cancel-in-progress: false
+
+jobs:
+  refresh-representative-commerce-state:
+    name: Refresh Representative Commerce State
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_environment: staging
+      DEPLOYMENT_ENVIRONMENT: staging
+      NODE_ENV: production
+      REPRESENTATIVE_COMMERCE_STATE_CONFIRM: seed staging commerce
+      REPRESENTATIVE_COMMERCE_STATE_CATALOG_ITEM_LIMIT: ${{ inputs.catalog_item_limit }}
+      PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts
+      STRIPE_CONNECT_REFRESH_URL: https://marketplace.staging.chasesets.com/account/payouts/setup
+      EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+      EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
+      EASYPOST_MODE: ${{ vars.EASYPOST_MODE || 'test' }}
+      CATALOG_ASSET_STORAGE_KIND: s3
+      CATALOG_ASSET_S3_BUCKET: chase-sets-staging-catalog-assets
+      CATALOG_ASSET_S3_REGION: nyc3
+      CATALOG_ASSET_S3_ENDPOINT: https://nyc3.digitaloceanspaces.com
+      CATALOG_ASSET_PUBLIC_BASE_URL: https://assets.staging.chasesets.com
+      CATALOG_ASSET_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      CATALOG_ASSET_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+      MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3
+      MARKETPLACE_LISTING_PHOTO_S3_BUCKET: chase-sets-staging-catalog-assets
+      MARKETPLACE_LISTING_PHOTO_S3_REGION: nyc3
+      MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT: https://nyc3.digitaloceanspaces.com
+      MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL: https://assets.staging.chasesets.com
+      MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+      MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+    steps:
+      - name: Confirm representative refresh
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm }}" != "seed staging commerce" ]; then
+            echo "Confirmation input must exactly equal 'seed staging commerce'." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_ref="${{ inputs.release_ref }}"
+          git fetch origin "${release_ref}" || true
+          if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "${release_ref}^{commit}")"
+          elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
+          else
+            echo "Release ref '${release_ref}' does not resolve to a commit." >&2
+            exit 1
+          fi
+
+          git merge-base --is-ancestor "$release_commit" origin/main
+          git checkout --detach "$release_commit"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init staging platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export staging database URLs
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
+          terraform state pull > "$state_path"
+          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
+          const fs = require("node:fs");
+          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
+          const resources = Array.isArray(state.resources) ? state.resources : [];
+          const pool = resources.find((resource) =>
+            resource.type === "digitalocean_database_connection_pool" && resource.name === "contexts"
+          );
+          if (!pool) {
+            throw new Error("Staging Terraform state does not contain context database connection pools.");
+          }
+
+          const lines = [];
+          for (const instance of pool.instances ?? []) {
+            const contextName = instance.index_key;
+            const attrs = instance.attributes ?? {};
+            if (!contextName || !attrs.user || !attrs.password || !attrs.host || !attrs.port || !attrs.name) {
+              throw new Error(`Connection pool state is incomplete for context '${contextName ?? "unknown"}'.`);
+            }
+
+            const url = `postgresql://${encodeURIComponent(attrs.user)}:${encodeURIComponent(attrs.password)}` +
+              `@${attrs.host}:${attrs.port}/${encodeURIComponent(attrs.name)}?sslmode=require`;
+            const envName = contextName === "control"
+              ? "PLATFORM_CONTROL_DATABASE_URL"
+              : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;
+            console.log(`::add-mask::${url}`);
+            lines.push(`${envName}=${url}`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Run representative commerce state refresh
+        run: pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production

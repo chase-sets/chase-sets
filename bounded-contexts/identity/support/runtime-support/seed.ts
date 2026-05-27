@@ -1,3 +1,4 @@
+import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
@@ -8,19 +9,173 @@ const DEMO_PASSKEY_ID = "crd_seed_demo_passkey";
 const SUPPORT_CONTACT_METHOD_ID = "ctm_seed_support_email";
 const DEMO_PRIMARY_KEY_PREFIX = "sk_seed_demo_primary";
 const DEMO_ROTATED_KEY_PREFIX = "sk_seed_demo_rotated";
+const REPRESENTATIVE_SEEDED_AT = "2026-05-27T00:00:00.000Z";
+
+const representativeAccounts = [
+  {
+    accountId: "acc_repr_staging_collector_account",
+    userId: "usr_repr_staging_collector_user",
+    membershipId: "mbr_repr_staging_collector_owner",
+    consentId: "cns_repr_staging_collector_terms",
+    shippingAddressId: "adr_repr_staging_collector_home",
+    contactMethodId: "ctm_repr_staging_collector_email",
+    name: "Staging Collector",
+    accountType: "personal",
+    displayName: "Staging Collector",
+    primaryEmail: "staging-collector@chasesets.test",
+    givenName: "Staging",
+    familyName: "Collector",
+    roleKey: "owner",
+    shippingAddress: {
+      name: "Staging Collector",
+      company: null,
+      line1: "180 N Wabash Ave",
+      line2: "Apt 4B",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: "3125550201",
+      email: "staging-collector@chasesets.test",
+    },
+  },
+  {
+    accountId: "acc_repr_value_buyer_account",
+    userId: "usr_repr_value_buyer_user",
+    membershipId: "mbr_repr_value_buyer_owner",
+    consentId: "cns_repr_value_buyer_terms",
+    shippingAddressId: "adr_repr_value_buyer_home",
+    contactMethodId: "ctm_repr_value_buyer_email",
+    name: "Value Buyer",
+    accountType: "personal",
+    displayName: "Value Buyer",
+    primaryEmail: "value-buyer@chasesets.test",
+    givenName: "Value",
+    familyName: "Buyer",
+    roleKey: "owner",
+    shippingAddress: {
+      name: "Value Buyer",
+      company: null,
+      line1: "401 S 2nd St",
+      line2: null,
+      city: "Saint Louis",
+      state: "MO",
+      postalCode: "63102",
+      country: "US",
+      phone: "3145550202",
+      email: "value-buyer@chasesets.test",
+    },
+  },
+  {
+    accountId: "acc_repr_card_vault_account",
+    userId: "usr_repr_card_vault_user",
+    membershipId: "mbr_repr_card_vault_owner",
+    consentId: "cns_repr_card_vault_terms",
+    shippingAddressId: "adr_repr_card_vault_receiving",
+    contactMethodId: "ctm_repr_card_vault_email",
+    name: "Card Vault",
+    accountType: "business",
+    displayName: "Card Vault",
+    primaryEmail: "staging-card-vault@chasesets.test",
+    givenName: "Card",
+    familyName: "Vault",
+    roleKey: "owner",
+    shippingAddress: {
+      name: "Card Vault Receiving",
+      company: "Card Vault",
+      line1: "720 Olive St",
+      line2: "Suite 900",
+      city: "Saint Louis",
+      state: "MO",
+      postalCode: "63101",
+      country: "US",
+      phone: "3145550203",
+      email: "staging-card-vault@chasesets.test",
+    },
+  },
+  {
+    accountId: "acc_repr_sealed_stockroom_account",
+    userId: "usr_repr_sealed_stockroom_user",
+    membershipId: "mbr_repr_sealed_stockroom_owner",
+    consentId: "cns_repr_sealed_stockroom_terms",
+    shippingAddressId: "adr_repr_sealed_stockroom_receiving",
+    contactMethodId: "ctm_repr_sealed_stockroom_email",
+    name: "Sealed Stockroom",
+    accountType: "business",
+    displayName: "Sealed Stockroom",
+    primaryEmail: "sealed-stockroom@chasesets.test",
+    givenName: "Sealed",
+    familyName: "Stockroom",
+    roleKey: "owner",
+    shippingAddress: {
+      name: "Sealed Stockroom Receiving",
+      company: "Sealed Stockroom",
+      line1: "200 S Meridian St",
+      line2: null,
+      city: "Indianapolis",
+      state: "IN",
+      postalCode: "46225",
+      country: "US",
+      phone: "3175550204",
+      email: "sealed-stockroom@chasesets.test",
+    },
+  },
+  {
+    accountId: "acc_repr_support_ops_account",
+    userId: "usr_repr_support_ops_user",
+    membershipId: "mbr_repr_support_ops_owner",
+    consentId: "cns_repr_support_ops_terms",
+    shippingAddressId: "adr_repr_support_ops_office",
+    contactMethodId: "ctm_repr_support_ops_email",
+    name: "Support Ops",
+    accountType: "business",
+    displayName: "Support Ops",
+    primaryEmail: "staging-support-ops@chasesets.test",
+    givenName: "Support",
+    familyName: "Ops",
+    roleKey: "owner",
+    shippingAddress: {
+      name: "Support Ops",
+      company: "Chase Sets",
+      line1: "221 N LaSalle St",
+      line2: "Suite 1200",
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: "3125550205",
+      email: "staging-support-ops@chasesets.test",
+    },
+  },
+] as const;
 
 function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
-export async function seedIdentityDatabase(pool: PgTransactionalPool) {
+export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const services = createIdentityServices(pool);
   const context = createIdentityBootstrapContext();
+  const shouldSeedScenario = profileEnabled(options, "scenario-seed");
+  const shouldSeedRepresentative = profileEnabled(options, "representative-commerce-state");
+
+  if (!shouldSeedScenario && !shouldSeedRepresentative) {
+    console.log("Identity seed skipped for selected data profiles.");
+    return;
+  }
+
+  if (!shouldSeedScenario) {
+    await seedRepresentativeIdentityAccounts(services, context);
+    return;
+  }
 
   try {
     const existing = await services.db.query("SELECT COUNT(*) AS count FROM identity_accounts");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Identity already contains data. Skipping seed.");
+      if (shouldSeedRepresentative) {
+        await seedRepresentativeIdentityAccounts(services, context);
+      }
       return;
     }
   } catch {
@@ -583,4 +738,131 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool) {
     command: { type: "RevokeApiKey" },
     context,
   });
+
+  if (shouldSeedRepresentative) {
+    await seedRepresentativeIdentityAccounts(services, context);
+  }
+}
+
+function profileEnabled(options: BcSeedOptions | undefined, profile: EnvironmentDataProfile): boolean {
+  const defaultProfiles: readonly EnvironmentDataProfile[] = [
+    "critical-bootstrap",
+    "catalog-integration-bootstrap",
+    "scenario-seed",
+  ];
+
+  return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
+}
+
+async function seedRepresentativeIdentityAccounts(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+) {
+  for (const account of representativeAccounts) {
+    if (!(await rowExists(services.db, "identity_accounts", "account_id", account.accountId))) {
+      await services.accounts.commandHandler({
+        streamId: `identity.account-${account.accountId}`,
+        command: {
+          type: "CreateAccount",
+          accountId: account.accountId as never,
+          name: account.name,
+          accountType: account.accountType,
+          displayName: account.displayName,
+        },
+        context,
+      });
+    }
+
+    if (!(await rowExists(services.db, "identity_users", "user_id", account.userId))) {
+      await services.users.commandHandler({
+        streamId: `identity.user-${account.userId}`,
+        command: {
+          type: "CreateUser",
+          userId: account.userId as never,
+          displayName: account.name,
+          primaryEmail: account.primaryEmail,
+          givenName: account.givenName,
+          familyName: account.familyName,
+          primaryContactMethod: {
+            contactMethodId: account.contactMethodId,
+            type: "email",
+            value: account.primaryEmail,
+            verifiedAt: REPRESENTATIVE_SEEDED_AT,
+          },
+        },
+        context,
+      });
+      await services.users.commandHandler({
+        streamId: `identity.user-${account.userId}`,
+        command: {
+          type: "EnableAuthMethod",
+          authMethod: "magic-link",
+        },
+        context,
+      });
+    }
+
+    if (!(await rowExists(services.db, "identity_memberships", "membership_id", account.membershipId))) {
+      await services.memberships.commandHandler({
+        streamId: `identity.membership-${account.membershipId}`,
+        command: {
+          type: "GrantMembership",
+          membershipId: account.membershipId as never,
+          userId: account.userId as never,
+          accountId: account.accountId as never,
+          roleKey: account.roleKey,
+        },
+        context,
+      });
+    }
+
+    if (!(await rowExists(services.db, "identity_consents", "consent_id", account.consentId))) {
+      await services.consents.commandHandler({
+        streamId: `identity.consent-${account.consentId}`,
+        command: {
+          type: "RecordConsent",
+          consentId: account.consentId as never,
+          subjectType: "user",
+          userId: account.userId as never,
+          accountId: account.accountId as never,
+          policyKey: "terms-of-service",
+          policyVersion: "v1",
+          recordedAt: REPRESENTATIVE_SEEDED_AT,
+        },
+        context,
+      });
+    }
+
+    if (
+      !(await rowExists(services.db, "identity_shipping_addresses", "shipping_address_id", account.shippingAddressId))
+    ) {
+      await services.shippingAddresses.commandHandler({
+        streamId: `identity.shipping-address-book-${account.accountId}`,
+        command: {
+          type: "AddShippingAddress",
+          accountId: account.accountId as never,
+          shippingAddressId: account.shippingAddressId as never,
+          label: "Representative staging address",
+          address: account.shippingAddress,
+          makeDefault: true,
+          addedAt: REPRESENTATIVE_SEEDED_AT,
+        },
+        context,
+      });
+    }
+  }
+}
+
+async function rowExists(
+  db: ReturnType<typeof createIdentityServices>["db"],
+  tableName: string,
+  columnName: string,
+  value: string,
+): Promise<boolean> {
+  try {
+    const existing = await db.query(`SELECT 1 FROM ${tableName} WHERE ${columnName} = $1 LIMIT 1`, [value]);
+    return existing.rows.length > 0;
+  } catch {
+    return false;
+  }
 }

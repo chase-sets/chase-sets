@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted, amended by [ADR 0005: Representative Staging Commerce State](./0005-representative-staging-commerce-state.md)
 
 ## Context
 
@@ -18,7 +18,9 @@ Chase Sets uses explicit environment data profiles:
 - `catalog-integration-bootstrap`: Catalog-owned provider integration structure such as fields, dimensions, categories, reference data, components, and blueprints needed to import and promote provider facts.
 - `scenario-seed`: non-production fake/demo accounts, inventory, listings, purchases, fulfillment, payments, settlement, reviews, support cases, and example pricing activity.
 
-Production and staging run only `critical-bootstrap` and `catalog-integration-bootstrap`. TCGdex imports in staging and production are operator-triggered. Bootstrap creates import capability and Catalog structure, but does not import, promote, or publish provider content there.
+Production and staging deployment bootstrap run only `critical-bootstrap` and `catalog-integration-bootstrap`. TCGdex imports in staging and production are operator-triggered. Bootstrap creates import capability and Catalog structure, but does not import, promote, or publish provider content there.
+
+ADR 0005 adds `representative-commerce-state` as an explicit staging-only operator action. It does not run as normal deployment bootstrap, remains blocked in production, and layers synthetic accounts/commerce usage over real current Catalog integration output rather than creating fake Catalog Items.
 
 Dev, preview, and test may run all three profiles so they can represent real workflows with a small scenario dataset.
 

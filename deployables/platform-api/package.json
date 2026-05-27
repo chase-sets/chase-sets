@@ -11,6 +11,8 @@
     "bootstrap:production": "tsx src/bootstrap.ts",
     "build": "tsc -p ./tsconfig.json --noEmit",
     "dev": "tsx watch --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
+    "representative-commerce-state": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/representative-commerce-state.ts",
+    "representative-commerce-state:production": "tsx src/representative-commerce-state.ts",
     "start": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
     "start:production": "tsx src/main.ts",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",

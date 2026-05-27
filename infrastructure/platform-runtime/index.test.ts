@@ -5,6 +5,7 @@ import {
   getApiHostSeedOrder,
   nonProductionDataProfiles,
   productionLikeDataProfiles,
+  representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
   type ApiContextRegistry,
 } from "./api";
@@ -46,7 +47,12 @@ function createModule(
   contextName: string,
   options: Readonly<{
     projectors?: readonly ReturnType<typeof createCountingProjector>["projector"][];
-    seedProfiles?: readonly ("critical-bootstrap" | "catalog-integration-bootstrap" | "scenario-seed")[];
+    seedProfiles?: readonly (
+      | "critical-bootstrap"
+      | "catalog-integration-bootstrap"
+      | "scenario-seed"
+      | "representative-commerce-state"
+    )[];
     seed?: () => Promise<void>;
   }> = {},
 ) {
@@ -343,6 +349,51 @@ describe("platform host api registry", () => {
 
     expect(identityProjector.runOnce).toHaveBeenCalledTimes(0);
     expect(authProjector.runOnce).toHaveBeenCalledTimes(0);
+  });
+
+  it("runs representative commerce state only for explicitly opted-in seed modules", async () => {
+    const identitySeed = vi.fn(async () => undefined);
+    const marketplaceSeed = vi.fn(async () => undefined);
+    const registry = [
+      {
+        contextName: "identity",
+        packageName: "@test/identity",
+        manifest: {
+          contextName: "identity",
+          apiDeployables: ["platform-api"],
+        },
+        module: createModule("identity", {
+          seedProfiles: ["representative-commerce-state"],
+          seed: identitySeed,
+        }),
+      },
+      {
+        contextName: "marketplace",
+        packageName: "@test/marketplace",
+        manifest: {
+          contextName: "marketplace",
+          apiDeployables: ["platform-api"],
+          seedRequirements: ["identity"],
+        },
+        module: createModule("marketplace", {
+          seed: marketplaceSeed,
+        }),
+      },
+    ] as const satisfies ApiContextRegistry;
+    const runtime = createApiHost(registry, "platform-api", {
+      pools: {
+        identity: createPool() as never,
+        marketplace: createPool() as never,
+      },
+    });
+
+    await seedApiHostIfEmpty(registry, "platform-api", runtime, {
+      enabledDataProfiles: representativeCommerceStateDataProfiles,
+      environmentName: "staging",
+    });
+
+    expect(identitySeed).toHaveBeenCalledTimes(2);
+    expect(marketplaceSeed).not.toHaveBeenCalled();
   });
 });
 

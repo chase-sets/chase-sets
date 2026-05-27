@@ -42,7 +42,7 @@ Preview app components:
 - `platform-worker`: full-system background workers and worker health.
 - `platform-bootstrap`: `PRE_DEPLOY` schema, seed, control-plane, and platform-admin reconciliation.
 
-In staging and production, `platform-bootstrap` runs only the long-lived data profiles: `critical-bootstrap` and `catalog-integration-bootstrap`. Bootstrap reconciles schemas, required operating data, and Catalog integration structure. It does not run host-level projection, subscription, outbox, job, or Catalog seed projector drains in these long-lived environments; worker components own that catch-up after deployment. Preview keeps the full bootstrap drain because `scenario-seed` depends on cross-context scenario projections and local Catalog read models.
+In staging and production, `platform-bootstrap` runs only the long-lived data profiles: `critical-bootstrap` and `catalog-integration-bootstrap`. Bootstrap reconciles schemas, required operating data, and Catalog integration structure. It does not run host-level projection, subscription, outbox, job, or Catalog seed projector drains in these long-lived environments; worker components own that catch-up after deployment. Preview keeps the full bootstrap drain because `scenario-seed` depends on cross-context scenario projections and local Catalog read models. Staging representative marketplace data is handled separately through the `representative-commerce-state` operator flow described in [Staging Representative Commerce State](./staging-representative-commerce-state.md); it is not part of ordinary deployment bootstrap and is blocked in production.
 
 Preview environments are disposable and intentionally `noindex,nofollow` for landing and marketplace.
 
@@ -230,6 +230,8 @@ The staging job:
 15. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the staging marketplace root with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
 
 Production starts automatically only after this staging job deploys and smokes the release commit. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.
+
+Representative commerce state is intentionally outside this normal staging deploy path. Run `.github/workflows/platform-staging-representative-commerce-state.yml` after staging reset or after Catalog integration imports when staging needs fresh internal accounts, inventory, listings, offers, and accepted-offer purchase/sale coverage over newly imported Catalog Items.
 
 ## Preview Cleanup
 

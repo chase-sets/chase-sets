@@ -6,3 +6,9 @@ export type {
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
+export {
+  ensureRepresentativeInventoryStock,
+  selectDefaultRepresentativeOptions,
+  type InventoryRepresentativeCatalogCandidate,
+  type RepresentativeInventoryStockResult,
+} from "./support/seed-support/representative-commerce-state";

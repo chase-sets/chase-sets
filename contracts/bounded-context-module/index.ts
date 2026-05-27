@@ -103,7 +103,11 @@ export type BcProjectionGroup = BcProjectionGroupDeclaration &
     readonly reset?: (context?: ProjectionRunContext) => Promise<void>;
   }>;
 
-export type EnvironmentDataProfile = "critical-bootstrap" | "catalog-integration-bootstrap" | "scenario-seed";
+export type EnvironmentDataProfile =
+  | "critical-bootstrap"
+  | "catalog-integration-bootstrap"
+  | "scenario-seed"
+  | "representative-commerce-state";
 
 export type BcSeedOptions = Readonly<{
   enabledDataProfiles: readonly EnvironmentDataProfile[];
