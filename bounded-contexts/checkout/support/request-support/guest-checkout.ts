@@ -1,6 +1,7 @@
 import { createId } from "@chase-sets/primitives/typed-ids";
 
 export const CHECKOUT_ANONYMOUS_CART_COOKIE_NAME = "chase_sets_anonymous_cart";
+export const CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME = "chase_sets_anonymous_sell_list";
 export const CHECKOUT_GUEST_COOKIE_NAME = "chase_sets_guest_checkout";
 const THIRTY_DAYS_SECONDS = 60 * 60 * 24 * 30;
 const ONE_DAY_SECONDS = 60 * 60 * 24;
@@ -45,10 +46,26 @@ export function ensureAnonymousCartId(request: Request) {
   return readAnonymousCartId(request) ?? `anon_${createId("cmd")}`;
 }
 
+export function readAnonymousSellListId(request: Request) {
+  const value = parseCookieHeader(request.headers.get("cookie")).get(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME) ?? null;
+  return value?.startsWith("anon_") ? value : null;
+}
+
+export function ensureAnonymousSellListId(request: Request) {
+  return readAnonymousSellListId(request) ?? `anon_${createId("cmd")}`;
+}
+
 export function appendAnonymousCartCookie(headers: Headers, anonymousCartId: string) {
   headers.append(
     "Set-Cookie",
     serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, anonymousCartId, THIRTY_DAYS_SECONDS),
+  );
+}
+
+export function appendAnonymousSellListCookie(headers: Headers, anonymousSellListId: string) {
+  headers.append(
+    "Set-Cookie",
+    serializeCookie(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME, anonymousSellListId, THIRTY_DAYS_SECONDS),
   );
 }
 
@@ -58,6 +75,10 @@ export function appendGuestCheckoutCookie(headers: Headers, guestToken: string) 
 
 export function appendClearedAnonymousCartCookie(headers: Headers) {
   headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, "", 0));
+}
+
+export function appendClearedAnonymousSellListCookie(headers: Headers) {
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME, "", 0));
 }
 
 export function appendClearedGuestCheckoutCookie(headers: Headers) {

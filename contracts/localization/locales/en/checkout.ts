@@ -214,6 +214,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.checkout": "Checkout",
   "checkout.features.sellList.ui.sellListPage.checkout.owns.the.review.step":
     "Checkout owns the review step because accepting offers uses payment triggers, sale commitment, payout, and fulfillment orchestration.",
+  "checkout.features.sellList.ui.sellListPage.create.account": "Create account",
   "checkout.features.sellList.ui.sellListPage.create.listings": "create listings",
   "checkout.features.sellList.ui.sellListPage.disabled": "disabled",
   "checkout.features.sellList.ui.sellListPage.execution": "Execution",
@@ -230,6 +231,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.review.sale.checkout": "Review sale checkout",
   "checkout.features.sellList.ui.sellListPage.review.selected.offers.and.product.level":
     "Review selected offers and product-level seller intent before Chase Sets creates commitments, payouts, and fulfillment work.",
+  "checkout.features.sellList.ui.sellListPage.saved.for.later.description":
+    "Keep adding products while signed out. Create an account when you are ready to review sale checkout, accept offers, create listings, and set up payouts.",
+  "checkout.features.sellList.ui.sellListPage.saved.for.later.title": "Sell List saved on this device",
   "checkout.features.sellList.ui.sellListPage.selected.offer": "Selected offer",
   "checkout.features.sellList.ui.sellListPage.selected.offer.lines.will.appear":
     "Selected offer lines will appear here before sale checkout.",
@@ -237,6 +241,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.selected.offers": "Selected offers",
   "checkout.features.sellList.ui.sellListPage.sell.list": "Sell List",
   "checkout.features.sellList.ui.sellListPage.sell.list.lines": "Sell List lines",
+  "checkout.features.sellList.ui.sellListPage.sign.in": "Sign in",
+  "checkout.features.sellList.ui.sellListPage.sign.in.to.review.sale.checkout":
+    "Create an account or sign in to review sale checkout, confirm inventory, accept offers, create listings, and continue payout setup.",
   "checkout.features.sellList.ui.sellListPage.smart.match.offers.for.quantity":
     "Smart Match offers for {quantity}; fallback {fallback}.",
   "checkout.features.sellList.ui.sellListPage.smart.match.settings": "Smart Match settings",

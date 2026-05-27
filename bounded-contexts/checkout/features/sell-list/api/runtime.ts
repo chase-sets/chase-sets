@@ -25,6 +25,15 @@ import {
 import { buildCheckoutSellListProjectionHandlers } from "../read-model/projection";
 import { listSellListLines } from "../read-model/queries";
 
+function isIdempotentMergeReplay(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.message.includes("Sell list line has already been added.") ||
+      error.message.includes("Sell list must contain at least one line.") ||
+      error.message.includes("Sell list has not been initialized."))
+  );
+}
+
 export type AddCheckoutSellListLineInput = Readonly<{
   sellerAccountId: AccountId;
   lineType: "selected-offer" | "product";
@@ -59,6 +68,13 @@ export type CheckoutSellListServices = Readonly<{
     params: Readonly<{ sellerAccountId: AccountId; lineId: SellListLineId }>,
     context: EventStoreContext,
   ) => Promise<{ lineId: SellListLineId; version: number }>;
+  mergeSellListIntoAccount: (
+    params: Readonly<{
+      sourceOwnerId: string;
+      targetAccountId: AccountId;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ mergedLineCount: number }>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -189,6 +205,66 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       });
 
       return { lineId: params.lineId, version: result.version };
+    },
+    mergeSellListIntoAccount: async (params, context) => {
+      const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);
+      const existingTargetLineIds = new Set(
+        (await listSellListLines(deps.db, params.targetAccountId)).map((line) => line.line_id),
+      );
+      for (const line of sourceLines) {
+        if (existingTargetLineIds.has(line.line_id)) {
+          continue;
+        }
+
+        try {
+          await commandHandler({
+            streamId: `checkout.sell-list-${params.targetAccountId}`,
+            command: {
+              type: "AddSellListLine",
+              sellerAccountId: params.targetAccountId,
+              lineId: line.line_id as SellListLineId,
+              lineType: line.line_type,
+              offerId: line.offer_id,
+              buyerAccountId: line.buyer_account_id,
+              buyerDisplayName: line.buyer_display_name,
+              offerPriceAmount: line.offer_price_amount,
+              catalogItemId: line.catalog_catalog_item_id,
+              productId: line.product_id,
+              itemTitle: line.item_title,
+              itemSubtitle: line.item_subtitle,
+              selectedOptions: line.selected_options,
+              productSummary: line.product_summary,
+              quantity: line.quantity,
+              fallbackMode: line.fallback_mode,
+              minimumListingPriceAmount: line.minimum_listing_price_amount,
+            },
+            context,
+          });
+        } catch (error) {
+          if (!isIdempotentMergeReplay(error)) {
+            throw error;
+          }
+        }
+      }
+
+      if (sourceLines.length > 0) {
+        try {
+          await commandHandler({
+            streamId: `checkout.sell-list-${params.sourceOwnerId}`,
+            command: {
+              type: "CheckoutSellList",
+              checkedOutAt: new Date().toISOString(),
+            },
+            context,
+          });
+        } catch (error) {
+          if (!isIdempotentMergeReplay(error)) {
+            throw error;
+          }
+        }
+      }
+
+      return { mergedLineCount: sourceLines.length };
     },
     listLines: (sellerAccountId) => listSellListLines(deps.db, sellerAccountId),
     projectors: [sellListProjector],

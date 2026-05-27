@@ -261,8 +261,30 @@ export function createCheckoutApiClient({
     async getSellList(): Promise<{ items: readonly CheckoutSellListLineRow[]; count: number }> {
       return parseJsonResponse(await client.account["sell-list"].$get({ header: headers }));
     },
+    async getGuestSellList(
+      anonymousSellListId: string | null,
+    ): Promise<{ items: readonly CheckoutSellListLineRow[]; count: number }> {
+      return parseJsonResponse(
+        await client.guest["sell-list"].$get({
+          header: mergeHeaders(
+            headers,
+            anonymousSellListId ? { "x-checkout-anonymous-sell-list-id": anonymousSellListId } : {},
+          ),
+        }),
+      );
+    },
     async addSellListLine(body: AddCheckoutSellListLineRequest) {
       return parseJsonResponse(await client.account["sell-list"].$post({ json: body, header: headers }));
+    },
+    async addGuestSellListLine(anonymousSellListId: string, body: AddCheckoutSellListLineRequest) {
+      return parseJsonResponse(
+        await client.guest["sell-list"].$post({
+          json: body,
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-sell-list-id": anonymousSellListId,
+          }),
+        }),
+      );
     },
     async removeSellListLine(lineId: string) {
       return parseJsonResponse(
@@ -273,12 +295,33 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async removeGuestSellListLine(anonymousSellListId: string, lineId: string) {
+      return parseJsonResponse(
+        await client.guest["sell-list"][":lineId"].remove.$post({
+          param: { lineId },
+          json: {},
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-sell-list-id": anonymousSellListId,
+          }),
+        }),
+      );
+    },
     async mergeGuestCartToAccount(anonymousCartId: string) {
       return parseJsonResponse(
         await client.guest.cart["merge-to-account"].$post({
           json: {},
           header: mergeHeaders(headers, {
             "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
+        }),
+      );
+    },
+    async mergeGuestSellListToAccount(anonymousSellListId: string) {
+      return parseJsonResponse(
+        await client.guest["sell-list"]["merge-to-account"].$post({
+          json: {},
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-sell-list-id": anonymousSellListId,
           }),
         }),
       );

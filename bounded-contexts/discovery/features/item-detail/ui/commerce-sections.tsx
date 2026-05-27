@@ -1539,6 +1539,7 @@ export function SellActionCard({
   hasMatchingOffer,
   canUseSellerFeatures,
   canUseListingFeatures = canUseSellerFeatures,
+  canUseProductSellListFeatures = canUseListingFeatures,
   renderSellNow,
   renderAddToSellList,
   renderAddProductToSellList,
@@ -1553,12 +1554,19 @@ export function SellActionCard({
   hasMatchingOffer: boolean;
   canUseSellerFeatures: boolean;
   canUseListingFeatures?: boolean;
+  canUseProductSellListFeatures?: boolean;
   renderSellNow: (formId: string) => ReactNode;
   renderAddToSellList: (formId: string) => ReactNode;
   renderAddProductToSellList: (formId: string) => ReactNode;
   renderListing: (formId: string) => ReactNode;
 }) {
-  const defaultAction: SellAction | "" = hasMatchingOffer ? "sell-now" : canUseListingFeatures ? "list-for-sale" : "";
+  const defaultAction: SellAction | "" = hasMatchingOffer
+    ? "sell-now"
+    : canUseProductSellListFeatures
+      ? "add-product-to-sell-list"
+      : canUseListingFeatures
+        ? "list-for-sale"
+        : "";
   const [selectedAction, setSelectedAction] = useState<SellAction | "">(defaultAction);
 
   useEffect(() => {
@@ -1585,7 +1593,7 @@ export function SellActionCard({
       label: t("discovery.routes.itemDetail.add.product.to.sell.list"),
       description: t("discovery.routes.itemDetail.add.product.to.sell.list.action.description"),
       icon: "spark",
-      disabled: !productId || !canUseListingFeatures,
+      disabled: !productId || !canUseProductSellListFeatures,
     },
     {
       value: "list-for-sale",
