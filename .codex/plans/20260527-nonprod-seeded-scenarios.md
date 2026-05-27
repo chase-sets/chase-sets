@@ -14,8 +14,8 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260527-nonprod-seeded-scenarios`
-- Branch: `codex/nonprod-seeded-scenarios`
-- Base: refreshed `origin/main` at `0ab4fb8ed3e79450a0a2a5116d9f4d90e29e63dd`
+- Branch: `codex/representative-refresh-current-catalog` follow-up from the original `codex/nonprod-seeded-scenarios` delivery branch
+- Base: refreshed `origin/main` at `09b1aa5fea27da35f5d53a6d05b2b779c3ab5721`
 - Sandbox id: `7b0f3e80`
 - Dependency setup status: `pnpm run deps:install` completed
 - pnpm store path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\.chase-sets-pnpm-store`
@@ -35,8 +35,9 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Marketplace accepts a bounded subset of representative offers with current fee quotes, then the platform command syncs targeted Marketplace and Ordering projection groups so accepted offers create purchase/sale/order coverage without trying to drain unrelated live staging work.
 - A manual `Platform Staging Representative Commerce State` workflow runs the command against live staging after reset or Catalog imports while normal staging deployment bootstrap stays representative-data-free.
 - Live staging refresh attempts showed whole-context projection syncs can still run too long while workers are active. The command now logs each step, bounds step duration, and syncs only named projection groups needed for the next representative handoff.
-- The first bounded staging refresh completed but found zero candidates because Catalog-derived Marketplace/Inventory read models were not explicitly synced before candidate selection; the command now syncs those projections before loading current untouched Catalog Items.
-- The Catalog-derived Marketplace projection exceeded the generic two-minute step timeout in live staging; Catalog projection sync now has its own bounded ten-minute default while later commerce handoffs keep the tighter default.
+- The first bounded staging refresh completed but found zero candidates because Catalog-derived Marketplace/Inventory read models were not current before candidate selection.
+- Explicit Catalog-derived projection sync then failed in live staging because replaying the full Marketplace catalog projection exceeded both two-minute and ten-minute bounded refresh windows.
+- Current follow-up design: Catalog selects active current Catalog Items with product measurement snapshots directly from Catalog-owned read models; Marketplace filters that list to items untouched by listings/offers; Marketplace and Inventory reconcile only the selected item facts into their local catalog read models before usage generation.
 
 ## Owning Contexts
 
@@ -62,7 +63,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - ADR 0003 currently says staging and production run only `critical-bootstrap` and `catalog-integration-bootstrap`, while `scenario-seed` is limited to dev, preview, and test. That policy keeps bootstrap safe but leaves staging under-representative.
 - `EnvironmentDataProfile` currently has only `critical-bootstrap`, `catalog-integration-bootstrap`, and `scenario-seed`.
 - `seedApiHostIfEmpty` runs the full cross-context projection drain only when `scenario-seed` is enabled. Representative staging refresh uses command-owned targeted projection syncs instead.
-- Marketplace candidate selection reads `marketplace_catalog_items`, and Inventory stock creation reads `inventory_catalog_items`; both are Catalog-sourced projections that must be current before representative usage can be generated over fresh integration output.
+- Marketplace and Inventory catalog projections can lag behind large Catalog integration imports; full inline replay is too expensive for an operator refresh. The refresh should use Catalog-owned current item truth for candidate discovery, then reconcile only selected items into Marketplace/Inventory local read models.
 - Most commerce context seeds default to `scenario-seed` and already create useful baseline states, but several are development-shaped: fake payment gateways, synthetic provider references, fixed fake Catalog Item ids, `seed://` attachments, March 2026 timestamps, and generic demo labels. They should not be reused directly for representative staging coverage.
 - Staging reset already exists as `.github/workflows/platform-staging-reset.yml`; it destroys/recreates staging and smokes it. This is the natural hook for a fresh representative dataset.
 - DigitalOcean `platform-bootstrap` is a `PRE_DEPLOY` App Platform job. Normal staging deploys should keep this production-safe.
@@ -74,9 +75,9 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Do not add representative data to default staging deploy bootstrap.
 - Run representative state only from explicit staging reset and a future manual refresh workflow.
 - Hard-block `representative-commerce-state` in production config and runtime entrypoints.
-- Keep real Catalog integration data. Representative generation should query active current Catalog Items from marketplace/discovery projections and prefer items with no existing listings, offers, or sales.
+- Keep real Catalog integration data. Representative generation should query active current Catalog Items from Catalog-owned read models, let Marketplace filter out touched items, and prefer items with no existing listings, offers, or sales.
 - Do not run fixed fake Catalog Item scenario seeds for `representative-commerce-state`.
-- Use bounded-context commands, APIs, and source events; do not insert read-model rows directly.
+- Use bounded-context commands, APIs, and source events for business behavior. The only read-model reconciliation allowed in this refresh is context-owned selected Catalog Item fact reconciliation inside Marketplace and Inventory support code, because it replaces an unbounded full projection replay and does not create business usage facts.
 - Keep generated usage idempotent through stable run ids, item-derived aliases, and reserved synthetic account/usage ids.
 - Prefer realistic but internal data over copied production data. No production PII, payment details, payout details, or raw provider payloads.
 - Use staging/test-mode providers. Allow local/test fake adapters only outside staging.
@@ -109,12 +110,16 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Add a platform-runtime helper that runs context seeds in lifecycle order with `enabledDataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap", "representative-commerce-state"]`.
 - Ensure the command logs a scenario-run id, profile, environment, and counts by context.
 - Add a local/test mode that uses fake payment/postage/money movement adapters so DB tests can exercise the command without external providers.
-- Add candidate selection from projected current Catalog Items:
-  - source: Marketplace or Discovery catalog projections after Catalog import/promotion has replayed;
+- Add candidate selection from current Catalog Items:
+  - source: Catalog-owned read models after Catalog import/promotion;
   - eligible: active Catalog Items with resolved products and product measurement snapshots;
   - priority 1: no listings, offers, or completed sales;
   - priority 2: stale or thin market state below configured density;
   - excluded: items already touched by the same representative run id unless reconciliation is requested.
+- Add selected-item reconciliation before usage generation:
+  - Marketplace owns filtering untouched items and writing selected current item facts into `marketplace_catalog_items`;
+  - Inventory owns writing selected current item facts into `inventory_catalog_items`;
+  - the platform command composes those context-owned helpers and never drains full Catalog projections inline.
 - Make the item limit configurable so operators can run a small post-import coverage pass.
 
 ### Phase 3: Context-Owned Account And Usage Generators

@@ -8,6 +8,7 @@ export type {
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
 export {
   ensureRepresentativeInventoryStock,
+  reconcileRepresentativeInventoryCatalogItems,
   selectDefaultRepresentativeOptions,
   type InventoryRepresentativeCatalogCandidate,
   type RepresentativeInventoryStockResult,

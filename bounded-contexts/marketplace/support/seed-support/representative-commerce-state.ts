@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
@@ -100,6 +101,79 @@ export async function loadUntouchedMarketplaceCatalogUsageCandidates(
     blueprintId: row.blueprint_id,
     updatedAt: new Date(row.updated_at).toISOString(),
   }));
+}
+
+export async function filterUntouchedMarketplaceCatalogUsageCandidates(
+  db: Pick<PgQueryable, "query">,
+  candidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
+  options: Readonly<{ limit?: number }> = {},
+): Promise<readonly CatalogRepresentativeCatalogUsageCandidate[]> {
+  const limit = normalizeRepresentativeCandidateLimit(options.limit);
+  const candidateIds = candidates.map((candidate) => candidate.catalogItemId);
+  if (candidateIds.length === 0) {
+    return [];
+  }
+
+  const touchedResult = await db.query<{ catalog_item_id: string }>(
+    `SELECT DISTINCT touched.catalog_item_id
+     FROM (
+       SELECT listing.catalog_catalog_item_id AS catalog_item_id
+       FROM marketplace_listing_pages listing
+       WHERE listing.catalog_catalog_item_id = ANY($1::text[])
+       UNION
+       SELECT offer.catalog_catalog_item_id AS catalog_item_id
+       FROM marketplace_offer_pages offer
+       WHERE offer.catalog_catalog_item_id = ANY($1::text[])
+     ) touched
+     WHERE touched.catalog_item_id IS NOT NULL`,
+    [candidateIds],
+  );
+  const touchedCatalogItemIds = new Set(touchedResult.rows.map((row) => row.catalog_item_id));
+
+  return candidates.filter((candidate) => !touchedCatalogItemIds.has(candidate.catalogItemId)).slice(0, limit);
+}
+
+export async function reconcileRepresentativeMarketplaceCatalogItems(
+  db: Pick<PgQueryable, "query">,
+  candidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
+): Promise<number> {
+  for (const candidate of candidates) {
+    await db.query(
+      `INSERT INTO marketplace_catalog_items (
+         catalog_item_id,
+         language_code,
+         title,
+         subtitle,
+         blueprint_id,
+         status,
+         product_measure_snapshots,
+         product_schema,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (catalog_item_id) DO UPDATE SET
+         language_code = EXCLUDED.language_code,
+         title = EXCLUDED.title,
+         subtitle = EXCLUDED.subtitle,
+         blueprint_id = EXCLUDED.blueprint_id,
+         status = EXCLUDED.status,
+         product_measure_snapshots = EXCLUDED.product_measure_snapshots,
+         product_schema = EXCLUDED.product_schema,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        candidate.catalogItemId,
+        candidate.languageCode,
+        candidate.title,
+        candidate.subtitle,
+        candidate.blueprintId,
+        candidate.status,
+        JSON.stringify(candidate.productMeasureSnapshots),
+        candidate.productSchema ? JSON.stringify(candidate.productSchema) : null,
+        candidate.updatedAt,
+      ],
+    );
+  }
+
+  return candidates.length;
 }
 
 export function normalizeRepresentativeCandidateLimit(value: number | undefined): number {

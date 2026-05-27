@@ -11,8 +11,10 @@ export {
   marketplaceRealtimeTopics,
 } from "./support/realtime-support/topics";
 export {
+  filterUntouchedMarketplaceCatalogUsageCandidates,
   loadUntouchedMarketplaceCatalogUsageCandidates,
   normalizeRepresentativeCandidateLimit,
+  reconcileRepresentativeMarketplaceCatalogItems,
   acceptRepresentativeOffers,
   publishRepresentativeListings,
   submitRepresentativeOffers,
