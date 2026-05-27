@@ -18,6 +18,12 @@ describe("user domain", () => {
 
     expect(enabledState.primaryEmail).toBe("seller@example.com");
     expect(enabledState.authMethods).toContain("password");
+    expect(
+      decideUser(enabledState, {
+        type: "EnableAuthMethod",
+        authMethod: "password",
+      }),
+    ).toEqual([]);
   });
 
   it("links social login provider identities once per user", () => {
@@ -45,7 +51,7 @@ describe("user domain", () => {
         linkedAt: "2026-05-14T00:00:00.000Z",
       },
     ]);
-    expect(() =>
+    expect(
       decideUser(linkedState, {
         type: "LinkSocialLogin",
         providerName: "google",
@@ -53,6 +59,6 @@ describe("user domain", () => {
         email: "social@example.com",
         linkedAt: "2026-05-14T00:00:00.000Z",
       }),
-    ).toThrow("Social login is already linked.");
+    ).toEqual([]);
   });
 });

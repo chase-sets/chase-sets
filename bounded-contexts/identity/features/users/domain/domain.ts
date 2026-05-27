@@ -265,7 +265,9 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       ];
     case "EnableAuthMethod":
       requireCreatedUser(state);
-      assert(!state.authMethods.includes(command.authMethod), "Auth method already enabled.");
+      if (state.authMethods.includes(command.authMethod)) {
+        return [];
+      }
       return [
         {
           type: "identity.user.auth-method-enabled",
@@ -293,12 +295,13 @@ export const decideUser: AggregateDecider<UserState, UserCommand, UserEvent> = (
       requireCreatedUser(state);
       const providerSubject = normalizeLabel(command.providerSubject);
       assert(providerSubject.length > 0, "Social login subject is required.");
-      assert(
-        !state.socialLoginLinks.some(
+      if (
+        state.socialLoginLinks.some(
           (link) => link.providerName === command.providerName && link.providerSubject === providerSubject,
-        ),
-        "Social login is already linked.",
-      );
+        )
+      ) {
+        return [];
+      }
       return [
         {
           type: "identity.user.social-login-linked",
