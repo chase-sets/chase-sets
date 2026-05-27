@@ -117,6 +117,8 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         environmentName: config.deploymentEnvironment ?? null,
       }),
     );
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-catalog-item-projection");
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-catalog-item-projection");
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
     const candidates = await runRepresentativeStep("load untouched marketplace catalog candidates", () =>
       loadUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), {
