@@ -390,6 +390,29 @@ describe("design-system", () => {
     expect(markup).not.toContain("/assets/pokemon-card-back.webp");
   });
 
+  it("keeps permanent fallback images visible as search result card-back previews", () => {
+    const markup = renderToString(
+      <ListingCard
+        cardLayout="search-result"
+        title="Bayleef 002/132"
+        imageSrc="/assets/bayleef-front.webp"
+        imageAlt="Bayleef 002/132"
+        imageSlot="compact-product"
+        imageFallbackSrc="/assets/pokemon-card-back.webp"
+        imageFallbackAlt="Pokemon card back"
+        imageFallbackMode="permanent"
+        primaryAction={<Button>Sell</Button>}
+        secondaryAction={false}
+      />,
+    );
+
+    expect(markup).toContain("/assets/bayleef-front.webp");
+    expect(markup).toContain("/assets/pokemon-card-back.webp");
+    expect(markup).toContain("-translate-x-2");
+    expect(markup).toContain("opacity-75");
+    expect(markup).toContain("z-10");
+  });
+
   it("keeps search-result media placeholders free of generic product copy", () => {
     const markup = renderToString(
       <ListingCard

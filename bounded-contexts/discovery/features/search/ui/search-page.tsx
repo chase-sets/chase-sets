@@ -744,7 +744,7 @@ export function SearchPage({
           />
         ) : data ? (
           <>
-            <Grid columns={{ base: 1, md: 2, xl: 2 }} gap={4}>
+            <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;

@@ -141,6 +141,12 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
 }
 
 describe("SearchPage", () => {
+  it("allows wide desktop search result grids to use a third column", () => {
+    renderSearchPage();
+
+    expect(document.body.innerHTML).toContain("2xl:grid-cols-3");
+  });
+
   it("uses Product Asset Set search variants before compatibility image URLs", () => {
     renderSearchPage({
       data: {
