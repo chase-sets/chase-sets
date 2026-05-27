@@ -6,7 +6,7 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import { drainContextRuntime, syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
+import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -126,7 +126,6 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     const acceptedOffers = await acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock);
     await syncContextProjectionGroups(runtime, "marketplace");
     await syncContextProjectionGroups(runtime, "ordering");
-    await drainContextRuntime(runtime);
 
     console.log(
       JSON.stringify({

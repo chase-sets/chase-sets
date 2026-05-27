@@ -392,7 +392,7 @@ describe("platform host api registry", () => {
       environmentName: "staging",
     });
 
-    expect(identitySeed).toHaveBeenCalledTimes(2);
+    expect(identitySeed).toHaveBeenCalledTimes(1);
     expect(marketplaceSeed).not.toHaveBeenCalled();
   });
 });

@@ -217,10 +217,7 @@ export function getApiHostSeedOrder(registry: ApiContextRegistry, hostName: ApiH
 }
 
 function shouldRunFullBootstrapDrain(options: BcSeedOptions): boolean {
-  return (
-    options.enabledDataProfiles.includes("scenario-seed") ||
-    options.enabledDataProfiles.includes("representative-commerce-state")
-  );
+  return options.enabledDataProfiles.includes("scenario-seed");
 }
 
 function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module">, options: BcSeedOptions): boolean {
