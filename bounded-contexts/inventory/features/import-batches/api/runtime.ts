@@ -216,6 +216,24 @@ function normalizeExternalReference(
   };
 }
 
+function normalizeExternalReferences(row: NormalizedInventoryImportRow): readonly InventoryImportExternalReference[] {
+  const rowReferences = row.externalReferences ?? [];
+  const references = rowReferences.length > 0 ? rowReferences : row.externalReference ? [row.externalReference] : [];
+  const normalized = references
+    .map(normalizeExternalReference)
+    .filter((reference): reference is InventoryImportExternalReference => Boolean(reference));
+  const seen = new Set<string>();
+
+  return normalized.filter((reference) => {
+    const key = `${reference.providerKey}:${reference.externalKey}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 function itemIdForRow(rowId: string): InventoryItemId {
   return rowId.replace(/^imr_/, "inv_") as InventoryItemId;
 }
@@ -300,7 +318,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
   ): Promise<ValidatedImportRow> {
     const errors: string[] = [];
     const values = row.values;
-    const externalReference = normalizeExternalReference(row.externalReference);
+    const externalReferences = normalizeExternalReferences(row);
+    let externalReference = externalReferences[0] ?? null;
     let catalogItemId = clean(values.catalogItemId);
     const storageLocationId = clean(values.storageLocationId);
     const imported = importedQuantity(clean(values.totalQuantity), quantityMode, errors);
@@ -308,19 +327,32 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     let productId: string | null = null;
     let resolutionStatus: InventoryImportResolutionStatus = catalogItemId ? "native" : "unresolved";
 
-    if (!catalogItemId && externalReference) {
-      const mapping = await deps.catalogItems.getExternalProductReference(
-        externalReference.providerKey,
-        externalReference.externalKey,
-      );
-      if (mapping) {
-        catalogItemId = mapping.catalog_item_id;
-        selectedOptions = mapping.selected_options;
-        resolutionStatus = "resolved";
-      } else {
-        errors.push("External product reference is not mapped to a Chase Sets catalog item.");
+    if (!catalogItemId && externalReferences.length > 0) {
+      for (const candidate of externalReferences) {
+        const mapping = await deps.catalogItems.getExternalProductReference(
+          candidate.providerKey,
+          candidate.externalKey,
+        );
+        if (mapping) {
+          externalReference = candidate;
+          catalogItemId = mapping.catalog_item_id;
+          selectedOptions = mapping.selected_options;
+          resolutionStatus = "resolved";
+          break;
+        }
       }
-    } else if (!catalogItemId && !externalReference) {
+
+      if (!catalogItemId) {
+        const candidateList = externalReferences
+          .map((candidate) => `${candidate.providerKey}:${candidate.externalKey}`)
+          .join(", ");
+        errors.push(
+          externalReferences.length === 1
+            ? "External product reference is not mapped to a Chase Sets catalog item."
+            : `External product references are not mapped to Chase Sets catalog items: ${candidateList}.`,
+        );
+      }
+    } else if (!catalogItemId && externalReferences.length === 0) {
       errors.push("catalogItemId is required.");
     }
 

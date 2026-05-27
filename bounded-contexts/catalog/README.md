@@ -26,6 +26,7 @@ Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimens
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
 Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
+External product mapping for seller inventory imports is documented in [External Product References](./docs/external-product-references.md).
 
 ## Owns
 
@@ -35,6 +36,7 @@ Provider-owned structural setup is documented in [Provider Integration Profiles]
 - Product schema snapshots used by downstream contexts
 - Field values and category membership for Catalog Items
 - Provider Source Observations before review and promotion into canonical Catalog Items
+- External Product References that map third-party product identifiers to Catalog Item and Product selection truth
 - Reference Types and Reference Records that provide rich reusable facts for item fields
 - Display Templates that resolve reusable product-facing title and subtitle copy from Catalog facts
 
@@ -121,6 +123,14 @@ Owns a provider-sourced candidate record before it becomes Catalog truth.
 - Promotion emits Catalog Item commands; rejection records why the source record should not be used.
 - Source Observations are not downstream product truth until promoted into Catalog Items.
 
+### External Product Reference
+
+Owns the mapping between a provider-scoped product identifier and one Catalog Item plus selected Options.
+
+- References are scoped by provider key and external key.
+- External keys may include an identifier namespace such as `listing:`, `variant:`, `sku:`, `barcode:`, or `product:` when a provider exposes more than one identifier class.
+- Inventory and Marketplace consume these references through projections; they do not author provider identity.
+
 ## Product Resolution
 
 `Product` is a derived catalog concept in this implementation. There is no persisted Product aggregate or Product event stream in this pass.
@@ -186,3 +196,4 @@ Those events should carry the Catalog Item snapshot plus the `product_schema` do
 6. Reference Records enrich descriptive item information but do not change `product_id`.
 7. Reusable descriptive hierarchy belongs on Reference Records, not repeated Catalog Item fields. Catalog Items should keep only item-specific facts such as printed name, card number, HP, attacks, and direct reference selections.
 8. Product-facing title and subtitle copy should come from Display Templates whenever the copy can be expressed from Fields and Reference Records; repeated manual metadata is fallback and exception data.
+9. External product references map provider identifiers to Product selection truth; title parsing remains review evidence until promoted into an explicit reference.

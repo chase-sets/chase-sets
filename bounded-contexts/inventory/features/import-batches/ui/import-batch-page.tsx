@@ -55,6 +55,23 @@ function rowOutcome(row: InventoryImportBatchRow) {
     : t("inventory.features.importBatches.ui.importBatchPage.no.outcome.yet");
 }
 
+function sourceLabel(sourceKey: string) {
+  switch (sourceKey) {
+    case "tcgplayer-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.tcgplayer");
+    case "ebay-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.ebay");
+    case "shopify-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.shopify");
+    case "whatnot-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.whatnot");
+    case "cardtrader-csv":
+      return t("inventory.features.importBatches.ui.importBatchPage.cardtrader");
+    default:
+      return t("inventory.features.importBatches.ui.importBatchPage.chase.sets");
+  }
+}
+
 export function InventoryImportBatchPage({
   batches,
   storageLocations,
@@ -124,10 +141,9 @@ export function InventoryImportBatchPage({
           },
           {
             label: t("inventory.features.importBatches.ui.importBatchPage.source"),
-            value:
-              detail?.source_key === "tcgplayer-csv"
-                ? t("inventory.features.importBatches.ui.importBatchPage.tcgplayer")
-                : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
+            value: detail
+              ? sourceLabel(detail.source_key)
+              : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
             detail: detail
               ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
                   version: detail.adapter_version,
@@ -162,6 +178,22 @@ export function InventoryImportBatchPage({
                     {
                       value: "tcgplayer-csv",
                       label: t("inventory.features.importBatches.ui.importBatchPage.tcgplayer.csv"),
+                    },
+                    {
+                      value: "ebay-csv",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.ebay.csv"),
+                    },
+                    {
+                      value: "shopify-csv",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.shopify.csv"),
+                    },
+                    {
+                      value: "whatnot-csv",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.whatnot.csv"),
+                    },
+                    {
+                      value: "cardtrader-csv",
+                      label: t("inventory.features.importBatches.ui.importBatchPage.cardtrader.csv"),
                     },
                   ]}
                 />

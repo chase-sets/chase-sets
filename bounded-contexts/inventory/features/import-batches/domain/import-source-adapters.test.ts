@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  cardTraderCsvImportAdapter,
+  ebayCsvImportAdapter,
   getInventoryImportSourceAdapter,
   nativeCsvImportAdapter,
+  shopifyCsvImportAdapter,
   tcgplayerCsvImportAdapter,
+  whatnotCsvImportAdapter,
 } from "./import-source-adapters";
 
 describe("inventory import source adapters", () => {
@@ -40,6 +44,12 @@ describe("inventory import source adapters", () => {
         externalKey: "tcg_sku_1",
         displayName: "Charizard | Base Set | Near Mint",
       },
+      externalReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "tcg_sku_1",
+        },
+      ],
       values: {
         storageLocationId: "loc_1",
         totalQuantity: "3",
@@ -68,6 +78,87 @@ describe("inventory import source adapters", () => {
         listingQuantityCap: "",
       },
     });
+  });
+
+  it("keeps TCGplayer product id as an ordered fallback when the row also has a SKU", () => {
+    const rows = tcgplayerCsvImportAdapter.normalize({
+      csvText:
+        "TCGplayer SKU,Product ID,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price\nmissing_sku,12345,Pikachu,Jungle,Near Mint,2,1.25",
+      quantityMode: "replace",
+      defaultStorageLocationId: "loc_1",
+    });
+
+    expect(rows[0]?.externalReferences.map((reference) => reference.externalKey)).toEqual(["missing_sku", "12345"]);
+  });
+
+  it("normalizes eBay active listing exports into exact mapping candidates", () => {
+    const rows = ebayCsvImportAdapter.normalize({
+      csvText:
+        "Item ID,Custom label,Title,Condition,Available quantity,Current price,ePID,UPC\n1001,box-1,Charizard,Near Mint,2,$12.50,epid-1,012345678905",
+      quantityMode: "replace",
+      defaultStorageLocationId: "loc_1",
+    });
+
+    expect(rows[0]).toMatchObject({
+      externalReferences: [
+        { providerKey: "ebay", externalKey: "listing:1001" },
+        { providerKey: "ebay", externalKey: "sku:box-1" },
+        { providerKey: "ebay", externalKey: "epid:epid-1" },
+        { providerKey: "ebay", externalKey: "upc:012345678905" },
+      ],
+      values: {
+        totalQuantity: "2",
+        sellerSku: "box-1",
+        listingPriceAmount: "12.50",
+      },
+    });
+  });
+
+  it("normalizes Shopify product exports into variant, SKU, barcode, and handle candidates", () => {
+    const rows = shopifyCsvImportAdapter.normalize({
+      csvText:
+        "Handle,Title,Variant ID,Variant SKU,Variant Barcode,Variant Inventory Qty,Variant Price\nbase-charizard,Charizard,987,box-1,012345678905,3,15.00",
+      quantityMode: "replace",
+      defaultStorageLocationId: "loc_1",
+    });
+
+    expect(rows[0]).toMatchObject({
+      externalReferences: [
+        { providerKey: "shopify", externalKey: "variant:987" },
+        { providerKey: "shopify", externalKey: "sku:box-1" },
+        { providerKey: "shopify", externalKey: "barcode:012345678905" },
+        { providerKey: "shopify", externalKey: "handle:base-charizard" },
+      ],
+      values: {
+        totalQuantity: "3",
+        listingQuantityCap: "3",
+      },
+    });
+  });
+
+  it("normalizes Whatnot exports into listing and product candidates", () => {
+    const rows = whatnotCsvImportAdapter.normalize({
+      csvText: "Product ID,Listing ID,SKU,Title,Condition,Quantity,Price\nprod_1,lst_1,box-1,Charizard,Near Mint,1,20",
+      quantityMode: "replace",
+      defaultStorageLocationId: "loc_1",
+    });
+
+    expect(rows[0]?.externalReferences.map((reference) => `${reference.providerKey}:${reference.externalKey}`)).toEqual(
+      ["whatnot:product:prod_1", "whatnot:listing:lst_1", "whatnot:sku:box-1"],
+    );
+  });
+
+  it("normalizes CardTrader exports and reuses cross-provider TCGplayer/Cardmarket ids", () => {
+    const rows = cardTraderCsvImportAdapter.normalize({
+      csvText:
+        "Product ID,Blueprint ID,TCGplayer ID,Cardmarket ID,Name,Expansion,Condition,Quantity,Price\nct_prod_1,ct_bp_1,12345,67890,Charizard,Base Set,Near Mint,4,11.25",
+      quantityMode: "replace",
+      defaultStorageLocationId: "loc_1",
+    });
+
+    expect(rows[0]?.externalReferences.map((reference) => `${reference.providerKey}:${reference.externalKey}`)).toEqual(
+      ["cardtrader:product:ct_prod_1", "cardtrader:blueprint:ct_bp_1", "tcgplayer:12345", "cardmarket:product:67890"],
+    );
   });
 
   it("rejects unsupported source keys at the registry boundary", () => {
