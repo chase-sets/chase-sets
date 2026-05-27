@@ -32,7 +32,7 @@ import type {
   DiscoverySearchResponse,
 } from "../../../support/client-support/contracts";
 import type { DiscoveryBulkCartPreview } from "../read-model/queries";
-import { discoveryAssetUrls, imageVariantSrcSet } from "../../../support/client-support/assets";
+import { imageVariantSrcSet } from "../../../support/client-support/assets";
 import { buildDiscoveryProductAssetImage } from "../../../support/client-support/product-assets";
 
 const AUTO_LOAD_ROOT_MARGIN = "900px";
@@ -64,49 +64,12 @@ const marketActivityOptions: Array<{ label: string; value: MarketActivityFilter 
   { label: t("discovery.features.search.ui.searchPage.offers"), value: "offers" },
 ];
 
-function formatListingMeta(item: DiscoverySearchItem): string | undefined {
-  const listingCount = item.market_summary?.active_listing_count ?? 0;
-  const visibleQuantity = item.market_summary?.total_visible_quantity ?? 0;
-
-  if (listingCount === 0) {
-    return undefined;
-  }
-
-  return t("discovery.features.search.ui.searchPage.listing.meta", {
-    listingCount,
-    listingLabel: t(
-      listingCount === 1
-        ? "discovery.features.search.ui.searchPage.listing.singular"
-        : "discovery.features.search.ui.searchPage.listing.plural",
-    ),
-    visibleQuantity,
-  });
-}
-
-function formatPrice(item: DiscoverySearchItem): string {
+function formatPrice(item: DiscoverySearchItem): string | undefined {
   const lowestPrice = item.market_summary?.lowest_price_amount;
 
   return lowestPrice
     ? t("discovery.features.search.ui.searchPage.from.price", { price: `$${lowestPrice}` })
-    : t("discovery.features.search.ui.searchPage.market.open");
-}
-
-function formatAvailability(item: DiscoverySearchItem): string {
-  const visibleQuantity = item.market_summary?.total_visible_quantity ?? 0;
-
-  return visibleQuantity > 0
-    ? t("discovery.features.search.ui.searchPage.available.quantity", {
-        visibleQuantity,
-      })
-    : t("discovery.features.search.ui.searchPage.offer.or.list.yours");
-}
-
-function formatSellerSignal(item: DiscoverySearchItem): string {
-  const listingCount = item.market_summary?.active_listing_count ?? 0;
-
-  return listingCount > 0
-    ? t("discovery.features.search.ui.searchPage.verified.marketplace.sellers")
-    : t("discovery.features.search.ui.searchPage.supply.wanted");
+    : undefined;
 }
 
 function formatSearchResultMetadata(item: DiscoverySearchItem): string | undefined {
@@ -781,7 +744,7 @@ export function SearchPage({
           />
         ) : data ? (
           <>
-            <Grid columns={{ base: 1, md: 2, xl: 3 }} gap={4}>
+            <Grid columns={{ base: 1, md: 2, xl: 2 }} gap={4}>
               {data.items.map((item) => {
                 const listingCount = item.market_summary?.active_listing_count ?? 0;
                 const hasActiveListings = listingCount > 0;
@@ -789,13 +752,12 @@ export function SearchPage({
                 const productAssetImage = buildDiscoveryProductAssetImage(
                   item.product_asset_sets,
                   "search-card",
-                  "160px",
+                  "(min-width: 768px) 164px, 124px",
                 );
                 const imageSrc =
                   productAssetImage?.src ??
                   item.image_urls[0] ??
-                  (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined) ??
-                  discoveryAssetUrls.defaultProductImage;
+                  (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined);
                 const buyHref = withMarketIntent(itemDetailHref, "buy");
                 const sellHref = withMarketIntent(itemDetailHref, "sell");
                 const watchHref = withMarketIntent(itemDetailHref, "watch");
@@ -846,25 +808,15 @@ export function SearchPage({
                     imageSrc={imageSrc}
                     imageSlot="compact-product"
                     imageAlt={item.title}
-                    imageFallbackSrc={item.image_fallback?.url ?? discoveryAssetUrls.defaultProductImage}
+                    imageFallbackSrc={item.image_fallback?.url}
                     imageFallbackAlt={
                       item.image_fallback?.alt ?? t("discovery.features.search.ui.searchPage.default.product.image")
                     }
                     imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
                     imageFallbackSizes="(min-width: 1280px) 18rem, (min-width: 640px) 15rem, 100vw"
                     imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
-                    price={formatPrice(item)}
-                    priceDetail={formatListingMeta(item)}
+                    price={hasActiveListings ? formatPrice(item) : undefined}
                     subtitle={formatSearchIdentityLine(item)}
-                    sellerName={formatSellerSignal(item)}
-                    sellerTrustLabel={
-                      hasActiveListings
-                        ? t("discovery.features.search.ui.searchPage.verified.supply")
-                        : t("discovery.features.search.ui.searchPage.offers.open")
-                    }
-                    sellerVerified={hasActiveListings}
-                    fulfillment={formatAvailability(item)}
-                    availability={null}
                     valueCue={formatSearchResultMetadata(item)}
                     primaryAction={
                       <LinkButton
