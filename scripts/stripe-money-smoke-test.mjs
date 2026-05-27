@@ -52,7 +52,7 @@ async function resolveAuthHeaders(env = process.env, fetchImpl = fetch) {
           authBaseUrl,
           email: sellerEmail,
           password: sellerPassword,
-          displayName: readEnv("SMOKE_SELLER_DISPLAY_NAME", env) ?? "Stripe Preview Smoke Seller",
+          displayName: readEnv("SMOKE_SELLER_DISPLAY_NAME", env) ?? defaultSmokeSellerDisplayName(sellerEmail),
         },
         fetchImpl,
       );
@@ -141,6 +141,15 @@ async function registerSellerAccount(params, fetchImpl) {
   assert(accountId, "Seller registration did not return an account id.");
 
   return { accountId, sessionToken };
+}
+
+function defaultSmokeSellerDisplayName(email) {
+  const localPart = email.split("@")[0] ?? "seller";
+  const suffix = localPart
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .slice(0, 64);
+  return suffix ? `Stripe Preview Smoke ${suffix}` : "Stripe Preview Smoke Seller";
 }
 
 function readSessionToken(body, label) {

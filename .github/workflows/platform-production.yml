@@ -686,7 +686,7 @@ jobs:
           SMOKE_REGISTER_SELLER: "true"
           SMOKE_SELLER_EMAIL: stripe-staging+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
           SMOKE_SELLER_PASSWORD: staging-stripe-${{ github.run_id }}-${{ github.run_attempt }}
-          SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke Account
+          SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}-${{ github.run_attempt }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
