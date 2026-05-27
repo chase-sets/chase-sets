@@ -35,6 +35,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Marketplace accepts a bounded subset of representative offers with current fee quotes, then the platform command syncs targeted Marketplace and Ordering projection groups so accepted offers create purchase/sale/order coverage without trying to drain unrelated live staging work.
 - A manual `Platform Staging Representative Commerce State` workflow runs the command against live staging after reset or Catalog imports while normal staging deployment bootstrap stays representative-data-free.
 - Live staging refresh attempts showed whole-context projection syncs can still run too long while workers are active. The command now logs each step, bounds step duration, and syncs only named projection groups needed for the next representative handoff.
+- The first bounded staging refresh completed but found zero candidates because Catalog-derived Marketplace/Inventory read models were not explicitly synced before candidate selection; the command now syncs those projections before loading current untouched Catalog Items.
 
 ## Owning Contexts
 
@@ -60,6 +61,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - ADR 0003 currently says staging and production run only `critical-bootstrap` and `catalog-integration-bootstrap`, while `scenario-seed` is limited to dev, preview, and test. That policy keeps bootstrap safe but leaves staging under-representative.
 - `EnvironmentDataProfile` currently has only `critical-bootstrap`, `catalog-integration-bootstrap`, and `scenario-seed`.
 - `seedApiHostIfEmpty` runs the full cross-context projection drain only when `scenario-seed` is enabled. Representative staging refresh uses command-owned targeted projection syncs instead.
+- Marketplace candidate selection reads `marketplace_catalog_items`, and Inventory stock creation reads `inventory_catalog_items`; both are Catalog-sourced projections that must be current before representative usage can be generated over fresh integration output.
 - Most commerce context seeds default to `scenario-seed` and already create useful baseline states, but several are development-shaped: fake payment gateways, synthetic provider references, fixed fake Catalog Item ids, `seed://` attachments, March 2026 timestamps, and generic demo labels. They should not be reused directly for representative staging coverage.
 - Staging reset already exists as `.github/workflows/platform-staging-reset.yml`; it destroys/recreates staging and smokes it. This is the natural hook for a fresh representative dataset.
 - DigitalOcean `platform-bootstrap` is a `PRE_DEPLOY` App Platform job. Normal staging deploys should keep this production-safe.
