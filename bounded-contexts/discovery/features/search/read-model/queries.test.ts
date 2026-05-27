@@ -128,6 +128,43 @@ describe("searchDiscoveryItems cursor paging", () => {
     ]);
   });
 
+  it("filters listed items by selected product options when dimension filters are active", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, {
+      marketActivity: "listings",
+      dimensionFilters: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+      limit: 24,
+    });
+
+    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+    expect(listCall?.sql).toContain("FROM discovery_market_listings AS listing");
+    expect(listCall?.sql).toContain("account.seller_listing_availability_status = 'available'");
+    expect(listCall?.sql).toContain("listing.selected_options @> $4::jsonb");
+    expect(listCall?.values).toEqual([
+      "active",
+      "dim_condition",
+      ["opt_near_mint"],
+      JSON.stringify([{ dimensionId: "dim_condition", optionId: "opt_near_mint" }]),
+      25,
+    ]);
+  });
+
+  it("filters items with listings or submitted offers", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, {
+      marketActivity: "any",
+      limit: 24,
+    });
+
+    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+    expect(listCall?.sql).toContain("FROM discovery_market_listings AS listing");
+    expect(listCall?.sql).toContain("FROM discovery_offer_demand_matches AS offer");
+    expect(listCall?.sql).toContain("offer.status = 'submitted'");
+    expect(listCall?.values).toEqual(["active", 25]);
+  });
+
   it("orders field facet values with semantic sort metadata before count fallback", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const db: PgQueryable = {

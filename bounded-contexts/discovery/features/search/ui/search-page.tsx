@@ -50,10 +50,18 @@ type DynamicSearchFilterSelection = Readonly<{
   id: string;
   value: string;
 }>;
+type MarketActivityFilter = "" | "any" | "listings" | "offers";
 
 const languageOptions = [
   { label: t("discovery.features.search.ui.searchPage.english"), value: "en" },
   { label: t("discovery.features.search.ui.searchPage.japanese"), value: "ja" },
+];
+
+const marketActivityOptions: Array<{ label: string; value: MarketActivityFilter }> = [
+  { label: t("discovery.features.search.ui.searchPage.any.market.activity"), value: "" },
+  { label: t("discovery.features.search.ui.searchPage.listings.or.offers"), value: "any" },
+  { label: t("discovery.features.search.ui.searchPage.listings"), value: "listings" },
+  { label: t("discovery.features.search.ui.searchPage.offers"), value: "offers" },
 ];
 
 function formatListingMeta(item: DiscoverySearchItem): string | undefined {
@@ -115,6 +123,10 @@ function formatSearchIdentityLine(item: DiscoverySearchItem): string | undefined
 
 function findLanguageLabel(language: string): string {
   return languageOptions.find((item) => item.value === language)?.label ?? language;
+}
+
+function findMarketActivityLabel(marketActivity: MarketActivityFilter): string {
+  return marketActivityOptions.find((item) => item.value === marketActivity)?.label ?? marketActivity;
 }
 
 function formatFacetDescription(facet: DiscoveryFacetGroup): string {
@@ -200,6 +212,7 @@ export interface SearchPageProps {
   category: string;
   tag?: string;
   language: string;
+  marketActivity: MarketActivityFilter;
   sort: string;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
   data: DiscoverySearchResponse | null;
@@ -214,6 +227,7 @@ export interface SearchPageProps {
   onCategoryChange: (value: string) => void;
   onTagClear?: () => void;
   onLanguageChange: (value: string) => void;
+  onMarketActivityChange: (value: MarketActivityFilter) => void;
   onSortChange: (value: string) => void;
   onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void;
   onDynamicFilterClear: (value: Omit<DynamicSearchFilterSelection, "value">) => void;
@@ -260,6 +274,7 @@ export function SearchPage({
   category,
   tag = "",
   language,
+  marketActivity,
   sort,
   dynamicFilters,
   data,
@@ -274,6 +289,7 @@ export function SearchPage({
   onCategoryChange,
   onTagClear,
   onLanguageChange,
+  onMarketActivityChange,
   onSortChange,
   onDynamicFilterChange,
   onDynamicFilterClear,
@@ -293,6 +309,9 @@ export function SearchPage({
   const activeLanguageLabel = language
     ? findLanguageLabel(language)
     : t("discovery.features.search.ui.searchPage.all.languages");
+  const activeMarketActivityLabel = marketActivity
+    ? findMarketActivityLabel(marketActivity)
+    : t("discovery.features.search.ui.searchPage.any.market.activity");
   const activeDynamicFilterCount = dynamicFilters.length;
   const dynamicFacets = data?.facets ?? [];
   const resultsSummary = t("discovery.features.search.ui.searchPage.results.summary", {
@@ -304,6 +323,7 @@ export function SearchPage({
     Boolean(category) ||
     Boolean(tag) ||
     Boolean(language) ||
+    Boolean(marketActivity) ||
     activeDynamicFilterCount > 0 ||
     sort !== "relevance";
   const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
@@ -343,6 +363,17 @@ export function SearchPage({
               language: activeLanguageLabel,
             }),
             onRemove: () => onLanguageChange(""),
+          },
+        ]
+      : []),
+    ...(marketActivity
+      ? [
+          {
+            id: "marketActivity",
+            label: t("discovery.features.search.ui.searchPage.market.activity.filter.label", {
+              marketActivity: activeMarketActivityLabel,
+            }),
+            onRemove: () => onMarketActivityChange(""),
           },
         ]
       : []),
@@ -392,6 +423,20 @@ export function SearchPage({
         }))}
         selectedId={language}
         onSelect={onLanguageChange}
+        {...progressiveFacetLabels}
+      />
+      <MarketplaceFacetRail
+        title={t("discovery.features.search.ui.searchPage.market.activity")}
+        description={t("discovery.features.search.ui.searchPage.market.activity.description")}
+        allLabel={t("discovery.features.search.ui.searchPage.any.market.activity")}
+        items={marketActivityOptions
+          .filter((item) => item.value)
+          .map((item) => ({
+            id: item.value,
+            label: item.label,
+          }))}
+        selectedId={marketActivity}
+        onSelect={(value) => onMarketActivityChange(value as MarketActivityFilter)}
         {...progressiveFacetLabels}
       />
       {dynamicFacets.map((facet) => {
@@ -654,6 +699,22 @@ export function SearchPage({
                 itemLeadingIcon="book"
                 {...progressiveFacetLabels}
               />
+              <MarketplaceFacetChoiceGroup
+                title={t("discovery.features.search.ui.searchPage.market.activity")}
+                description={t("discovery.features.search.ui.searchPage.market.activity.description")}
+                allLabel={t("discovery.features.search.ui.searchPage.any.market.activity")}
+                items={marketActivityOptions
+                  .filter((item) => item.value)
+                  .map((item) => ({
+                    id: item.value,
+                    label: item.label,
+                  }))}
+                selectedId={marketActivity}
+                onSelect={(value) => onMarketActivityChange(value as MarketActivityFilter)}
+                allLeadingIcon="search"
+                itemLeadingIcon="search"
+                {...progressiveFacetLabels}
+              />
               {dynamicFacets.map((facet) => {
                 const selectedValues = selectedFacetValues(facet).map((value) => value.id);
 
@@ -696,7 +757,7 @@ export function SearchPage({
           <NoResultsRecovery
             title={t("discovery.features.search.ui.searchPage.no.items.found")}
             description={
-              search || category || language || activeDynamicFilterCount > 0
+              search || category || language || marketActivity || activeDynamicFilterCount > 0
                 ? t("discovery.features.search.ui.searchPage.try.adjusting.your.search.or.filters")
                 : t("discovery.features.search.ui.searchPage.no.catalog.items.are.available.yet")
             }
