@@ -10,14 +10,19 @@ import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-con
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { loadRepresentativeCatalogUsageCandidates } from "@chase-sets/catalog/server";
 import {
-  loadUntouchedMarketplaceCatalogUsageCandidates,
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
+  filterUntouchedMarketplaceCatalogUsageCandidates,
   publishRepresentativeListings,
+  reconcileRepresentativeMarketplaceCatalogItems,
   submitRepresentativeOffers,
 } from "@chase-sets/marketplace/server";
-import { ensureRepresentativeInventoryStock } from "@chase-sets/inventory/server";
+import {
+  ensureRepresentativeInventoryStock,
+  reconcileRepresentativeInventoryCatalogItems,
+} from "@chase-sets/inventory/server";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createPlatformApiHost } from "./app";
 import {
@@ -29,7 +34,6 @@ import { closePlatformApiPools, createPlatformApiPools } from "./database-pools"
 
 const CONFIRMATION_PHRASE = "seed staging commerce";
 const DEFAULT_STEP_TIMEOUT_MS = 120_000;
-const DEFAULT_CATALOG_PROJECTION_SYNC_TIMEOUT_MS = 600_000;
 const MAX_STEP_TIMEOUT_MS = 600_000;
 
 export function assertRepresentativeCommerceStateRunAllowed(
@@ -119,17 +123,22 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         environmentName: config.deploymentEnvironment ?? null,
       }),
     );
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-catalog-item-projection", {
-      timeoutMs: readCatalogProjectionSyncTimeoutMs(),
-    });
-    await syncRepresentativeProjection(runtime, "inventory", "inventory-catalog-item-projection", {
-      timeoutMs: readCatalogProjectionSyncTimeoutMs(),
-    });
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
-    const candidates = await runRepresentativeStep("load untouched marketplace catalog candidates", () =>
-      loadUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), {
+    const sourceCandidates = await runRepresentativeStep("load current catalog usage candidates", () =>
+      loadRepresentativeCatalogUsageCandidates(getCatalogDb(runtime.services), {
+        limit: readCandidateSourceLimit(),
+      }),
+    );
+    const candidates = await runRepresentativeStep("filter untouched marketplace catalog candidates", () =>
+      filterUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), sourceCandidates, {
         limit: readCandidateLimit(),
       }),
+    );
+    const marketplaceReconciledCount = await runRepresentativeStep("reconcile selected marketplace catalog items", () =>
+      reconcileRepresentativeMarketplaceCatalogItems(getMarketplaceDb(runtime.services), candidates),
+    );
+    const inventoryReconciledCount = await runRepresentativeStep("reconcile selected inventory catalog items", () =>
+      reconcileRepresentativeInventoryCatalogItems(getInventoryServices(runtime.services), candidates),
     );
     const inventoryStock = await runRepresentativeStep("ensure representative inventory stock", () =>
       ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates),
@@ -155,8 +164,11 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         type: "representative-commerce-state.complete",
         environmentName: config.deploymentEnvironment ?? null,
         dataProfiles: representativeCommerceStateDataProfiles,
+        sourceCatalogCandidateCount: sourceCandidates.length,
         untouchedCatalogCandidateCount: candidates.length,
         untouchedCatalogCandidates: candidates.map((candidate) => candidate.catalogItemId),
+        marketplaceReconciledCatalogItemCount: marketplaceReconciledCount,
+        inventoryReconciledCatalogItemCount: inventoryReconciledCount,
         representativeInventoryStockCount: inventoryStock.length,
         representativeInventoryStock: inventoryStock.map((stock) => ({
           catalogItemId: stock.catalogItemId,
@@ -209,15 +221,12 @@ function readCandidateLimit(): number {
   return normalizeRepresentativeCandidateLimit(parsed);
 }
 
-function readStepTimeoutMs(): number {
-  return readRepresentativeTimeoutMs("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS", DEFAULT_STEP_TIMEOUT_MS);
+function readCandidateSourceLimit(): number {
+  return normalizeRepresentativeCandidateLimit(readCandidateLimit() * 5);
 }
 
-function readCatalogProjectionSyncTimeoutMs(): number {
-  return readRepresentativeTimeoutMs(
-    "REPRESENTATIVE_COMMERCE_STATE_CATALOG_PROJECTION_SYNC_TIMEOUT_MS",
-    DEFAULT_CATALOG_PROJECTION_SYNC_TIMEOUT_MS,
-  );
+function readStepTimeoutMs(): number {
+  return readRepresentativeTimeoutMs("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS", DEFAULT_STEP_TIMEOUT_MS);
 }
 
 function readRepresentativeTimeoutMs(envName: string, defaultValue: number): number {
@@ -310,6 +319,23 @@ async function syncRepresentativeProjection(
 
 function getMarketplaceDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
   return getMarketplaceServices(services).db;
+}
+
+function getCatalogDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+  const catalog = services.catalog;
+  if (
+    !catalog ||
+    typeof catalog !== "object" ||
+    !("db" in catalog) ||
+    !catalog.db ||
+    typeof catalog.db !== "object" ||
+    !("query" in catalog.db) ||
+    typeof catalog.db.query !== "function"
+  ) {
+    throw new Error("Representative commerce state requires mounted Catalog services with a queryable db.");
+  }
+
+  return catalog.db as Pick<PgQueryable, "query">;
 }
 
 function getMarketplaceServices(services: Readonly<Record<string, unknown>>) {

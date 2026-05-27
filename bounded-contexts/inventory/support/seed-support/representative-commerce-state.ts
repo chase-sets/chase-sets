@@ -1,4 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog/server";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -116,6 +117,46 @@ export async function ensureRepresentativeInventoryStock(
   }
 
   return results;
+}
+
+export async function reconcileRepresentativeInventoryCatalogItems(
+  services: InventoryServices,
+  candidates: readonly CatalogRepresentativeCatalogUsageCandidate[],
+): Promise<number> {
+  for (const candidate of candidates) {
+    await services.db.query(
+      `INSERT INTO inventory_catalog_items (
+         catalog_item_id,
+         language_code,
+         title,
+         subtitle,
+         blueprint_id,
+         status,
+         product_schema,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (catalog_item_id) DO UPDATE SET
+         language_code = EXCLUDED.language_code,
+         title = EXCLUDED.title,
+         subtitle = EXCLUDED.subtitle,
+         blueprint_id = EXCLUDED.blueprint_id,
+         status = EXCLUDED.status,
+         product_schema = EXCLUDED.product_schema,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        candidate.catalogItemId,
+        candidate.languageCode,
+        candidate.title,
+        candidate.subtitle,
+        candidate.blueprintId,
+        candidate.status,
+        candidate.productSchema ? JSON.stringify(candidate.productSchema) : null,
+        candidate.updatedAt,
+      ],
+    );
+  }
+
+  return candidates.length;
 }
 
 export function selectDefaultRepresentativeOptions(

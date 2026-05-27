@@ -10,7 +10,7 @@ Do not run it as part of production deployment. The platform API command rejects
 
 ## Command
 
-The preferred staging operation is the `Platform Staging Representative Commerce State` GitHub Actions workflow. It is manually dispatched, requires the confirmation phrase, reads the live staging database connection pools from Terraform state, and runs the representative refresh command against the current staging Catalog projections. Use it after a staging reset or after a new Catalog integration import/promotion. Dispatch it with the release ref that is already deployed to staging, usually `main`.
+The preferred staging operation is the `Platform Staging Representative Commerce State` GitHub Actions workflow. It is manually dispatched, requires the confirmation phrase, reads the live staging database connection pools from Terraform state, and runs the representative refresh command against current staging Catalog integration output. Use it after a staging reset or after a new Catalog integration import/promotion. Dispatch it with the release ref that is already deployed to staging, usually `main`.
 
 The platform API package owns the runtime composition command:
 
@@ -21,11 +21,11 @@ pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:pro
 
 For local or non-standard non-production environments, set `REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true` with the same confirmation phrase.
 
-Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command explicitly syncs Catalog-derived Inventory and Marketplace projections before candidate selection, then syncs only the Marketplace and Ordering projections needed for each generated handoff. Catalog-derived projection syncs have a default ten-minute timeout because real integration pulls can create large replay backlogs; override it with `REPRESENTATIVE_COMMERCE_STATE_CATALOG_PROJECTION_SYNC_TIMEOUT_MS` only when that backlog is understood. Override the default two-minute timeout for other steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`.
+Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command selects eligible Catalog Items directly from Catalog-owned read models, asks Marketplace to filter out items that already have marketplace activity, and asks Marketplace and Inventory to reconcile only those selected Catalog Item facts into their local read models before usage generation. This avoids replaying the full Catalog event history inline after large integration pulls. The command then syncs only the Marketplace and Ordering projections needed for each generated commerce handoff. Override the default two-minute timeout for steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`.
 
 ## Expected Data
 
-The representative profile keeps real Catalog integration output in place. It first finds active marketplace-projected Catalog Items with product measurement snapshots and no listings or offers, then layers representative usage over those current items.
+The representative profile keeps real Catalog integration output in place. It first finds active Catalog Items with product measurement snapshots, filters to items with no listings or offers, reconciles those selected item facts into Marketplace and Inventory, then layers representative usage over those current items.
 
 The representative usage layer should reconcile:
 
@@ -42,7 +42,7 @@ The representative usage layer should reconcile:
 
 ## Safety Rules
 
-- Use bounded-context behavior, not direct read-model inserts.
+- Use bounded-context behavior for business usage. Deployable code must not insert read-model rows directly; Marketplace and Inventory may run their own selected Catalog Item fact reconciliation before generating usage.
 - Use staging/test provider rails such as Stripe test mode and EasyPost test mode.
 - Do not copy production PII, payment details, payout destination details, raw provider payloads, or production account data.
 - Keep scenario ids stable and idempotent.
@@ -55,7 +55,7 @@ The representative usage layer should reconcile:
 
 After the command runs:
 
-1. Confirm the command reports untouched Catalog Item candidates from `marketplace_catalog_items` after `marketplace-catalog-item-projection` and `inventory-catalog-item-projection` complete.
+1. Confirm the command reports `sourceCatalogCandidateCount`, `untouchedCatalogCandidateCount`, and non-zero Marketplace/Inventory reconciliation counts.
 2. Confirm marketplace search and at least one product detail page show listings and offers created from current Catalog Items.
 3. Confirm at least one purchasing account has purchases, payments, shipments, reviews, notifications, and support requests.
 4. Confirm at least one selling account has listings, offer matches, sales, shipments, wallet activity, payouts, reviews, and support requests.

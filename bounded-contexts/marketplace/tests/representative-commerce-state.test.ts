@@ -1,9 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog/server";
 import { describe, expect, it } from "vitest";
 import {
   acceptRepresentativeOffers,
+  filterUntouchedMarketplaceCatalogUsageCandidates,
   loadUntouchedMarketplaceCatalogUsageCandidates,
   normalizeRepresentativeCandidateLimit,
+  reconcileRepresentativeMarketplaceCatalogItems,
   submitRepresentativeOffers,
 } from "../support/seed-support/representative-commerce-state";
 
@@ -52,6 +55,58 @@ describe("marketplace representative commerce state", () => {
     expect(normalizeRepresentativeCandidateLimit(0)).toBe(50);
     expect(normalizeRepresentativeCandidateLimit(1.8)).toBe(1);
     expect(normalizeRepresentativeCandidateLimit(800)).toBe(500);
+  });
+
+  it("filters current Catalog candidates to items untouched by Marketplace usage", async () => {
+    const queries: unknown[][] = [];
+    const db: Pick<PgQueryable, "query"> = {
+      query: async <Row>(sql: string, params?: readonly unknown[]) => {
+        queries.push([sql, params]);
+        return {
+          rows: [{ catalog_item_id: "cat_touched_1" }] as Row[],
+          rowCount: 1,
+        };
+      },
+    };
+    const candidates = [
+      representativeCatalogCandidate("cat_touched_1"),
+      representativeCatalogCandidate("cat_untouched_1"),
+      representativeCatalogCandidate("cat_untouched_2"),
+    ];
+
+    await expect(filterUntouchedMarketplaceCatalogUsageCandidates(db, candidates, { limit: 1 })).resolves.toEqual([
+      representativeCatalogCandidate("cat_untouched_1"),
+    ]);
+    expect(String(queries[0]?.[0])).toContain("FROM marketplace_listing_pages listing");
+    expect(String(queries[0]?.[0])).toContain("FROM marketplace_offer_pages offer");
+    expect(queries[0]?.[1]).toEqual([["cat_touched_1", "cat_untouched_1", "cat_untouched_2"]]);
+  });
+
+  it("reconciles selected current Catalog candidates into the Marketplace catalog projection", async () => {
+    const queries: unknown[][] = [];
+    const db: Pick<PgQueryable, "query"> = {
+      query: async <Row>(sql: string, params?: readonly unknown[]) => {
+        queries.push([sql, params]);
+        return { rows: [] as Row[], rowCount: 1 };
+      },
+    };
+
+    await expect(
+      reconcileRepresentativeMarketplaceCatalogItems(db, [representativeCatalogCandidate("cat_real_1")]),
+    ).resolves.toBe(1);
+
+    expect(String(queries[0]?.[0])).toContain("INSERT INTO marketplace_catalog_items");
+    expect(queries[0]?.[1]).toEqual([
+      "cat_real_1",
+      "en",
+      "Real Imported Card",
+      "Provider expansion 12/123",
+      "bp_card",
+      "active",
+      JSON.stringify([{ productId: "cat_real_1::" }]),
+      JSON.stringify({ canonicalDimensionOrder: [], dimensions: [] }),
+      "2026-05-27T00:00:00.000Z",
+    ]);
   });
 
   it("submits representative offers with stable ids for current catalog stock", async () => {
@@ -154,3 +209,17 @@ describe("marketplace representative commerce state", () => {
     ]);
   });
 });
+
+function representativeCatalogCandidate(catalogItemId: string): CatalogRepresentativeCatalogUsageCandidate {
+  return {
+    catalogItemId,
+    languageCode: "en",
+    title: "Real Imported Card",
+    subtitle: "Provider expansion 12/123",
+    blueprintId: "bp_card",
+    status: "active",
+    productSchema: { canonicalDimensionOrder: [], dimensions: [] },
+    productMeasureSnapshots: [{ productId: `${catalogItemId}::` } as never],
+    updatedAt: "2026-05-27T00:00:00.000Z",
+  };
+}
