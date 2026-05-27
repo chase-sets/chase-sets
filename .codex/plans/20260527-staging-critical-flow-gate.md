@@ -38,6 +38,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - Local worker evidence showed Auth and Identity projections catching up after the original account test timeout. The browser suite should add the returned session token to the browser context, assert the cookie is present, and use protected account routes themselves as the readiness check.
 - Staging evidence showed registration returning a session token while `/api/auth/session` stayed unauthorized for that token. Auth registration should synchronously write the owner membership into its own identity membership mirror so the returned session is immediately resolvable even when the Identity-to-Auth projection is delayed.
 - Local sandbox bootstrap can be contaminated by ignored deployable `.env.local` files. The dev-system sandbox should explicitly default worker notification email to noop unless the parent environment intentionally opts into a provider, keeping E2E startup deterministic.
+- Staging Stripe money smoke should reuse the session token returned by synthetic seller registration instead of immediately password-signing in the same account, because the smoke only needs authenticated API headers and should not depend on the email/user projection catching up.
 
 ## Open Questions
 
@@ -57,6 +58,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - [x] Rerun marketplace E2E locally.
 - [x] Add Auth registration coverage for immediate membership mirror readiness.
 - [x] Rerun marketplace E2E locally after Auth membership mirror fix.
+- [x] Use the synthetic seller registration session token directly for Stripe money smoke authentication.
 - [ ] Rerun marketplace E2E in CI.
 
 ## Documentation To Promote
