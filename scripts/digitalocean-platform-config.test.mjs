@@ -238,8 +238,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("pnpm run test:e2e:deployed");
     expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_EMAIL");
     expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_PASSWORD");
+    expect(stagingCriticalFlowStep).toContain("AWS_ACCESS_KEY_ID");
+    expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
 
+    expect(stagingMoneySmokeStep).toContain("AWS_ACCESS_KEY_ID");
+    expect(stagingMoneySmokeStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(stagingMoneySmokeStep).toContain("SMOKE_REGISTER_SELLER");
     expect(stagingMoneySmokeStep).toContain(
       "STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts",
