@@ -39,6 +39,8 @@ describe("admin-support API configuration", () => {
     });
     expect(config.deploymentEnvironment).toBe("production");
     expect(config.dataProfiles).toEqual(["critical-bootstrap", "catalog-integration-bootstrap"]);
+    expect(config.socialLogin).toEqual({});
+    expect(config.adminGoogleWorkspaceSso).toBeNull();
     expect(config.catalogAssetStorage).toMatchObject({
       kind: "s3",
       bucket: "catalog-assets",
@@ -114,5 +116,45 @@ describe("admin-support API configuration", () => {
     vi.stubEnv("PLATFORM_ADMIN_EMAIL", "ops@chasesets.com");
 
     expect(() => loadConfig()).toThrow("PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD must be configured together.");
+  });
+
+  it("loads Google Workspace SSO configuration for production admin sign-in", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "production-internal-secret");
+    vi.stubEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID", "google-client");
+    vi.stubEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET", "google-secret");
+    vi.stubEnv("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS", "ChaseSets.com, internal.chasesets.com ");
+
+    const config = loadConfig();
+
+    expect(config.socialLogin).toEqual({
+      google: {
+        clientId: "google-client",
+        clientSecret: "google-secret",
+      },
+    });
+    expect(config.adminGoogleWorkspaceSso).toEqual({
+      allowedHostedDomains: ["chasesets.com", "internal.chasesets.com"],
+    });
+  });
+
+  it("requires Google credentials when admin Workspace SSO domains are configured", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "production-internal-secret");
+    vi.stubEnv("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS", "chasesets.com");
+
+    expect(() => loadConfig()).toThrow(
+      "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS requires GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET.",
+    );
+  });
+
+  it("requires Google social login credentials to be configured together", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "production-internal-secret");
+    vi.stubEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID", "google-client");
+
+    expect(() => loadConfig()).toThrow(
+      "GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.",
+    );
   });
 });

@@ -92,6 +92,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('name                 = "platform-api"');
   });
 
+  it("wires Google Workspace SSO into production admin-support API", () => {
+    expect(platformMain).toContain('name               = "admin-support-api"');
+    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"')).toBe(3);
+    expect(occurrenceCount(platformMain, 'key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"')).toBe(3);
+    expect(occurrenceCount(platformMain, 'key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"')).toBe(3);
+  });
+
   it("keeps App Platform database and runner budgets explicit by component", () => {
     expect(platformLocals).toContain('api_database_pool_max               = "6"');
     expect(platformLocals).toContain('worker_database_pool_max            = local.is_non_production ? "8" : "6"');
