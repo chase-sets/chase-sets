@@ -113,7 +113,7 @@ describe("catalog representative commerce state", () => {
       query: async <Row>(sql: string, params?: readonly unknown[]) => {
         queries.push([sql, params]);
 
-        if (sql.includes("SELECT item.catalog_item_id") && !sql.includes("catalog_resolved_product_measures")) {
+        if (sql.includes("SELECT item.catalog_item_id")) {
           return {
             rows: [{ catalog_item_id: "cat_real_1" }, { catalog_item_id: "cat_real_2" }] as Row[],
             rowCount: 2,
@@ -136,5 +136,7 @@ describe("catalog representative commerce state", () => {
     expect(resolvedCatalogItemIds).toEqual(["cat_real_1", "cat_real_2"]);
     expect(queries[0]?.[1]).toEqual([50]);
     expect(String(queries[0]?.[0])).toContain("WHERE item.status = 'active'");
+    expect(String(queries[0]?.[0])).toContain("NOT EXISTS");
+    expect(String(queries[0]?.[0])).toContain("catalog_resolved_product_measures");
   });
 });

@@ -124,10 +124,13 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       }),
     );
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
-    const sourceCandidates = await runRepresentativeStep("prepare current catalog usage candidates", () =>
-      prepareRepresentativeCatalogUsageCandidates(getCatalogServices(runtime.services), {
-        limit: readCandidateSourceLimit(),
-      }),
+    const sourceCandidates = await runRepresentativeStep(
+      "prepare current catalog usage candidates",
+      () =>
+        prepareRepresentativeCatalogUsageCandidates(getCatalogServices(runtime.services), {
+          limit: readCandidateSourceLimit(),
+        }),
+      { timeoutMs: MAX_STEP_TIMEOUT_MS },
     );
     const candidates = await runRepresentativeStep("filter untouched marketplace catalog candidates", () =>
       filterUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), sourceCandidates, {
