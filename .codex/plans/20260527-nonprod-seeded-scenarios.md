@@ -38,6 +38,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - The first bounded staging refresh completed but found zero candidates because Catalog-derived Marketplace/Inventory read models were not current before candidate selection.
 - Explicit Catalog-derived projection sync then failed in live staging because replaying the full Marketplace catalog projection exceeded both two-minute and ten-minute bounded refresh windows.
 - Current follow-up design: Catalog selects active current Catalog Items with product measurement snapshots directly from Catalog-owned read models; Marketplace filters that list to items untouched by listings/offers; Marketplace and Inventory reconcile only the selected item facts into their local catalog read models before usage generation.
+- Live representative refresh on the selected-item reconciliation path completed quickly but returned zero source candidates because Catalog integration bootstrap upserts product-measure profiles without resolving existing imported Catalog Items. The next follow-up adds a bounded Catalog-owned preparation step that resolves product measures for the current candidate window before Marketplace filtering.
 
 ## Owning Contexts
 
@@ -64,6 +65,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - `EnvironmentDataProfile` currently has only `critical-bootstrap`, `catalog-integration-bootstrap`, and `scenario-seed`.
 - `seedApiHostIfEmpty` runs the full cross-context projection drain only when `scenario-seed` is enabled. Representative staging refresh uses command-owned targeted projection syncs instead.
 - Marketplace and Inventory catalog projections can lag behind large Catalog integration imports; full inline replay is too expensive for an operator refresh. The refresh should use Catalog-owned current item truth for candidate discovery, then reconcile only selected items into Marketplace/Inventory local read models.
+- Catalog product-measure profiles are long-lived bootstrap facts, but resolved item measures are per-Catalog Item read-model facts. Representative refresh must resolve measures for a bounded current item window because accepted offers and order creation require product measurement snapshots.
 - Most commerce context seeds default to `scenario-seed` and already create useful baseline states, but several are development-shaped: fake payment gateways, synthetic provider references, fixed fake Catalog Item ids, `seed://` attachments, March 2026 timestamps, and generic demo labels. They should not be reused directly for representative staging coverage.
 - Staging reset already exists as `.github/workflows/platform-staging-reset.yml`; it destroys/recreates staging and smokes it. This is the natural hook for a fresh representative dataset.
 - DigitalOcean `platform-bootstrap` is a `PRE_DEPLOY` App Platform job. Normal staging deploys should keep this production-safe.
@@ -117,6 +119,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
   - priority 2: stale or thin market state below configured density;
   - excluded: items already touched by the same representative run id unless reconciliation is requested.
 - Add selected-item reconciliation before usage generation:
+  - Catalog owns resolving product measures for the bounded current candidate window before candidate loading;
   - Marketplace owns filtering untouched items and writing selected current item facts into `marketplace_catalog_items`;
   - Inventory owns writing selected current item facts into `inventory_catalog_items`;
   - the platform command composes those context-owned helpers and never drains full Catalog projections inline.

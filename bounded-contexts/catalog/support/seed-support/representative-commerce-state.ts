@@ -35,6 +35,13 @@ type CatalogRepresentativeCatalogItemRow = Readonly<{
   updated_at: string | Date;
 }>;
 
+export type CatalogRepresentativeServices = Readonly<{
+  db: Pick<PgQueryable, "query">;
+  productMeasures: Readonly<{
+    resolveCatalogItemMeasures: (catalogItemId: string) => Promise<void>;
+  }>;
+}>;
+
 export type CatalogRepresentativeProductSchema = Readonly<{
   canonicalDimensionOrder: readonly Readonly<{ dimensionId: string; dimensionName: string }>[];
   dimensions: readonly Readonly<{
@@ -62,6 +69,20 @@ export type CatalogRepresentativeCatalogUsageCandidate = Readonly<{
   productMeasureSnapshots: readonly ProductMeasureSnapshot[];
   updatedAt: string;
 }>;
+
+export async function prepareRepresentativeCatalogUsageCandidates(
+  services: CatalogRepresentativeServices,
+  options: Readonly<{ limit?: number }> = {},
+): Promise<readonly CatalogRepresentativeCatalogUsageCandidate[]> {
+  const limit = normalizeRepresentativeCatalogCandidateLimit(options.limit);
+  const currentCandidateIds = await loadCurrentRepresentativeCatalogItemIds(services.db, { limit });
+
+  for (const catalogItemId of currentCandidateIds) {
+    await services.productMeasures.resolveCatalogItemMeasures(catalogItemId);
+  }
+
+  return loadRepresentativeCatalogUsageCandidates(services.db, { limit });
+}
 
 export async function loadRepresentativeCatalogUsageCandidates(
   db: Pick<PgQueryable, "query">,
@@ -115,6 +136,22 @@ export async function loadRepresentativeCatalogUsageCandidates(
     productMeasureSnapshots: parseProductMeasureSnapshots(row.product_measure_snapshots),
     updatedAt: new Date(row.updated_at).toISOString(),
   }));
+}
+
+async function loadCurrentRepresentativeCatalogItemIds(
+  db: Pick<PgQueryable, "query">,
+  options: Readonly<{ limit: number }>,
+): Promise<readonly string[]> {
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM catalog_items item
+     WHERE item.status = 'active'
+     ORDER BY item.updated_at DESC, item.catalog_item_id ASC
+     LIMIT $1`,
+    [options.limit],
+  );
+
+  return result.rows.map((row) => row.catalog_item_id);
 }
 
 export function normalizeRepresentativeCatalogCandidateLimit(value: number | undefined): number {

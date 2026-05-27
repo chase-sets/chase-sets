@@ -3,7 +3,9 @@ export { seedCatalogDatabase as bootstrapCatalogDatabase } from "./support/autho
 export {
   loadRepresentativeCatalogUsageCandidates,
   normalizeRepresentativeCatalogCandidateLimit,
+  prepareRepresentativeCatalogUsageCandidates,
   type CatalogRepresentativeCatalogUsageCandidate,
+  type CatalogRepresentativeServices,
   type CatalogRepresentativeProductSchema,
 } from "./support/seed-support/representative-commerce-state";
 export {

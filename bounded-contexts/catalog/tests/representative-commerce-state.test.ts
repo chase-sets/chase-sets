@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   loadRepresentativeCatalogUsageCandidates,
   normalizeRepresentativeCatalogCandidateLimit,
+  prepareRepresentativeCatalogUsageCandidates,
 } from "../support/seed-support/representative-commerce-state";
 
 describe("catalog representative commerce state", () => {
@@ -103,5 +104,37 @@ describe("catalog representative commerce state", () => {
     expect(normalizeRepresentativeCatalogCandidateLimit(0)).toBe(50);
     expect(normalizeRepresentativeCatalogCandidateLimit(1.8)).toBe(1);
     expect(normalizeRepresentativeCatalogCandidateLimit(800)).toBe(500);
+  });
+
+  it("resolves a bounded current Catalog Item window before loading measured candidates", async () => {
+    const resolvedCatalogItemIds: string[] = [];
+    const queries: unknown[][] = [];
+    const db: Pick<PgQueryable, "query"> = {
+      query: async <Row>(sql: string, params?: readonly unknown[]) => {
+        queries.push([sql, params]);
+
+        if (sql.includes("SELECT item.catalog_item_id") && !sql.includes("catalog_resolved_product_measures")) {
+          return {
+            rows: [{ catalog_item_id: "cat_real_1" }, { catalog_item_id: "cat_real_2" }] as Row[],
+            rowCount: 2,
+          };
+        }
+
+        return { rows: [] as Row[], rowCount: 0 };
+      },
+    };
+
+    await prepareRepresentativeCatalogUsageCandidates({
+      db,
+      productMeasures: {
+        resolveCatalogItemMeasures: async (catalogItemId) => {
+          resolvedCatalogItemIds.push(catalogItemId);
+        },
+      },
+    });
+
+    expect(resolvedCatalogItemIds).toEqual(["cat_real_1", "cat_real_2"]);
+    expect(queries[0]?.[1]).toEqual([50]);
+    expect(String(queries[0]?.[0])).toContain("WHERE item.status = 'active'");
   });
 });
