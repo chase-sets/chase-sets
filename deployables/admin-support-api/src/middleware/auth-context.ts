@@ -31,7 +31,16 @@ const ANONYMOUS_ROUTES = new Set([
 ]);
 
 function isAnonymousAllowed(method: string, pathname: string) {
-  return ANONYMOUS_ROUTES.has(`${method.toUpperCase()} ${pathname}`);
+  const normalizedMethod = method.toUpperCase();
+  if (ANONYMOUS_ROUTES.has(`${normalizedMethod} ${pathname}`)) {
+    return true;
+  }
+
+  if (normalizedMethod === "GET" && pathname.startsWith("/api/auth/social/")) {
+    return true;
+  }
+
+  return false;
 }
 
 function isInternalIdentityAuthRoute(pathname: string) {

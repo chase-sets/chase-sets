@@ -27,10 +27,25 @@ export type AdminSupportApiConfig = Readonly<{
   port: number;
   internalAuthSecret: string;
   adminRegistrationEnabled: boolean;
+  socialLogin: AdminSupportApiSocialLoginConfig;
+  adminGoogleWorkspaceSso: AdminSupportApiAdminGoogleWorkspaceSsoConfig | null;
   catalogAssetStorage: AdminSupportCatalogAssetStorageConfig;
   platformAdmin: AdminSupportPlatformAdminConfig | null;
   deploymentEnvironment: string;
   dataProfiles: readonly EnvironmentDataProfile[];
+}>;
+
+export type AdminSupportApiSocialLoginProviderConfig = Readonly<{
+  clientId: string;
+  clientSecret: string;
+}>;
+
+export type AdminSupportApiSocialLoginConfig = Readonly<{
+  google?: AdminSupportApiSocialLoginProviderConfig;
+}>;
+
+export type AdminSupportApiAdminGoogleWorkspaceSsoConfig = Readonly<{
+  allowedHostedDomains: readonly string[];
 }>;
 
 export type AdminSupportCatalogAssetStorageConfig =
@@ -217,8 +232,21 @@ export function loadConfig(): AdminSupportApiConfig {
   const deploymentEnvironment = getDeploymentEnvironment();
   const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
   const controlDatabaseUrl = getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL") ?? sharedDatabaseUrl;
+  const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
+  const googleSocialLoginClientSecret = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET");
+  const adminGoogleWorkspaceSsoDomains = getOptionalCsvEnv("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS").map((value) =>
+    value.toLowerCase(),
+  );
   if (!controlDatabaseUrl) {
     throw new Error("PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required.");
+  }
+  if (Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)) {
+    throw new Error("GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.");
+  }
+  if (adminGoogleWorkspaceSsoDomains.length > 0 && (!googleSocialLoginClientId || !googleSocialLoginClientSecret)) {
+    throw new Error(
+      "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS requires GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET.",
+    );
   }
 
   const contextDatabaseUrls = Object.fromEntries(
@@ -254,6 +282,22 @@ export function loadConfig(): AdminSupportApiConfig {
       requireExplicitInProduction: true,
     }),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
+    socialLogin: {
+      ...(googleSocialLoginClientId && googleSocialLoginClientSecret
+        ? {
+            google: {
+              clientId: googleSocialLoginClientId,
+              clientSecret: googleSocialLoginClientSecret,
+            },
+          }
+        : {}),
+    },
+    adminGoogleWorkspaceSso:
+      adminGoogleWorkspaceSsoDomains.length > 0
+        ? {
+            allowedHostedDomains: adminGoogleWorkspaceSsoDomains,
+          }
+        : null,
     catalogAssetStorage: loadCatalogAssetStorageConfig(port, isProductionDeployment(deploymentEnvironment)),
     platformAdmin: loadPlatformAdminConfig(),
     deploymentEnvironment,

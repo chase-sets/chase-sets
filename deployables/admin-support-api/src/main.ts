@@ -1,6 +1,7 @@
 import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
+import { createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -24,11 +25,23 @@ const pools = createAdminSupportApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const socialLoginProviders = [
+  ...(config.socialLogin.google
+    ? [
+        createGoogleSocialLoginProvider({
+          clientId: config.socialLogin.google.clientId,
+          clientSecret: config.socialLogin.google.clientSecret,
+        }),
+      ]
+    : []),
+];
 
 const runtime = createAdminSupportApiHost({
   pools,
   hostPorts: {
     catalogAssetStorage,
+    socialLoginProviders,
+    adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
   },
 });
 const app = buildAdminSupportApiApp(runtime, {

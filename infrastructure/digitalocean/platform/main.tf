@@ -620,6 +620,26 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_ID"
+          value = var.google_social_login_client_id
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET"
+          value = var.google_social_login_client_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
+          value = var.admin_google_workspace_hosted_domains
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "CATALOG_ASSET_STORAGE_KIND"
           value = "s3"
           scope = "RUN_TIME"

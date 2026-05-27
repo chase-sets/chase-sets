@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Hono } from "hono";
 import type { ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import { buildAdminSupportApiApp } from "../src/app";
 
@@ -10,6 +11,48 @@ function createEmptyRuntime(): ApiHostRuntime {
     projectionGroups: [],
     subscriptionRunners: [],
   };
+}
+
+function createAuthRuntime(): ApiHostRuntime {
+  const authRouter = new Hono();
+  authRouter.get("/social/providers", (c) => c.json({ providers: [] }));
+  authRouter.get("/private", (c) => c.json({ ok: true }));
+  const authServices = {
+    identity: {
+      bootstrapTenantId: "tnt_identity_bootstrap",
+    },
+  };
+  const authModule = {
+    contextName: "auth",
+    apiMounts: [
+      {
+        mountPath: "/api/auth",
+        kind: "primary",
+        requiresAuth: false,
+      },
+    ],
+    buildApis: () => [authRouter],
+  };
+
+  return {
+    mountedContexts: [
+      {
+        contextName: "auth",
+        mountRole: "active",
+        module: authModule,
+        services: authServices,
+        pool: {},
+        projectionHandlerSets: [],
+      },
+    ],
+    mountedModules: [{ module: authModule, services: authServices }],
+    services: {
+      auth: authServices,
+      identity: {},
+    },
+    projectionGroups: [],
+    subscriptionRunners: [],
+  } as unknown as ApiHostRuntime;
 }
 
 describe("admin-support API app", () => {
@@ -42,6 +85,23 @@ describe("admin-support API app", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "registration_disabled" },
     });
+  });
+
+  it("allows anonymous social login discovery through the production admin API", async () => {
+    const app = buildAdminSupportApiApp(createAuthRuntime());
+
+    const response = await app.request("/api/auth/social/providers");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ providers: [] });
+  });
+
+  it("still requires authentication for other Auth API reads", async () => {
+    const app = buildAdminSupportApiApp(createAuthRuntime());
+
+    const response = await app.request("/api/auth/private");
+
+    expect(response.status).toBe(401);
   });
 
   it("requires platform operations permission for projection operations", async () => {
