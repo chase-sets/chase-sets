@@ -568,6 +568,7 @@ const defaultOfferDestination: AddressSnapshot = {
 };
 
 let seedListingPhotoBodyPromise: Promise<Buffer> | null = null;
+const HIGH_DOLLAR_SEED_LISTING_AMOUNT = 250;
 
 async function getSeedListingPhotoBody() {
   seedListingPhotoBodyPromise ??= sharp({
@@ -593,6 +594,21 @@ async function buildSeedListingPhotoUpload(listing: ListingSeed): Promise<readon
       altText: "Seed listing condition evidence photo",
     },
   ];
+}
+
+function requiresSeedListingPhotoUpload(
+  supply: Readonly<{
+    selected_options: readonly { dimensionId: string; optionId: string }[];
+    product_summary: string | null;
+  }>,
+  listing: ListingSeed,
+) {
+  return (
+    requiresListingPhotoEvidence({
+      selectedOptions: supply.selected_options,
+      productSummary: supply.product_summary,
+    }) || Number.parseFloat(listing.priceAmount) >= HIGH_DOLLAR_SEED_LISTING_AMOUNT
+  );
 }
 
 async function getProductId(
@@ -701,10 +717,7 @@ export async function seedMarketplaceDatabase(
         priceAmount: listing.priceAmount,
         quantityCap: listing.quantityCap,
         listingIdOverride: seededListingId,
-        listingPhotoUploads: requiresListingPhotoEvidence({
-          selectedOptions: supply.selected_options,
-          productSummary: supply.product_summary,
-        })
+        listingPhotoUploads: requiresSeedListingPhotoUpload(supply, listing)
           ? await buildSeedListingPhotoUpload(listing)
           : [],
       },

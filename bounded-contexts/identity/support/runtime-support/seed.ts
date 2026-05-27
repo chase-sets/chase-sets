@@ -10,6 +10,7 @@ const SUPPORT_CONTACT_METHOD_ID = "ctm_seed_support_email";
 const DEMO_PRIMARY_KEY_PREFIX = "sk_seed_demo_primary";
 const DEMO_ROTATED_KEY_PREFIX = "sk_seed_demo_rotated";
 const REPRESENTATIVE_SEEDED_AT = "2026-05-27T00:00:00.000Z";
+const scenarioTrustedSellerAccountIds = [identitySeedIds.demo.accountId, identitySeedIds.cardVault.accountId] as const;
 
 const representativeAccounts = [
   {
@@ -153,6 +154,22 @@ function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
+async function ensureScenarioTrustedSellerBadges(
+  services: ReturnType<typeof createIdentityServices>,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+) {
+  for (const accountId of scenarioTrustedSellerAccountIds) {
+    await services.accounts.commandHandler({
+      streamId: `identity.account-${accountId}`,
+      command: {
+        type: "AssignAccountBadge",
+        badgeKey: "trusted-seller",
+      },
+      context,
+    });
+  }
+}
+
 export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const services = createIdentityServices(pool);
   const context = createIdentityBootstrapContext();
@@ -173,6 +190,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
     const existing = await services.db.query("SELECT COUNT(*) AS count FROM identity_accounts");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
       console.log("Identity already contains data. Skipping seed.");
+      await ensureScenarioTrustedSellerBadges(services, context);
       if (shouldSeedRepresentative) {
         await seedRepresentativeIdentityAccounts(services, context);
       }
@@ -295,6 +313,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
       context,
     });
   }
+  await ensureScenarioTrustedSellerBadges(services, context);
 
   await services.shippingAddresses.commandHandler({
     streamId: `identity.shipping-address-book-${demo.accountId}`,
