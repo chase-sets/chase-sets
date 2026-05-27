@@ -343,8 +343,45 @@ function buildMarketActivityFilter(
   }
 }
 
+function buildMarketActivityFacetSource(
+  marketActivity: DiscoveryMarketActivityFilter,
+  dimensionFilters: ReadonlyMap<string, readonly string[]>,
+  firstParamIndex: number,
+): Readonly<{ sql: string; values: readonly string[] }> {
+  const selectedOptionSqlForListings = selectedOptionMatchSql("listing", dimensionFilters, firstParamIndex);
+  const selectedOptionSqlForOffers = selectedOptionMatchSql("offer", dimensionFilters, firstParamIndex);
+  const values = selectedOptionMatchValues(dimensionFilters);
+  const listingRows = `SELECT
+         'listing:' || listing.listing_id AS activity_id,
+         listing.catalog_catalog_item_id,
+         listing.selected_options
+       FROM discovery_market_listings AS listing
+       INNER JOIN discovery_market_accounts AS account
+         ON account.account_id = listing.account_id
+       WHERE listing.status = 'active'
+         AND account.seller_listing_availability_status = 'available'
+         ${selectedOptionSqlForListings}`;
+  const offerRows = `SELECT
+         'offer:' || offer.offer_id AS activity_id,
+         offer.catalog_catalog_item_id,
+         offer.selected_options
+       FROM discovery_offer_demand_matches AS offer
+       WHERE offer.status = 'submitted'
+         ${selectedOptionSqlForOffers}`;
+
+  switch (marketActivity) {
+    case "listings":
+      return { sql: listingRows, values };
+    case "offers":
+      return { sql: offerRows, values };
+    case "any":
+    default:
+      return { sql: `${listingRows}\n       UNION ALL\n       ${offerRows}`, values };
+  }
+}
+
 function selectedOptionMatchSql(
-  alias: "listing" | "offer",
+  alias: string,
   dimensionFilters: ReadonlyMap<string, readonly string[]>,
   firstParamIndex: number,
 ): string {
@@ -1086,6 +1123,10 @@ async function loadDimensionFacetValues(
   selectedOptionIds: readonly string[],
 ): Promise<DiscoveryFacetValue[]> {
   const filter = buildSearchFilter(params, { excludeFacet: { kind: "dimension", id: dimensionId }, itemAlias: "item" });
+  const activityDimensionFilters = marketDimensionFilterGroups(groupDimensionFilters(params.dimensionFilters), {
+    kind: "dimension",
+    id: dimensionId,
+  });
   const orderBy = dimensionFacetValueOrderSql({
     valueKind: "value_kind",
     numericValue: "numeric_value",
@@ -1094,6 +1135,81 @@ async function loadDimensionFacetValues(
     label: "label",
     id: "option_id",
   });
+
+  if (params.marketActivity) {
+    const activitySource = buildMarketActivityFacetSource(
+      params.marketActivity,
+      activityDimensionFilters,
+      filter.nextParamIndex + 2,
+    );
+    const result = await db.query<{
+      option_id: string;
+      label: string;
+      count: number;
+    }>(
+      `WITH facet_values AS (
+       SELECT
+         facet.value->>'optionId' AS option_id,
+         MAX(facet.value->>'optionLabel') AS label,
+         MAX(facet.value->>'valueKind') AS value_kind,
+         MIN(NULLIF(facet.value->>'displayOrder', '')::integer) AS display_order,
+         MAX(NULLIF(facet.value->>'numericValue', '')::numeric) AS numeric_value,
+         BOOL_OR(facet.value->>'optionId' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
+       FROM discovery_search_items AS item
+       CROSS JOIN LATERAL jsonb_array_elements(item.dimension_filter_values) AS facet(value)
+       ${filter.where}
+         AND facet.value->>'dimensionId' = $${filter.nextParamIndex}
+       GROUP BY facet.value->>'optionId'
+     ),
+     market_activity AS (
+       ${activitySource.sql}
+     ),
+     market_counts AS (
+       SELECT
+         selected_option.value->>'optionId' AS option_id,
+         COUNT(DISTINCT activity.activity_id)::integer AS count
+       FROM market_activity AS activity
+       INNER JOIN discovery_search_items AS item
+         ON item.catalog_item_id = activity.catalog_catalog_item_id
+       CROSS JOIN LATERAL jsonb_array_elements(activity.selected_options) AS selected_option(value)
+       ${filter.where}
+         AND selected_option.value->>'dimensionId' = $${filter.nextParamIndex}
+       GROUP BY selected_option.value->>'optionId'
+     ),
+     counted AS (
+       SELECT
+         facet_values.option_id,
+         facet_values.label,
+         COALESCE(market_counts.count, 0)::integer AS count,
+         facet_values.value_kind,
+         facet_values.display_order,
+         facet_values.numeric_value,
+         facet_values.selected
+       FROM facet_values
+       LEFT JOIN market_counts
+         ON market_counts.option_id = facet_values.option_id
+     ),
+     ranked AS (
+       SELECT
+         counted.*,
+         ROW_NUMBER() OVER (ORDER BY counted.selected DESC, ${orderBy}) AS facet_rank
+       FROM counted
+     )
+     SELECT option_id, label, count
+     FROM ranked
+     WHERE selected OR (count > 0 AND facet_rank <= ${FACET_VALUE_LIMIT})
+     ORDER BY selected DESC, ${orderBy}`,
+      [...filter.values, dimensionId, selectedOptionIds, ...activitySource.values],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.option_id,
+      label: row.label,
+      count: Number(row.count),
+      selected: selectedOptionIds.includes(row.option_id),
+    }));
+  }
+
   const result = await db.query<{
     option_id: string;
     label: string;
