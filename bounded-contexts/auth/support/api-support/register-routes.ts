@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { upsertActiveAuthIdentityMembershipMirror } from "../auth-support/identity-projection";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { createIdentityMutations, getBootstrapContext, readIdentityMutationConflict, type AuthApiApp } from "./support";
@@ -45,6 +46,14 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
         secretHash: services.auth.hashSecret(String(body.password)),
       });
     }
+
+    await upsertActiveAuthIdentityMembershipMirror(services.db, {
+      membershipId: identity.membershipId,
+      userId: identity.userId,
+      accountId: identity.accountId,
+      roleKey: "owner",
+      updatedAt: new Date().toISOString(),
+    });
 
     const authResult = await startInteractiveAuth(services, {
       userId: identity.userId,
