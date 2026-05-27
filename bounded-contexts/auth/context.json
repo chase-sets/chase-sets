@@ -127,6 +127,11 @@
       "portName": "socialLoginProviders",
       "providedBy": "platform-api",
       "purpose": "Configured Social Login Provider adapters used by Auth-owned sign-in and registration journeys."
+    },
+    {
+      "portName": "adminGoogleWorkspaceSso",
+      "providedBy": "platform-api",
+      "purpose": "Configured Google Workspace hosted-domain policy used by Auth-owned admin SSO journeys."
     }
   ],
   "apiDeployables": ["admin-support-api", "platform-api"],
