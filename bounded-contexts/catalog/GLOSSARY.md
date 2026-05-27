@@ -18,6 +18,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Product Asset Set`
 - `Reference Type`
 - `Reference Record`
+- `Display Template`
 - `Catalog Item Image Fallback`
 - `Product Measure Profile`
 - `Resolved Product Measure`
@@ -47,6 +48,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Source Asset` — the highest-quality imported image retained for provenance and future variant regeneration
 - `Reference Type` — a reusable kind of rich descriptive value, such as Expansion, Series, or Product Line
 - `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Expansion
+- `Display Template` — a reusable rule that resolves Catalog Item title and subtitle copy from Fields, Reference Records, Categories, Blueprints, or item-specific overrides
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 - `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
 - `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
@@ -82,6 +84,7 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Reference Type` groups Reference Records by natural kind.
 - A `Reference Record` may be selected as a Field value on many Catalog Items.
 - A `Reference Record` may relate to other Reference Records.
+- A `Display Template` may target one Catalog Item, Reference Record, Category, Blueprint, or all Catalog Items.
 - A `Catalog Item Image Fallback` belongs to one Catalog Item and may point at a shared Catalog-owned asset used by many items.
 - A `Product Measure Profile` may apply to many Products through Blueprint, Category, and selected Option rules.
 - A `Resolved Product Measure` belongs to exactly one Product.
@@ -110,6 +113,7 @@ Notes:
 - A Catalog Item cannot be sold without a Product.
 - A reference-shaped Field value must point at one Catalog-owned Reference Record.
 - A Reference Record enriches item information but does not change `product_id`.
+- A Display Template changes display copy only. It never changes `catalog_item_id`, `product_id`, selected Options, or product-resolution validity.
 - A Catalog Item Image Fallback never changes `product_id`; it only describes fallback imagery for item presentation.
 - Product weight, dimensions, physical flags, and stack behavior are Catalog-owned product facts.
 - Shipping price, letter eligibility, and carrier service selection are not Catalog facts; downstream contexts derive them from Resolved Product Measures and their own policies.
@@ -127,6 +131,7 @@ Preferred field names:
 - `product_summary`
 - `reference_type_id`
 - `reference_record_id`
+- `display_template_id`
 
 Avoid:
 
@@ -183,6 +188,7 @@ Catalog defines:
 - the resolved set of valid Products
 - the relationship between Dimensions, Options, and Products
 - the authoring relationship between Blueprints, Fields, Components, Categories, Reference Records, and Catalog Items
+- the template hierarchy used to resolve product-facing Catalog Item title and subtitle copy
 - the review and promotion policy for provider Source Observations
 - the normalized product imagery contract published as Product Asset Sets
 - reusable Product Measure Profiles and Resolved Product Measures
@@ -197,4 +203,4 @@ Catalog does not define:
 
 ## One-Line Summary
 
-A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, and Product Measure Profiles support authoring, enriching, organizing, and measuring that truth.
+A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, and Product Measure Profiles support authoring, enriching, organizing, naming, and measuring that truth.

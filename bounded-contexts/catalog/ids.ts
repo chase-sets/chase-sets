@@ -18,6 +18,8 @@ export type ReferenceTypeId = TypedUlid<"rft">;
 
 export type ReferenceRecordId = TypedUlid<"ref">;
 
+export type DisplayTemplateId = TypedUlid<"dtp">;
+
 export type SelectedOptionEntry = Readonly<{
   dimensionId: DimensionId;
   optionId: OptionId;

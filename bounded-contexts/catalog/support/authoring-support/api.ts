@@ -6,6 +6,7 @@ import { catalogItemRoutes } from "../../features/catalog-items/api/route";
 import { categoryRoutes } from "../../features/categories/api/route";
 import { componentRoutes } from "../../features/components/api/route";
 import { dimensionRoutes } from "../../features/dimensions/api/route";
+import { displayTemplateRoutes } from "../../features/display-templates/api/route";
 import { fieldRoutes } from "../../features/fields/api/route";
 import { referenceDataRoutes } from "../../features/reference-data/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
@@ -20,6 +21,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.route("/dimensions", dimensionRoutes(services.dimensions));
+  app.route("/display-templates", displayTemplateRoutes(services.displayTemplates));
   app.route("/fields", fieldRoutes(services.fields));
   app.route("/", referenceDataRoutes(services.referenceData));
   app.route("/components", componentRoutes(services.components));

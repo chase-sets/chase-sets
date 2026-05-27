@@ -19,8 +19,9 @@ Catalog authoring uses these supporting concepts:
 - `Category`
 - `Reference Type`
 - `Reference Record`
+- `Display Template`
 
-Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity and product resolution. `Blueprint`, `Field`, `Component`, `Category`, `Reference Type`, and `Reference Record` define how that catalog truth is authored, described, composed, enriched, and organized.
+Together, these terms are the formal Catalog vocabulary. `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity and product resolution. `Blueprint`, `Field`, `Component`, `Category`, `Reference Type`, `Reference Record`, and `Display Template` define how that catalog truth is authored, described, composed, enriched, named, and organized.
 
 Graded card product modeling is documented in [Graded Card Data Model](./docs/graded-card-data-model.md).
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
@@ -35,6 +36,7 @@ Provider-owned structural setup is documented in [Provider Integration Profiles]
 - Field values and category membership for Catalog Items
 - Provider Source Observations before review and promotion into canonical Catalog Items
 - Reference Types and Reference Records that provide rich reusable facts for item fields
+- Display Templates that resolve reusable product-facing title and subtitle copy from Catalog facts
 
 ## Does Not Own
 
@@ -87,6 +89,21 @@ Reference Types do not create Products and do not replace Dimensions. They defin
 Owns one reusable rich value under a Reference Type, such as `Ascended Heroes` under `Expansion` or `Mega Evolution` under `Series`.
 
 Reference Records can carry attributes and relationships to other Reference Records. These relationships may form a bounded hierarchy such as `Expansion -> Series -> TCG/Product Line -> Manufacturer`. A Catalog Item that points at a Reference Record receives that rich information in item detail read models without duplicating those facts onto every item.
+
+### Display Template
+
+Owns reusable title and subtitle resolution rules for Catalog Items.
+
+Display Templates produce display copy from Catalog Item Fields, selected Reference Records and their attributes or relationships, assigned Categories, assigned Blueprint, or a Catalog Item-specific override. They follow this override hierarchy:
+
+1. Catalog Item
+2. Reference Record
+3. Category
+4. Blueprint
+5. Global
+6. Catalog Item metadata fallback
+
+Display Templates never affect `catalog_item_id`, `product_id`, selected Options, or product-resolution validity.
 
 ### Catalog Item
 
@@ -168,3 +185,4 @@ Those events should carry the Catalog Item snapshot plus the `product_schema` do
 5. Downstream contexts must reference `catalog_item_id` plus `product_id`, never labels.
 6. Reference Records enrich descriptive item information but do not change `product_id`.
 7. Reusable descriptive hierarchy belongs on Reference Records, not repeated Catalog Item fields. Catalog Items should keep only item-specific facts such as printed name, card number, HP, attacks, and direct reference selections.
+8. Product-facing title and subtitle copy should come from Display Templates whenever the copy can be expressed from Fields and Reference Records; repeated manual metadata is fallback and exception data.

@@ -5,6 +5,7 @@ import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-m
 import { catalogCategorySchemaSql } from "../../features/categories/read-model/schema";
 import { catalogComponentSchemaSql } from "../../features/components/read-model/schema";
 import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/schema";
+import { catalogDisplayTemplateSchemaSql } from "../../features/display-templates/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
 import { catalogReferenceDataSchemaSql } from "../../features/reference-data/read-model/schema";
@@ -14,6 +15,7 @@ export const catalogAuthoringSchemaSql = [
   eventCorePostgresSchemaSql,
   catalogDimensionSchemaSql,
   catalogFieldSchemaSql,
+  catalogDisplayTemplateSchemaSql,
   catalogComponentSchemaSql,
   catalogBlueprintSchemaSql,
   catalogCategorySchemaSql,

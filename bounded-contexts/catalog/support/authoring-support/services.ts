@@ -7,6 +7,7 @@ import { createCatalogItemRuntime } from "../../features/catalog-items/api/runti
 import { createCategoryRuntime } from "../../features/categories/api/runtime";
 import { createComponentRuntime } from "../../features/components/api/runtime";
 import { createDimensionRuntime } from "../../features/dimensions/api/runtime";
+import { createDisplayTemplateRuntime } from "../../features/display-templates/api/runtime";
 import { createFieldRuntime } from "../../features/fields/api/runtime";
 import { createProductMeasureRuntime } from "../../features/product-measures/api/runtime";
 import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
@@ -19,6 +20,7 @@ export type CatalogHostPorts = Readonly<{
 
 export type CatalogServices = Readonly<{
   dimensions: ReturnType<typeof createDimensionRuntime>;
+  displayTemplates: ReturnType<typeof createDisplayTemplateRuntime>;
   fields: ReturnType<typeof createFieldRuntime>;
   referenceData: ReturnType<typeof createReferenceDataRuntime>;
   components: ReturnType<typeof createComponentRuntime>;
@@ -44,6 +46,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
   } as const;
 
   const dimensions = createDimensionRuntime(deps);
+  const displayTemplates = createDisplayTemplateRuntime(deps);
   const fields = createFieldRuntime(deps);
   const referenceData = createReferenceDataRuntime(deps);
   const components = createComponentRuntime(deps);
@@ -55,6 +58,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
 
   return {
     dimensions,
+    displayTemplates,
     fields,
     referenceData,
     components,
@@ -65,6 +69,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     sourceObservations,
     projectors: [
       ...dimensions.projectors,
+      ...displayTemplates.projectors,
       ...fields.projectors,
       ...referenceData.projectors,
       ...components.projectors,

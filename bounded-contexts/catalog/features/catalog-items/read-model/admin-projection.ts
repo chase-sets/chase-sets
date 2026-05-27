@@ -7,6 +7,7 @@ import {
   type FieldValue,
   loadNameMap,
 } from "../../../support/projection-support/read-model-support";
+import { resolveCatalogItemDisplayIdentity } from "./display-identity";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -82,6 +83,7 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
   const blueprintName = item.blueprint_id
     ? (await loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])).get(item.blueprint_id)
     : undefined;
+  const displayIdentity = await resolveCatalogItemDisplayIdentity(db, item);
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_list_pages (
@@ -112,9 +114,9 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       item.catalog_item_id,
       item.language_code,
       JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } }),
-      item.title,
+      displayIdentity.title,
       item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
-      item.subtitle,
+      displayIdentity.subtitle,
       item.blueprint_id,
       item.blueprint_id && blueprintName
         ? JSON.stringify({ blueprintId: item.blueprint_id, name: blueprintName })
@@ -137,6 +139,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   }
 
   const fieldValues = asArray<FieldValue>(item.field_values);
+  const displayIdentity = await resolveCatalogItemDisplayIdentity(db, item);
   const categoryIds = asStringArray(item.category_ids);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
   const referenceIds = fieldValues
@@ -220,9 +223,9 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       item.catalog_item_id,
       item.language_code,
       JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } }),
-      item.title,
+      displayIdentity.title,
       item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
-      item.subtitle,
+      displayIdentity.subtitle,
       JSON.stringify(item.description_i18n ?? { defaultLocale: "en", values: { en: item.description } }),
       item.description,
       item.blueprint_id,
@@ -329,6 +332,17 @@ async function refreshCatalogItemIds(db: PgQueryable, itemIds: readonly string[]
   for (const itemId of new Set(itemIds)) {
     await refreshCatalogAdminCatalogItemPages(db, itemId);
   }
+}
+
+async function refreshAllCatalogItemIds(db: PgQueryable): Promise<void> {
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM catalog_items ORDER BY catalog_item_id ASC`,
+  );
+
+  await refreshCatalogItemIds(
+    db,
+    result.rows.map((row) => row.catalog_item_id),
+  );
 }
 
 export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -473,6 +487,22 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     },
     "catalog.reference-record.archived": async (event) => {
       await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+    },
+
+    "catalog.display-template.created": async () => {
+      await refreshAllCatalogItemIds(db);
+    },
+    "catalog.display-template.revised": async () => {
+      await refreshAllCatalogItemIds(db);
+    },
+    "catalog.display-template.published": async () => {
+      await refreshAllCatalogItemIds(db);
+    },
+    "catalog.display-template.deprecated": async () => {
+      await refreshAllCatalogItemIds(db);
+    },
+    "catalog.display-template.archived": async () => {
+      await refreshAllCatalogItemIds(db);
     },
   };
 }

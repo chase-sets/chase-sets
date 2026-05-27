@@ -8,6 +8,7 @@
     "field",
     "component",
     "dimension",
+    "display-template",
     "product-measure-profile",
     "reference-type",
     "reference-record"
@@ -20,6 +21,7 @@
     "categories",
     "components",
     "dimensions",
+    "display-templates",
     "fields",
     "product-measures",
     "reference-data",
@@ -332,6 +334,12 @@
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
+    "display-templates": {
+      "classification": "slice",
+      "purpose": "Own Catalog display title and subtitle template policy, resolution metadata, and authoring APIs.",
+      "allowedWhen": "Required when Catalog display identity must be generated from Fields, Reference Records, Categories, Blueprints, and scoped overrides instead of repeated item strings.",
+      "expectedConsumers": ["catalog-items", "source-observations", "Internal catalog module composition"]
+    },
     "product-measures": {
       "classification": "slice",
       "purpose": "Own reusable product-measure-profile rules, item/product measurement overrides, and resolved product measure read models for shipping-aware downstream contexts.",
@@ -364,6 +372,7 @@
         "categories",
         "components",
         "dimensions",
+        "display-templates",
         "fields",
         "product-measures",
         "reference-data",
@@ -383,6 +392,7 @@
         "categories",
         "components",
         "dimensions",
+        "display-templates",
         "fields",
         "product-measures",
         "reference-data",
@@ -402,6 +412,7 @@
         "categories",
         "components",
         "dimensions",
+        "display-templates",
         "fields",
         "reference-data",
         "source-observations"
@@ -439,6 +450,7 @@
         "categories",
         "components",
         "dimensions",
+        "display-templates",
         "fields",
         "reference-data",
         "source-observations"
@@ -481,6 +493,7 @@
         "categories",
         "components",
         "dimensions",
+        "display-templates",
         "fields",
         "product-measures",
         "reference-data",
