@@ -14,7 +14,7 @@ type StoredBatch = Readonly<{
   batch_id: string;
   account_id: string;
   status: "uploaded" | "committed";
-  source_key: "native-csv" | "tcgplayer-csv";
+  source_key: string;
   adapter_version: number;
   quantity_mode: "add" | "replace";
   default_storage_location_id: string | null;
@@ -241,7 +241,11 @@ class ImportBatchDb implements PgQueryable {
 function catalogServices(): InventoryCatalogItemServices {
   return {
     getExternalProductReference: async (providerKey, externalKey) => {
-      if (providerKey === "tcgplayer" && externalKey === "tcg_sku_1") {
+      if (
+        (providerKey === "tcgplayer" && externalKey === "tcg_sku_1") ||
+        (providerKey === "tcgplayer" && externalKey === "12345") ||
+        (providerKey === "shopify" && externalKey === "variant:987")
+      ) {
         return {
           provider_key: providerKey,
           external_key: externalKey,
@@ -447,5 +451,60 @@ describe("inventory import batch runtime", () => {
     expect(batch.rows[1]?.validation_errors).toContain(
       "External product reference is not mapped to a Chase Sets catalog item.",
     );
+  });
+
+  it("tries ordered external reference candidates before sending rows to review", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey: "tcgplayer-csv",
+        quantityMode: "replace",
+        defaultStorageLocationId: "loc_active",
+        csvText: [
+          "TCGplayer SKU,Product ID,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price",
+          "missing_sku,12345,Pikachu,Jungle,Near Mint,4,12.50",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch).toMatchObject({
+      accepted_count: 1,
+      rejected_count: 0,
+    });
+    expect(batch.rows[0]).toMatchObject({
+      resolution_status: "resolved",
+      external_reference: {
+        providerKey: "tcgplayer",
+        externalKey: "12345",
+      },
+      catalog_item_id: "cat_active",
+    });
+  });
+
+  it("accepts mapped Shopify exports through the same import workflow", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey: "shopify-csv",
+        quantityMode: "replace",
+        defaultStorageLocationId: "loc_active",
+        csvText: "Title,Variant ID,Variant SKU,Variant Inventory Qty,Variant Price\nCharizard,987,box-1,2,9.50",
+      },
+      context,
+    );
+
+    expect(batch.rows[0]).toMatchObject({
+      status: "accepted",
+      resolution_status: "resolved",
+      external_reference: {
+        providerKey: "shopify",
+        externalKey: "variant:987",
+      },
+      listing_price_amount: "9.50",
+      listing_quantity_cap: 2,
+    });
   });
 });

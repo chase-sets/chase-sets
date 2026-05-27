@@ -40,6 +40,22 @@ Notes:
 
 An **Import** is a bulk inventory upload that creates or updates inventory items.
 
+Notes:
+
+- Imports are review-first.
+- Platform imports resolve ordered external reference candidates through Catalog-owned product references.
+- Accepted import rows can create inventory and draft listings; rejected rows stay in review until product, quantity, location, or listing draft issues are resolved.
+
+## External Reference Candidate
+
+An **External Reference Candidate** is a provider-scoped identifier captured from an import row before Inventory resolves it to a Chase Sets Product.
+
+Notes:
+
+- Examples include a TCGplayer SKU, eBay listing ID, Shopify variant ID, Whatnot product ID, CardTrader blueprint ID, or barcode.
+- Inventory tries candidates in adapter order and accepts the first mapped Catalog External Product Reference.
+- External Reference Candidates are row evidence, not Inventory-owned product truth.
+
 ## Acquisition Cost
 
 **Acquisition Cost** is the seller's recorded cost to acquire stock in inventory.

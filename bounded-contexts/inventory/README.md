@@ -33,6 +33,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 
 Inventory terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Automatic listing stock policy is documented in [Automatic Listing Stock](./docs/automatic-listing-stock.md).
+Import product resolution is documented in [Import Product Resolution](./docs/import-product-resolution.md).
 
 ## Core Aggregates and Process Managers
 
@@ -62,6 +63,7 @@ Automatic listing stock policy is documented in [Automatic Listing Stock](./docs
 5. Inventory availability must be derived from total quantity minus active holds.
 6. A listing can only be created from inventory that is available for sale.
 7. Reserved stock must preserve the ship-from location derived from its storage location so downstream shipping prices can use a single shipment origin.
+8. Platform import rows must resolve to Catalog-owned Product identity before they create inventory or draft listings.
 
 ## Open Extraction Candidates
 
