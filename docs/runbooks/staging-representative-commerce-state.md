@@ -21,7 +21,7 @@ pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:pro
 
 For local or non-standard non-production environments, set `REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true` with the same confirmation phrase.
 
-Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command explicitly syncs Catalog-derived Inventory and Marketplace projections before candidate selection, then syncs only the Marketplace and Ordering projections needed for each generated handoff. Override the default two-minute step timeout with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS` only when projection backlog is understood and actively draining.
+Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command explicitly syncs Catalog-derived Inventory and Marketplace projections before candidate selection, then syncs only the Marketplace and Ordering projections needed for each generated handoff. Catalog-derived projection syncs have a default ten-minute timeout because real integration pulls can create large replay backlogs; override it with `REPRESENTATIVE_COMMERCE_STATE_CATALOG_PROJECTION_SYNC_TIMEOUT_MS` only when that backlog is understood. Override the default two-minute timeout for other steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`.
 
 ## Expected Data
 
