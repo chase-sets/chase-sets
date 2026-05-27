@@ -1,7 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
-import { upsertActiveAuthIdentityMembershipMirror } from "../auth-support/identity-projection";
+import {
+  upsertActiveAuthIdentityMembershipMirror,
+  upsertRegisteredAuthIdentityUserMirror,
+} from "../auth-support/identity-projection";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import { createIdentityMutations, getBootstrapContext, readIdentityMutationConflict, type AuthApiApp } from "./support";
@@ -34,25 +37,38 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
       throw error;
     }
 
+    let passwordCredentialId: string | null = null;
     if (body.password) {
-      const credentialId = createId("crd");
+      passwordCredentialId = createId("crd");
       await identityMutations.enablePasswordCredential({
         userId: identity.userId,
-        credentialId,
+        credentialId: passwordCredentialId,
       });
       await upsertPasswordCredential(services.db, {
-        credentialId,
+        credentialId: passwordCredentialId,
         userId: identity.userId,
         secretHash: services.auth.hashSecret(String(body.password)),
       });
     }
+
+    const registeredAt = new Date().toISOString();
+    await upsertRegisteredAuthIdentityUserMirror(services.db, {
+      userId: identity.userId,
+      displayName: String(body.displayName ?? ""),
+      givenName: body.givenName ? String(body.givenName) : "",
+      familyName: body.familyName ? String(body.familyName) : "",
+      email,
+      authMethods: body.password ? ["password"] : [],
+      passwordCredentialId,
+      updatedAt: registeredAt,
+    });
 
     await upsertActiveAuthIdentityMembershipMirror(services.db, {
       membershipId: identity.membershipId,
       userId: identity.userId,
       accountId: identity.accountId,
       roleKey: "owner",
-      updatedAt: new Date().toISOString(),
+      updatedAt: registeredAt,
     });
 
     const authResult = await startInteractiveAuth(services, {

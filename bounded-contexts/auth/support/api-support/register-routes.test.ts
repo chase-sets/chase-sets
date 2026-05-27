@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe("registration auth routes", () => {
-  it("writes the new owner membership into the Auth mirror before returning a session", async () => {
+  it("writes the registered identity into the Auth mirrors before returning a session", async () => {
     const services = createServices();
     mockCreateIdentityAuthRequestClient.mockReturnValue({
       createPersonalIdentity: vi.fn(async () => ({
@@ -92,6 +92,24 @@ describe("registration auth routes", () => {
       accountId: "acc_new",
     });
 
+    expect(services.db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO auth_identity_users"),
+      expect.arrayContaining(["usr_new", "New User", "new.user@chasesets.test"]),
+    );
+    const userMirrorCall = services.db.query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO auth_identity_users"),
+    );
+    expect(JSON.parse(String(userMirrorCall?.[1]?.[5]))).toMatchObject([
+      {
+        type: "email",
+        value: "new.user@chasesets.test",
+      },
+    ]);
+    expect(JSON.parse(String(userMirrorCall?.[1]?.[6]))).toEqual(["password"]);
+    expect(services.db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO auth_identity_user_emails"),
+      expect.arrayContaining(["new.user@chasesets.test", "usr_new"]),
+    );
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO auth_identity_user_memberships"),
       expect.arrayContaining(["mbr_new", "usr_new", "acc_new", "owner"]),
