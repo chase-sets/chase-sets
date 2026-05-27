@@ -1,6 +1,6 @@
 ---
 name: bounded-context-delivery
-description: Deliver Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes through bounded-context planning, isolated worktree execution, PR/CI/merge/deployment verification, and final local cleanup. Use when the user asks to plan or implement a change with repo evidence, one blocking question at a time, recommended answers, durable plan notes, goal creation, and no product/runtime edits during planning.
+description: Deliver Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes through bounded-context planning, isolated worktree execution, PR/CI/merge/deployment verification, and final local cleanup. Use when the user asks to plan or implement a change with repo evidence, one blocking question at a time, recommended answers, finished plans captured in PR details, goal creation, and no product/runtime edits during planning.
 ---
 
 # Bounded Context Delivery
@@ -22,7 +22,7 @@ Deliver changes from inside an isolated git worktree, using the repo's bounded c
 6. Resolve decisions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
 7. Ask exactly one blocking question at a time. Include the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use `request_user_input` when available.
 8. Update the plan after each answer, repo finding, contradiction, recommendation, and doc change.
-9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation scope, verification, durable doc promotion, PR, CI, merge, deployment checks, retained plan, local container deletion, worktree deletion, remote PR branch deletion, and local branch deletion.
+9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation scope, verification, durable doc promotion, PR details containing the finished plan, CI, merge, deployment checks, generated plan deletion, local container deletion, worktree deletion, remote PR branch deletion, and local branch deletion.
 10. Treat submitting the PR, waiting for CI to pass, merging the PR, confirming staging and production deployments are green, and completing local cleanup as required goal work, not follow-up or optional release tasks.
 
 ## Worktree Setup
@@ -44,7 +44,7 @@ git worktree add .codex/worktrees/<yyyymmdd>-<feature-slug> -b codex/<feature-sl
 - The default shared pnpm store for embedded worktrees is `.codex/worktrees/.chase-sets-pnpm-store`; set `CHASE_SETS_PNPM_STORE_DIR` only if the default fails.
 - Run `pnpm run sandbox:doctor` after dependency setup. Use `docs/runbooks/local-worktree-sandboxes.md` for sandbox troubleshooting.
 - Never run `sandbox:clean:all`. Use current-worktree cleanup only when explicitly needed, such as `pnpm run dev:down` or `pnpm run sandbox:clean`.
-- Before marking the goal complete, delete only the resources created for that goal: stop the current worktree services, delete the current worktree's local container or sandbox with scoped cleanup, remove the worktree, delete the remote PR branch if it exists, then delete the local branch after merge.
+- Before marking the goal complete, delete only the resources created for that goal: stop the current worktree services, delete the current worktree's local container or sandbox with scoped cleanup, delete the generated `.codex/plans/<yyyymmdd>-<feature-slug>.md` plan after its final contents are captured in the PR details, remove the worktree, delete the remote PR branch if it exists, then delete the local branch after merge.
 
 ## Plan File
 
@@ -63,21 +63,22 @@ Use only useful sections from this template:
 ## Goal Completion Criteria
 ```
 
-The `Worktree` section must list path, branch, sandbox id, dependency setup status, pnpm store path, and setup blockers. Keep the plan committed with the implementation; do not delete it during cleanup.
+The `Worktree` section must list path, branch, sandbox id, dependency setup status, pnpm store path, and setup blockers. Treat the plan as a generated working artifact: do not commit it, and do not promote it as durable documentation. Before submitting the PR, copy the finished plan into the PR body/details so the decisions and completion criteria are preserved in PR history. Durable docs created from the plan remain repository artifacts and must be committed normally.
 
 The `Goal Completion Criteria` section must always include:
 
-- PR submitted for the completed implementation or scoped non-product change.
+- PR submitted for the completed implementation or scoped non-product change, with the finished plan included in the PR body/details.
 - CI passing on the PR before merge.
 - PR merged after required review and passing checks.
 - Staging deployment verified green after merge.
 - Production deployment verified green after promotion or rollout.
 - Local container or sandbox created for the worktree deleted with scoped cleanup.
-- Worktree deleted after the retained plan is committed and the PR is merged.
+- Generated plan file deleted after its final contents are captured in the PR details.
+- Worktree deleted after the generated plan file is deleted and the PR is merged.
 - Remote PR branch deleted after merge when one exists.
 - Local branch deleted after the worktree is removed and the PR is merged.
 
-Do not mark the goal complete until all nine criteria are satisfied or the user explicitly redefines the goal.
+Do not mark the goal complete until all ten criteria are satisfied or the user explicitly redefines the goal.
 
 ## Rules
 
