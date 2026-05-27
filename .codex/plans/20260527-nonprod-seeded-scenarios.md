@@ -32,7 +32,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Inventory owns representative stock creation for selected current Catalog Items behind its public context entrypoint.
 - Marketplace owns representative listing publication from that Inventory stock behind its public context entrypoint.
 - Marketplace owns representative offer submission for selected current Catalog Items behind its public context entrypoint.
-- Marketplace accepts a bounded subset of representative offers with current fee quotes, then the platform command drains Ordering projections so accepted offers create purchase/sale/order coverage.
+- Marketplace accepts a bounded subset of representative offers with current fee quotes, then the platform command syncs targeted Marketplace and Ordering projection groups so accepted offers create purchase/sale/order coverage without trying to drain unrelated live staging work.
 - A manual `Platform Staging Representative Commerce State` workflow runs the command against live staging after reset or Catalog imports while normal staging deployment bootstrap stays representative-data-free.
 
 ## Owning Contexts
@@ -58,7 +58,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 
 - ADR 0003 currently says staging and production run only `critical-bootstrap` and `catalog-integration-bootstrap`, while `scenario-seed` is limited to dev, preview, and test. That policy keeps bootstrap safe but leaves staging under-representative.
 - `EnvironmentDataProfile` currently has only `critical-bootstrap`, `catalog-integration-bootstrap`, and `scenario-seed`.
-- `seedApiHostIfEmpty` runs the full cross-context projection drain only when `scenario-seed` is enabled.
+- `seedApiHostIfEmpty` runs the full cross-context projection drain only when `scenario-seed` is enabled. Representative staging refresh uses command-owned targeted projection syncs instead.
 - Most commerce context seeds default to `scenario-seed` and already create useful baseline states, but several are development-shaped: fake payment gateways, synthetic provider references, fixed fake Catalog Item ids, `seed://` attachments, March 2026 timestamps, and generic demo labels. They should not be reused directly for representative staging coverage.
 - Staging reset already exists as `.github/workflows/platform-staging-reset.yml`; it destroys/recreates staging and smokes it. This is the natural hook for a fresh representative dataset.
 - DigitalOcean `platform-bootstrap` is a `PRE_DEPLOY` App Platform job. Normal staging deploys should keep this production-safe.
@@ -89,13 +89,13 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
   - reject `representative-commerce-state` when `DEPLOYMENT_ENVIRONMENT=production`;
   - require `DEPLOYMENT_ENVIRONMENT=staging` or an explicit local/test override for the staging refresh entrypoint;
   - require a confirmation phrase such as `REPRESENTATIVE_COMMERCE_STATE_CONFIRM=seed staging commerce`.
-- Update `infrastructure/platform-runtime/api.ts` so full projection drain runs for `scenario-seed` or `representative-commerce-state`.
+- Keep `infrastructure/platform-runtime/api.ts` full projection drains scoped to `scenario-seed`; representative refresh should not try to drain all live staging subscriptions.
 - Keep `productionLikeDataProfiles` unchanged for normal staging/production bootstrap.
 - Add tests proving:
   - staging default remains production-safe;
   - staging can explicitly allow representative state;
   - production rejects representative state even with `PLATFORM_DATA_PROFILES`;
-  - full projection drain runs for representative state.
+  - representative state seeds without enabling scenario seed or full host-level drains.
 
 ### Phase 2: Staging Refresh Composition And Candidate Selection
 
@@ -193,7 +193,7 @@ Each context keeps its own behavior and scenario aliases under context-owned `se
   - representative products exist on search/detail pages;
   - at least one product has Listings, Offers, and Sales history;
   - account Sales/Purchases/Shipments/Payments/Wallet/Reviews/Support pages are non-empty for scenario accounts;
-  - projection lag is drained after refresh.
+  - relevant Marketplace and Ordering projection groups are synced after refresh.
 - Ensure normal `platform-production.yml` staging deploys do not run representative refresh unless explicitly requested.
 
 ## Scenario Matrix
