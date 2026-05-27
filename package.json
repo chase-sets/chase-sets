@@ -52,6 +52,7 @@
     "test:sandbox": "vitest run scripts/sandbox.test.mjs",
     "test:platform-smoke": "vitest run scripts/platform-smoke-args.test.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:deployed": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:install": "playwright install",
     "test:change-scope": "vitest run scripts/change-scope.test.mjs",
