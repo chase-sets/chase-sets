@@ -103,12 +103,12 @@ describe("source observation runtime", () => {
       type: "ReviseCatalogItemMetadata",
       title: {
         values: {
-          en: "Furret 136/217",
+          en: "Furret",
         },
       },
       subtitle: {
         values: {
-          en: "Ascended Heroes Updated • Parallel Set - Reverse Foil • Uncommon",
+          en: "",
         },
       },
     });
@@ -342,7 +342,7 @@ describe("source observation runtime", () => {
     expect(harness.itemCommands).toEqual([]);
   });
 
-  it("uses the Expansion printed-card-count attribute as the displayed card number denominator", async () => {
+  it("keeps promoted metadata as fallback when templates own display card numbering", async () => {
     const harness = createChangedObservationRefreshHarness({
       expansionAttributes: {
         "printed-card-count": 102,
@@ -367,18 +367,18 @@ describe("source observation runtime", () => {
       type: "ReviseCatalogItemMetadata",
       title: {
         values: {
-          en: "Abra 43/102",
+          en: "Abra",
         },
       },
       subtitle: {
         values: {
-          en: "Base Set • Parallel Set - Reverse Foil • Common",
+          en: "",
         },
       },
     });
   });
 
-  it("omits the card count denominator when the Expansion printed-card-count attribute is null", async () => {
+  it("does not special-case promo metadata when templates own display subtitles", async () => {
     const harness = createChangedObservationRefreshHarness({
       expansionAttributes: {
         "printed-card-count": null,
@@ -407,18 +407,18 @@ describe("source observation runtime", () => {
       type: "ReviseCatalogItemMetadata",
       title: {
         values: {
-          en: "Rowlet SM01",
+          en: "Rowlet",
         },
       },
       subtitle: {
         values: {
-          en: "Sun & Moon Promos • Promo",
+          en: "",
         },
       },
     });
   });
 
-  it("uses the bare card number when no official or configured card count is available", async () => {
+  it("uses the source name as fallback metadata without hard-coded card-number formatting", async () => {
     const harness = createChangedObservationRefreshHarness({
       normalized: pokemonObservation({
         cardNumber: "XY01",
@@ -444,12 +444,12 @@ describe("source observation runtime", () => {
       type: "ReviseCatalogItemMetadata",
       title: {
         values: {
-          en: "Pikachu XY01",
+          en: "Pikachu",
         },
       },
       subtitle: {
         values: {
-          en: "XY Promos • Promo",
+          en: "",
         },
       },
     });

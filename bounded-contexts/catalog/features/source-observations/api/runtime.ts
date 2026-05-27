@@ -1605,77 +1605,12 @@ async function formatPokemonCardPromotionMetadata(input: {
   normalized: SourceObservationNormalized;
   expansionReferenceId: ReferenceRecordId;
 }): Promise<{ title: string; subtitle: string }> {
-  const printedCardCount = await loadExpansionPrintedCardCountOverride(input.deps, input.expansionReferenceId);
-  const cardNumber = formatPokemonCardNumber(input.normalized, printedCardCount);
-  const title = [input.normalized.name, cardNumber].filter((part) => part.trim().length > 0).join(" ");
-
+  void input.deps;
+  void input.expansionReferenceId;
   return {
-    title,
-    subtitle: formatPokemonCardSubtitle(input.normalized),
+    title: input.normalized.name,
+    subtitle: "",
   };
-}
-
-async function loadExpansionPrintedCardCountOverride(
-  deps: CatalogRuntimeDeps,
-  expansionReferenceId: ReferenceRecordId,
-): Promise<string | null | undefined> {
-  const result = await deps.db.query<{ attributes: unknown }>(
-    `SELECT attributes
-     FROM catalog_reference_records
-     WHERE reference_record_id = $1
-     LIMIT 1`,
-    [expansionReferenceId],
-  );
-  const attributes = result.rows[0]?.attributes;
-  if (!isJsonRecord(attributes) || !(PRINTED_CARD_COUNT_ATTRIBUTE in attributes)) {
-    return undefined;
-  }
-
-  const value = attributes[PRINTED_CARD_COUNT_ATTRIBUTE];
-  if (value === null) {
-    return null;
-  }
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  return undefined;
-}
-
-function formatPokemonCardNumber(
-  normalized: SourceObservationNormalized,
-  printedCardCountOverride: string | null | undefined,
-): string {
-  const denominator =
-    printedCardCountOverride === undefined
-      ? countToDisplayValue(normalized.expansionCardCount)
-      : printedCardCountOverride;
-
-  return denominator ? `${normalized.cardNumber}/${denominator}` : normalized.cardNumber;
-}
-
-function countToDisplayValue(value: number | null): string | null {
-  return value === null ? null : String(value);
-}
-
-function formatPokemonCardSubtitle(normalized: SourceObservationNormalized): string {
-  return [
-    normalized.expansionName,
-    shouldIncludeCardVariantInSubtitle(normalized.cardVariantLabel) ? normalized.cardVariantLabel : null,
-    normalized.rarity,
-  ]
-    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-    .join(" • ");
-}
-
-function shouldIncludeCardVariantInSubtitle(cardVariantLabel: string): boolean {
-  return cardVariantLabel.trim() !== "Standard Set";
 }
 
 function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string[] {

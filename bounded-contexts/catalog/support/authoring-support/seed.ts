@@ -10,6 +10,7 @@ import { seedComponents } from "../../features/components/api/seed";
 import type { ComponentIds } from "../../features/components/api/seed";
 import { seedDimensions } from "../../features/dimensions/api/seed";
 import type { DimensionIds } from "../../features/dimensions/api/seed";
+import { seedDisplayTemplates } from "../../features/display-templates/api/seed";
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
@@ -55,6 +56,9 @@ export async function seedTcgdexCatalogIntegrationProfile(
   if (await tableHasRows(services.db, "catalog_dimensions")) {
     console.log("Pokemon TCG catalog integration profile already exists. Reconciling fields.");
     const fields = await seedFields(services);
+    if (!(await tableHasRows(services.db, "catalog_display_templates"))) {
+      await seedDisplayTemplates(services);
+    }
     return {
       ...staticTcgdexCatalogIntegrationIds(),
       fields,
@@ -69,6 +73,7 @@ export async function seedTcgdexCatalogIntegrationProfile(
   const components = await seedComponents(services, dimensions, fields);
   const blueprints = await seedBlueprints(services, components, dimensions, fields);
   const categories = await seedCategories(services);
+  await seedDisplayTemplates(services);
 
   return {
     dimensions,

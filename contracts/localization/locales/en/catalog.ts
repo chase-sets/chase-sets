@@ -1,4 +1,5 @@
 export const catalogEnglishTranslations = {
+  "catalog.features.displayTemplates.api.route.display.template.not.found": "Display Template not found.",
   "catalog.features.referenceData.api.route.reference.record.not.found": "Reference record not found.",
   "catalog.features.referenceData.api.route.reference.type.not.found": "Reference type not found.",
   "catalog.features.referenceData.ui.referenceDataForm.attribute.summary.entry": "{key}: {value}",

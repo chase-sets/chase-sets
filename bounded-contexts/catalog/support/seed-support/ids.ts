@@ -9,6 +9,7 @@ export type SeedBlueprintId = TypedUlid<"bpr">;
 export type SeedCategoryId = TypedUlid<"ctg">;
 export type SeedReferenceTypeId = TypedUlid<"rft">;
 export type SeedReferenceRecordId = TypedUlid<"ref">;
+export type SeedDisplayTemplateId = TypedUlid<"dtp">;
 
 export const catalogSeedIds = {
   dimensions: {
@@ -99,6 +100,11 @@ export const catalogSeedIds = {
       surgingSparks: "ref_seed_expansion_surging_sparks" as SeedReferenceRecordId,
       twilightMasquerade: "ref_seed_expansion_twilight_masquerade" as SeedReferenceRecordId,
     },
+  },
+  displayTemplates: {
+    pokemonSingleCardDefault: "dtp_seed_pokemon_single_card_default" as SeedDisplayTemplateId,
+    pokemonPromoCard: "dtp_seed_pokemon_promo_card" as SeedDisplayTemplateId,
+    pokemonSealedProduct: "dtp_seed_pokemon_sealed_product" as SeedDisplayTemplateId,
   },
   components: {
     singleCardIdentity: "cmp_seed_single_card_identity" as SeedComponentId,
