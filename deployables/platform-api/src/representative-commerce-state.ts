@@ -6,7 +6,7 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
+import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -28,6 +28,7 @@ import {
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 
 const CONFIRMATION_PHRASE = "seed staging commerce";
+const DEFAULT_STEP_TIMEOUT_MS = 120_000;
 
 export function assertRepresentativeCommerceStateRunAllowed(
   input: Readonly<{
@@ -110,22 +111,36 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       },
     });
 
-    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
-      enabledDataProfiles: representativeCommerceStateDataProfiles,
-      environmentName: config.deploymentEnvironment ?? null,
-    });
-    const candidates = await loadUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), {
-      limit: readCandidateLimit(),
-    });
-    const inventoryStock = await ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates);
-    await syncContextProjectionGroups(runtime, "marketplace");
-    const listings = await publishRepresentativeListings(getMarketplaceServices(runtime.services), inventoryStock);
-    await syncContextProjectionGroups(runtime, "marketplace");
-    const offers = await submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock);
-    await syncContextProjectionGroups(runtime, "marketplace");
-    const acceptedOffers = await acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock);
-    await syncContextProjectionGroups(runtime, "marketplace");
-    await syncContextProjectionGroups(runtime, "ordering");
+    await runRepresentativeStep("seed data profiles", () =>
+      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+        enabledDataProfiles: representativeCommerceStateDataProfiles,
+        environmentName: config.deploymentEnvironment ?? null,
+      }),
+    );
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
+    const candidates = await runRepresentativeStep("load untouched marketplace catalog candidates", () =>
+      loadUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), {
+        limit: readCandidateLimit(),
+      }),
+    );
+    const inventoryStock = await runRepresentativeStep("ensure representative inventory stock", () =>
+      ensureRepresentativeInventoryStock(getInventoryServices(runtime.services), candidates),
+    );
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
+    const listings = await runRepresentativeStep("publish representative listings", () =>
+      publishRepresentativeListings(getMarketplaceServices(runtime.services), inventoryStock),
+    );
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
+    const offers = await runRepresentativeStep("submit representative offers", () =>
+      submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
+    );
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
+    const acceptedOffers = await runRepresentativeStep("accept representative offers", () =>
+      acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
+    );
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-offer-acceptance");
+    await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
 
     console.log(
       JSON.stringify({
@@ -184,6 +199,82 @@ function readCandidateLimit(): number {
 
   const parsed = Number.parseInt(rawValue, 10);
   return normalizeRepresentativeCandidateLimit(parsed);
+}
+
+function readStepTimeoutMs(): number {
+  const rawValue = process.env.REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS;
+  if (!rawValue) {
+    return DEFAULT_STEP_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_STEP_TIMEOUT_MS;
+  }
+
+  return Math.min(Math.trunc(parsed), 600_000);
+}
+
+async function runRepresentativeStep<T>(stepName: string, run: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  console.log(JSON.stringify({ type: "representative-commerce-state.step.started", stepName }));
+
+  try {
+    const result = await withRepresentativeStepTimeout(stepName, run());
+    console.log(
+      JSON.stringify({
+        type: "representative-commerce-state.step.completed",
+        stepName,
+        durationMs: Date.now() - startedAt,
+      }),
+    );
+    return result;
+  } catch (error) {
+    console.log(
+      JSON.stringify({
+        type: "representative-commerce-state.step.failed",
+        stepName,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : "Unknown representative commerce state step failure.",
+      }),
+    );
+    throw error;
+  }
+}
+
+async function withRepresentativeStepTimeout<T>(stepName: string, promise: Promise<T>): Promise<T> {
+  const timeoutMs = readStepTimeoutMs();
+  let timeout: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Representative commerce state step '${stepName}' exceeded ${timeoutMs}ms. Check projection backlog and retry after workers catch up.`,
+              ),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function syncRepresentativeProjection(
+  runtime: Parameters<typeof getProjectionGroup>[0],
+  contextName: string,
+  projectionName: string,
+): Promise<void> {
+  await runRepresentativeStep(`sync ${contextName}.${projectionName}`, async () => {
+    await syncProjectionGroup(getProjectionGroup(runtime, contextName, projectionName));
+  });
 }
 
 function getMarketplaceDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {

@@ -34,6 +34,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Marketplace owns representative offer submission for selected current Catalog Items behind its public context entrypoint.
 - Marketplace accepts a bounded subset of representative offers with current fee quotes, then the platform command syncs targeted Marketplace and Ordering projection groups so accepted offers create purchase/sale/order coverage without trying to drain unrelated live staging work.
 - A manual `Platform Staging Representative Commerce State` workflow runs the command against live staging after reset or Catalog imports while normal staging deployment bootstrap stays representative-data-free.
+- Live staging refresh attempts showed whole-context projection syncs can still run too long while workers are active. The command now logs each step, bounds step duration, and syncs only named projection groups needed for the next representative handoff.
 
 ## Owning Contexts
 
