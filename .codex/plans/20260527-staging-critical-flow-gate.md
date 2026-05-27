@@ -40,6 +40,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - Staging Stripe money smoke showed newly registered synthetic sellers could still fail immediate password sign-in because Auth's email lookup mirror had not caught up. Auth registration should also synchronously write the registered user and primary email lookup mirror before returning.
 - Local sandbox bootstrap can be contaminated by ignored deployable `.env.local` files. The dev-system sandbox should explicitly default worker notification email to noop unless the parent environment intentionally opts into a provider, keeping E2E startup deterministic.
 - Staging Stripe money smoke should reuse the session token returned by synthetic seller registration instead of immediately password-signing in the same account, because the smoke only needs authenticated API headers and should not depend on the email/user projection catching up.
+- Staging Stripe money smoke can reuse old staging data across deploy attempts, so its synthetic seller display name must be unique per run attempt just like its email and password.
 
 ## Open Questions
 
@@ -64,6 +65,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - [x] Add Auth registration coverage for immediate user/email mirror readiness.
 - [x] Rerun focused Auth registration tests after user/email mirror fix.
 - [x] Rerun repository typecheck after user/email mirror fix.
+- [x] Make Stripe smoke synthetic seller display names unique per run attempt.
 
 ## Documentation To Promote
 
