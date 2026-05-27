@@ -99,6 +99,25 @@ async function addSessionCookie(page: Page, origin: string, sessionToken: string
   expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
 }
 
+async function submitBrowserForm(page: Page, fields: Record<string, string>) {
+  await page.locator("body").evaluate((body, formFields) => {
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = window.location.href;
+
+    for (const [name, value] of Object.entries(formFields)) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.append(input);
+    }
+
+    body.append(form);
+    form.submit();
+  }, fields);
+}
+
 async function signInWithConfiguredPassword(
   page: Page,
   origin: string,
@@ -118,26 +137,21 @@ async function signInWithConfiguredPassword(
 }
 
 async function registerSyntheticAccount(page: Page, origin: string, account: ReturnType<typeof marketplaceAccountFor>) {
-  const response = await page.request.post(`${origin}/api/auth/register`, {
-    data: {
+  await expectPageOk(page, "/register?returnTo=%2Faccount%2Fcart");
+
+  await Promise.all([
+    page.waitForURL(/\/account\/cart/, { timeout: authProjectionTimeoutMs }),
+    submitBrowserForm(page, {
+      intent: "password",
+      registrationMethod: "password",
+      displayName: account.displayName,
       email: account.email,
       password: account.password,
-      displayName: account.displayName,
-      givenName: "Critical",
-      familyName: "Flow",
-      consents: [
-        {
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
-        },
-      ],
-    },
-  });
+    }),
+  ]);
 
-  expect(response.status(), "synthetic account registration should succeed").toBe(201);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "synthetic account registration should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
+  const sessionCookie = (await page.context().cookies(origin)).find((cookie) => cookie.name === "chase_sets_session");
+  expect(sessionCookie, "marketplace registration should set the browser auth session cookie").toBeTruthy();
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {

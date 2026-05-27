@@ -36,6 +36,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - Staging critical-flow checks should use test-mode credentials and synthetic or seeded accounts only; production data, raw provider payloads, payment details, and payout destination details remain out of test artifacts.
 - Current deployment verification is blocked by staging and local marketplace critical-flow authentication readiness: synthetic registration through the API can return a session token while protected account routes still redirect until Auth identity projections catch up.
 - Local worker evidence showed Auth and Identity projections catching up after the original account test timeout. The browser suite should add the returned session token to the browser context, assert the cookie is present, and use protected account routes themselves as the readiness check.
+- Staging evidence showed manually installed API session cookies still redirect on protected checkout routes like `/account/sell-list`. Synthetic accounts should submit the marketplace registration route in the browser so the deployed app owns the session cookie attributes.
 - Local sandbox bootstrap can be contaminated by ignored deployable `.env.local` files. The dev-system sandbox should explicitly default worker notification email to noop unless the parent environment intentionally opts into a provider, keeping E2E startup deterministic.
 
 ## Open Questions
@@ -52,6 +53,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - [x] Add/update workflow guard tests so the staging critical-flow gate does not regress silently.
 - [x] Install worktree dependencies and run focused verification.
 - [x] Make synthetic critical-flow accounts register through the API, install the returned browser session cookie, and wait for protected account routes to observe projection catch-up.
+- [x] Move synthetic critical-flow account creation onto the browser marketplace registration route so staging sets the session cookie.
 - [x] Keep local sandbox E2E bootstrap isolated from personal notification-email `.env.local` provider settings.
 - [x] Rerun marketplace E2E locally.
 - [ ] Rerun marketplace E2E in CI.
