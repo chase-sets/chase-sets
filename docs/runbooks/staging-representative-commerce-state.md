@@ -21,7 +21,7 @@ pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:pro
 
 For local or non-standard non-production environments, set `REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true` with the same confirmation phrase.
 
-Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command asks Catalog to resolve product measurements for the bounded current item window, skipping Catalog Items that already have resolved product measurement snapshots, selects eligible Catalog Items directly from Catalog-owned read models, asks Marketplace to filter out items that already have marketplace activity, and asks Marketplace and Inventory to reconcile only those selected Catalog Item facts into their local read models before usage generation. This avoids replaying the full Catalog event history inline after large integration pulls. The command then syncs only the Marketplace, Ordering, and Discovery projections needed for each generated commerce handoff and visible product/search market presentation. Override the default two-minute timeout for steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`; Catalog measurement preparation uses a larger bounded timeout because it may need to resolve newly imported items after a provider pull.
+Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command asks Catalog to resolve product measurements for the bounded current item window, skipping Catalog Items that already have resolved product measurement snapshots, selects eligible Catalog Items directly from Catalog-owned read models, asks Marketplace to filter out items that already have marketplace activity, and asks Marketplace and Inventory to reconcile only those selected Catalog Item facts into their local read models before usage generation. This avoids replaying the full Catalog event history inline after large integration pulls. The command then syncs only the Marketplace and Ordering projections needed for each generated commerce handoff, and asks Discovery to reconcile the selected representative account/listing/offer facts for visible product/search market presentation without replaying the full Marketplace event backlog. Override the default two-minute timeout for steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`; Catalog measurement preparation uses a larger bounded timeout because it may need to resolve newly imported items after a provider pull.
 
 ## Expected Data
 
@@ -29,7 +29,7 @@ The representative profile keeps real Catalog integration output in place. It fi
 
 Representative Inventory stock prefers raw/non-graded product options when a current Catalog Item exposes raw-vs-graded form choices. Graded stock scenarios should include graded-card certification details before being enabled for staging-visible usage.
 
-After generating Marketplace usage, the command syncs Discovery market presentation so public item detail and search surfaces show representative listings and offers.
+After generating Marketplace usage, the command reconciles Discovery market presentation for the representative listings and offers so public item detail and search surfaces show the generated activity.
 
 The representative usage layer should reconcile:
 
