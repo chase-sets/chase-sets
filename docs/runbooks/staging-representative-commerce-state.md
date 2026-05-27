@@ -21,11 +21,11 @@ pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:pro
 
 For local or non-standard non-production environments, set `REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true` with the same confirmation phrase.
 
-Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command selects eligible Catalog Items directly from Catalog-owned read models, asks Marketplace to filter out items that already have marketplace activity, and asks Marketplace and Inventory to reconcile only those selected Catalog Item facts into their local read models before usage generation. This avoids replaying the full Catalog event history inline after large integration pulls. The command then syncs only the Marketplace and Ordering projections needed for each generated commerce handoff. Override the default two-minute timeout for steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`.
+Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. The command asks Catalog to resolve product measurements for the bounded current item window, selects eligible Catalog Items directly from Catalog-owned read models, asks Marketplace to filter out items that already have marketplace activity, and asks Marketplace and Inventory to reconcile only those selected Catalog Item facts into their local read models before usage generation. This avoids replaying the full Catalog event history inline after large integration pulls. The command then syncs only the Marketplace and Ordering projections needed for each generated commerce handoff. Override the default two-minute timeout for steps with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS`.
 
 ## Expected Data
 
-The representative profile keeps real Catalog integration output in place. It first finds active Catalog Items with product measurement snapshots, filters to items with no listings or offers, reconciles those selected item facts into Marketplace and Inventory, then layers representative usage over those current items.
+The representative profile keeps real Catalog integration output in place. It first resolves product measurements for a bounded active Catalog Item window, finds active Catalog Items with product measurement snapshots, filters to items with no listings or offers, reconciles those selected item facts into Marketplace and Inventory, then layers representative usage over those current items.
 
 The representative usage layer should reconcile:
 

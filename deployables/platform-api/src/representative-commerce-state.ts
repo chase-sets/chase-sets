@@ -10,7 +10,7 @@ import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-con
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { loadRepresentativeCatalogUsageCandidates } from "@chase-sets/catalog/server";
+import { prepareRepresentativeCatalogUsageCandidates } from "@chase-sets/catalog/server";
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
@@ -124,8 +124,8 @@ export async function runRepresentativeCommerceState(): Promise<void> {
       }),
     );
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
-    const sourceCandidates = await runRepresentativeStep("load current catalog usage candidates", () =>
-      loadRepresentativeCatalogUsageCandidates(getCatalogDb(runtime.services), {
+    const sourceCandidates = await runRepresentativeStep("prepare current catalog usage candidates", () =>
+      prepareRepresentativeCatalogUsageCandidates(getCatalogServices(runtime.services), {
         limit: readCandidateSourceLimit(),
       }),
     );
@@ -321,21 +321,28 @@ function getMarketplaceDb(services: Readonly<Record<string, unknown>>): Pick<PgQ
   return getMarketplaceServices(services).db;
 }
 
-function getCatalogDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+function getCatalogServices(services: Readonly<Record<string, unknown>>) {
   const catalog = services.catalog;
   if (
     !catalog ||
     typeof catalog !== "object" ||
     !("db" in catalog) ||
+    !("productMeasures" in catalog) ||
     !catalog.db ||
     typeof catalog.db !== "object" ||
     !("query" in catalog.db) ||
-    typeof catalog.db.query !== "function"
+    typeof catalog.db.query !== "function" ||
+    !catalog.productMeasures ||
+    typeof catalog.productMeasures !== "object" ||
+    !("resolveCatalogItemMeasures" in catalog.productMeasures) ||
+    typeof catalog.productMeasures.resolveCatalogItemMeasures !== "function"
   ) {
-    throw new Error("Representative commerce state requires mounted Catalog services with a queryable db.");
+    throw new Error(
+      "Representative commerce state requires mounted Catalog services with product measures and a queryable db.",
+    );
   }
 
-  return catalog.db as Pick<PgQueryable, "query">;
+  return catalog as Parameters<typeof prepareRepresentativeCatalogUsageCandidates>[0];
 }
 
 function getMarketplaceServices(services: Readonly<Record<string, unknown>>) {
