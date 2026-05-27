@@ -44,7 +44,9 @@ import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
+  type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import { getObservabilityRuntime } from "@chase-sets/observability";
 import { loadConfig, type PlatformWorkerCatalogAssetStorageConfig } from "./config";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
@@ -155,7 +157,7 @@ const transactionalEmailDispatchRunners = createTransactionalEmailDispatchRunner
   config.workerId,
   transactionalEmailGateway,
 );
-const scheduledJobRunners = createScheduledJobRunners(runtime.services, config);
+const scheduledJobRunners = createScheduledJobRunners(runtime.services, config, controlPlane);
 const runnerGroups = [
   createRunnerGroup("projections", projectionRunners, config.projectionMaxConcurrentRunners),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
@@ -222,9 +224,26 @@ for (const runnerLoop of runnerLoops) {
   runnerLoop.loop.start();
 }
 
+const drainState = createProcessDrainState();
 const app = new Hono();
 app.get("/health/live", (c) => c.json({ status: "ok" }));
 app.get("/health/ready", async (c) => {
+  if (drainState.isDraining()) {
+    return c.json(
+      {
+        status: "degraded",
+        checks: [
+          {
+            name: "process.draining",
+            status: "degraded",
+            message: "Process is draining for shutdown.",
+          },
+        ],
+      },
+      503,
+    );
+  }
+
   await pools.control.query("SELECT 1");
   return c.json({ status: "ok" });
 });
@@ -246,26 +265,31 @@ app.get("/internal/workers/status", async (c) => {
   });
 });
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
-  logger.info("Platform worker listening.", {
-    type: "platform-worker.started",
-    port: info.port,
-    workerId: config.workerId,
-    runnerCount,
-    runnerGroups: runnerGroupMetadata(runnerGroups),
-    runnerCapacity,
-  });
+startGracefulHttpServer({
+  name: "platform-worker",
+  port: config.port,
+  serve,
+  fetch: app.fetch,
+  drainState,
+  logger,
+  onListening: (info) => {
+    logger.info("Platform worker listening.", {
+      type: "platform-worker.started",
+      port: info.port,
+      workerId: config.workerId,
+      runnerCount,
+      runnerGroups: runnerGroupMetadata(runnerGroups),
+      runnerCapacity,
+    });
+  },
+  onDrainStart: [
+    async () => {
+      clearInterval(heartbeatTimer);
+      await stopRunnerLoops(runnerLoops.map((runnerLoop) => runnerLoop.loop));
+    },
+  ],
+  onShutdown: [async () => closePlatformWorkerPools(pools), async () => observability.shutdown()],
 });
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, () => {
-    clearInterval(heartbeatTimer);
-    void stopRunnerLoops(runnerLoops.map((runnerLoop) => runnerLoop.loop))
-      .finally(() => closePlatformWorkerPools(pools))
-      .finally(() => observability.shutdown())
-      .finally(() => process.exit(0));
-  });
-}
 
 type RunnerGroup = Readonly<{
   name: string;
@@ -373,6 +397,7 @@ function createScheduledJobRunners(
     ReturnType<typeof loadConfig>,
     "paymentReconciliationIntervalMs" | "sellerFundsReleaseIntervalMs" | "payoutReconciliationIntervalMs"
   >,
+  controlPlane: PlatformControlPlane,
 ): readonly WorkerRunner[] {
   const payments = services.payments as PaymentsServices | undefined;
   const settlement = services.settlement as SettlementServices | undefined;
@@ -380,62 +405,77 @@ function createScheduledJobRunners(
 
   if (payments && input.paymentReconciliationIntervalMs) {
     runners.push(
-      createScheduledJobRunner("payments.reconciliation", input.paymentReconciliationIntervalMs, async () => {
-        const result = await payments.payments.scanPaymentsNeedingReconciliation({
-          limit: 100,
-          claimOwnerId: config.workerId,
-          claimTtlMs: config.leaseTtlMs * 4,
-        });
-        logger.info("Payment reconciliation scan completed.", {
-          type: "payments.reconciliation-needed",
-          count: result.attention,
-        });
-        return result.checked;
-      }),
+      createScheduledJobRunner(
+        "payments.reconciliation",
+        input.paymentReconciliationIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await payments.payments.scanPaymentsNeedingReconciliation({
+            limit: 100,
+            claimOwnerId: config.workerId,
+            claimTtlMs: config.leaseTtlMs * 4,
+          });
+          logger.info("Payment reconciliation scan completed.", {
+            type: "payments.reconciliation-needed",
+            count: result.attention,
+          });
+          return result.checked;
+        },
+      ),
     );
   }
 
   if (settlement && input.sellerFundsReleaseIntervalMs) {
     runners.push(
-      createScheduledJobRunner("settlement.seller-funds-release", input.sellerFundsReleaseIntervalMs, async () => {
-        const result = await settlement.wallets.releaseMaturePendingSaleCredits(
-          {
-            limit: 500,
-            claimOwnerId: config.workerId,
-            claimTtlMs: config.leaseTtlMs * 4,
-          },
-          SYSTEM_CONTEXT,
-        );
-        logger.info("Seller funds release completed.", {
-          type: "settlement.funds-release",
-          result,
-        });
-        return typeof result === "object" && result && "released" in result
-          ? Number((result as { released: unknown }).released)
-          : 0;
-      }),
+      createScheduledJobRunner(
+        "settlement.seller-funds-release",
+        input.sellerFundsReleaseIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await settlement.wallets.releaseMaturePendingSaleCredits(
+            {
+              limit: 500,
+              claimOwnerId: config.workerId,
+              claimTtlMs: config.leaseTtlMs * 4,
+            },
+            SYSTEM_CONTEXT,
+          );
+          logger.info("Seller funds release completed.", {
+            type: "settlement.funds-release",
+            result,
+          });
+          return typeof result === "object" && result && "released" in result
+            ? Number((result as { released: unknown }).released)
+            : 0;
+        },
+      ),
     );
   }
 
   if (settlement && input.payoutReconciliationIntervalMs) {
     runners.push(
-      createScheduledJobRunner("settlement.payout-reconciliation", input.payoutReconciliationIntervalMs, async () => {
-        const result = await settlement.payouts.reconcilePayoutsNeedingAttention(
-          {
-            limit: 100,
-            claimOwnerId: config.workerId,
-            claimTtlMs: config.leaseTtlMs * 4,
-          },
-          SYSTEM_CONTEXT,
-        );
-        logger.info("Payout reconciliation completed.", {
-          type: "settlement.reconciliation",
-          result,
-        });
-        return typeof result === "object" && result && "checked" in result
-          ? Number((result as { checked: unknown }).checked)
-          : 0;
-      }),
+      createScheduledJobRunner(
+        "settlement.payout-reconciliation",
+        input.payoutReconciliationIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await settlement.payouts.reconcilePayoutsNeedingAttention(
+            {
+              limit: 100,
+              claimOwnerId: config.workerId,
+              claimTtlMs: config.leaseTtlMs * 4,
+            },
+            SYSTEM_CONTEXT,
+          );
+          logger.info("Payout reconciliation completed.", {
+            type: "settlement.reconciliation",
+            result,
+          });
+          return typeof result === "object" && result && "checked" in result
+            ? Number((result as { checked: unknown }).checked)
+            : 0;
+        },
+      ),
     );
   }
 
@@ -449,8 +489,18 @@ function createCatalogBulkJobRunners(
   const catalog = services.catalog as
     | {
         sourceObservations?: {
-          processNextBulkReviewJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
-          processNextIntegrationJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
+          processNextBulkReviewJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+          processNextIntegrationJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
         };
       }
     | undefined;
@@ -467,10 +517,12 @@ function createCatalogBulkJobRunners(
     runners.push({
       name: "catalog.source-observation-bulk-jobs",
       kind: "job",
-      runOnce: async () => ({
+      runOnce: async (context) => ({
         processed: await processNextBulkReviewJob({
           claimOwnerId: input.workerId,
           claimTtlMs: input.leaseTtlMs * 4,
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
         }),
         lastGlobalPosition: "0" as never,
       }),
@@ -481,10 +533,12 @@ function createCatalogBulkJobRunners(
     runners.push({
       name: "catalog.source-observation-integration-jobs",
       kind: "job",
-      runOnce: async () => ({
+      runOnce: async (context) => ({
         processed: await processNextIntegrationJob({
           claimOwnerId: input.workerId,
           claimTtlMs: input.leaseTtlMs * 4,
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
         }),
         lastGlobalPosition: "0" as never,
       }),
@@ -587,19 +641,23 @@ function createNotificationDispatchRunners(
     });
 }
 
-function createScheduledJobRunner(name: string, intervalMs: number, job: () => Promise<number>): WorkerRunner {
-  let nextRunAt = 0;
-
+function createScheduledJobRunner(
+  name: string,
+  intervalMs: number,
+  controlPlane: PlatformControlPlane,
+  job: () => Promise<number>,
+): WorkerRunner {
   return {
     name,
     kind: "job",
     runOnce: async () => {
-      if (Date.now() < nextRunAt) {
+      const claimed = await controlPlane.claimScheduledRunner({ runnerName: name, intervalMs });
+      if (!claimed) {
         return { processed: 0, lastGlobalPosition: "0" as never };
       }
 
-      nextRunAt = Date.now() + intervalMs;
       const processed = await job();
+      await controlPlane.recordScheduledRunnerCompleted({ runnerName: name });
       return { processed, lastGlobalPosition: "0" as never };
     },
   };

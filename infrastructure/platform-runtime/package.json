@@ -12,6 +12,7 @@
     "./http": "./http.ts",
     "./mcp": "./mcp.ts",
     "./projection-operations-routes": "./projection-operations-routes.ts",
+    "./process-lifecycle": "./process-lifecycle.ts",
     "./ucp": "./ucp.ts",
     "./meta": "./meta.ts",
     "./realtime": "./realtime.ts",

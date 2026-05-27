@@ -317,6 +317,96 @@ export async function recordSettlementProviderIdempotencyKey(
   );
 }
 
+export async function recordSettlementProviderOperationPending(
+  db: PgQueryable,
+  operation: Readonly<{
+    operationKey: string;
+    providerName: string;
+    operationKind: string;
+    accountId?: string | null;
+    payoutId?: string | null;
+    idempotencyKey: string;
+    request?: unknown;
+    createdAt?: string;
+  }>,
+) {
+  const timestamp = operation.createdAt ?? new Date().toISOString();
+  await db.query(
+    `INSERT INTO settlement_provider_operations (
+       operation_key,
+       provider_name,
+       operation_kind,
+       account_id,
+       payout_id,
+       idempotency_key,
+       request_json,
+       status,
+       created_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', $8, $8)
+     ON CONFLICT (operation_key) DO UPDATE
+     SET provider_name = EXCLUDED.provider_name,
+         operation_kind = EXCLUDED.operation_kind,
+         account_id = EXCLUDED.account_id,
+         payout_id = EXCLUDED.payout_id,
+         idempotency_key = EXCLUDED.idempotency_key,
+         request_json = EXCLUDED.request_json,
+         updated_at = EXCLUDED.updated_at`,
+    [
+      operation.operationKey,
+      operation.providerName,
+      operation.operationKind,
+      operation.accountId ?? null,
+      operation.payoutId ?? null,
+      operation.idempotencyKey,
+      JSON.stringify(operation.request ?? {}),
+      timestamp,
+    ],
+  );
+}
+
+export async function recordSettlementProviderOperationSucceeded(
+  db: PgQueryable,
+  operation: Readonly<{
+    operationKey: string;
+    providerObjectReference: string;
+    completedAt?: string;
+  }>,
+) {
+  const timestamp = operation.completedAt ?? new Date().toISOString();
+  await db.query(
+    `UPDATE settlement_provider_operations
+     SET status = 'succeeded',
+         provider_object_reference = $2,
+         error_message = NULL,
+         completed_at = $3,
+         updated_at = $3
+     WHERE operation_key = $1`,
+    [operation.operationKey, operation.providerObjectReference, timestamp],
+  );
+}
+
+export async function recordSettlementProviderOperationFailed(
+  db: PgQueryable,
+  operation: Readonly<{
+    operationKey: string;
+    errorMessage: string;
+    completedAt?: string;
+  }>,
+) {
+  const timestamp = operation.completedAt ?? new Date().toISOString();
+  await db.query(
+    `UPDATE settlement_provider_operations
+     SET status = 'failed',
+         error_message = $2,
+         completed_at = $3,
+         updated_at = $3
+     WHERE operation_key = $1
+       AND status = 'pending'`,
+    [operation.operationKey, operation.errorMessage, timestamp],
+  );
+}
+
 export async function listSettlementProviderIdempotencyKeys(
   db: PgQueryable,
   params: Readonly<{ accountId: string; limit?: number }>,

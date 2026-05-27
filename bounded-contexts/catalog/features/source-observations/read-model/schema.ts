@@ -31,7 +31,7 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
 
 CREATE TABLE IF NOT EXISTS catalog_source_observation_bulk_jobs (
   job_id text PRIMARY KEY,
-  action text NOT NULL CHECK (action IN ('promote', 'reject')),
+  action text NOT NULL CHECK (action IN ('promote', 'reject', 'reapply')),
   selection_mode text NOT NULL CHECK (selection_mode IN ('ids', 'filter')),
   observation_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   scope jsonb NOT NULL DEFAULT '{}'::jsonb,

@@ -140,20 +140,22 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     };
 
     if (body.scope) {
-      const result = await services.reapplyObservationScope({
-        scope: parsePromotionScope(body.scope),
+      const job = await services.enqueueIntegrationJob({
+        action: "reapply",
+        scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
         context: c.get("context"),
       });
 
-      return c.json(result);
+      return c.json(job, 202);
     }
 
-    const result = await services.reapplyObservations({
+    const job = await services.enqueueBulkReviewJob({
+      action: "reapply",
       observationIds: parseObservationIds(body.observationIds),
       context: c.get("context"),
     });
 
-    return c.json(result);
+    return c.json(job, 202);
   });
 
   app.post("/reapply/progress", async (c) => {
@@ -161,23 +163,23 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       observationIds?: unknown;
       scope?: unknown;
     };
-    const context = c.get("context");
+    if (body.scope) {
+      const job = await services.enqueueIntegrationJob({
+        action: "reapply",
+        scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
+        context: c.get("context"),
+      });
 
-    return streamReapplyNdjson(
-      async (onProgress) =>
-        body.scope
-          ? services.reapplyObservationScope({
-              scope: parsePromotionScope(body.scope),
-              context,
-              onProgress,
-            })
-          : services.reapplyObservations({
-              observationIds: parseObservationIds(body.observationIds),
-              context,
-              onProgress,
-            }),
-      c.req.raw.signal,
-    );
+      return streamIntegrationJobNdjson(services, job.jobId, "Source Observation reapply failed.", c.req.raw.signal);
+    }
+
+    const job = await services.enqueueBulkReviewJob({
+      action: "reapply",
+      observationIds: parseObservationIds(body.observationIds),
+      context: c.get("context"),
+    });
+
+    return streamBulkJobNdjson(services, job.jobId, "Source Observation reapply failed.", c.req.raw.signal);
   });
 
   app.post("/bulk-promote/jobs", async (c) => {
@@ -201,24 +203,14 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       scope?: unknown;
     };
 
-    if (body.scope) {
-      const result = await services.promoteObservationScope({
-        scope: parsePromotionScope(body.scope),
-        context: c.get("context"),
-      });
-
-      return c.json(result);
-    }
-
-    const observationIds = Array.isArray(body.observationIds)
-      ? body.observationIds.map((observationId: unknown) => String(observationId))
-      : [];
-    const result = await services.promoteObservations({
-      observationIds,
+    const job = await services.enqueueBulkReviewJob({
+      action: "promote",
+      observationIds: parseObservationIds(body.observationIds),
+      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
       context: c.get("context"),
     });
 
-    return c.json(result);
+    return c.json(job, 202);
   });
 
   app.post("/bulk-promote/progress", async (c) => {
@@ -253,26 +245,15 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       );
     }
 
-    if (body.scope) {
-      const result = await services.rejectObservationScope({
-        scope: parsePromotionScope(body.scope),
-        reason,
-        context: c.get("context"),
-      });
-
-      return c.json(result);
-    }
-
-    const observationIds = Array.isArray(body.observationIds)
-      ? body.observationIds.map((observationId: unknown) => String(observationId))
-      : [];
-    const result = await services.rejectObservations({
-      observationIds,
+    const job = await services.enqueueBulkReviewJob({
+      action: "reject",
+      observationIds: parseObservationIds(body.observationIds),
+      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
       reason,
       context: c.get("context"),
     });
 
-    return c.json(result);
+    return c.json(job, 202);
   });
 
   app.post("/bulk-reject/jobs", async (c) => {
@@ -517,6 +498,14 @@ function parseIntegrationJobScope(input: unknown) {
   };
 }
 
+function promotionScopeToIntegrationScope(scope: SourceObservationFilterScope) {
+  return {
+    provider: scope.provider,
+    language: scope.language,
+    setId: scope.setId,
+  };
+}
+
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -626,6 +615,78 @@ function streamReapplyNdjson(
             type: "error",
             message: error instanceof Error ? error.message : "Source Observation reapply failed.",
           });
+        }
+      } finally {
+        controller.close();
+      }
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function streamIntegrationJobNdjson(
+  services: SourceObservationServices,
+  jobId: string,
+  fallbackMessage: string,
+  signal?: AbortSignal,
+) {
+  const encoder = new TextEncoder();
+  let closed = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (event: unknown) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
+      let lastProgress = "";
+
+      try {
+        for (;;) {
+          if (signal?.aborted || closed) {
+            break;
+          }
+
+          const job = await services.getIntegrationJob(jobId);
+          if (!job) {
+            write({
+              type: "error",
+              message: t("catalog.features.sourceObservations.api.route.integration.job.not.found"),
+              jobId,
+            });
+            break;
+          }
+
+          const progressKey = JSON.stringify(job.progress);
+          if (progressKey !== lastProgress) {
+            write({ type: "progress", progress: job.progress, jobId });
+            lastProgress = progressKey;
+          }
+
+          if (job.status === "completed") {
+            if (job.result) {
+              write({ type: "result", result: job.result, jobId });
+            } else {
+              write({ type: "error", message: fallbackMessage, jobId });
+            }
+            break;
+          }
+
+          if (job.status === "failed") {
+            write({ type: "error", message: job.errorMessage ?? fallbackMessage, jobId });
+            break;
+          }
+
+          await sleep(500);
         }
       } finally {
         controller.close();

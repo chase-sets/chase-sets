@@ -103,6 +103,24 @@ describe("realtime topic authorization", () => {
 });
 
 describe("realtime SSE routes", () => {
+  it("rejects new streams while the process is draining", async () => {
+    const app = createRealtimeRoutes({
+      stores: [{ contextName: "discovery", db: { query: async () => ({ rows: [] }) } }],
+      resolveActor: async () => null,
+      isDraining: () => true,
+    });
+
+    const response = await app.request("/public/events?topic=public%3Amarket");
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "process_draining",
+        message: "Process is draining for shutdown.",
+      },
+    });
+  });
+
   it("rejects streams that exceed active connection limits", async () => {
     const rejected: unknown[] = [];
     const app = createRealtimeRoutes({

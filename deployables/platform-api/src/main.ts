@@ -36,6 +36,7 @@ import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
   getObservabilityRuntime,
   recordRealtimeAuthorizationRejected,
@@ -335,6 +336,7 @@ const ucpObserver = {
   },
 } satisfies UcpRuntimeObserver;
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
+const drainState = createProcessDrainState();
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   controlPlane,
@@ -359,6 +361,7 @@ const app = buildPlatformApiApp(runtime, {
   realtimeWakeSignal,
   realtimeStreamLimiter: realtimeStreamLimiter.limiter,
   realtimeActiveConnectionCount: () => realtimeActiveConnectionCount,
+  isDraining: drainState.isDraining,
   realtimeRouteTuning: {
     batchSize: config.realtime.batchSize,
     pollIntervalMs: config.realtime.pollIntervalMs,
@@ -494,26 +497,37 @@ for (const maintainer of realtimePartitionMaintainers) {
   void maintainer.maintain();
 }
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
-  logger.info("Platform API listening.", {
-    type: "platform-api.started",
-    port: info.port,
-  });
+startGracefulHttpServer({
+  name: "platform-api",
+  port: config.port,
+  serve,
+  fetch: app.fetch,
+  drainState,
+  logger,
+  onListening: (info) => {
+    logger.info("Platform API listening.", {
+      type: "platform-api.started",
+      port: info.port,
+    });
+  },
+  onDrainStart: [
+    () => {
+      logger.info("Platform API stopping background realtime maintenance.", {
+        type: "platform-api.drain.background_stopping",
+      });
+      realtimeRetentionSweeper?.stop();
+      for (const maintainer of realtimePartitionMaintainers) {
+        maintainer.stop();
+      }
+    },
+  ],
+  onShutdown: [
+    async () => realtimeWakeSignal?.stop?.(),
+    async () => realtimeStreamLimiter.stop?.(),
+    async () => closePlatformApiPools(pools),
+    async () => observability.shutdown(),
+  ],
 });
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, () => {
-    realtimeRetentionSweeper?.stop();
-    for (const maintainer of realtimePartitionMaintainers) {
-      maintainer.stop();
-    }
-    void Promise.resolve(realtimeWakeSignal?.stop?.())
-      .finally(() => realtimeStreamLimiter.stop?.())
-      .finally(() => closePlatformApiPools(pools))
-      .finally(() => observability.shutdown())
-      .finally(() => process.exit(0));
-  });
-}
 
 async function createPlatformRealtimeStreamLimiter(): Promise<
   Readonly<{

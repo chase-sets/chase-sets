@@ -325,6 +325,13 @@ describe("fulfillment shipment runtime", () => {
         },
       }),
     );
+    const providerOperationCall = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO fulfillment_postage_label_operations"),
+    );
+    expect(providerOperationCall).toBeTruthy();
+    expect(db.query.mock.invocationCallOrder[db.query.mock.calls.indexOf(providerOperationCall!)]).toBeLessThan(
+      vi.mocked(postageLabelProvider.purchaseUspsLabel).mock.invocationCallOrder[0],
+    );
     const attachedEvent = readAllEvents().find((event) => event.eventType === "fulfillment.shipment.label-attached");
     expect(attachedEvent?.payload).toMatchObject({
       carrierName: "USPS",

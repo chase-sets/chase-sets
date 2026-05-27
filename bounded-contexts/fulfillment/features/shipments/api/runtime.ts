@@ -23,6 +23,9 @@ import {
   listSellerPackingSlips,
   listBuyerShipments,
   listSellerShipments,
+  recordFulfillmentPostageLabelOperationFailed,
+  recordFulfillmentPostageLabelOperationPending,
+  recordFulfillmentPostageLabelOperationSucceeded,
 } from "../read-model/queries";
 import { buildFulfillmentShipmentProjectionHandlers } from "../read-model/projection";
 import {
@@ -456,6 +459,25 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const sender = postageAddressFromSnapshot(submittedSender);
       const recipient = postageAddressFromSnapshot(submittedRecipient);
       const labelPackage = params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
+      const operationKey = `shipment:${params.shipmentId}:purchase-usps-label`;
+      await recordFulfillmentPostageLabelOperationPending(deps.db, {
+        operationKey,
+        operationKind: "purchase-usps-label",
+        shipmentId: params.shipmentId,
+        providerName: postageLabelProvider.providerName,
+        providerMode: postageLabelProvider.providerMode,
+        idempotencyKey: operationKey,
+        request: {
+          shipmentId: params.shipmentId,
+          orderId: shipment.order_id,
+          serviceLevel: params.serviceLevel,
+          sender,
+          recipient,
+          package: labelPackage,
+          addressOverrideAudit,
+        },
+        createdAt: purchasedAt,
+      });
 
       let purchasedLabel;
       try {
@@ -468,6 +490,10 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           package: labelPackage,
         });
       } catch (error) {
+        await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+          operationKey,
+          errorMessage: error instanceof Error ? error.message : "Label purchase failed.",
+        });
         await commandHandler({
           streamId: `fulfillment.shipment-${params.shipmentId}`,
           command: {
@@ -505,6 +531,13 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         },
         context,
       });
+      await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
+        operationKey,
+        providerShipmentId: purchasedLabel.providerShipmentId,
+        providerLabelId: purchasedLabel.providerLabelId,
+        trackingIdentifier: purchasedLabel.trackingIdentifier,
+        completedAt: purchasedLabel.purchasedAt,
+      });
 
       return {
         shipmentId: params.shipmentId,
@@ -522,11 +555,35 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         throw new FulfillmentDomainError("Shipment does not have a purchased label.");
       }
 
-      const voidedLabel = await postageLabelProvider.voidLabel({
-        providerShipmentId: shipment.postage_provider_shipment_id,
-        providerLabelId: shipment.postage_provider_label_id,
-        trackingIdentifier: shipment.tracking_identifier,
+      const operationKey = `shipment:${params.shipmentId}:void-label`;
+      await recordFulfillmentPostageLabelOperationPending(deps.db, {
+        operationKey,
+        operationKind: "void-label",
+        shipmentId: params.shipmentId,
+        providerName: postageLabelProvider.providerName,
+        providerMode: postageLabelProvider.providerMode,
+        idempotencyKey: operationKey,
+        request: {
+          providerShipmentId: shipment.postage_provider_shipment_id,
+          providerLabelId: shipment.postage_provider_label_id,
+          trackingIdentifier: shipment.tracking_identifier,
+        },
       });
+
+      let voidedLabel;
+      try {
+        voidedLabel = await postageLabelProvider.voidLabel({
+          providerShipmentId: shipment.postage_provider_shipment_id,
+          providerLabelId: shipment.postage_provider_label_id,
+          trackingIdentifier: shipment.tracking_identifier,
+        });
+      } catch (error) {
+        await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+          operationKey,
+          errorMessage: error instanceof Error ? error.message : "Label void failed.",
+        });
+        throw error;
+      }
 
       const result = await commandHandler({
         streamId: `fulfillment.shipment-${params.shipmentId}`,
@@ -537,6 +594,13 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           voidedAt: voidedLabel.voidedAt,
         },
         context,
+      });
+      await recordFulfillmentPostageLabelOperationSucceeded(deps.db, {
+        operationKey,
+        providerShipmentId: shipment.postage_provider_shipment_id,
+        providerLabelId: shipment.postage_provider_label_id,
+        trackingIdentifier: shipment.tracking_identifier,
+        completedAt: voidedLabel.voidedAt,
       });
 
       return { shipmentId: params.shipmentId, version: result.version };
