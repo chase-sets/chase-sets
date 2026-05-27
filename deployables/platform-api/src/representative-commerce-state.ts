@@ -158,6 +158,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-offer-acceptance");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
+    await syncRepresentativeProjection(runtime, "discovery", "discovery-market-projection");
 
     console.log(
       JSON.stringify({
