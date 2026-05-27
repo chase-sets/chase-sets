@@ -11,6 +11,7 @@ export const payoutUnavailableReasonLabels = {
   "amount-below-minimum": moneyStatusLabel("amount-below-minimum"),
   "amount-above-maximum": moneyStatusLabel("amount-above-maximum"),
   "amount-exceeds-available-balance": moneyStatusLabel("amount-exceeds-available-balance"),
+  "payout-release-hold-active": moneyStatusLabel("payout-release-hold-active"),
 } as const;
 
 export type PayoutUnavailableReasonCode = keyof typeof payoutUnavailableReasonLabels;

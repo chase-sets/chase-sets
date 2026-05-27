@@ -14,6 +14,11 @@ import { settlementSchemaSql } from "./support/runtime-support/schema";
 import { seedSettlementDatabase } from "./support/runtime-support/seed";
 import { buildSettlementPaymentInputProjectionHandlers } from "./features/wallets/integrations/payment-source/payment-source-projection";
 import { buildSettlementSupportHoldProjectionHandlers } from "./features/wallets/integrations/support-source/support-source-projection";
+import { buildSettlementFulfillmentSourceProjectionHandlers } from "./features/wallets/integrations/fulfillment-source/fulfillment-source-projection";
+import {
+  buildSettlementIdentityAccountRiskSourceProjectionHandlers,
+  buildSettlementReputationAccountRiskSourceProjectionHandlers,
+} from "./features/wallets/integrations/account-risk-source/account-risk-source-projection";
 
 const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
 const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
@@ -49,6 +54,9 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, Settle
   buildSubscriptions: (services) => {
     const paymentsSubscription = getEventSubscription("payments", "settlement-payment-input-projection");
     const supportSubscription = getEventSubscription("support", "settlement-support-hold-projection");
+    const fulfillmentSubscription = getEventSubscription("fulfillment", "settlement-fulfillment-source-projection");
+    const identityRiskSubscription = getEventSubscription("identity", "settlement-account-risk-source-projection");
+    const reputationRiskSubscription = getEventSubscription("reputation", "settlement-account-risk-source-projection");
 
     return [
       {
@@ -70,6 +78,36 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, Settle
         eventTypes: supportSubscription.eventTypes,
         streamPrefixes: supportSubscription.streamPrefixes,
         order: supportSubscription.order,
+      },
+      {
+        subscriptionName: "settlement.fulfillment-source-projection",
+        sourceContextName: "fulfillment",
+        projectionName: fulfillmentSubscription.projectionName,
+        subscriptionVersion: fulfillmentSubscription.subscriptionVersion,
+        handlers: buildSettlementFulfillmentSourceProjectionHandlers(services.db),
+        eventTypes: fulfillmentSubscription.eventTypes,
+        streamPrefixes: fulfillmentSubscription.streamPrefixes,
+        order: fulfillmentSubscription.order,
+      },
+      {
+        subscriptionName: "settlement.identity-account-risk-source-projection",
+        sourceContextName: "identity",
+        projectionName: identityRiskSubscription.projectionName,
+        subscriptionVersion: identityRiskSubscription.subscriptionVersion,
+        handlers: buildSettlementIdentityAccountRiskSourceProjectionHandlers(services.db),
+        eventTypes: identityRiskSubscription.eventTypes,
+        streamPrefixes: identityRiskSubscription.streamPrefixes,
+        order: identityRiskSubscription.order,
+      },
+      {
+        subscriptionName: "settlement.reputation-account-risk-source-projection",
+        sourceContextName: "reputation",
+        projectionName: reputationRiskSubscription.projectionName,
+        subscriptionVersion: reputationRiskSubscription.subscriptionVersion,
+        handlers: buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db),
+        eventTypes: reputationRiskSubscription.eventTypes,
+        streamPrefixes: reputationRiskSubscription.streamPrefixes,
+        order: reputationRiskSubscription.order,
       },
     ];
   },

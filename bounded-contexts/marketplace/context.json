@@ -50,7 +50,9 @@
         "identity.account.profile-updated",
         "identity.account.suspended",
         "identity.account.reactivated",
-        "identity.account.closed"
+        "identity.account.closed",
+        "identity.account.badge-assigned",
+        "identity.account.badge-removed"
       ],
       "order": 20,
       "projectionHandlerSetNames": ["marketplace-identity-account-projection"]

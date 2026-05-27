@@ -618,6 +618,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       if (compareMoney(payoutAvailableBalanceAmount, "0.00") <= 0) {
         unavailableReasons.push("no-available-wallet-balance");
       }
+      if (
+        compareMoney(payoutAvailableBalanceAmount, "0.00") <= 0 &&
+        compareMoney(wallet.pending_balance_amount, "0.00") > 0
+      ) {
+        unavailableReasons.push("payout-release-hold-active");
+      }
       if (compareMoney(amount, payoutAmountPolicy.minimumAmount) < 0) {
         unavailableReasons.push("amount-below-minimum");
       }

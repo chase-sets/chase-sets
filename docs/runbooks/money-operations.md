@@ -16,9 +16,19 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 - Checkout creates one provider-managed payment session per internal payment, with wallet balance credit applied before the external payment amount is sent to the processor.
 - Checkout defaults to embedded processor-managed confirmation and can fall back to hosted Checkout with `STRIPE_CHECKOUT_UI_MODE=hosted`.
 - Platform-held funds are intentional for v1: purchase payments settle to the platform balance, settlement records sale wallet credit, and money moves to the connected payout account only when the account requests an on-demand payout.
-- Sale credits are pending first. The default hold is two days, after which the internal funds release job marks matured sale credits available for wallet spending or payout.
+- Sale and shipping allowance credits are pending first. Settlement releases them only after the payment is captured, Fulfillment has recorded delivery, no active support hold exists, and the applicable risk hold has elapsed.
+- Standard release is the later of capture plus two days and delivery plus two days. New, unrated, untrusted, high-dollar, or manual-review accounts use delivery plus seven days. Returned shipments, fulfillment exceptions, and open support requests keep proceeds pending.
 - Do not mix direct connected-account charges, destination charges, and platform-held charges in the same account wallet flow. A future charge strategy change should be a migration with explicit ledger and reconciliation rules.
 - Payout requests transfer from the platform balance to the connected account first, then create the connected-account payout. The account-facing source of truth remains the settlement wallet ledger.
+
+## Fraud And Payout Controls
+
+- Marketplace blocks high-dollar listing publication for accounts without listing photo evidence and trusted seller status or established reputation. High-dollar drafts can exist, but they cannot become active buyer-visible listings until the publication policy clears.
+- Identity owns `trusted-seller` and `manual-payout-review` Account Badges. Use `trusted-seller` only after operational review. Use `manual-payout-review` when Stripe, support, fulfillment, or operations finds seller-risk signals that should force enhanced payout holds.
+- Payments sends non-PII marketplace risk metadata to Stripe Checkout Sessions and PaymentIntents: internal payment/order ids, buyer account id, seller account ids/count, max seller order amount, high-dollar flag, platform-held funds strategy, fulfillment-required flag, and whether client IP/user-agent were collected.
+- In Stripe Dashboard, enable [Radar](https://docs.stripe.com/radar), [Radar rules](https://docs.stripe.com/radar/rules), and [metadata-backed Radar rules](https://docs.stripe.com/metadata) for high-dollar orders, repeated failed attempts, risky payment methods, and suspicious account/order patterns. Keep automatic 3DS enabled for card payments.
+- For Connect risk, use [Radar with Connect](https://docs.stripe.com/connect/radar) and enable [Radar for Platforms](https://docs.stripe.com/radar/radar-for-platforms) when available. Use connected-account rules and reviews to pause payouts, request identity document/selfie verification, set reserves, or reject accounts that show card-cashing, no-intent-to-fulfill, or related-account fraud patterns.
+- Stripe Radar checks external charges and can block or review payments, but it does not prove possession, carrier handoff, delivery, or buyer satisfaction. Settlement release gates remain mandatory even when Stripe reports normal payment risk.
 
 ## Launch Readiness
 

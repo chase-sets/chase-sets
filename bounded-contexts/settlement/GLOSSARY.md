@@ -18,6 +18,16 @@ A **Balance** is the current computed financial position of an account derived f
 
 A **Payout** is the transfer of eligible marketplace funds to an account.
 
+## Payout Release Hold
+
+A **Payout Release Hold** is the Settlement-owned pending state that keeps sale proceeds and shipping allowances out of available balance until delivery, risk, support, and aging rules clear.
+
+Notes:
+
+- Payout Release Holds apply to account wallet credits, not to Stripe charge authorization or capture.
+- Returned shipments, fulfillment exceptions, active support holds, manual payout review, untrusted account state, and high-dollar seller exposure can extend or prevent release.
+- Settlement owns the release decision even when Stripe payment risk checks pass.
+
 ## Payout Batch
 
 A **Payout Batch** is a grouped payout execution run.

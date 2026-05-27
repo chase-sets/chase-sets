@@ -3,6 +3,8 @@ import { transactionalEmailOutboxSchemaSql } from "@chase-sets/transactional-ema
 import { settlementWalletSchemaSql } from "../../features/wallets/read-model/schema";
 import { settlementPaymentSourceSchemaSql } from "../../features/wallets/integrations/payment-source/payment-source-schema";
 import { settlementSupportSourceSchemaSql } from "../../features/wallets/integrations/support-source/support-source-schema";
+import { settlementFulfillmentSourceSchemaSql } from "../../features/wallets/integrations/fulfillment-source/fulfillment-source-schema";
+import { settlementAccountRiskSourceSchemaSql } from "../../features/wallets/integrations/account-risk-source/account-risk-source-schema";
 import { settlementPayoutSchemaSql } from "../../features/payouts/read-model/schema";
 import { settlementPayoutReadinessSchemaSql } from "../../features/payout-readiness/read-model/schema";
 
@@ -31,6 +33,8 @@ export const settlementSchemaSql = [
   transactionalEmailOutboxSchemaSql,
   settlementPaymentSourceSchemaSql,
   settlementSupportSourceSchemaSql,
+  settlementFulfillmentSourceSchemaSql,
+  settlementAccountRiskSourceSchemaSql,
   settlementWalletSchemaSql,
   settlementPayoutReadinessSchemaSql,
   settlementPayoutSchemaSql,

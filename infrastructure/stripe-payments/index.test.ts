@@ -42,6 +42,12 @@ describe("Stripe payment processor gateway", () => {
       paymentMethodCategory: "card",
       description: "Test payment",
       returnUrl: "https://marketplace.test/account/payments/pay_123",
+      marketplaceRiskMetadata: {
+        seller_account_ids: "acc_seller",
+        seller_account_count: 1,
+        high_dollar_order: true,
+        fulfillment_required: true,
+      },
     });
 
     expect(payment.processorPaymentReference).toBe("cs_123");
@@ -68,6 +74,9 @@ describe("Stripe payment processor gateway", () => {
       return_url: "https://marketplace.test/account/payments/pay_123",
       client_reference_id: "pay_123",
       "metadata[funds_strategy]": "platform-held",
+      "metadata[seller_account_ids]": "acc_seller",
+      "metadata[high_dollar_order]": "true",
+      "payment_intent_data[metadata][seller_account_count]": "1",
       "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
       "payment_intent_data[transfer_group]": "payment:pay_123",
     });
@@ -163,6 +172,10 @@ describe("Stripe payment processor gateway", () => {
         ap2CheckoutMandateId: "ap2_checkout_1",
         ap2PaymentMandateId: "ap2_payment_1",
       },
+      marketplaceRiskMetadata: {
+        seller_account_ids: "acc_seller",
+        high_dollar_order: false,
+      },
     });
 
     expect(payment?.processorPaymentKind).toBe("payment-intent");
@@ -184,6 +197,8 @@ describe("Stripe payment processor gateway", () => {
       "metadata[ucp_payment_handler]": "stripe-shared-payment-token",
       "metadata[ap2_checkout_mandate_id]": "ap2_checkout_1",
       "metadata[ap2_payment_mandate_id]": "ap2_payment_1",
+      "metadata[seller_account_ids]": "acc_seller",
+      "metadata[high_dollar_order]": "false",
     });
 
     vi.unstubAllGlobals();

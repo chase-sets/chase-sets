@@ -39,6 +39,7 @@ import { buildMarketplaceListingProjectionHandlers } from "../read-model/project
 import {
   getActiveQuantityCapForInventoryItem,
   getInventoryItemSupply,
+  getMarketplaceAccountRisk,
   getMarketSummaryForItem,
   getSellerListing,
   getSellerListingAvailability,
@@ -53,6 +54,8 @@ const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as never;
 const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as never;
 const MAX_LISTING_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const HIGH_DOLLAR_LISTING_AMOUNT = 250;
+const MIN_TRUSTED_REPUTATION_REVIEWS = 3;
 
 function createMarketplaceSystemContext(accountId: string): EventStoreContext {
   return {
@@ -320,6 +323,29 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     if (providedFingerprint !== currentQuote.fee_quote_fingerprint) {
       throw new MarketplaceSalesFeeQuoteStaleError(currentQuote);
     }
+  }
+
+  async function assertListingPublicationRiskAccepted(listing: MarketplaceListingState) {
+    const priceAmount = Number.parseFloat(listing.priceAmount ?? "0");
+    if (!Number.isFinite(priceAmount) || priceAmount < HIGH_DOLLAR_LISTING_AMOUNT) {
+      return;
+    }
+
+    assert(listing.accountId, "Listing account is missing.");
+    const accountRisk = await getMarketplaceAccountRisk(deps.db, listing.accountId);
+    const badges = new Set(accountRisk.badges);
+    const trusted =
+      badges.has("trusted-seller") ||
+      (accountRisk.review_count >= MIN_TRUSTED_REPUTATION_REVIEWS && !badges.has("manual-payout-review"));
+
+    assert(
+      listing.listingPhotos.length > 0,
+      "High-dollar listings require at least one listing photo before publication.",
+    );
+    assert(
+      trusted,
+      "High-dollar listings require a trusted seller account or established account reputation before publication.",
+    );
   }
 
   async function normalizePhotoUploads(
@@ -717,6 +743,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         !requiresListingPhotoEvidence(listing) || listing.listingPhotos.length > 0,
         "Pristine and Mint listings require at least one listing photo before publication.",
       );
+      await assertListingPublicationRiskAccepted(listing);
       const quote = await quoteListingTerms(params.accountId, listing.priceAmount);
       assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
 

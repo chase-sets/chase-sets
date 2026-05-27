@@ -118,6 +118,8 @@ Listing publication:
 
 Advanced inventory workflows may still call `GET /api/inventory/items` and `GET /api/marketplace/account/listing-inventory` before binding a Listing to a specific existing Inventory Item.
 
+High-dollar Listing publication can fail with `validation_failed` when Marketplace requires Listing Photo evidence or account trust before activation. Draft creation remains allowed; only buyer-visible publication is blocked until the Listing and account-risk policy clears.
+
 Sale shipment printing:
 
 1. `GET /api/marketplace/account/sales/shipments`
@@ -206,3 +208,5 @@ Payout setup:
 3. `POST /api/settlement/payout-setup/refresh`
 4. `POST /api/settlement/payouts/preview`
 5. `POST /api/settlement/payouts`
+
+After purchase capture, Settlement posts seller item proceeds and shipping allowance credits as pending wallet entries. Pending credits become payout-eligible only after the order has a delivered Fulfillment fact, no active support hold, and the applicable release window has elapsed. Standard accounts release at the later of capture plus two days and delivery plus two days. New, unrated, untrusted, high-dollar, or manual-review accounts use delivery plus seven days. Payout preview can return `payout-release-hold-active` when the wallet has pending funds that are still blocked by delivery or risk release policy.
