@@ -356,6 +356,73 @@ async function syncContactMethodLookups(
   await syncUserPhoneLookups(db, userId, contactMethods, updatedAt);
 }
 
+export async function upsertRegisteredAuthIdentityUserMirror(
+  db: PgQueryable,
+  params: Readonly<{
+    userId: string;
+    displayName: string;
+    givenName: string;
+    familyName: string;
+    email: string;
+    authMethods: readonly string[];
+    passwordCredentialId: string | null;
+    updatedAt: string;
+  }>,
+) {
+  const normalizedEmail = normalizeAuthEmail(params.email);
+  const contactMethods: ContactMethodRow[] = normalizedEmail
+    ? [
+        {
+          contactMethodId: `${params.userId}-primary-email`,
+          type: "email",
+          value: normalizedEmail,
+          verifiedAt: null,
+        },
+      ]
+    : [];
+
+  await db.query(
+    `INSERT INTO auth_identity_users (
+       user_id,
+       display_name,
+       given_name,
+       family_name,
+       primary_email,
+       status,
+       contact_methods,
+       auth_methods,
+       password_credential_id,
+       passkey_credential_ids,
+       social_login_links,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, 'active', $6::jsonb, $7::jsonb, $8, '[]'::jsonb, '[]'::jsonb, $9)
+     ON CONFLICT (user_id) DO UPDATE
+     SET display_name = $2,
+         given_name = $3,
+         family_name = $4,
+         primary_email = $5,
+         status = 'active',
+         contact_methods = $6::jsonb,
+         auth_methods = $7::jsonb,
+         password_credential_id = $8,
+         updated_at = $9`,
+    [
+      params.userId,
+      params.displayName,
+      params.givenName,
+      params.familyName,
+      normalizedEmail || null,
+      JSON.stringify(contactMethods),
+      JSON.stringify([...new Set(params.authMethods)].sort((left, right) => left.localeCompare(right))),
+      params.passwordCredentialId,
+      params.updatedAt,
+    ],
+  );
+
+  await syncContactMethodLookups(db, params.userId, contactMethods, params.updatedAt);
+}
+
 async function upsertMembershipMirror(
   db: PgQueryable,
   membershipId: string,

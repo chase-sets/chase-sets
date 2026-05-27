@@ -37,6 +37,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - Current deployment verification is blocked by staging and local marketplace critical-flow authentication readiness: synthetic registration through the API can return a session token while protected account routes still redirect until Auth identity projections catch up.
 - Local worker evidence showed Auth and Identity projections catching up after the original account test timeout. The browser suite should add the returned session token to the browser context, assert the cookie is present, and use protected account routes themselves as the readiness check.
 - Staging evidence showed registration returning a session token while `/api/auth/session` stayed unauthorized for that token. Auth registration should synchronously write the owner membership into its own identity membership mirror so the returned session is immediately resolvable even when the Identity-to-Auth projection is delayed.
+- Staging Stripe money smoke showed newly registered synthetic sellers could still fail immediate password sign-in because Auth's email lookup mirror had not caught up. Auth registration should also synchronously write the registered user and primary email lookup mirror before returning.
 - Local sandbox bootstrap can be contaminated by ignored deployable `.env.local` files. The dev-system sandbox should explicitly default worker notification email to noop unless the parent environment intentionally opts into a provider, keeping E2E startup deterministic.
 - Staging Stripe money smoke should reuse the session token returned by synthetic seller registration instead of immediately password-signing in the same account, because the smoke only needs authenticated API headers and should not depend on the email/user projection catching up.
 
@@ -57,9 +58,12 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - [x] Keep local sandbox E2E bootstrap isolated from personal notification-email `.env.local` provider settings.
 - [x] Rerun marketplace E2E locally.
 - [x] Add Auth registration coverage for immediate membership mirror readiness.
-- [x] Rerun marketplace E2E locally after Auth membership mirror fix.
 - [x] Use the synthetic seller registration session token directly for Stripe money smoke authentication.
-- [ ] Rerun marketplace E2E in CI.
+- [x] Rerun marketplace E2E locally after Auth membership mirror fix.
+- [x] Rerun marketplace E2E in CI.
+- [x] Add Auth registration coverage for immediate user/email mirror readiness.
+- [x] Rerun focused Auth registration tests after user/email mirror fix.
+- [x] Rerun repository typecheck after user/email mirror fix.
 
 ## Documentation To Promote
 
