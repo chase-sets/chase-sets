@@ -165,6 +165,104 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(listCall?.values).toEqual(["active", 25]);
   });
 
+  it("counts dimension facet values by matching listed items when listings are selected", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        if (sql.includes("AS summaries")) {
+          return {
+            rows: [
+              {
+                kind: "dimension",
+                id: "dim_condition",
+                label: "Condition",
+                coverage: 2,
+                distinct_count: 2,
+              },
+            ] as Row[],
+            rowCount: 1,
+          };
+        }
+
+        if (sql.includes("market_counts AS")) {
+          return {
+            rows: [
+              { option_id: "opt_near_mint", label: "Near Mint", count: 9 },
+              { option_id: "opt_mint", label: "Mint", count: 3 },
+            ] as Row[],
+            rowCount: 2,
+          };
+        }
+
+        return { rows: [] as Row[], rowCount: 0 };
+      },
+    };
+
+    const result = await searchDiscoveryItems(db, {
+      marketActivity: "listings",
+      dimensionFilters: [{ dimensionId: "dim_condition", optionId: "opt_near_mint" }],
+      limit: 24,
+    });
+
+    const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
+    expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
+    expect(facetValueCall?.sql).toContain("account.seller_listing_availability_status = 'available'");
+    expect(facetValueCall?.sql).toContain("COUNT(DISTINCT activity.activity_id)::integer AS count");
+    expect(facetValueCall?.sql).toContain("jsonb_array_elements(activity.selected_options)");
+    expect(facetValueCall?.sql).toContain("COALESCE(market_counts.count, 0)::integer AS count");
+    expect(facetValueCall?.sql).toContain("WHERE selected OR (count > 0 AND facet_rank <= 50)");
+    expect(facetValueCall?.values).toEqual(["active", "dim_condition", ["opt_near_mint"]]);
+    expect(result.facets[0]?.values).toEqual([
+      { id: "opt_near_mint", label: "Near Mint", count: 9, selected: true },
+      { id: "opt_mint", label: "Mint", count: 3, selected: false },
+    ]);
+  });
+
+  it("combines listing and offer rows for any market activity dimension counts", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        if (sql.includes("AS summaries")) {
+          return {
+            rows: [
+              {
+                kind: "dimension",
+                id: "dim_condition",
+                label: "Condition",
+                coverage: 2,
+                distinct_count: 2,
+              },
+            ] as Row[],
+            rowCount: 1,
+          };
+        }
+
+        if (sql.includes("market_counts AS")) {
+          return {
+            rows: [{ option_id: "opt_near_mint", label: "Near Mint", count: 12 }] as Row[],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [] as Row[], rowCount: 0 };
+      },
+    };
+
+    await searchDiscoveryItems(db, {
+      marketActivity: "any",
+      limit: 24,
+    });
+
+    const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
+    expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
+    expect(facetValueCall?.sql).toContain("UNION ALL");
+    expect(facetValueCall?.sql).toContain("FROM discovery_offer_demand_matches AS offer");
+    expect(facetValueCall?.sql).toContain("offer.status = 'submitted'");
+    expect(facetValueCall?.values).toEqual(["active", "dim_condition", []]);
+  });
+
   it("orders field facet values with semantic sort metadata before count fallback", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const db: PgQueryable = {
