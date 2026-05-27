@@ -72,6 +72,7 @@ export type BuildPlatformApiOptions = Readonly<{
   realtimeStreamLimiter?: Parameters<typeof createRealtimeRoutes>[0]["streamLimiter"];
   realtimeWakeSignal?: Parameters<typeof createRealtimeRoutes>[0]["wakeSignal"];
   realtimeActiveConnectionCount?: () => number;
+  isDraining?: () => boolean;
   mcp?: CreateMcpRoutesOptions;
   ucp?: CreateUcpRoutesOptions;
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
@@ -192,6 +193,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     createHealthRoutes({
       getProjectionReplay: options.getProjectionReplay,
       readinessChecks: options.readinessChecks,
+      isDraining: options.isDraining,
     }),
   );
   app.route(
@@ -199,6 +201,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     createHealthRoutes({
       getProjectionReplay: options.getProjectionReplay,
       readinessChecks: options.readinessChecks,
+      isDraining: options.isDraining,
     }),
   );
   app.get("/internal/realtime/status", async (c) =>
@@ -251,6 +254,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       streamLimiter: options.realtimeStreamLimiter,
       cursorSigningKeys: options.realtimeCursorSigningKeys ?? options.realtimeCursorSigningSecret,
       topicPolicyManifest: realtimeTopicPolicyManifest,
+      isDraining: options.isDraining,
       ...options.realtimeRouteTuning,
       resourceLimits: options.realtimeResourceLimits ?? {
         maxTopicsPerStream: 16,

@@ -52,6 +52,7 @@ export function createHealthRoutes(
   options: Readonly<{
     getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
     readinessChecks?: readonly ReadinessCheck[];
+    isDraining?: () => boolean;
   }> = {},
 ): Hono {
   const app = new Hono();
@@ -80,8 +81,18 @@ export function createHealthRoutes(
 async function resolveReadiness(
   options: Readonly<{
     readinessChecks?: readonly ReadinessCheck[];
+    isDraining?: () => boolean;
   }>,
 ): Promise<ReadinessStatus> {
+  const processDrainingCheck = options.isDraining?.()
+    ? [
+        {
+          name: "process.draining",
+          status: "degraded" as const,
+          message: "Process is draining for shutdown.",
+        },
+      ]
+    : [];
   const checks = await Promise.all(
     (options.readinessChecks ?? []).map(async (check) => {
       try {
@@ -99,11 +110,12 @@ async function resolveReadiness(
       }
     }),
   );
-  const status = checks.some((check) => check.status === "degraded") ? "degraded" : "ok";
+  const allChecks = [...processDrainingCheck, ...checks];
+  const status = allChecks.some((check) => check.status === "degraded") ? "degraded" : "ok";
 
   return {
     status,
-    checks,
+    checks: allChecks,
   };
 }
 

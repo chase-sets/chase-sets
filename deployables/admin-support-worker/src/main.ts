@@ -15,6 +15,7 @@ import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import { getObservabilityRuntime } from "@chase-sets/observability";
 import { loadConfig, type AdminSupportWorkerCatalogAssetStorageConfig } from "./config";
 import { closeAdminSupportWorkerPools, createAdminSupportWorkerPools } from "./database-pools";
@@ -101,9 +102,26 @@ for (const runnerLoop of runnerLoops) {
   runnerLoop.loop.start();
 }
 
+const drainState = createProcessDrainState();
 const app = new Hono();
 app.get("/health/live", (c) => c.json({ status: "ok" }));
 app.get("/health/ready", async (c) => {
+  if (drainState.isDraining()) {
+    return c.json(
+      {
+        status: "degraded",
+        checks: [
+          {
+            name: "process.draining",
+            status: "degraded",
+            message: "Process is draining for shutdown.",
+          },
+        ],
+      },
+      503,
+    );
+  }
+
   await pools.control.query("SELECT 1");
   return c.json({ status: "ok" });
 });
@@ -125,26 +143,31 @@ app.get("/internal/workers/status", async (c) => {
   });
 });
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
-  logger.info("Admin support worker listening.", {
-    type: "admin-support-worker.started",
-    port: info.port,
-    workerId: config.workerId,
-    runnerCount,
-    runnerGroups: runnerGroupMetadata(runnerGroups),
-    runnerCapacity,
-  });
+startGracefulHttpServer({
+  name: "admin-support-worker",
+  port: config.port,
+  serve,
+  fetch: app.fetch,
+  drainState,
+  logger,
+  onListening: (info) => {
+    logger.info("Admin support worker listening.", {
+      type: "admin-support-worker.started",
+      port: info.port,
+      workerId: config.workerId,
+      runnerCount,
+      runnerGroups: runnerGroupMetadata(runnerGroups),
+      runnerCapacity,
+    });
+  },
+  onDrainStart: [
+    async () => {
+      clearInterval(heartbeatTimer);
+      await stopRunnerLoops(runnerLoops.map((runnerLoop) => runnerLoop.loop));
+    },
+  ],
+  onShutdown: [async () => closeAdminSupportWorkerPools(pools), async () => observability.shutdown()],
 });
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, () => {
-    clearInterval(heartbeatTimer);
-    void stopRunnerLoops(runnerLoops.map((runnerLoop) => runnerLoop.loop))
-      .finally(() => closeAdminSupportWorkerPools(pools))
-      .finally(() => observability.shutdown())
-      .finally(() => process.exit(0));
-  });
-}
 
 type RunnerGroup = Readonly<{
   name: string;
@@ -253,8 +276,18 @@ function createCatalogBulkJobRunners(
   const catalog = services.catalog as
     | {
         sourceObservations?: {
-          processNextBulkReviewJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
-          processNextIntegrationJob?: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
+          processNextBulkReviewJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+          processNextIntegrationJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
         };
       }
     | undefined;
@@ -271,10 +304,12 @@ function createCatalogBulkJobRunners(
     runners.push({
       name: "catalog.source-observation-bulk-jobs",
       kind: "job",
-      runOnce: async () => ({
+      runOnce: async (context) => ({
         processed: await processNextBulkReviewJob({
           claimOwnerId: input.workerId,
           claimTtlMs: input.leaseTtlMs * 4,
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
         }),
         lastGlobalPosition: "0" as never,
       }),
@@ -285,10 +320,12 @@ function createCatalogBulkJobRunners(
     runners.push({
       name: "catalog.source-observation-integration-jobs",
       kind: "job",
-      runOnce: async () => ({
+      runOnce: async (context) => ({
         processed: await processNextIntegrationJob({
           claimOwnerId: input.workerId,
           claimTtlMs: input.leaseTtlMs * 4,
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
         }),
         lastGlobalPosition: "0" as never,
       }),

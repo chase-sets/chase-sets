@@ -300,6 +300,8 @@ describe("platform api app", () => {
             oldestRunningAt: null,
             averageDurationMs: null,
           })),
+          claimScheduledRunner: vi.fn(async () => false),
+          recordScheduledRunnerCompleted: vi.fn(async () => undefined),
         },
       },
     );

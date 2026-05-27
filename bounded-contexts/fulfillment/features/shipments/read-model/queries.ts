@@ -85,6 +85,104 @@ export type FulfillmentShipmentDetailRow = FulfillmentShipmentListRow &
     address_override_audits: readonly FulfillmentLabelAddressOverrideAuditRow[];
   }>;
 
+export async function recordFulfillmentPostageLabelOperationPending(
+  db: PgQueryable,
+  operation: Readonly<{
+    operationKey: string;
+    operationKind: "purchase-usps-label" | "void-label";
+    shipmentId: string;
+    providerName: string;
+    providerMode: string;
+    idempotencyKey: string;
+    request?: unknown;
+    createdAt?: string;
+  }>,
+) {
+  const timestamp = operation.createdAt ?? new Date().toISOString();
+  await db.query(
+    `INSERT INTO fulfillment_postage_label_operations (
+       operation_key,
+       operation_kind,
+       shipment_id,
+       provider_name,
+       provider_mode,
+       idempotency_key,
+       request_json,
+       status,
+       created_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', $8, $8)
+     ON CONFLICT (operation_key) DO UPDATE
+     SET provider_name = EXCLUDED.provider_name,
+         provider_mode = EXCLUDED.provider_mode,
+         idempotency_key = EXCLUDED.idempotency_key,
+         request_json = EXCLUDED.request_json,
+         updated_at = EXCLUDED.updated_at`,
+    [
+      operation.operationKey,
+      operation.operationKind,
+      operation.shipmentId,
+      operation.providerName,
+      operation.providerMode,
+      operation.idempotencyKey,
+      JSON.stringify(operation.request ?? {}),
+      timestamp,
+    ],
+  );
+}
+
+export async function recordFulfillmentPostageLabelOperationSucceeded(
+  db: PgQueryable,
+  operation: Readonly<{
+    operationKey: string;
+    providerShipmentId?: string | null;
+    providerLabelId?: string | null;
+    trackingIdentifier?: string | null;
+    completedAt?: string;
+  }>,
+) {
+  const timestamp = operation.completedAt ?? new Date().toISOString();
+  await db.query(
+    `UPDATE fulfillment_postage_label_operations
+     SET status = 'succeeded',
+         provider_shipment_id = $2,
+         provider_label_id = $3,
+         tracking_identifier = $4,
+         error_message = NULL,
+         completed_at = $5,
+         updated_at = $5
+     WHERE operation_key = $1`,
+    [
+      operation.operationKey,
+      operation.providerShipmentId ?? null,
+      operation.providerLabelId ?? null,
+      operation.trackingIdentifier ?? null,
+      timestamp,
+    ],
+  );
+}
+
+export async function recordFulfillmentPostageLabelOperationFailed(
+  db: PgQueryable,
+  operation: Readonly<{
+    operationKey: string;
+    errorMessage: string;
+    completedAt?: string;
+  }>,
+) {
+  const timestamp = operation.completedAt ?? new Date().toISOString();
+  await db.query(
+    `UPDATE fulfillment_postage_label_operations
+     SET status = 'failed',
+         error_message = $2,
+         completed_at = $3,
+         updated_at = $3
+     WHERE operation_key = $1
+       AND status = 'pending'`,
+    [operation.operationKey, operation.errorMessage, timestamp],
+  );
+}
+
 type BaseShipmentPageRow = FulfillmentShipmentListRow;
 
 const baseShipmentSelect = `

@@ -242,10 +242,11 @@ describe("payment runtime", () => {
         remainingExternalAmount: "14.99",
       })),
     };
+    const db = createOrderInputDb();
     const services = createPaymentRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: createOrderInputDb() as never,
+      db: db as never,
       processorGateway,
       balanceCreditResolver,
     });
@@ -280,6 +281,13 @@ describe("payment runtime", () => {
         amount: "15.75",
         paymentMethodCategory: "card",
       }),
+    );
+    const providerOperationCall = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO payments_provider_operations"),
+    );
+    expect(providerOperationCall).toBeTruthy();
+    expect(db.query.mock.invocationCallOrder[db.query.mock.calls.indexOf(providerOperationCall!)]).toBeLessThan(
+      processorGateway.createPaymentSession.mock.invocationCallOrder[0],
     );
     expect(result).toMatchObject({
       amount: "25.75",

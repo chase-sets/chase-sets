@@ -29,6 +29,10 @@ The console is owned by the Platform Operations bounded context. It should be us
 - Rebuild operations also acquire the target projection-group runner lease before resetting checkpoints or replaying events.
 - If an operation is `running` but the claiming worker disappears, wait for the claim TTL to expire; another worker can then reclaim it.
 - If an operation is `cancel_requested`, the owning worker should stop at the next lease guard or transaction boundary and mark it `cancelled`.
+- Non-projection job runners use the same deployment discipline: check the worker
+  signal and lease guard before claims, between batch items, before provider
+  calls, and before completion writes. Deployment cancellation should preserve
+  progress and release or expire the claim rather than record business failure.
 - Use the Operations tab in Admin to inspect queued, running, succeeded, failed, cancel-requested, and cancelled operations.
 - The operation history API supports filters for `contextName`, `projectionName`, `state`, and `requestedByUserId`.
 - Operation summaries expose queued count, running count, failed count, cancel-requested count, oldest queued/running timestamps, and average operation duration.

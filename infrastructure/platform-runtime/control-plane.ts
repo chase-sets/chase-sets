@@ -102,6 +102,18 @@ CREATE INDEX IF NOT EXISTS platform_realtime_stream_leases_connection_key_idx
 CREATE INDEX IF NOT EXISTS platform_realtime_stream_leases_expires_at_idx
   ON platform_realtime_stream_leases (expires_at);
 
+CREATE TABLE IF NOT EXISTS platform_scheduled_runners (
+  runner_name text PRIMARY KEY,
+  interval_ms integer NOT NULL CHECK (interval_ms > 0),
+  next_run_at timestamptz NOT NULL,
+  last_started_at timestamptz NULL,
+  last_completed_at timestamptz NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS platform_scheduled_runners_next_run_idx
+  ON platform_scheduled_runners (next_run_at);
+
 ${platformUcpRuntimeSchemaSql}
 `;
 
@@ -260,6 +272,13 @@ export type PlatformControlPlane = Readonly<{
   summarizeProjectionOperations: (
     input?: Omit<ProjectionOperationListFilter, "limit">,
   ) => Promise<ProjectionOperationSummary>;
+  claimScheduledRunner: (
+    input: Readonly<{
+      runnerName: string;
+      intervalMs: number;
+    }>,
+  ) => Promise<boolean>;
+  recordScheduledRunnerCompleted: (input: Readonly<{ runnerName: string }>) => Promise<void>;
 }>;
 
 type LeaseRow = Readonly<{
@@ -693,6 +712,51 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
         averageDurationMs:
           row?.average_duration_ms == null ? null : String(Math.round(Number(row.average_duration_ms))),
       };
+    },
+    claimScheduledRunner: async (input) => {
+      const intervalMs = Math.max(1, Math.floor(input.intervalMs));
+      const result = await db.query(
+        `WITH ensured AS (
+           INSERT INTO platform_scheduled_runners (
+             runner_name,
+             interval_ms,
+             next_run_at,
+             updated_at
+           ) VALUES ($1, $2, now(), now())
+           ON CONFLICT (runner_name)
+           DO UPDATE SET
+             interval_ms = EXCLUDED.interval_ms,
+             updated_at = now()
+           RETURNING runner_name
+         ),
+         claimable AS (
+           SELECT runner_name
+           FROM platform_scheduled_runners
+           WHERE runner_name = $1
+             AND next_run_at <= now()
+           FOR UPDATE
+         )
+         UPDATE platform_scheduled_runners AS runner
+         SET
+           last_started_at = now(),
+           next_run_at = now() + ($2::text || ' milliseconds')::interval,
+           updated_at = now()
+         FROM claimable
+         WHERE runner.runner_name = claimable.runner_name`,
+        [input.runnerName, intervalMs],
+      );
+
+      return (result.rowCount ?? 0) > 0;
+    },
+    recordScheduledRunnerCompleted: async (input) => {
+      await db.query(
+        `UPDATE platform_scheduled_runners
+         SET
+           last_completed_at = now(),
+           updated_at = now()
+         WHERE runner_name = $1`,
+        [input.runnerName],
+      );
     },
   };
 }

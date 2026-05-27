@@ -627,6 +627,8 @@ function createAlwaysLeasedControlPlane(overrides: Partial<PlatformControlPlane>
     listProjectionOperations: overrides.listProjectionOperations ?? (async () => []),
     summarizeProjectionOperations:
       overrides.summarizeProjectionOperations ?? (async () => defaultProjectionOperationSummary()),
+    claimScheduledRunner: overrides.claimScheduledRunner ?? (async () => true),
+    recordScheduledRunnerCompleted: overrides.recordScheduledRunnerCompleted ?? (async () => {}),
   };
 }
 
@@ -656,6 +658,8 @@ function createNeverLeasedControlPlane(
     getProjectionOperation: async () => null,
     listProjectionOperations: async () => [],
     summarizeProjectionOperations: async () => defaultProjectionOperationSummary(),
+    claimScheduledRunner: async () => false,
+    recordScheduledRunnerCompleted: async () => {},
   };
 }
 

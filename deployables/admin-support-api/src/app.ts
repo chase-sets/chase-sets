@@ -36,6 +36,7 @@ export type BuildAdminSupportApiOptions = Readonly<{
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
   controlPlane?: PlatformControlPlane;
+  isDraining?: () => boolean;
 }>;
 
 export function createAdminSupportApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
@@ -56,6 +57,7 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
     createHealthRoutes({
       getProjectionReplay: options.getProjectionReplay,
       readinessChecks: options.readinessChecks,
+      isDraining: options.isDraining,
     });
   app.route("/health", createAdminSupportHealthRoutes());
   app.route("/api/health", createAdminSupportHealthRoutes());

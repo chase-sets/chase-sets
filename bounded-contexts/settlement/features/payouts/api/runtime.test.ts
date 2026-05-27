@@ -342,8 +342,10 @@ describe("settlement payout runtime", () => {
 
   it("uses deterministic provider idempotency keys for transfer and payout submission", async () => {
     const { eventStore } = createInMemoryEventStore();
+    const queries: string[] = [];
     const db = {
       query: async (sql: string) => {
+        queries.push(sql);
         if (sql.includes("FROM settlement_wallet_pages")) {
           return {
             rows: [
@@ -391,6 +393,7 @@ describe("settlement payout runtime", () => {
 
     expect(moneyMovementGateway.usedIdempotencyKeys).toContain(`settlement:payout:${requested.payoutId}:transfer`);
     expect(moneyMovementGateway.usedIdempotencyKeys).toContain(`settlement:payout:${requested.payoutId}:payout`);
+    expect(queries.filter((sql) => sql.includes("INSERT INTO settlement_provider_operations"))).toHaveLength(2);
   });
 
   it("fails before creating payout events when platform balance is too low", async () => {

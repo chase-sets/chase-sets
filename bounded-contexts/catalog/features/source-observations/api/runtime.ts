@@ -98,7 +98,7 @@ export type BulkSourceObservationProgress = Readonly<{
     | null;
 }>;
 
-export type SourceObservationBulkJobAction = "promote" | "reject";
+export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
 
 export type SourceObservationBulkJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -111,12 +111,19 @@ export type SourceObservationBulkJob = Readonly<{
   reason: string | null;
   status: SourceObservationBulkJobStatus;
   progress: BulkSourceObservationProgress;
-  result: BulkSourceObservationPromotionResult | null;
+  result: SourceObservationBulkJobResult | null;
   errorMessage: string | null;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
+}>;
+
+export type SourceObservationBulkJobResult = BulkSourceObservationPromotionResult | BulkSourceObservationReapplyResult;
+
+export type SourceObservationJobRunContext = Readonly<{
+  signal?: AbortSignal;
+  throwIfLeaseLost?: () => void;
 }>;
 
 export type SourceObservationIntegrationJobAction = "import" | "reapply";
@@ -249,7 +256,9 @@ export type SourceObservationServices = Readonly<{
   }) => Promise<SourceObservationBulkJob>;
   getBulkReviewJob: (jobId: string) => Promise<SourceObservationBulkJob | null>;
   listActiveBulkReviewJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationBulkJob[]>;
-  processNextBulkReviewJob: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
+  processNextBulkReviewJob: (
+    input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
+  ) => Promise<number>;
   enqueueIntegrationJob: (input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
@@ -259,7 +268,9 @@ export type SourceObservationServices = Readonly<{
   listActiveIntegrationJobs: (input: {
     context: EventStoreContext;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
-  processNextIntegrationJob: (input: { claimOwnerId: string; claimTtlMs: number }) => Promise<number>;
+  processNextIntegrationJob: (
+    input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
+  ) => Promise<number>;
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
@@ -707,15 +718,27 @@ export function createSourceObservationRuntime(
     return job;
   }
 
-  async function processNextBulkReviewJob(input: { claimOwnerId: string; claimTtlMs: number }): Promise<number> {
+  async function processNextBulkReviewJob(
+    input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
+  ): Promise<number> {
+    if (isJobRunCancelled(input)) {
+      return 0;
+    }
+
     const claimed = await claimNextBulkReviewJob(deps.db, input);
     if (!claimed) {
       return 0;
     }
 
     try {
+      throwIfJobRunCancelled(input);
       const context = claimed.eventContext;
-      const previousResult = claimed.result ?? summarizePromotionOutcomes(claimed.progress.total, []);
+      if (claimed.action === "reapply") {
+        await processBulkReapplyJobTurn({ job: claimed, claimTtlMs: input.claimTtlMs, context: input });
+        return 1;
+      }
+
+      const previousResult = promotionJobResultOrEmpty(claimed.result, claimed.progress.total);
       const completedObservationIds = new Set(previousResult.outcomes.map((outcome) => outcome.observationId));
       const eligibleObservationIds =
         claimed.selectionMode === "ids"
@@ -734,6 +757,7 @@ export function createSourceObservationRuntime(
 
       const turnOutcomes: BulkSourceObservationPromotionOutcome[] = [];
       for (const observationId of batchObservationIds) {
+        throwIfJobRunCancelled(input);
         const itemResult =
           claimed.action === "promote"
             ? await promoteObservationIds({
@@ -756,6 +780,7 @@ export function createSourceObservationRuntime(
           input.claimTtlMs,
         );
       }
+      throwIfJobRunCancelled(input);
 
       const updatedResult = summarizePromotionOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
       const completedCount = updatedResult.outcomes.length;
@@ -771,12 +796,73 @@ export function createSourceObservationRuntime(
       }
       return 1;
     } catch (error) {
+      if (error instanceof SourceObservationJobCancelledError) {
+        await releaseBulkReviewJobClaim(deps.db, claimed.jobId);
+        return 0;
+      }
+
       await failBulkReviewJob(
         deps.db,
         claimed.jobId,
         error instanceof Error ? error.message : "Bulk review job failed.",
       );
       return 1;
+    }
+  }
+
+  async function processBulkReapplyJobTurn(input: {
+    job: ClaimedSourceObservationBulkJob;
+    claimTtlMs: number;
+    context: SourceObservationJobRunContext;
+  }): Promise<void> {
+    const previousResult = reapplyJobResultOrEmpty(input.job.result, input.job.progress.total);
+    const completedObservationIds = new Set(previousResult.outcomes.map((outcome) => outcome.observationId));
+    const eligibleObservationIds =
+      input.job.selectionMode === "ids"
+        ? input.job.observationIds
+        : await listSourceObservationIdsForReapply(deps.db, input.job.scope);
+    const remainingObservationIds = eligibleObservationIds.filter(
+      (observationId) => !completedObservationIds.has(observationId),
+    );
+    const total = Math.max(previousResult.requested, previousResult.outcomes.length + remainingObservationIds.length);
+    const batchObservationIds = remainingObservationIds.slice(0, BULK_REVIEW_JOB_BATCH_SIZE);
+
+    if (batchObservationIds.length === 0) {
+      await completeBulkReviewJob(deps.db, input.job.jobId, summarizeReapplyOutcomes(total, previousResult.outcomes));
+      return;
+    }
+
+    const turnOutcomes: BulkSourceObservationReapplyOutcome[] = [];
+    for (const observationId of batchObservationIds) {
+      throwIfJobRunCancelled(input.context);
+      const itemResult = await reapplyObservationIds({
+        observationIds: [observationId],
+        context: input.job.eventContext,
+      });
+      turnOutcomes.push(...itemResult.outcomes);
+      const partialResult = summarizeReapplyOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
+      const latestOutcome = itemResult.outcomes[itemResult.outcomes.length - 1];
+      await updateBulkReviewJobTurnResult(
+        deps.db,
+        input.job.jobId,
+        bulkProgress(partialResult.outcomes.length, total, null, latestOutcome?.status ?? null, "processing"),
+        partialResult,
+        input.claimTtlMs,
+      );
+    }
+    throwIfJobRunCancelled(input.context);
+
+    const updatedResult = summarizeReapplyOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
+    const completedCount = updatedResult.outcomes.length;
+    if (completedCount >= total || remainingObservationIds.length <= batchObservationIds.length) {
+      await completeBulkReviewJob(deps.db, input.job.jobId, updatedResult);
+    } else {
+      await continueBulkReviewJob(
+        deps.db,
+        input.job.jobId,
+        bulkProgress(completedCount, total, null, null, "processing"),
+        updatedResult,
+      );
     }
   }
 
@@ -811,24 +897,34 @@ export function createSourceObservationRuntime(
     return job;
   }
 
-  async function processNextIntegrationJob(input: { claimOwnerId: string; claimTtlMs: number }): Promise<number> {
+  async function processNextIntegrationJob(
+    input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
+  ): Promise<number> {
+    if (isJobRunCancelled(input)) {
+      return 0;
+    }
+
     const claimed = await claimNextIntegrationJob(deps.db, input);
     if (!claimed) {
       return 0;
     }
 
     try {
+      throwIfJobRunCancelled(input);
       const turnResult =
         claimed.action === "import"
           ? await processIntegrationImportJobTurn({
               job: claimed,
               claimTtlMs: input.claimTtlMs,
+              context: input,
             })
           : await processIntegrationReapplyJobTurn({
               job: claimed,
               claimTtlMs: input.claimTtlMs,
+              context: input,
             });
 
+      throwIfJobRunCancelled(input);
       if (turnResult.complete) {
         await completeIntegrationJob(deps.db, claimed.jobId, turnResult.result);
       } else {
@@ -836,6 +932,11 @@ export function createSourceObservationRuntime(
       }
       return 1;
     } catch (error) {
+      if (error instanceof SourceObservationJobCancelledError) {
+        await releaseIntegrationJobClaim(deps.db, claimed.jobId);
+        return 0;
+      }
+
       await failIntegrationJob(
         deps.db,
         claimed.jobId,
@@ -848,6 +949,7 @@ export function createSourceObservationRuntime(
   async function processIntegrationImportJobTurn(input: {
     job: ClaimedSourceObservationIntegrationJob;
     claimTtlMs: number;
+    context: SourceObservationJobRunContext;
   }): Promise<
     Readonly<{
       complete: boolean;
@@ -855,6 +957,7 @@ export function createSourceObservationRuntime(
       result: SourceObservationIntegrationJobResult;
     }>
   > {
+    throwIfJobRunCancelled(input.context);
     const scope = normalizeIntegrationJobScope(input.job.scope);
     if (scope.provider && scope.provider !== "tcgdex") {
       throw new Error(`Provider '${scope.provider}' does not support background import.`);
@@ -872,6 +975,7 @@ export function createSourceObservationRuntime(
           languageCode,
           seriesId: scope.seriesId || null,
         });
+    throwIfJobRunCancelled(input.context);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(expansions.length, []);
     const completedExpansionIds = new Set(
       previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean),
@@ -894,6 +998,7 @@ export function createSourceObservationRuntime(
       input.claimTtlMs,
     );
 
+    throwIfJobRunCancelled(input.context);
     const outcome = await importIntegrationExpansion({
       expansion: nextExpansion,
       languageCode,
@@ -912,6 +1017,7 @@ export function createSourceObservationRuntime(
   async function processIntegrationReapplyJobTurn(input: {
     job: ClaimedSourceObservationIntegrationJob;
     claimTtlMs: number;
+    context: SourceObservationJobRunContext;
   }): Promise<
     Readonly<{
       complete: boolean;
@@ -919,6 +1025,7 @@ export function createSourceObservationRuntime(
       result: SourceObservationIntegrationJobResult;
     }>
   > {
+    throwIfJobRunCancelled(input.context);
     const scope = integrationScopeToObservationScope(input.job.scope);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(input.job.progress.total, []);
     const completedObservationIds = new Set(
@@ -927,6 +1034,7 @@ export function createSourceObservationRuntime(
     const remainingObservationIds = (await listSourceObservationIdsForReapply(deps.db, scope)).filter(
       (observationId) => !completedObservationIds.has(observationId),
     );
+    throwIfJobRunCancelled(input.context);
     const total = Math.max(previousResult.requested, previousResult.outcomes.length + remainingObservationIds.length);
     const batchObservationIds = remainingObservationIds.slice(0, INTEGRATION_REAPPLY_JOB_BATCH_SIZE);
 
@@ -941,6 +1049,7 @@ export function createSourceObservationRuntime(
 
     let progressWrite = Promise.resolve();
     const progressHandler = (progress: BulkSourceObservationProgress) => {
+      throwIfJobRunCancelled(input.context);
       const persistedProgress = bulkProgress(
         previousResult.outcomes.length + progress.completed,
         total,
@@ -952,12 +1061,14 @@ export function createSourceObservationRuntime(
         updateIntegrationJobProgress(deps.db, input.job.jobId, persistedProgress, input.claimTtlMs),
       );
     };
+    throwIfJobRunCancelled(input.context);
     const batchResult = await reapplyObservationIds({
       observationIds: batchObservationIds,
       context: input.job.eventContext,
       onProgress: progressHandler,
     });
     await progressWrite;
+    throwIfJobRunCancelled(input.context);
 
     const outcomes: SourceObservationIntegrationJobOutcome[] = [
       ...previousResult.outcomes,
@@ -2261,7 +2372,7 @@ async function updateBulkReviewJobTurnResult(
   db: CatalogRuntimeDeps["db"],
   jobId: string,
   progress: BulkSourceObservationProgress,
-  result: BulkSourceObservationPromotionResult,
+  result: SourceObservationBulkJobResult,
   claimTtlMs: number,
 ): Promise<void> {
   await db.query(
@@ -2281,7 +2392,7 @@ async function continueBulkReviewJob(
   db: CatalogRuntimeDeps["db"],
   jobId: string,
   progress: BulkSourceObservationProgress,
-  result: BulkSourceObservationPromotionResult,
+  result: SourceObservationBulkJobResult,
 ): Promise<void> {
   await db.query(
     `UPDATE catalog_source_observation_bulk_jobs
@@ -2302,7 +2413,7 @@ async function continueBulkReviewJob(
 async function completeBulkReviewJob(
   db: CatalogRuntimeDeps["db"],
   jobId: string,
-  result: BulkSourceObservationPromotionResult,
+  result: SourceObservationBulkJobResult,
 ): Promise<void> {
   await db.query(
     `UPDATE catalog_source_observation_bulk_jobs
@@ -2345,6 +2456,20 @@ async function failBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string, me
   );
 }
 
+async function releaseBulkReviewJobClaim(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_bulk_jobs
+     SET
+       status = 'queued',
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       updated_at = now()
+     WHERE job_id = $1
+       AND status = 'running'`,
+    [jobId],
+  );
+}
+
 function mapBulkReviewJobRow(row: SourceObservationBulkJobRow): SourceObservationBulkJob {
   return {
     jobId: row.job_id,
@@ -2355,7 +2480,7 @@ function mapBulkReviewJobRow(row: SourceObservationBulkJobRow): SourceObservatio
     reason: row.reason,
     status: row.status,
     progress: parseJsonField<BulkSourceObservationProgress>(row.progress, "progress"),
-    result: row.result ? parseJsonField<BulkSourceObservationPromotionResult>(row.result, "result") : null,
+    result: row.result ? parseJsonField<SourceObservationBulkJobResult>(row.result, "result") : null,
     errorMessage: row.error_message,
     createdAt: row.created_at,
     startedAt: row.started_at,
@@ -2554,6 +2679,20 @@ async function failIntegrationJob(db: CatalogRuntimeDeps["db"], jobId: string, m
   );
 }
 
+async function releaseIntegrationJobClaim(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
+  await db.query(
+    `UPDATE catalog_source_observation_integration_jobs
+     SET
+       status = 'queued',
+       claim_owner_id = NULL,
+       claim_expires_at = NULL,
+       updated_at = now()
+     WHERE job_id = $1
+       AND status = 'running'`,
+    [jobId],
+  );
+}
+
 function mapIntegrationJobRow(row: SourceObservationIntegrationJobRow): SourceObservationIntegrationJob {
   return {
     jobId: row.job_id,
@@ -2644,6 +2783,42 @@ function summarizeReapplyOutcomes(
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
   };
+}
+
+function promotionJobResultOrEmpty(
+  result: SourceObservationBulkJobResult | null,
+  requested: number,
+): BulkSourceObservationPromotionResult {
+  return result && "promoted" in result ? result : summarizePromotionOutcomes(requested, []);
+}
+
+function reapplyJobResultOrEmpty(
+  result: SourceObservationBulkJobResult | null,
+  requested: number,
+): BulkSourceObservationReapplyResult {
+  return result && "reapplied" in result ? result : summarizeReapplyOutcomes(requested, []);
+}
+
+class SourceObservationJobCancelledError extends Error {
+  constructor() {
+    super("Source Observation job run was cancelled.");
+  }
+}
+
+function isJobRunCancelled(context: SourceObservationJobRunContext): boolean {
+  return context.signal?.aborted ?? false;
+}
+
+function throwIfJobRunCancelled(context: SourceObservationJobRunContext): void {
+  if (context.signal?.aborted) {
+    throw new SourceObservationJobCancelledError();
+  }
+
+  try {
+    context.throwIfLeaseLost?.();
+  } catch (error) {
+    throw new SourceObservationJobCancelledError();
+  }
 }
 
 function summarizeIntegrationJobOutcomes(

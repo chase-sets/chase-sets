@@ -107,4 +107,25 @@ CREATE TABLE IF NOT EXISTS fulfillment_label_address_override_audit_pages (
   submitted_recipient_address jsonb NOT NULL,
   PRIMARY KEY (shipment_id, recorded_at)
 );
+
+CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
+  operation_key text PRIMARY KEY,
+  operation_kind text NOT NULL CHECK (operation_kind IN ('purchase-usps-label', 'void-label')),
+  shipment_id text NOT NULL,
+  provider_name text NOT NULL,
+  provider_mode text NOT NULL,
+  idempotency_key text NOT NULL,
+  request_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
+  provider_shipment_id text NULL,
+  provider_label_id text NULL,
+  tracking_identifier text NULL,
+  error_message text NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  completed_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS fulfillment_postage_label_operations_status_idx
+  ON fulfillment_postage_label_operations (status, updated_at);
 `;

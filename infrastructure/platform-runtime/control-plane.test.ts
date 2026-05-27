@@ -14,6 +14,7 @@ describe("platform control plane", () => {
 
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_control_leases");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases");
+    expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_scheduled_runners");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_operations");
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
@@ -280,5 +281,32 @@ describe("platform control plane", () => {
     expect(calls[0].sql).toContain("COUNT(*) FILTER (WHERE state = 'queued')");
     expect(calls[0].sql).toContain("AVG(EXTRACT(EPOCH");
     expect(calls[0].params).toEqual(["catalog"]);
+  });
+
+  it("claims scheduled runners from durable cadence state", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const controlPlane = createPostgresPlatformControlPlane({
+      connect: async () => {
+        throw new Error("not used");
+      },
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return { rows: [], rowCount: sql.includes("UPDATE platform_scheduled_runners AS runner") ? 1 : 0 };
+      },
+    });
+
+    await expect(
+      controlPlane.claimScheduledRunner({
+        runnerName: "payments.reconciliation",
+        intervalMs: 60_000,
+      }),
+    ).resolves.toBe(true);
+    await controlPlane.recordScheduledRunnerCompleted({ runnerName: "payments.reconciliation" });
+
+    expect(calls[0].sql).toContain("INSERT INTO platform_scheduled_runners");
+    expect(calls[0].sql).toContain("next_run_at <= now()");
+    expect(calls[0].sql).toContain("next_run_at = now() +");
+    expect(calls[0].params).toEqual(["payments.reconciliation", 60_000]);
+    expect(calls[1].sql).toContain("last_completed_at = now()");
   });
 });

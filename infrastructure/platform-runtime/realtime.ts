@@ -499,6 +499,7 @@ export function createRealtimeRoutes(
     retentionPruneIntervalMs?: number;
     batchSize?: number;
     maxConsecutiveFullBatches?: number;
+    isDraining?: () => boolean;
   }>,
 ) {
   const app = new Hono();
@@ -528,6 +529,18 @@ export function createRealtimeRoutes(
   const topicPolicyManifest = options.topicPolicyManifest ?? platformRealtimeTopicPolicyManifest;
 
   const handleEvents = async (c: Context, mode: RealtimeEndpointMode) => {
+    if (options.isDraining?.()) {
+      return c.json(
+        {
+          error: {
+            code: "process_draining",
+            message: "Process is draining for shutdown.",
+          },
+        },
+        503,
+      );
+    }
+
     const url = new URL(c.req.url);
     const requestedTopics = readRealtimeTopicQueryValues(url.searchParams);
     const topics = normalizeRealtimeTopics(requestedTopics);

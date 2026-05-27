@@ -6,6 +6,7 @@ import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
   createFilesystemObjectStorage,
   createS3ObjectStorage,
@@ -44,6 +45,7 @@ const runtime = createAdminSupportApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
   },
 });
+const drainState = createProcessDrainState();
 const app = buildAdminSupportApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
@@ -55,25 +57,27 @@ const app = buildAdminSupportApiApp(runtime, {
       await entry.pool.query("SELECT 1");
     },
   })),
+  isDraining: drainState.isDraining,
   resolveActor: (request) =>
     resolveActorFromRequest(runtime.services.auth as Parameters<typeof resolveActorFromRequest>[0], request),
 });
 mountLocalCatalogAssetRoute(app, config.catalogAssetStorage);
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
-  logger.info("Admin support API listening.", {
-    type: "admin-support-api.started",
-    port: info.port,
-  });
+startGracefulHttpServer({
+  name: "admin-support-api",
+  port: config.port,
+  serve,
+  fetch: app.fetch,
+  drainState,
+  logger,
+  onListening: (info) => {
+    logger.info("Admin support API listening.", {
+      type: "admin-support-api.started",
+      port: info.port,
+    });
+  },
+  onShutdown: [async () => closeAdminSupportApiPools(pools), async () => observability.shutdown()],
 });
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.once(signal, () => {
-    void closeAdminSupportApiPools(pools)
-      .finally(() => observability.shutdown())
-      .finally(() => process.exit(0));
-  });
-}
 
 function createCatalogAssetStorage(storageConfig: AdminSupportCatalogAssetStorageConfig): ObjectStorage {
   return storageConfig.kind === "s3"

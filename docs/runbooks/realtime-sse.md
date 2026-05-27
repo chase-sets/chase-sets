@@ -27,6 +27,11 @@ per context-owned outbox. Cursor ids are opaque base64url vectors keyed by conte
 Summary-only replay noise is compacted within each replay batch so older summaries
 for the same `{entity, id}` are superseded by the newest summary in that batch.
 
+During deployment drain, new SSE streams are rejected with
+`503 process_draining`. Existing streams may close after the configured stream
+drain grace period. This is expected: clients reconnect with their cursor and
+either replay retained patches or receive `sync.required`.
+
 If a cursor is older than retained patches, the server sends `sync.required` with
 `reason: "cursor-expired"`. If a subscriber is too far behind and repeatedly fills
 replay batches, the server sends `sync.required` with `reason: "replay-backpressure"`
@@ -52,6 +57,10 @@ context pool and merges them into a single route wake signal.
 - Use `/internal/realtime/status` from trusted internal networks to inspect active
   streams, configured topic families, route tuning, retention, wake-signal status,
   and per-context outbox heads during incidents.
+- During frequent deployments, watch `process_draining`,
+  `too_many_realtime_streams`, and reconnect rates. A brief 429 window can occur
+  after forced process exit while stream limiter TTLs expire; clients should retry
+  with backoff.
 - Run the retention sweeper in each platform API process; advisory locks make
   duplicate sweepers safe.
 - Keep topic manifests and patch factories in the bounded context that owns the

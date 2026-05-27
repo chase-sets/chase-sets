@@ -388,16 +388,16 @@ describe("source observation routes", () => {
     expect(getIntegrationJob).toHaveBeenCalledWith("job_integration");
   });
 
-  it("bulk promotes observations matching an explicit filter scope", async () => {
-    const promoteObservationScope = vi.fn(async () => ({
-      requested: 100,
-      promoted: 99,
-      skipped: 1,
-      failed: 0,
-      outcomes: [],
-    }));
+  it("enqueues bulk promotion jobs for observations matching an explicit filter scope", async () => {
+    const job = bulkJobFixture({
+      jobId: "job_promote_scope",
+      action: "promote",
+      selectionMode: "filter",
+      scope: { status: "observed", language: "en", setId: "base1" },
+    });
+    const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
-      promoteObservationScope,
+      enqueueBulkReviewJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -409,14 +409,15 @@ describe("source observation routes", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({
-      requested: 100,
-      promoted: 99,
-      skipped: 1,
-      failed: 0,
+      jobId: "job_promote_scope",
+      action: "promote",
+      status: "queued",
     });
-    expect(promoteObservationScope).toHaveBeenCalledWith({
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "promote",
+      observationIds: [],
       scope: {
         search: undefined,
         status: "observed",
@@ -471,16 +472,15 @@ describe("source observation routes", () => {
     });
   });
 
-  it("reapplies promoted observations matching an explicit filter scope", async () => {
-    const reapplyObservationScope = vi.fn(async () => ({
-      requested: 88,
-      reapplied: 87,
-      skipped: 1,
-      failed: 0,
-      outcomes: [],
-    }));
+  it("enqueues reapply jobs for promoted observations matching an explicit filter scope", async () => {
+    const job = integrationJobFixture({
+      jobId: "job_reapply_scope",
+      action: "reapply",
+      scope: { provider: "tcgdex", language: "en", setId: "base1" },
+    });
+    const enqueueIntegrationJob = vi.fn(async () => job);
     const services = {
-      reapplyObservationScope,
+      enqueueIntegrationJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -492,17 +492,15 @@ describe("source observation routes", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({
-      requested: 88,
-      reapplied: 87,
-      skipped: 1,
-      failed: 0,
+      jobId: "job_reapply_scope",
+      action: "reapply",
+      status: "queued",
     });
-    expect(reapplyObservationScope).toHaveBeenCalledWith({
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "reapply",
       scope: {
-        search: undefined,
-        status: undefined,
         provider: "tcgdex",
         language: "en",
         setId: "base1",
@@ -511,28 +509,34 @@ describe("source observation routes", () => {
     });
   });
 
-  it("streams reapply progress events", async () => {
-    const reapplyObservationScope = vi.fn(
-      async (input: { onProgress?: (progress: Record<string, unknown>) => void }) => {
-        input.onProgress?.({
-          phase: "processing",
-          completed: 1,
-          total: 2,
-          currentName: "Bulbasaur",
-          status: "reapplied",
-        });
-
-        return {
-          requested: 2,
-          reapplied: 1,
-          skipped: 1,
-          failed: 0,
-          outcomes: [],
-        };
+  it("streams durable reapply job progress events", async () => {
+    const job = integrationJobFixture({
+      jobId: "job_reapply_progress",
+      action: "reapply",
+      scope: { provider: "tcgdex", language: "en", setId: "base1" },
+      status: "completed",
+      progress: {
+        phase: "processing",
+        completed: 1,
+        total: 2,
+        currentName: "Bulbasaur",
+        status: "reapplied",
       },
-    );
+      result: {
+        requested: 2,
+        imported: 0,
+        observed: 0,
+        reapplied: 1,
+        skipped: 1,
+        failed: 0,
+        outcomes: [],
+      },
+    });
+    const enqueueIntegrationJob = vi.fn(async () => job);
+    const getIntegrationJob = vi.fn(async () => job);
     const services = {
-      reapplyObservationScope,
+      enqueueIntegrationJob,
+      getIntegrationJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -560,54 +564,42 @@ describe("source observation routes", () => {
           currentName: "Bulbasaur",
           status: "reapplied",
         },
+        jobId: "job_reapply_progress",
       },
       {
         type: "result",
         result: {
           requested: 2,
+          imported: 0,
+          observed: 0,
           reapplied: 1,
           skipped: 1,
           failed: 0,
           outcomes: [],
         },
+        jobId: "job_reapply_progress",
       },
     ]);
-    expect(reapplyObservationScope).toHaveBeenCalledWith({
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "reapply",
       scope: {
-        search: undefined,
-        status: undefined,
         provider: "tcgdex",
         language: "en",
         setId: "base1",
       },
       context,
-      onProgress: expect.any(Function),
     });
   });
 
-  it("bulk promotes the explicit observation ids from the request body", async () => {
-    const promoteObservations = vi.fn(async () => ({
-      requested: 2,
-      promoted: 1,
-      skipped: 1,
-      failed: 0,
-      outcomes: [
-        {
-          observationId: "obs_1",
-          status: "promoted" as const,
-          catalogItemId: "cat_1" as never,
-          reason: null,
-        },
-        {
-          observationId: "obs_2",
-          status: "skipped" as const,
-          catalogItemId: "cat_existing" as never,
-          reason: "Source observation is already promoted.",
-        },
-      ],
-    }));
+  it("enqueues bulk promotion jobs for explicit observation ids from the request body", async () => {
+    const job = bulkJobFixture({
+      jobId: "job_promote_ids",
+      action: "promote",
+      observationIds: ["obs_1", "obs_2"],
+    });
+    const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
-      promoteObservations,
+      enqueueBulkReviewJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -617,15 +609,16 @@ describe("source observation routes", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({
-      requested: 2,
-      promoted: 1,
-      skipped: 1,
-      failed: 0,
+      jobId: "job_promote_ids",
+      action: "promote",
+      status: "queued",
     });
-    expect(promoteObservations).toHaveBeenCalledWith({
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "promote",
       observationIds: ["obs_1", "obs_2"],
+      scope: undefined,
       context,
     });
   });
@@ -735,17 +728,16 @@ describe("source observation routes", () => {
     expect(services.rejectObservations).not.toHaveBeenCalled();
   });
 
-  it("bulk rejects explicit observation ids with the shared reason", async () => {
-    const rejectObservations = vi.fn(async () => ({
-      requested: 2,
-      promoted: 0,
-      rejected: 2,
-      skipped: 0,
-      failed: 0,
-      outcomes: [],
-    }));
+  it("enqueues bulk rejection jobs for explicit observation ids with the shared reason", async () => {
+    const job = bulkJobFixture({
+      jobId: "job_reject_ids",
+      action: "reject",
+      observationIds: ["obs_1", "obs_2"],
+      reason: "Duplicate provider row.",
+    });
+    const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
-      rejectObservations,
+      enqueueBulkReviewJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -758,29 +750,31 @@ describe("source observation routes", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({
-      requested: 2,
-      rejected: 2,
+      jobId: "job_reject_ids",
+      action: "reject",
+      status: "queued",
     });
-    expect(rejectObservations).toHaveBeenCalledWith({
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "reject",
       observationIds: ["obs_1", "obs_2"],
+      scope: undefined,
       reason: "Duplicate provider row.",
       context,
     });
   });
 
-  it("bulk rejects observations matching an explicit filter scope", async () => {
-    const rejectObservationScope = vi.fn(async () => ({
-      requested: 3,
-      promoted: 0,
-      rejected: 3,
-      skipped: 0,
-      failed: 0,
-      outcomes: [],
-    }));
+  it("enqueues bulk rejection jobs for observations matching an explicit filter scope", async () => {
+    const job = bulkJobFixture({
+      jobId: "job_reject_scope",
+      action: "reject",
+      scope: { status: "observed", provider: "tcgdex", language: "en", setId: "base1" },
+      reason: "Out of scope.",
+    });
+    const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
-      rejectObservationScope,
+      enqueueBulkReviewJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -793,12 +787,15 @@ describe("source observation routes", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({
-      requested: 3,
-      rejected: 3,
+      jobId: "job_reject_scope",
+      action: "reject",
+      status: "queued",
     });
-    expect(rejectObservationScope).toHaveBeenCalledWith({
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "reject",
+      observationIds: [],
       scope: {
         search: undefined,
         status: "observed",
@@ -951,7 +948,7 @@ describe("source observation routes", () => {
 });
 
 function integrationJob(input: { status: "queued" | "running" | "completed" | "failed" }) {
-  return {
+  return integrationJobFixture({
     jobId: "job_integration",
     action: "import",
     scope: { provider: "tcgdex", language: "en", seriesId: "base" },
@@ -980,5 +977,76 @@ function integrationJob(input: { status: "queued" | "running" | "completed" | "f
     startedAt: input.status === "queued" ? null : "2026-05-23T00:00:01.000Z",
     completedAt: input.status === "completed" ? "2026-05-23T00:00:02.000Z" : null,
     updatedAt: "2026-05-23T00:00:02.000Z",
+  });
+}
+
+function integrationJobFixture(
+  input: Record<string, unknown> & {
+    jobId?: string;
+    action?: "import" | "reapply";
+  },
+) {
+  return {
+    ...baseIntegrationJob(),
+    ...input,
   } as const;
+}
+
+function baseIntegrationJob() {
+  return {
+    jobId: "job_integration",
+    action: "import" as const,
+    scope: { provider: "tcgdex", language: "en", seriesId: "base" },
+    status: "queued" as const,
+    progress: {
+      phase: "queued" as const,
+      completed: 0,
+      total: 0,
+      currentName: null,
+      status: null,
+    },
+    result: null as null | Record<string, unknown>,
+    errorMessage: null,
+    createdAt: "2026-05-23T00:00:00.000Z",
+    startedAt: null as string | null,
+    completedAt: null as string | null,
+    updatedAt: "2026-05-23T00:00:02.000Z",
+  };
+}
+
+function bulkJobFixture(
+  input: Record<string, unknown> & {
+    jobId?: string;
+    action?: "promote" | "reject" | "reapply";
+  },
+) {
+  return {
+    ...baseBulkJob(),
+    ...input,
+  } as const;
+}
+
+function baseBulkJob() {
+  return {
+    jobId: "job_bulk",
+    action: "promote" as const,
+    selectionMode: "ids" as const,
+    observationIds: [] as readonly string[],
+    scope: {},
+    reason: null as string | null,
+    status: "queued" as const,
+    progress: {
+      phase: "queued" as const,
+      completed: 0,
+      total: 0,
+      currentName: null,
+      status: null,
+    },
+    result: null as null | Record<string, unknown>,
+    errorMessage: null,
+    createdAt: "2026-05-21T00:00:00.000Z",
+    startedAt: null as string | null,
+    completedAt: null as string | null,
+    updatedAt: "2026-05-21T00:00:00.000Z",
+  };
 }

@@ -116,4 +116,30 @@ describe("health routes", () => {
     });
     expect(response.status).toBe(503);
   });
+
+  it("returns 503 when the process is draining for shutdown", async () => {
+    const app = createHealthRoutes({
+      isDraining: () => true,
+      readinessChecks: [
+        {
+          name: "control.database",
+          check: async () => undefined,
+        },
+      ],
+    });
+    const response = await app.request("/ready");
+
+    await expect(response.json()).resolves.toEqual({
+      status: "degraded",
+      checks: [
+        {
+          name: "process.draining",
+          status: "degraded",
+          message: "Process is draining for shutdown.",
+        },
+        { name: "control.database", status: "ok" },
+      ],
+    });
+    expect(response.status).toBe(503);
+  });
 });

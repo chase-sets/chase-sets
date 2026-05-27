@@ -35,6 +35,9 @@ import {
   listPayouts,
   recordSettlementReconciliationRun,
   recordSettlementProviderIdempotencyKey,
+  recordSettlementProviderOperationFailed,
+  recordSettlementProviderOperationPending,
+  recordSettlementProviderOperationSucceeded,
   type SettlementReconciliationRunRow,
   type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
@@ -741,6 +744,23 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         );
 
         const transferIdempotencyKey = `settlement:payout:${payoutId}:transfer`;
+        const transferOperationKey = `payout:${payoutId}:transfer`;
+        await recordSettlementProviderOperationPending(deps.db, {
+          operationKey: transferOperationKey,
+          providerName: deps.moneyMovementGateway.providerName,
+          operationKind: "platform-transfer-create",
+          accountId: params.accountId,
+          payoutId,
+          idempotencyKey: transferIdempotencyKey,
+          request: {
+            payoutId,
+            accountId: params.accountId,
+            providerReference: readiness.provider_reference,
+            amount,
+            currencyCode,
+          },
+          createdAt: requestedAt,
+        });
         const transfer = await deps.moneyMovementGateway.transferPlatformBalanceToConnectedAccount({
           payoutId,
           accountId: params.accountId,
@@ -749,8 +769,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           currencyCode,
           idempotencyKey: transferIdempotencyKey,
         });
+        await recordSettlementProviderOperationSucceeded(deps.db, {
+          operationKey: transferOperationKey,
+          providerObjectReference: transfer.providerTransferReference,
+        });
         await recordSettlementProviderIdempotencyKey(deps.db, {
-          operationKey: `payout:${payoutId}:transfer`,
+          operationKey: transferOperationKey,
           providerName: deps.moneyMovementGateway.providerName,
           operationKind: "platform-transfer-create",
           accountId: params.accountId,
@@ -768,6 +792,22 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           providerTransferReference: transfer.providerTransferReference,
         });
         const payoutIdempotencyKey = `settlement:payout:${payoutId}:payout`;
+        const payoutOperationKey = `payout:${payoutId}:payout`;
+        await recordSettlementProviderOperationPending(deps.db, {
+          operationKey: payoutOperationKey,
+          providerName: deps.moneyMovementGateway.providerName,
+          operationKind: "connected-account-payout-create",
+          accountId: params.accountId,
+          payoutId,
+          idempotencyKey: payoutIdempotencyKey,
+          request: {
+            payoutId,
+            accountId: params.accountId,
+            providerReference: readiness.provider_reference,
+            amount,
+            currencyCode,
+          },
+        });
         const providerPayout = await deps.moneyMovementGateway.createConnectedAccountPayout({
           payoutId,
           accountId: params.accountId,
@@ -776,8 +816,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           currencyCode,
           idempotencyKey: payoutIdempotencyKey,
         });
+        await recordSettlementProviderOperationSucceeded(deps.db, {
+          operationKey: payoutOperationKey,
+          providerObjectReference: providerPayout.providerPayoutReference,
+        });
         await recordSettlementProviderIdempotencyKey(deps.db, {
-          operationKey: `payout:${payoutId}:payout`,
+          operationKey: payoutOperationKey,
           providerName: deps.moneyMovementGateway.providerName,
           operationKind: "connected-account-payout-create",
           accountId: params.accountId,
@@ -807,6 +851,14 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           context,
         });
       } catch (error) {
+        await recordSettlementProviderOperationFailed(deps.db, {
+          operationKey: `payout:${payoutId}:transfer`,
+          errorMessage: error instanceof Error ? error.message : "Provider payout submission failed.",
+        });
+        await recordSettlementProviderOperationFailed(deps.db, {
+          operationKey: `payout:${payoutId}:payout`,
+          errorMessage: error instanceof Error ? error.message : "Provider payout submission failed.",
+        });
         await recordOperation({
           kind: "payout-failed",
           accountId: params.accountId,

@@ -40,6 +40,9 @@ import {
   listPaymentsNeedingReconciliation,
   recordPaymentReconciliationRun,
   recordPaymentProviderIdempotencyKey,
+  recordPaymentProviderOperationFailed,
+  recordPaymentProviderOperationPending,
+  recordPaymentProviderOperationSucceeded,
   getPaymentBySource,
   type PaymentDetailRow,
   type PaymentProviderIdempotencyKeyRow,
@@ -678,55 +681,88 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
       const returnUrlPath = resolvePaymentReturnPath(params.returnUrlPath, paymentId);
       const providerIdempotencyKey = `payments:payment:${paymentId}:create`;
+      const providerOperationKey = `payment:${paymentId}:create`;
       const createAgenticPaymentSession = deps.processorGateway.createAgenticPaymentSession?.bind(
         deps.processorGateway,
       );
       if (params.agenticPayment && !createAgenticPaymentSession) {
         throw new PaymentsDomainError("Agentic payment handoff is not supported by the configured payment processor.");
       }
-      const processorPayment =
-        compareMoney(processorAmount, "0.00") === 0
-          ? {
-              processorName: publicConfig.processorName,
-              processorPaymentKind: "balance-credit" as const,
-              processorPaymentReference: `balance-credit:${paymentId}`,
-              processorClientSecret: null,
-              processorRedirectUrl: null,
-              processorStatus: "balance-credit-captured",
-            }
-          : params.agenticPayment
-            ? await createAgenticPaymentSession!({
-                paymentId,
-                buyerAccountId: accountId,
-                orderIds,
-                amount: processorAmount,
-                currencyCode,
-                paymentMethodCategory,
-                description:
-                  orderIds.length === 1
-                    ? `Chase Sets order ${orderIds[0]}`
-                    : `Chase Sets checkout for ${orderIds.length} orders`,
-                returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
-                idempotencyKey: providerIdempotencyKey,
-                clientRiskContext: params.clientRiskContext ?? null,
-                agenticPayment: params.agenticPayment,
-              })
-            : await deps.processorGateway.createPaymentSession({
-                paymentId,
-                buyerAccountId: accountId,
-                orderIds,
-                amount: processorAmount,
-                currencyCode,
-                paymentMethodCategory,
-                description:
-                  orderIds.length === 1
-                    ? `Chase Sets order ${orderIds[0]}`
-                    : `Chase Sets checkout for ${orderIds.length} orders`,
-                returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
-                idempotencyKey: providerIdempotencyKey,
-                clientRiskContext: params.clientRiskContext ?? null,
-              });
       const createdAt = new Date().toISOString();
+      const providerRequest = {
+        paymentId,
+        buyerAccountId: accountId,
+        orderIds,
+        amount: processorAmount,
+        currencyCode,
+        paymentMethodCategory,
+        returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
+        clientRiskContext: params.clientRiskContext ?? null,
+        agenticPayment: params.agenticPayment ?? null,
+      };
+      await recordPaymentProviderOperationPending(deps.db, {
+        operationKey: providerOperationKey,
+        providerName: publicConfig.processorName,
+        operationKind:
+          compareMoney(processorAmount, "0.00") === 0 ? "balance-credit-capture" : "payment-session-create",
+        accountId,
+        paymentId,
+        idempotencyKey: providerIdempotencyKey,
+        request: providerRequest,
+        createdAt,
+      });
+
+      let processorPayment;
+      try {
+        processorPayment =
+          compareMoney(processorAmount, "0.00") === 0
+            ? {
+                processorName: publicConfig.processorName,
+                processorPaymentKind: "balance-credit" as const,
+                processorPaymentReference: `balance-credit:${paymentId}`,
+                processorClientSecret: null,
+                processorRedirectUrl: null,
+                processorStatus: "balance-credit-captured",
+              }
+            : params.agenticPayment
+              ? await createAgenticPaymentSession!({
+                  paymentId,
+                  buyerAccountId: accountId,
+                  orderIds,
+                  amount: processorAmount,
+                  currencyCode,
+                  paymentMethodCategory,
+                  description:
+                    orderIds.length === 1
+                      ? `Chase Sets order ${orderIds[0]}`
+                      : `Chase Sets checkout for ${orderIds.length} orders`,
+                  returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
+                  idempotencyKey: providerIdempotencyKey,
+                  clientRiskContext: params.clientRiskContext ?? null,
+                  agenticPayment: params.agenticPayment,
+                })
+              : await deps.processorGateway.createPaymentSession({
+                  paymentId,
+                  buyerAccountId: accountId,
+                  orderIds,
+                  amount: processorAmount,
+                  currencyCode,
+                  paymentMethodCategory,
+                  description:
+                    orderIds.length === 1
+                      ? `Chase Sets order ${orderIds[0]}`
+                      : `Chase Sets checkout for ${orderIds.length} orders`,
+                  returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
+                  idempotencyKey: providerIdempotencyKey,
+                  clientRiskContext: params.clientRiskContext ?? null,
+                });
+      } catch (error) {
+        await recordPaymentProviderOperationFailed(deps.db, {
+          operationKey: providerOperationKey,
+          errorMessage: error instanceof Error ? error.message : "Payment processor session creation failed.",
+        });
+        throw error;
+      }
 
       await commandHandler({
         streamId: `payments.payment-${paymentId}`,
@@ -759,8 +795,13 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         },
         context,
       });
+      await recordPaymentProviderOperationSucceeded(deps.db, {
+        operationKey: providerOperationKey,
+        providerObjectReference: processorPayment.processorPaymentReference,
+        completedAt: createdAt,
+      });
       await recordPaymentProviderIdempotencyKey(deps.db, {
-        operationKey: `payment:${paymentId}:create`,
+        operationKey: providerOperationKey,
         providerName: processorPayment.processorName,
         operationKind: "payment-session-create",
         accountId,
