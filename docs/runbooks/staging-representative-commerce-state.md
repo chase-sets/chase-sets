@@ -21,6 +21,8 @@ pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:pro
 
 For local or non-standard non-production environments, set `REPRESENTATIVE_COMMERCE_STATE_ALLOW_LOCAL=true` with the same confirmation phrase.
 
+Each refresh step logs a `representative-commerce-state.step.*` JSON line and has a bounded timeout. Override the default two-minute step timeout with `REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS` only when projection backlog is understood and actively draining.
+
 ## Expected Data
 
 The representative profile keeps real Catalog integration output in place. It first finds active marketplace-projected Catalog Items with product measurement snapshots and no listings or offers, then layers representative usage over those current items.
@@ -57,5 +59,5 @@ After the command runs:
 2. Confirm marketplace search and at least one product detail page show listings and offers created from current Catalog Items.
 3. Confirm at least one purchasing account has purchases, payments, shipments, reviews, notifications, and support requests.
 4. Confirm at least one selling account has listings, offer matches, sales, shipments, wallet activity, payouts, reviews, and support requests.
-5. Confirm Marketplace and Ordering projection groups are synced for the representative refresh, or explain any remaining lag.
+5. Confirm the command emitted `representative-commerce-state.complete`; if a step timeout occurs, inspect the named projection backlog before retrying.
 6. Run staging smoke checks before promoting the release.
