@@ -237,7 +237,7 @@ describe("stripe money smoke test", () => {
     const registrationBody = JSON.parse(calls[0].init.body);
     expect(registrationBody).toMatchObject({
       email: "stripe-smoke@example.test",
-      displayName: "Stripe Preview Smoke Seller",
+      displayName: "Stripe Preview Smoke stripe smoke",
       consents: [
         {
           policyKey: "terms-of-service",
