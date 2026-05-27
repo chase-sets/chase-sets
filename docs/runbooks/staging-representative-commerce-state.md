@@ -27,6 +27,8 @@ Each refresh step logs a `representative-commerce-state.step.*` JSON line and ha
 
 The representative profile keeps real Catalog integration output in place. It first resolves product measurements for a bounded active Catalog Item window, finds active Catalog Items with product measurement snapshots, filters to items with no listings or offers, reconciles those selected item facts into Marketplace and Inventory, then layers representative usage over those current items.
 
+Representative Inventory stock prefers raw/non-graded product options when a current Catalog Item exposes raw-vs-graded form choices. Graded stock scenarios should include graded-card certification details before being enabled for staging-visible usage.
+
 The representative usage layer should reconcile:
 
 - internal staging accounts that can buy, sell, or support workflows, including staging collector, value buyer, card vault, sealed stockroom, and support ops accounts;
