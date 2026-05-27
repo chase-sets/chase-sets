@@ -146,6 +146,12 @@ async function loadCurrentRepresentativeCatalogItemIds(
     `SELECT item.catalog_item_id
      FROM catalog_items item
      WHERE item.status = 'active'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM catalog_resolved_product_measures measure
+         WHERE measure.catalog_item_id = item.catalog_item_id
+           AND measure.measure_snapshot IS NOT NULL
+       )
      ORDER BY item.updated_at DESC, item.catalog_item_id ASC
      LIMIT $1`,
     [options.limit],
