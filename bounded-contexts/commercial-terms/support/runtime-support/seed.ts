@@ -1,4 +1,4 @@
-import type { BcSeedOptions } from "@chase-sets/bounded-context-module";
+import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { commercialTermsSeedIds } from "../seed-support/ids";
@@ -80,9 +80,13 @@ export async function seedCommercialTermsDatabase(
 }
 
 function profileEnabled(options: BcSeedOptions | undefined, profile: "critical-bootstrap" | "scenario-seed") {
-  return (
-    options?.enabledDataProfiles ?? ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]
-  ).includes(profile);
+  const defaultProfiles: readonly EnvironmentDataProfile[] = [
+    "critical-bootstrap",
+    "catalog-integration-bootstrap",
+    "scenario-seed",
+  ];
+
+  return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
 }
 
 async function seedDefaultScheduleIfMissing(

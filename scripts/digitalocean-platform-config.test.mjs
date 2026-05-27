@@ -16,6 +16,10 @@ const environmentDnsVariables = readFileSync(
 );
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
+const platformRepresentativeWorkflow = readFileSync(
+  resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
+  "utf8",
+);
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
@@ -205,5 +209,21 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("uptime_check_targets = merge(");
     expect(platformLocals).toContain("realtime_stream_limiter");
     expect(platformMain).toContain('check "api_realtime_coordination"');
+  });
+
+  it("keeps representative commerce refresh as an explicit staging-only operator workflow", () => {
+    expect(platformRepresentativeWorkflow).toContain("environment: staging");
+    expect(platformRepresentativeWorkflow).toContain("seed staging commerce");
+    expect(platformRepresentativeWorkflow).toContain("DEPLOYMENT_ENVIRONMENT: staging");
+    expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_CATALOG_ITEM_LIMIT");
+    expect(platformRepresentativeWorkflow).toContain("terraform state pull");
+    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_connection_pool");
+    expect(platformRepresentativeWorkflow).toContain("PLATFORM_CONTROL_DATABASE_URL");
+    expect(platformRepresentativeWorkflow).toContain("DATABASE_URL_${String(contextName).toUpperCase()");
+    expect(platformRepresentativeWorkflow).toContain("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3");
+    expect(platformRepresentativeWorkflow).toContain(
+      "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
+    );
+    expect(platformProductionWorkflow).not.toContain("representative-commerce-state:production");
   });
 });

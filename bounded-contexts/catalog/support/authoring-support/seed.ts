@@ -1,4 +1,4 @@
-import type { BcSeedOptions } from "@chase-sets/bounded-context-module";
+import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices } from "./services";
 import { seedBlueprints } from "../../features/blueprints/api/seed";
@@ -108,9 +108,13 @@ function profileEnabled(
   options: BcSeedOptions | undefined,
   profile: "catalog-integration-bootstrap" | "scenario-seed",
 ) {
-  return (
-    options?.enabledDataProfiles ?? ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"]
-  ).includes(profile);
+  const defaultProfiles: readonly EnvironmentDataProfile[] = [
+    "critical-bootstrap",
+    "catalog-integration-bootstrap",
+    "scenario-seed",
+  ];
+
+  return (options?.enabledDataProfiles ?? defaultProfiles).includes(profile);
 }
 
 async function tableHasRows(

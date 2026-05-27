@@ -42,6 +42,7 @@ export const allEnvironmentDataProfiles: readonly EnvironmentDataProfile[] = [
   "critical-bootstrap",
   "catalog-integration-bootstrap",
   "scenario-seed",
+  "representative-commerce-state",
 ];
 
 export const defaultSeedOptions: BcSeedOptions = {

@@ -34,6 +34,12 @@ export const nonProductionDataProfiles: readonly EnvironmentDataProfile[] = [
   "scenario-seed",
 ];
 
+export const representativeCommerceStateDataProfiles: readonly EnvironmentDataProfile[] = [
+  "critical-bootstrap",
+  "catalog-integration-bootstrap",
+  "representative-commerce-state",
+];
+
 export type ApiContextManifest = Readonly<{
   contextName: string;
   apiDeployables?: readonly string[];
@@ -211,7 +217,10 @@ export function getApiHostSeedOrder(registry: ApiContextRegistry, hostName: ApiH
 }
 
 function shouldRunFullBootstrapDrain(options: BcSeedOptions): boolean {
-  return options.enabledDataProfiles.includes("scenario-seed");
+  return (
+    options.enabledDataProfiles.includes("scenario-seed") ||
+    options.enabledDataProfiles.includes("representative-commerce-state")
+  );
 }
 
 function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module">, options: BcSeedOptions): boolean {

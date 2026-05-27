@@ -191,6 +191,30 @@ describe("platform api config", () => {
     expect(() => loadBootstrapConfig()).toThrow("PLATFORM_DATA_PROFILES contains unsupported data profile 'unknown'.");
   });
 
+  it("allows representative commerce state only outside production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.test";
+    process.env.PLATFORM_DATA_PROFILES =
+      "critical-bootstrap,catalog-integration-bootstrap,representative-commerce-state";
+
+    expect(loadBootstrapConfig().dataProfiles).toEqual([
+      "critical-bootstrap",
+      "catalog-integration-bootstrap",
+      "representative-commerce-state",
+    ]);
+
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+
+    expect(() => loadBootstrapConfig()).toThrow(
+      "representative-commerce-state is not allowed when DEPLOYMENT_ENVIRONMENT=production.",
+    );
+  });
+
   it("requires platform admin email and password together", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_ADMIN_EMAIL = "ops@chasesets.com";

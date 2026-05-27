@@ -275,6 +275,17 @@ function isLongLivedEnvironment(environmentName: string) {
   return environmentName === "production" || environmentName === "staging";
 }
 
+function assertDataProfilesAllowed(
+  environmentName: string,
+  profiles: readonly EnvironmentDataProfile[],
+): readonly EnvironmentDataProfile[] {
+  if (environmentName === "production" && profiles.includes("representative-commerce-state")) {
+    throw new Error("representative-commerce-state is not allowed when DEPLOYMENT_ENVIRONMENT=production.");
+  }
+
+  return profiles;
+}
+
 function loadDataProfiles(environmentName: string): readonly EnvironmentDataProfile[] {
   const explicitProfiles = getOptionalCsvEnv("PLATFORM_DATA_PROFILES");
   if (explicitProfiles.length > 0) {
@@ -282,6 +293,7 @@ function loadDataProfiles(environmentName: string): readonly EnvironmentDataProf
       "critical-bootstrap",
       "catalog-integration-bootstrap",
       "scenario-seed",
+      "representative-commerce-state",
     ]);
     for (const profile of explicitProfiles) {
       if (!allowedProfiles.has(profile as EnvironmentDataProfile)) {
@@ -289,14 +301,14 @@ function loadDataProfiles(environmentName: string): readonly EnvironmentDataProf
       }
     }
 
-    return explicitProfiles as readonly EnvironmentDataProfile[];
+    return assertDataProfilesAllowed(environmentName, explicitProfiles as readonly EnvironmentDataProfile[]);
   }
 
   if (isLongLivedEnvironment(environmentName)) {
-    return productionLikeDataProfiles;
+    return assertDataProfilesAllowed(environmentName, productionLikeDataProfiles);
   }
 
-  return nonProductionDataProfiles;
+  return assertDataProfilesAllowed(environmentName, nonProductionDataProfiles);
 }
 
 function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
