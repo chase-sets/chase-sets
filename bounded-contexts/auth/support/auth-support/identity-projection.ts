@@ -387,6 +387,27 @@ async function upsertMembershipMirror(
   );
 }
 
+export async function upsertActiveAuthIdentityMembershipMirror(
+  db: PgQueryable,
+  params: Readonly<{
+    membershipId: string;
+    userId: string;
+    accountId: string;
+    roleKey: keyof typeof AUTH_ROLE_PERMISSIONS;
+    updatedAt: string;
+  }>,
+) {
+  await upsertMembershipMirror(
+    db,
+    params.membershipId,
+    params.userId,
+    params.accountId,
+    params.roleKey,
+    "active",
+    params.updatedAt,
+  );
+}
+
 export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.user.created": async (event) => {
