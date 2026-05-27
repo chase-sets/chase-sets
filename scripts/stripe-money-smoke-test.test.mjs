@@ -246,13 +246,10 @@ describe("stripe money smoke test", () => {
       ],
     });
     const signInCall = calls.find((call) => call.url === "https://marketplace.preview.test/api/auth/password-sign-in");
-    expect(JSON.parse(signInCall.init.body)).toMatchObject({
-      email: "stripe-smoke@example.test",
-      accountId: "acc_smoke_seller",
-    });
+    expect(signInCall).toBeUndefined();
     const accountStatusCall = calls.find(
       (call) => call.url === "https://marketplace.preview.test/api/settlement/account-status",
     );
-    expect(accountStatusCall.init.headers.get("Authorization")).toBe("Bearer session_seller_login");
+    expect(accountStatusCall.init.headers.get("Authorization")).toBe("Bearer session_seller");
   });
 });
