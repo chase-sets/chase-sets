@@ -1,14 +1,16 @@
 import { t } from "@chase-sets/localization";
 import { Badge, Inline } from "@chase-sets/design-system";
 
-export type AccountBadgeKey = "founding-account";
+export type AccountBadgeKey = "founding-account" | "manual-payout-review" | "trusted-seller";
 
 export const accountBadgeLabels: Record<AccountBadgeKey, string> = {
   "founding-account": t("identity.features.accounts.ui.accountBadges.founding.account"),
+  "manual-payout-review": t("identity.features.accounts.ui.accountBadges.manual.payout.review"),
+  "trusted-seller": t("identity.features.accounts.ui.accountBadges.trusted.seller"),
 };
 
 function isAccountBadgeKey(value: string): value is AccountBadgeKey {
-  return value === "founding-account";
+  return value === "founding-account" || value === "manual-payout-review" || value === "trusted-seller";
 }
 
 export function accountBadgeLabel(badgeKey: string) {

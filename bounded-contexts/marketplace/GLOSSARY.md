@@ -67,6 +67,17 @@ Examples:
 - Withdrawn
 - Sold Out
 
+## High-Dollar Listing Publication Policy
+
+A **High-Dollar Listing Publication Policy** is the Marketplace-owned publication rule that blocks expensive Listings from becoming Active until seller evidence and account trust signals clear.
+
+Notes:
+
+- High-dollar Listing drafts can exist before the policy clears.
+- A high-dollar Listing requires Listing Photo evidence before publication.
+- A high-dollar Listing also requires trusted seller status or established account reputation.
+- Marketplace consumes Identity-owned Account Badges and Reputation-owned review signals for this policy, but Marketplace owns the Listing publication decision.
+
 ## Seller Listing Availability
 
 **Seller Listing Availability** is the account-wide Marketplace overlay that controls whether an account's active listings can create new seller commitments.

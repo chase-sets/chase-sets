@@ -128,8 +128,46 @@ export async function listPendingCreditEntriesMaturedBy(
          FROM settlement_ledger_entry_pages
        WHERE direction = 'credit'
          AND funds_status = 'pending'
-         AND kind = 'sale'
+         AND kind IN ('sale', 'rebate')
          AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+         AND EXISTS (
+           SELECT 1
+           FROM settlement_order_fulfillment_sources fulfillment
+           WHERE fulfillment.order_id = settlement_ledger_entry_pages.order_id
+             AND fulfillment.seller_account_id = settlement_ledger_entry_pages.account_id
+             AND fulfillment.status = 'delivered'
+             AND fulfillment.delivered_at IS NOT NULL
+             AND fulfillment.delivered_at <= (
+               $1::timestamptz - CASE
+                 WHEN COALESCE((
+                   SELECT risk.manual_payout_review
+                   FROM settlement_account_risk_sources risk
+                   WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                 ), FALSE)
+                   OR NOT COALESCE((
+                     SELECT risk.trusted_seller
+                     FROM settlement_account_risk_sources risk
+                     WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                   ), FALSE)
+                   OR COALESCE((
+                     SELECT risk.review_count
+                     FROM settlement_account_risk_sources risk
+                     WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                   ), 0) = 0
+                   OR EXISTS (
+                     SELECT 1
+                     FROM settlement_ledger_entry_pages order_sale
+                     WHERE order_sale.order_id = settlement_ledger_entry_pages.order_id
+                       AND order_sale.account_id = settlement_ledger_entry_pages.account_id
+                       AND order_sale.direction = 'credit'
+                       AND order_sale.kind = 'sale'
+                       AND order_sale.amount >= 250
+                   )
+                 THEN INTERVAL '7 days'
+                 ELSE INTERVAL '2 days'
+               END
+             )
+         )
          AND NOT EXISTS (
            SELECT 1
            FROM settlement_support_holds support_hold
@@ -210,8 +248,46 @@ export async function listPendingCreditEntriesMaturedBy(
      FROM settlement_ledger_entry_pages
      WHERE direction = 'credit'
        AND funds_status = 'pending'
-       AND kind = 'sale'
+       AND kind IN ('sale', 'rebate')
        AND posted_at <= ($1::timestamptz - INTERVAL '2 days')
+       AND EXISTS (
+         SELECT 1
+         FROM settlement_order_fulfillment_sources fulfillment
+         WHERE fulfillment.order_id = settlement_ledger_entry_pages.order_id
+           AND fulfillment.seller_account_id = settlement_ledger_entry_pages.account_id
+           AND fulfillment.status = 'delivered'
+           AND fulfillment.delivered_at IS NOT NULL
+           AND fulfillment.delivered_at <= (
+             $1::timestamptz - CASE
+               WHEN COALESCE((
+                 SELECT risk.manual_payout_review
+                 FROM settlement_account_risk_sources risk
+                 WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+               ), FALSE)
+                 OR NOT COALESCE((
+                   SELECT risk.trusted_seller
+                   FROM settlement_account_risk_sources risk
+                   WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                 ), FALSE)
+                 OR COALESCE((
+                   SELECT risk.review_count
+                   FROM settlement_account_risk_sources risk
+                   WHERE risk.account_id = settlement_ledger_entry_pages.account_id
+                 ), 0) = 0
+                 OR EXISTS (
+                   SELECT 1
+                   FROM settlement_ledger_entry_pages order_sale
+                   WHERE order_sale.order_id = settlement_ledger_entry_pages.order_id
+                     AND order_sale.account_id = settlement_ledger_entry_pages.account_id
+                     AND order_sale.direction = 'credit'
+                     AND order_sale.kind = 'sale'
+                     AND order_sale.amount >= 250
+                 )
+               THEN INTERVAL '7 days'
+               ELSE INTERVAL '2 days'
+             END
+           )
+       )
        AND NOT EXISTS (
          SELECT 1
          FROM settlement_support_holds support_hold

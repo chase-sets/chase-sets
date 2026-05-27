@@ -6,6 +6,8 @@ export const identityEnglishTranslations = {
   "identity.features.accounts.readModel.schema.create.table.if.not.exists.identity":
     "CREATE TABLE IF NOT EXISTS identity_accounts (\n  account_id text PRIMARY KEY,\n  name text NOT NULL,\n  display_name text NOT NULL,\n  account_type text NOT NULL,\n  status text NOT NULL,\n  updated_at timestamptz NOT NULL DEFAULT now()\n);",
   "identity.features.accounts.ui.accountBadges.founding.account": "Founding Account",
+  "identity.features.accounts.ui.accountBadges.manual.payout.review": "Manual Payout Review",
+  "identity.features.accounts.ui.accountBadges.trusted.seller": "Trusted Seller",
   "identity.features.accounts.ui.accountDetailPage.account.badges": "Account Badges",
   "identity.features.accounts.ui.accountDetailPage.account.id": "Account ID",
   "identity.features.accounts.ui.accountDetailPage.account.type": "Account Type",

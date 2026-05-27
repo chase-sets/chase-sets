@@ -238,6 +238,24 @@ function buildSellerPayoutComponents(
   });
 }
 
+function buildMarketplaceRiskMetadata(
+  sellerPayouts: readonly SellerPayoutComponent[],
+): Record<string, string | number | boolean> {
+  const sellerAccountIds = [...new Set(sellerPayouts.map((payout) => payout.sellerAccountId))].sort();
+  const maxSellerOrderAmount = sellerPayouts.reduce(
+    (max, payout) => Math.max(max, Number.parseFloat(payout.sellerPayoutAmount)),
+    0,
+  );
+
+  return {
+    seller_account_ids: sellerAccountIds.join(","),
+    seller_account_count: sellerAccountIds.length,
+    max_seller_order_amount: maxSellerOrderAmount.toFixed(2),
+    high_dollar_order: maxSellerOrderAmount >= 250,
+    fulfillment_required: sellerPayouts.length > 0,
+  };
+}
+
 function normalizePaymentMethodCategory(value: string | null | undefined): PaymentMethodCategory {
   switch ((value ?? "card").trim()) {
     case "bank-account":
@@ -698,6 +716,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         paymentMethodCategory,
         returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
         clientRiskContext: params.clientRiskContext ?? null,
+        marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
         agenticPayment: params.agenticPayment ?? null,
       };
       await recordPaymentProviderOperationPending(deps.db, {
@@ -739,6 +758,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
                   idempotencyKey: providerIdempotencyKey,
                   clientRiskContext: params.clientRiskContext ?? null,
+                  marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
                   agenticPayment: params.agenticPayment,
                 })
               : await deps.processorGateway.createPaymentSession({
@@ -755,6 +775,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
                   idempotencyKey: providerIdempotencyKey,
                   clientRiskContext: params.clientRiskContext ?? null,
+                  marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
                 });
       } catch (error) {
         await recordPaymentProviderOperationFailed(deps.db, {

@@ -36,6 +36,8 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 - Ordering for commercial commitments
 - Payments for charge and refund outcomes
+- Fulfillment for delivery, return, and exception outcomes
+- Identity and Reputation for account-risk release inputs
 
 ## Outgoing Integration Events
 
@@ -50,7 +52,7 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 1. Settlement is the source of truth for what the marketplace owes or is owed.
 2. Every balance change must be explainable by ledger entries.
-3. Payouts are issued only after eligibility rules are satisfied.
+3. Payouts are issued only after eligibility and payout-release rules are satisfied.
 4. Settlement reconciles against Payments but does not own payment processor state.
 
 ## Operations

@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
-import { buildMarketplaceCatalogProjectionHandlers } from "./supply-projection";
+import {
+  buildMarketplaceAccountProjectionHandlers,
+  buildMarketplaceCatalogProjectionHandlers,
+} from "./supply-projection";
 
 class ProjectionDb implements PgQueryable {
   public readonly catalogItems = new Map<string, Record<string, unknown>>();
@@ -40,11 +43,11 @@ class ProjectionDb implements PgQueryable {
   }
 }
 
-function event(type: string, data: Record<string, unknown>): TransportEvent {
+function event(type: string, data: Record<string, unknown>, streamId = "catalog.item-cat_1"): TransportEvent {
   return {
     id: "evt_1" as never,
     type,
-    streamId: "catalog.item-cat_1" as never,
+    streamId: streamId as never,
     streamVersion: 1 as never,
     globalPosition: 1 as never,
     tenantId: "tnt_1" as never,
@@ -82,5 +85,25 @@ describe("marketplace catalog projection", () => {
       title: "Charizard",
       subtitle: "Japanese Base Set",
     });
+  });
+});
+
+describe("marketplace account projection", () => {
+  it("projects account badges used by high-dollar listing publication policy", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const handlers = buildMarketplaceAccountProjectionHandlers(db as never);
+
+    await handlers["identity.account.badge-assigned"]!(
+      event("identity.account.badge-assigned", { badgeKey: "trusted-seller" }, "identity.account-acc_seller"),
+    );
+
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("marketplace_account_pages"), [
+      "acc_seller",
+      "trusted-seller",
+      true,
+      "2026-05-09T00:00:00.000Z",
+    ]);
   });
 });

@@ -88,6 +88,42 @@ const shipFromAddress = {
   email: "shipping@example.com",
 } as const;
 
+const listingPhoto = {
+  photoId: "lpho_1",
+  originalFilename: "front.png",
+  altText: null,
+  sortOrder: 0,
+  uploadedAt: "2026-05-21T00:00:00.000Z",
+  assetSet: {
+    kind: "listing-photo",
+    sourceHash: "hash_1",
+    source: {
+      role: "source",
+      width: 600,
+      height: 840,
+      density: null,
+      mediaType: "image/webp",
+      storageKey: "marketplace/listings/acc_seller/lst_high_dollar/lpho_1/source.webp",
+      publicUrl: "https://assets.test/source.webp",
+      byteSize: 1234,
+      generatedAt: "2026-05-21T00:00:00.000Z",
+    },
+    variants: [
+      {
+        role: "catalog-detail",
+        width: 480,
+        height: 672,
+        density: 1,
+        mediaType: "image/webp",
+        storageKey: "marketplace/listings/acc_seller/lst_high_dollar/lpho_1/detail.webp",
+        publicUrl: "https://assets.test/detail.webp",
+        byteSize: 900,
+        generatedAt: "2026-05-21T00:00:00.000Z",
+      },
+    ],
+  },
+} as const;
+
 describe("marketplace listing runtime", () => {
   it("publishes a newly created listing before projections catch up", async () => {
     const { eventStore } = createInMemoryEventStore();
@@ -271,6 +307,172 @@ describe("marketplace listing runtime", () => {
         seller_net_unit_amount: "19.00",
       },
     ]);
+  });
+
+  it("blocks high-dollar publication for accounts without listing evidence", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+
+        if (sql.includes("FROM marketplace_account_pages")) {
+          return { rows: [{ account_id: "acc_seller", badges: [], review_count: 0, average_rating: null }] };
+        }
+
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "15.00",
+          sellerNetUnitAmount: "285.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+    });
+
+    const created = await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "300.00",
+        quantityCap: 1,
+        listingIdOverride: "lst_high_dollar" as never,
+      },
+      context,
+    );
+
+    await expect(
+      services.publishListing(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_high_dollar",
+          feeQuoteFingerprint: created.feeQuoteFingerprint,
+        },
+        context,
+      ),
+    ).rejects.toThrow("High-dollar listings require at least one listing photo before publication.");
+  });
+
+  it("blocks high-dollar publication for untrusted accounts even with listing evidence", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM marketplace_supply_items AS item")) {
+          return {
+            rows: [
+              {
+                item_id: "inv_1",
+                account_id: "acc_seller",
+                catalog_catalog_item_id: "cat_1",
+                product_id: "cat_1::",
+                item_title: "Charizard",
+                item_subtitle: null,
+                selected_options: [],
+                product_summary: null,
+                storage_location_name: "North shelf",
+                ship_from_code: "CHI",
+                ship_from_address: shipFromAddress,
+                available_quantity: 2,
+              },
+            ],
+          };
+        }
+
+        if (sql.includes("COALESCE(SUM(quantity_cap), 0)::text AS quantity_cap")) {
+          return { rows: [{ quantity_cap: "0" }] };
+        }
+
+        if (sql.includes("FROM marketplace_account_pages")) {
+          return { rows: [{ account_id: "acc_seller", badges: [], review_count: 0, average_rating: null }] };
+        }
+
+        throw new Error(`Unexpected query in test: ${sql}`);
+      }),
+    };
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(async ({ amount, accountId }) => ({
+          accountId,
+          accountType: "business" as const,
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "15.00",
+          sellerNetUnitAmount: "285.00",
+          scheduleId: "cts_default",
+          agreementId: null,
+          resolvedAt: "2026-04-17T00:00:00.000Z",
+        })),
+      } as never,
+    });
+
+    const created = await services.createListing(
+      {
+        accountId: "acc_seller" as never,
+        inventoryItemId: "inv_1",
+        priceAmount: "300.00",
+        quantityCap: 1,
+        listingIdOverride: "lst_high_dollar" as never,
+      },
+      context,
+    );
+
+    await services.commandHandler({
+      streamId: "marketplace.listing-lst_high_dollar",
+      command: {
+        type: "AddListingPhotos",
+        photos: [listingPhoto],
+      },
+      context,
+      expectedVersion: created.version,
+    });
+
+    await expect(
+      services.publishListing(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_high_dollar",
+          feeQuoteFingerprint: created.feeQuoteFingerprint,
+        },
+        context,
+      ),
+    ).rejects.toThrow(
+      "High-dollar listings require a trusted seller account or established account reputation before publication.",
+    );
   });
 
   it("keeps existing listing fee locks when management changes future terms", async () => {

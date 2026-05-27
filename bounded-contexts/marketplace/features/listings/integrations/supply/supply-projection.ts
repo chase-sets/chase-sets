@@ -183,6 +183,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        account_id,
        display_name,
        status,
+       badges,
        average_rating,
        review_count,
        rating_1_count,
@@ -197,6 +198,7 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
        $1,
        COALESCE((SELECT display_name FROM marketplace_account_pages WHERE account_id = $1), $1),
        COALESCE((SELECT status FROM marketplace_account_pages WHERE account_id = $1), 'active'),
+       COALESCE((SELECT badges FROM marketplace_account_pages WHERE account_id = $1), '[]'::jsonb),
        CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
        COUNT(*)::integer,
        COUNT(*) FILTER (WHERE rating = 1)::integer,
@@ -223,6 +225,47 @@ async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: s
   );
 }
 
+async function updateMarketplaceAccountBadges(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; badgeKey: string; assigned: boolean; updatedAt: string }>,
+) {
+  await db.query(
+    `INSERT INTO marketplace_account_pages (
+       account_id,
+       display_name,
+       status,
+       badges,
+       updated_at
+     ) VALUES (
+       $1,
+       $1,
+       'active',
+       CASE WHEN $3 THEN jsonb_build_array($2::text) ELSE '[]'::jsonb END,
+       $4
+     )
+     ON CONFLICT (account_id) DO UPDATE SET
+       badges = CASE
+         WHEN $3 THEN (
+           SELECT COALESCE(jsonb_agg(value ORDER BY value), '[]'::jsonb)
+           FROM (
+             SELECT DISTINCT value
+             FROM jsonb_array_elements_text(marketplace_account_pages.badges || jsonb_build_array($2::text)) AS badge(value)
+           ) badges
+         )
+         ELSE COALESCE(
+           (
+             SELECT jsonb_agg(value ORDER BY value)
+             FROM jsonb_array_elements_text(marketplace_account_pages.badges) AS badge(value)
+             WHERE value <> $2
+           ),
+           '[]'::jsonb
+         )
+       END,
+       updated_at = EXCLUDED.updated_at`,
+    [params.accountId, params.badgeKey, params.assigned, params.updatedAt],
+  );
+}
+
 export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
@@ -236,8 +279,9 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
            account_id,
            display_name,
            status,
+           badges,
            updated_at
-         ) VALUES ($1, $2, 'active', $3)
+         ) VALUES ($1, $2, 'active', '[]'::jsonb, $3)
          ON CONFLICT (account_id) DO UPDATE SET
            display_name = EXCLUDED.display_name,
            status = EXCLUDED.status,
@@ -254,11 +298,13 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
            account_id,
            display_name,
            status,
+           badges,
            updated_at
          ) VALUES (
            $1,
            $2,
            COALESCE((SELECT status FROM marketplace_account_pages WHERE account_id = $1), 'active'),
+           COALESCE((SELECT badges FROM marketplace_account_pages WHERE account_id = $1), '[]'::jsonb),
            $3
          )
          ON CONFLICT (account_id) DO UPDATE SET
@@ -293,6 +339,24 @@ export function buildMarketplaceAccountProjectionHandlers(db: PgQueryable): Proj
          WHERE account_id = $1`,
         [extractIdFromStreamId(event.streamId, "identity.account-"), event.timing.recordedAt],
       );
+    },
+    "identity.account.badge-assigned": async (event) => {
+      const data = event.data as { badgeKey: string };
+      await updateMarketplaceAccountBadges(db, {
+        accountId: extractIdFromStreamId(event.streamId, "identity.account-"),
+        badgeKey: data.badgeKey,
+        assigned: true,
+        updatedAt: event.timing.recordedAt,
+      });
+    },
+    "identity.account.badge-removed": async (event) => {
+      const data = event.data as { badgeKey: string };
+      await updateMarketplaceAccountBadges(db, {
+        accountId: extractIdFromStreamId(event.streamId, "identity.account-"),
+        badgeKey: data.badgeKey,
+        assigned: false,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "reputation.review.submitted": async (event) => {
       const data = event.data as {

@@ -28,6 +28,7 @@ export type CreateProcessorPaymentInput = Readonly<{
     ipAddress?: string | null;
     userAgent?: string | null;
   }> | null;
+  marketplaceRiskMetadata?: Readonly<Record<string, string | number | boolean | null | undefined>> | null;
 }>;
 
 export type AgenticPaymentHandlerDeclaration = Readonly<{

@@ -79,6 +79,8 @@ Notes:
 - Account Badges belong to Accounts, not Users, Memberships, Buyer roles, or Seller roles.
 - Account Badges must be assigned through Identity-owned account behavior so replay preserves the same visible account markers.
 - A **Founding Account Badge** marks accounts in the first invited group of marketplace participants.
+- A **Trusted Seller Account Badge** marks an Account that operations has approved for standard high-dollar listing and payout-release policies.
+- A **Manual Payout Review Account Badge** marks an Account whose payout release requires enhanced review because Stripe, support, fulfillment, or operations found seller-risk signals.
 
 ### Membership
 

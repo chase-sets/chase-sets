@@ -125,6 +125,34 @@ function paymentMetadataEntries(
   };
 }
 
+function stripeMetadataValue(value: string | number | boolean | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized.slice(0, 500) : null;
+}
+
+function marketplaceRiskMetadataEntries(
+  input: Pick<CreateProcessorPaymentInput, "marketplaceRiskMetadata">,
+  prefix = "metadata",
+) {
+  const metadata = input.marketplaceRiskMetadata ?? {};
+
+  return Object.fromEntries(
+    Object.entries(metadata).flatMap(([key, value]) => {
+      const safeKey = key
+        .trim()
+        .toLowerCase()
+        .replaceAll(/[^a-z0-9_]+/g, "_")
+        .replaceAll(/^_+|_+$/g, "");
+      const safeValue = stripeMetadataValue(value);
+
+      return safeKey && safeValue ? [[`${prefix}[${safeKey}]`, safeValue]] : [];
+    }),
+  );
+}
+
 function paymentIntentReferenceFromSession(session: StripeCheckoutSessionResponse) {
   const paymentIntent = session.payment_intent;
   if (typeof paymentIntent === "string") {
@@ -414,12 +442,14 @@ export function createStripePaymentProcessorGateway(
             "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
             "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
             "payment_intent_data[metadata][payment_method_category]": input.paymentMethodCategory,
+            ...marketplaceRiskMetadataEntries(input, "payment_intent_data[metadata]"),
             description: input.description,
             ...paymentMetadataEntries(input),
             "metadata[funds_strategy]": "platform-held",
             "metadata[transfer_group]": `payment:${input.paymentId}`,
             "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress ? "true" : "false",
             "metadata[user_agent_collected]": input.clientRiskContext?.userAgent ? "true" : "false",
+            ...marketplaceRiskMetadataEntries(input),
           }),
         },
         {
@@ -460,6 +490,7 @@ export function createStripePaymentProcessorGateway(
               ap2_checkout_mandate_id: input.agenticPayment.ap2CheckoutMandateId,
               ap2_payment_mandate_id: input.agenticPayment.ap2PaymentMandateId,
             }),
+            ...marketplaceRiskMetadataEntries(input),
           }),
         },
         {

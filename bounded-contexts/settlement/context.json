@@ -40,6 +40,36 @@
       ],
       "order": 80,
       "projectionHandlerSetNames": ["settlement-support-hold-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "settlement-fulfillment-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.returned",
+        "fulfillment.shipment.exception-raised"
+      ],
+      "order": 60,
+      "projectionHandlerSetNames": ["settlement-fulfillment-source-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "settlement-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account.created", "identity.account.badge-assigned", "identity.account.badge-removed"],
+      "order": 20,
+      "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
+    },
+    {
+      "sourceContextName": "reputation",
+      "projectionName": "settlement-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
+      "order": 70,
+      "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -54,6 +84,20 @@
       "projectionName": "settlement-support-hold-projection",
       "sourceContextNames": ["support"],
       "ownedTables": ["settlement_support_holds"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "settlement-fulfillment-source-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["settlement_order_fulfillment_sources"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "settlement-account-risk-source-projection",
+      "sourceContextNames": ["identity", "reputation"],
+      "ownedTables": ["settlement_account_risk_sources", "settlement_account_review_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     }

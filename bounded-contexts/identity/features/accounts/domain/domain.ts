@@ -28,7 +28,7 @@ export const initialAccountState: AccountState = {
   badges: [],
 };
 
-export const accountBadgeKeys = ["founding-account"] as const;
+export const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
 export type AccountBadgeKey = (typeof accountBadgeKeys)[number];
 
 export type CreateAccountCommand = Readonly<{

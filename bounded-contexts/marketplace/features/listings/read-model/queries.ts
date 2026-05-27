@@ -82,6 +82,13 @@ export type MarketplaceSellerListingAvailabilityRow = Readonly<{
   updated_at: string;
 }>;
 
+export type MarketplaceAccountRiskRow = Readonly<{
+  account_id: string;
+  badges: readonly string[];
+  review_count: number;
+  average_rating: string | null;
+}>;
+
 type MarketplaceListingPageRow = Readonly<{
   listing_id: string;
   account_id: string;
@@ -115,6 +122,10 @@ type MarketplaceListingPageRow = Readonly<{
   created_at: string;
   updated_at: string;
 }>;
+
+function normalizeBadgeArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
 
 export type MarketplaceInventoryItemSupply = Readonly<{
   item_id: string;
@@ -538,6 +549,35 @@ export async function getSellerListingAvailability(
       updated_at: new Date(0).toISOString(),
     }
   );
+}
+
+export async function getMarketplaceAccountRisk(
+  db: PgQueryable,
+  accountId: string,
+): Promise<MarketplaceAccountRiskRow> {
+  const result = await db.query<{
+    account_id: string;
+    badges: unknown;
+    review_count: number;
+    average_rating: string | null;
+  }>(
+    `SELECT
+       account_id,
+       badges,
+       review_count,
+       average_rating::text AS average_rating
+     FROM marketplace_account_pages
+     WHERE account_id = $1`,
+    [accountId],
+  );
+  const row = result.rows[0];
+
+  return {
+    account_id: accountId,
+    badges: normalizeBadgeArray(row?.badges),
+    review_count: row?.review_count ?? 0,
+    average_rating: row?.average_rating ?? null,
+  };
 }
 
 export async function listSellerListingFeeLockReport(

@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS marketplace_account_pages (
   account_id text PRIMARY KEY,
   display_name text NOT NULL,
   status text NOT NULL,
+  badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   average_rating numeric(4, 2) NULL,
   review_count integer NOT NULL DEFAULT 0,
   rating_1_count integer NOT NULL DEFAULT 0,
@@ -15,6 +16,7 @@ CREATE TABLE IF NOT EXISTS marketplace_account_pages (
 );
 
 ALTER TABLE marketplace_account_pages
+  ADD COLUMN IF NOT EXISTS badges jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS average_rating numeric(4, 2) NULL,
   ADD COLUMN IF NOT EXISTS review_count integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS rating_1_count integer NOT NULL DEFAULT 0,

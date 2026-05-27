@@ -87,4 +87,25 @@ describe("account domain", () => {
     expect(removedState.badges).toEqual([]);
     expect(removedAgain).toEqual([]);
   });
+
+  it("assigns seller trust and manual payout review badges", () => {
+    const createdState = decideAccount(initialAccountState, {
+      type: "CreateAccount",
+      accountId: "acc_trust" as never,
+      name: "Trust Review LLC",
+      accountType: "business",
+      displayName: "Trust Review",
+    }).reduce(evolveAccount, initialAccountState);
+
+    const trustedState = decideAccount(createdState, {
+      type: "AssignAccountBadge",
+      badgeKey: "trusted-seller",
+    }).reduce(evolveAccount, createdState);
+    const reviewState = decideAccount(trustedState, {
+      type: "AssignAccountBadge",
+      badgeKey: "manual-payout-review",
+    }).reduce(evolveAccount, trustedState);
+
+    expect(reviewState.badges).toEqual(["manual-payout-review", "trusted-seller"]);
+  });
 });
