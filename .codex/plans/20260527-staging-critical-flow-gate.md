@@ -9,7 +9,7 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260527-staging-critical-flow-gate`
-- Branch: `codex/staging-critical-flow-gate`
+- Branch: `codex/staging-critical-flow-auth-readiness`
 - Sandbox id: `095d9471`
 - Dependency setup status: complete
 - pnpm store path: `.codex/worktrees/.chase-sets-pnpm-store`
@@ -34,10 +34,13 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - The existing marketplace Playwright suite should broaden from minimal auth/search/cart/listings coverage to route-level smoke coverage for the critical account surfaces across the owning bounded contexts.
 - Stripe money smoke should run in staging before production promotion because Playwright should not handle raw payment or payout provider details. This reuses the provider-safe API smoke path documented in Money Operations.
 - Staging critical-flow checks should use test-mode credentials and synthetic or seeded accounts only; production data, raw provider payloads, payment details, and payout destination details remain out of test artifacts.
+- Current deployment verification is blocked by staging and local marketplace critical-flow authentication readiness: synthetic registration through the API can return a session token while protected account routes still redirect until Auth identity projections catch up.
+- Local worker evidence showed Auth and Identity projections catching up after the original account test timeout. The browser suite should add the returned session token to the browser context, assert the cookie is present, and use protected account routes themselves as the readiness check.
+- Local sandbox bootstrap can be contaminated by ignored deployable `.env.local` files. The dev-system sandbox should explicitly default worker notification email to noop unless the parent environment intentionally opts into a provider, keeping E2E startup deterministic.
 
 ## Open Questions
 
-- None blocking. Staging secrets already carry platform admin, Stripe, and Connect configuration for smoke checks. The browser suite can use the seeded `demo@chasesets.test` account unless explicit `MARKETPLACE_E2E_EMAIL` and `MARKETPLACE_E2E_PASSWORD` are supplied.
+- None blocking. Latest staging evidence shows the static seeded account is not reliable enough for deployment gating, so the suite should prefer self-provisioned synthetic accounts unless explicit `MARKETPLACE_E2E_EMAIL` and `MARKETPLACE_E2E_PASSWORD` are supplied.
 
 ## Implementation Checklist
 
@@ -48,6 +51,10 @@ The gate should cover the launch-facing marketplace surfaces and account commerc
 - [x] Update deployment and Playwright runbooks to document the new gate.
 - [x] Add/update workflow guard tests so the staging critical-flow gate does not regress silently.
 - [x] Install worktree dependencies and run focused verification.
+- [x] Make synthetic critical-flow accounts register through the API, install the returned browser session cookie, and wait for protected account routes to observe projection catch-up.
+- [x] Keep local sandbox E2E bootstrap isolated from personal notification-email `.env.local` provider settings.
+- [x] Rerun marketplace E2E locally.
+- [ ] Rerun marketplace E2E in CI.
 
 ## Documentation To Promote
 

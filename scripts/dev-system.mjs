@@ -163,6 +163,7 @@ const commonPlatformEnv = {
   DATABASE_URL: "",
   POSTGRES_DEV_DATABASE_URL: devDatabaseUrl,
   PLATFORM_CONTROL_DATABASE_URL: sandbox.controlDatabaseUrl,
+  NOTIFICATION_EMAIL_PROVIDER: process.env.NOTIFICATION_EMAIL_PROVIDER ?? "noop",
   ...contextDatabaseEnv,
 };
 
