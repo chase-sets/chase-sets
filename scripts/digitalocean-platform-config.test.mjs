@@ -247,6 +247,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingMoneySmokeStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(stagingMoneySmokeStep).toContain("SMOKE_REGISTER_SELLER");
+    expect(stagingMoneySmokeStep).toContain("SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}");
     expect(stagingMoneySmokeStep).toContain(
       "STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts",
     );
