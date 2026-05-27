@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { DiscoveryItemSearchServices } from "./runtime";
+import type { DiscoveryMarketActivityFilter } from "../read-model/queries";
 
 export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices) {
   const app = new Hono();
@@ -35,6 +36,7 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
   const tag = query("tag");
   const blueprintId = query("blueprintId");
   const language = query("language");
+  const marketActivity = normalizeMarketActivity(query("marketActivity"));
   const sort = query("sort");
   const status = query("status");
   const limit = query("limit");
@@ -48,6 +50,7 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
     tag: tag || undefined,
     blueprintId: blueprintId || undefined,
     language: language || undefined,
+    marketActivity,
     sort: sort || undefined,
     status: status || undefined,
     limit: limit ? Number.parseInt(limit, 10) : undefined,
@@ -58,6 +61,10 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
     referenceFilters: readReferenceFilters(url.searchParams),
     dimensionFilters: readDimensionFilters(url.searchParams),
   };
+}
+
+function normalizeMarketActivity(value: string | undefined): DiscoveryMarketActivityFilter | undefined {
+  return value === "listings" || value === "offers" || value === "any" ? value : undefined;
 }
 
 function readFieldFilters(searchParams: URLSearchParams) {

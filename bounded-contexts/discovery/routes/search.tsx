@@ -35,6 +35,7 @@ const EMPTY_SEARCH_RESULT = {
   category: "",
   tag: "",
   language: "",
+  marketActivity: "",
   sort: "relevance",
   dynamicFilters: [],
   data: null,
@@ -59,12 +60,14 @@ type DynamicSearchFilterSelection = Readonly<{
   id: string;
   value: string;
 }>;
+type MarketActivityFilter = "" | "any" | "listings" | "offers";
 
 function buildSearchQuery({
   search,
   category,
   tag,
   language,
+  marketActivity,
   sort,
   cursor,
   dynamicFilters,
@@ -73,6 +76,7 @@ function buildSearchQuery({
   category: string;
   tag: string;
   language: string;
+  marketActivity: MarketActivityFilter;
   sort: string;
   cursor?: string | null;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
@@ -89,6 +93,9 @@ function buildSearchQuery({
   }
   if (language) {
     params.set("language", language);
+  }
+  if (marketActivity) {
+    params.set("marketActivity", marketActivity);
   }
   params.set("sort", sort);
   params.set("limit", String(PAGE_SIZE));
@@ -119,6 +126,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const categoryParam = params.categorySlug ?? url.searchParams.get("category") ?? "";
   const tag = url.searchParams.get("tag") ?? "";
   const language = url.searchParams.get("language") ?? "";
+  const marketActivity = readMarketActivityFilter(url.searchParams);
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
   const api = createDiscoveryRequestApiClient(request);
@@ -144,7 +152,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const data = await api
-    .searchItems(buildSearchQuery({ search, category, tag, language, sort, dynamicFilters }))
+    .searchItems(buildSearchQuery({ search, category, tag, language, marketActivity, sort, dynamicFilters }))
     .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE);
   const canonicalPath =
     params.categorySlug && resolvedCategory
@@ -156,6 +164,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     category,
     tag,
     language,
+    marketActivity,
     sort,
     dynamicFilters,
     data,
@@ -189,10 +198,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const category = params.categorySlug ?? url.searchParams.get("category") ?? "";
   const tag = url.searchParams.get("tag") ?? "";
   const language = url.searchParams.get("language") ?? "";
+  const marketActivity = readMarketActivityFilter(url.searchParams);
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
   const preview = await discoveryApi.previewBulkAddSearchResults(
-    buildSearchQuery({ search, category, tag, language, sort, dynamicFilters }),
+    buildSearchQuery({ search, category, tag, language, marketActivity, sort, dynamicFilters }),
   );
 
   if (intent === "preview-bulk-add" || preview.overLimit || preview.lines.length === 0) {
@@ -274,7 +284,15 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     value: data.search,
   }));
   const dynamicFilters = data.dynamicFilters ?? [];
-  const resultSetKey = JSON.stringify([data.search, data.category, data.tag, data.language, data.sort, dynamicFilters]);
+  const resultSetKey = JSON.stringify([
+    data.search,
+    data.category,
+    data.tag,
+    data.language,
+    data.marketActivity,
+    data.sort,
+    dynamicFilters,
+  ]);
   const resultSetKeyRef = useRef(resultSetKey);
   const [extraPageState, setExtraPageState] = useState<{
     key: string;
@@ -346,6 +364,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         category?: string;
         tag?: string | null;
         language?: string;
+        marketActivity?: MarketActivityFilter;
         sort?: string;
         dynamicFilter?: DynamicSearchFilterSelection;
         dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
@@ -409,6 +428,15 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
             next.delete("page");
           }
 
+          if (nextValues.marketActivity !== undefined) {
+            if (nextValues.marketActivity) {
+              next.set("marketActivity", nextValues.marketActivity);
+            } else {
+              next.delete("marketActivity");
+            }
+            next.delete("page");
+          }
+
           if (nextValues.dynamicFilter !== undefined) {
             toggleDynamicSearchFilter(next, nextValues.dynamicFilter);
             next.delete("page");
@@ -442,6 +470,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     category?: string;
     tag?: string | null;
     language?: string;
+    marketActivity?: MarketActivityFilter;
     sort?: string;
     dynamicFilter?: DynamicSearchFilterSelection;
     dynamicFilterClear?: Omit<DynamicSearchFilterSelection, "value">;
@@ -463,6 +492,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       category: data.category,
       tag: data.tag,
       language: data.language,
+      marketActivity: data.marketActivity,
       sort: data.sort,
       dynamicFilters,
       cursor: visibleData.nextCursor,
@@ -499,7 +529,16 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         loadMoreInFlightRef.current = false;
       }
     }
-  }, [data.category, data.language, data.search, data.tag, data.sort, dynamicFilters, visibleData?.nextCursor]);
+  }, [
+    data.category,
+    data.language,
+    data.marketActivity,
+    data.search,
+    data.tag,
+    data.sort,
+    dynamicFilters,
+    visibleData?.nextCursor,
+  ]);
 
   const submitBulkAddIntent = useCallback(async (intent: "preview-bulk-add" | "commit-bulk-add") => {
     if (typeof window === "undefined") {
@@ -538,6 +577,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       category={data.category}
       tag={data.tag}
       language={data.language}
+      marketActivity={data.marketActivity}
       sort={data.sort}
       dynamicFilters={dynamicFilters}
       data={visibleData}
@@ -556,6 +596,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       onCategoryChange={(value) => handleImmediateSearchParamChange({ category: value })}
       onTagClear={() => handleImmediateSearchParamChange({ tag: null })}
       onLanguageChange={(value) => handleImmediateSearchParamChange({ language: value })}
+      onMarketActivityChange={(value) => handleImmediateSearchParamChange({ marketActivity: value })}
       onSortChange={(value) => handleImmediateSearchParamChange({ sort: value })}
       onDynamicFilterChange={(value) => handleImmediateSearchParamChange({ dynamicFilter: value })}
       onDynamicFilterClear={(value) => handleImmediateSearchParamChange({ dynamicFilterClear: value })}
@@ -612,6 +653,11 @@ function readDynamicSearchFilters(searchParams: URLSearchParams): DynamicSearchF
       return [];
     })
     .filter((filter) => filter.id.length > 0 && filter.value.length > 0);
+}
+
+function readMarketActivityFilter(searchParams: URLSearchParams): MarketActivityFilter {
+  const value = searchParams.get("marketActivity");
+  return value === "any" || value === "listings" || value === "offers" ? value : "";
 }
 
 function appendDynamicSearchFilters(searchParams: URLSearchParams, filters: readonly DynamicSearchFilterSelection[]) {

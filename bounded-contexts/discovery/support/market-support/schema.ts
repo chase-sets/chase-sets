@@ -101,6 +101,8 @@ CREATE INDEX IF NOT EXISTS discovery_market_listings_account_idx
   ON discovery_market_listings (account_id);
 CREATE INDEX IF NOT EXISTS discovery_market_listings_status_idx
   ON discovery_market_listings (status);
+CREATE INDEX IF NOT EXISTS discovery_market_listings_selected_options_idx
+  ON discovery_market_listings USING gin (selected_options);
 
 CREATE TABLE IF NOT EXISTS discovery_offer_demand_matches (
   offer_id text PRIMARY KEY,
@@ -127,4 +129,6 @@ CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_product_idx
 CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_buyer_idx
   ON discovery_offer_demand_matches (buyer_account_id);
 CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_status_idx
-  ON discovery_offer_demand_matches (status);`;
+  ON discovery_offer_demand_matches (status);
+CREATE INDEX IF NOT EXISTS discovery_offer_demand_matches_selected_options_idx
+  ON discovery_offer_demand_matches USING gin (selected_options);`;

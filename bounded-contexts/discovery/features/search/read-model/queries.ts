@@ -13,6 +13,7 @@ export type DiscoverySearchParams = {
   blueprintId?: string;
   language?: string;
   status?: string;
+  marketActivity?: DiscoveryMarketActivityFilter;
   fieldFilters?: readonly DiscoveryFieldFilter[];
   referenceFilters?: readonly DiscoveryReferenceFilter[];
   dimensionFilters?: readonly DiscoveryDimensionFilter[];
@@ -26,6 +27,7 @@ export type DiscoverySearchParams = {
 export type DiscoveryFieldFilter = Readonly<{ fieldId: string; value: string }>;
 export type DiscoveryReferenceFilter = Readonly<{ typeKey: string; referenceId: string }>;
 export type DiscoveryDimensionFilter = Readonly<{ dimensionId: string; optionId: string }>;
+export type DiscoveryMarketActivityFilter = "listings" | "offers" | "any";
 export type DiscoveryFacetKind = "field" | "reference" | "dimension";
 export type DiscoveryFacetGroup = Readonly<{
   id: string;
@@ -150,6 +152,7 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
 
 type SearchFilterBuildOptions = Readonly<{
   excludeFacet?: Readonly<{ kind: DiscoveryFacetKind; id: string }>;
+  itemAlias?: string;
 }>;
 
 type BuiltSearchFilter = Readonly<{
@@ -166,8 +169,9 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
+  const itemColumn = (name: string) => (options.itemAlias ? `${options.itemAlias}.${name}` : name);
 
-  conditions.push(`status = $${paramIndex}`);
+  conditions.push(`${itemColumn("status")} = $${paramIndex}`);
   values.push(params.status ?? "active");
   paramIndex++;
 
@@ -181,7 +185,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex++;
     simpleSearchParamIndex = paramIndex;
     conditions.push(
-      `(search_text @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR search_text_simple @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`,
+      `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`,
     );
     values.push(normalizeSimpleSearchText(params.search));
     paramIndex++;
@@ -189,28 +193,32 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
   }
 
   if (params.category) {
-    conditions.push(`(category_names @> $${paramIndex}::jsonb OR category_slugs @> $${paramIndex}::jsonb)`);
+    conditions.push(
+      `(${itemColumn("category_names")} @> $${paramIndex}::jsonb OR ${itemColumn("category_slugs")} @> $${paramIndex}::jsonb)`,
+    );
     values.push(JSON.stringify([params.category]));
     paramIndex++;
   }
 
   if (params.tag) {
-    conditions.push(`tags @> $${paramIndex}::jsonb`);
+    conditions.push(`${itemColumn("tags")} @> $${paramIndex}::jsonb`);
     values.push(JSON.stringify([params.tag]));
     paramIndex++;
   }
 
   if (params.blueprintId) {
-    conditions.push(`blueprint_id = $${paramIndex}`);
+    conditions.push(`${itemColumn("blueprint_id")} = $${paramIndex}`);
     values.push(params.blueprintId);
     paramIndex++;
   }
 
   if (params.language) {
-    conditions.push(`language_code = $${paramIndex}`);
+    conditions.push(`${itemColumn("language_code")} = $${paramIndex}`);
     values.push(params.language);
     paramIndex++;
   }
+
+  const dimensionFilterGroups = groupDimensionFilters(params.dimensionFilters);
 
   for (const [fieldId, selectedValues] of groupFieldFilters(params.fieldFilters).entries()) {
     if (options.excludeFacet?.kind === "field" && options.excludeFacet.id === fieldId) {
@@ -220,7 +228,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     conditions.push(
       `EXISTS (
          SELECT 1
-         FROM jsonb_array_elements(field_filter_values) AS facet(value)
+         FROM jsonb_array_elements(${itemColumn("field_filter_values")}) AS facet(value)
          WHERE facet.value->>'fieldId' = $${paramIndex}
            AND facet.value->>'value' = ANY($${paramIndex + 1}::text[])
        )`,
@@ -237,7 +245,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     conditions.push(
       `EXISTS (
          SELECT 1
-         FROM jsonb_array_elements(reference_filter_values) AS facet(value)
+         FROM jsonb_array_elements(${itemColumn("reference_filter_values")}) AS facet(value)
          WHERE facet.value->>'typeKey' = $${paramIndex}
            AND facet.value->>'referenceId' = ANY($${paramIndex + 1}::text[])
        )`,
@@ -246,7 +254,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex += 2;
   }
 
-  for (const [dimensionId, selectedOptionIds] of groupDimensionFilters(params.dimensionFilters).entries()) {
+  for (const [dimensionId, selectedOptionIds] of dimensionFilterGroups.entries()) {
     if (options.excludeFacet?.kind === "dimension" && options.excludeFacet.id === dimensionId) {
       continue;
     }
@@ -254,13 +262,25 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     conditions.push(
       `EXISTS (
          SELECT 1
-         FROM jsonb_array_elements(dimension_filter_values) AS facet(value)
+         FROM jsonb_array_elements(${itemColumn("dimension_filter_values")}) AS facet(value)
          WHERE facet.value->>'dimensionId' = $${paramIndex}
            AND facet.value->>'optionId' = ANY($${paramIndex + 1}::text[])
        )`,
     );
     values.push(dimensionId, selectedOptionIds);
     paramIndex += 2;
+  }
+
+  if (params.marketActivity) {
+    const marketActivity = buildMarketActivityFilter(
+      params.marketActivity,
+      itemColumn("catalog_item_id"),
+      marketDimensionFilterGroups(dimensionFilterGroups, options.excludeFacet),
+      paramIndex,
+    );
+    conditions.push(marketActivity.condition);
+    values.push(...marketActivity.values);
+    paramIndex += marketActivity.values.length;
   }
 
   return {
@@ -272,6 +292,79 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     englishSearchParamIndex,
     simpleSearchParamIndex,
   };
+}
+
+function marketDimensionFilterGroups(
+  dimensionFilters: ReadonlyMap<string, readonly string[]>,
+  excludeFacet: SearchFilterBuildOptions["excludeFacet"],
+): ReadonlyMap<string, readonly string[]> {
+  if (excludeFacet?.kind !== "dimension") {
+    return dimensionFilters;
+  }
+
+  return new Map([...dimensionFilters.entries()].filter(([dimensionId]) => dimensionId !== excludeFacet.id));
+}
+
+function buildMarketActivityFilter(
+  marketActivity: DiscoveryMarketActivityFilter,
+  itemIdColumn: string,
+  dimensionFilters: ReadonlyMap<string, readonly string[]>,
+  firstParamIndex: number,
+): Readonly<{ condition: string; values: readonly string[] }> {
+  const selectedOptionSqlForListings = selectedOptionMatchSql("listing", dimensionFilters, firstParamIndex);
+  const selectedOptionSqlForOffers = selectedOptionMatchSql("offer", dimensionFilters, firstParamIndex);
+  const values = selectedOptionMatchValues(dimensionFilters);
+  const listingExists = `EXISTS (
+         SELECT 1
+         FROM discovery_market_listings AS listing
+         INNER JOIN discovery_market_accounts AS account
+           ON account.account_id = listing.account_id
+         WHERE listing.catalog_catalog_item_id = ${itemIdColumn}
+           AND listing.status = 'active'
+           AND account.seller_listing_availability_status = 'available'
+           ${selectedOptionSqlForListings}
+       )`;
+  const offerExists = `EXISTS (
+         SELECT 1
+         FROM discovery_offer_demand_matches AS offer
+         WHERE offer.catalog_catalog_item_id = ${itemIdColumn}
+           AND offer.status = 'submitted'
+           ${selectedOptionSqlForOffers}
+       )`;
+
+  switch (marketActivity) {
+    case "listings":
+      return { condition: listingExists, values };
+    case "offers":
+      return { condition: offerExists, values };
+    case "any":
+    default:
+      return { condition: `(${listingExists} OR ${offerExists})`, values };
+  }
+}
+
+function selectedOptionMatchSql(
+  alias: "listing" | "offer",
+  dimensionFilters: ReadonlyMap<string, readonly string[]>,
+  firstParamIndex: number,
+): string {
+  const dimensionClauses: string[] = [];
+  let paramIndex = firstParamIndex;
+
+  for (const optionIds of dimensionFilters.values()) {
+    const optionClauses = optionIds.map(() => `${alias}.selected_options @> $${paramIndex++}::jsonb`);
+    if (optionClauses.length > 0) {
+      dimensionClauses.push(`(${optionClauses.join(" OR ")})`);
+    }
+  }
+
+  return dimensionClauses.length > 0 ? `AND ${dimensionClauses.join(" AND ")}` : "";
+}
+
+function selectedOptionMatchValues(dimensionFilters: ReadonlyMap<string, readonly string[]>): string[] {
+  return [...dimensionFilters.entries()].flatMap(([dimensionId, optionIds]) =>
+    optionIds.map((optionId) => JSON.stringify([{ dimensionId, optionId }])),
+  );
 }
 
 function groupFieldFilters(filters: readonly DiscoveryFieldFilter[] | undefined): Map<string, string[]> {
@@ -763,7 +856,7 @@ type FacetSummaryRow = Readonly<{
 }>;
 
 async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams): Promise<DiscoveryFacetGroup[]> {
-  const filter = buildSearchFilter(params);
+  const filter = buildSearchFilter(params, { itemAlias: "item" });
   const selectedFields = groupFieldFilters(params.fieldFilters);
   const selectedReferences = groupReferenceFilters(params.referenceFilters);
   const selectedDimensions = groupDimensionFilters(params.dimensionFilters);
@@ -884,7 +977,7 @@ async function loadReferenceFacetValues(
   typeKey: string,
   selectedReferenceIds: readonly string[],
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "reference", id: typeKey } });
+  const filter = buildSearchFilter(params, { excludeFacet: { kind: "reference", id: typeKey }, itemAlias: "item" });
   const orderBy = fieldFacetValueOrderSql({
     sortKind: "sort_kind",
     sortValue: "sort_value",
@@ -938,7 +1031,7 @@ async function loadFieldFacetValues(
   fieldId: string,
   selectedValues: readonly string[],
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "field", id: fieldId } });
+  const filter = buildSearchFilter(params, { excludeFacet: { kind: "field", id: fieldId }, itemAlias: "item" });
   const orderBy = fieldFacetValueOrderSql({
     sortKind: "sort_kind",
     sortValue: "sort_value",
@@ -992,7 +1085,7 @@ async function loadDimensionFacetValues(
   dimensionId: string,
   selectedOptionIds: readonly string[],
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "dimension", id: dimensionId } });
+  const filter = buildSearchFilter(params, { excludeFacet: { kind: "dimension", id: dimensionId }, itemAlias: "item" });
   const orderBy = dimensionFacetValueOrderSql({
     valueKind: "value_kind",
     numericValue: "numeric_value",

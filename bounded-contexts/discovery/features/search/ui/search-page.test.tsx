@@ -119,6 +119,7 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     committedSearch: "",
     category: "",
     language: "",
+    marketActivity: "",
     sort: "relevance",
     dynamicFilters: [],
     data: searchResponse,
@@ -126,6 +127,7 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     onSearchChange: vi.fn(),
     onCategoryChange: vi.fn(),
     onLanguageChange: vi.fn(),
+    onMarketActivityChange: vi.fn(),
     onSortChange: vi.fn(),
     onDynamicFilterChange: vi.fn(),
     onDynamicFilterClear: vi.fn(),
@@ -269,6 +271,23 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "English" }));
 
     expect(props.onLanguageChange).toHaveBeenCalledWith("en");
+  });
+
+  it("renders market activity as a reversible search filter", () => {
+    const props = renderSearchPage({ marketActivity: "listings" });
+
+    expect(screen.getByText("Market activity")).toBeTruthy();
+    expect(screen.getByText("Show only items with matching listings or offer demand.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Listings" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Remove Market: Listings" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Offers" }));
+
+    expect(props.onMarketActivityChange).toHaveBeenCalledWith("offers");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Market: Listings" }));
+
+    expect(props.onMarketActivityChange).toHaveBeenCalledWith("");
   });
 
   it("keeps the category facet visible when a category is selected", () => {
