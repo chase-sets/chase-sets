@@ -36,6 +36,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - A manual `Platform Staging Representative Commerce State` workflow runs the command against live staging after reset or Catalog imports while normal staging deployment bootstrap stays representative-data-free.
 - Live staging refresh attempts showed whole-context projection syncs can still run too long while workers are active. The command now logs each step, bounds step duration, and syncs only named projection groups needed for the next representative handoff.
 - The first bounded staging refresh completed but found zero candidates because Catalog-derived Marketplace/Inventory read models were not explicitly synced before candidate selection; the command now syncs those projections before loading current untouched Catalog Items.
+- The Catalog-derived Marketplace projection exceeded the generic two-minute step timeout in live staging; Catalog projection sync now has its own bounded ten-minute default while later commerce handoffs keep the tighter default.
 
 ## Owning Contexts
 

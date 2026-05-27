@@ -29,6 +29,8 @@ import { closePlatformApiPools, createPlatformApiPools } from "./database-pools"
 
 const CONFIRMATION_PHRASE = "seed staging commerce";
 const DEFAULT_STEP_TIMEOUT_MS = 120_000;
+const DEFAULT_CATALOG_PROJECTION_SYNC_TIMEOUT_MS = 600_000;
+const MAX_STEP_TIMEOUT_MS = 600_000;
 
 export function assertRepresentativeCommerceStateRunAllowed(
   input: Readonly<{
@@ -117,8 +119,12 @@ export async function runRepresentativeCommerceState(): Promise<void> {
         environmentName: config.deploymentEnvironment ?? null,
       }),
     );
-    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-catalog-item-projection");
-    await syncRepresentativeProjection(runtime, "inventory", "inventory-catalog-item-projection");
+    await syncRepresentativeProjection(runtime, "marketplace", "marketplace-catalog-item-projection", {
+      timeoutMs: readCatalogProjectionSyncTimeoutMs(),
+    });
+    await syncRepresentativeProjection(runtime, "inventory", "inventory-catalog-item-projection", {
+      timeoutMs: readCatalogProjectionSyncTimeoutMs(),
+    });
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-identity-account-projection");
     const candidates = await runRepresentativeStep("load untouched marketplace catalog candidates", () =>
       loadUntouchedMarketplaceCatalogUsageCandidates(getMarketplaceDb(runtime.services), {
@@ -204,25 +210,40 @@ function readCandidateLimit(): number {
 }
 
 function readStepTimeoutMs(): number {
-  const rawValue = process.env.REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS;
+  return readRepresentativeTimeoutMs("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS", DEFAULT_STEP_TIMEOUT_MS);
+}
+
+function readCatalogProjectionSyncTimeoutMs(): number {
+  return readRepresentativeTimeoutMs(
+    "REPRESENTATIVE_COMMERCE_STATE_CATALOG_PROJECTION_SYNC_TIMEOUT_MS",
+    DEFAULT_CATALOG_PROJECTION_SYNC_TIMEOUT_MS,
+  );
+}
+
+function readRepresentativeTimeoutMs(envName: string, defaultValue: number): number {
+  const rawValue = process.env[envName];
   if (!rawValue) {
-    return DEFAULT_STEP_TIMEOUT_MS;
+    return defaultValue;
   }
 
   const parsed = Number.parseInt(rawValue, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_STEP_TIMEOUT_MS;
+    return defaultValue;
   }
 
-  return Math.min(Math.trunc(parsed), 600_000);
+  return Math.min(Math.trunc(parsed), MAX_STEP_TIMEOUT_MS);
 }
 
-async function runRepresentativeStep<T>(stepName: string, run: () => Promise<T>): Promise<T> {
+async function runRepresentativeStep<T>(
+  stepName: string,
+  run: () => Promise<T>,
+  options: Readonly<{ timeoutMs?: number }> = {},
+): Promise<T> {
   const startedAt = Date.now();
   console.log(JSON.stringify({ type: "representative-commerce-state.step.started", stepName }));
 
   try {
-    const result = await withRepresentativeStepTimeout(stepName, run());
+    const result = await withRepresentativeStepTimeout(stepName, run(), options.timeoutMs);
     console.log(
       JSON.stringify({
         type: "representative-commerce-state.step.completed",
@@ -244,8 +265,11 @@ async function runRepresentativeStep<T>(stepName: string, run: () => Promise<T>)
   }
 }
 
-async function withRepresentativeStepTimeout<T>(stepName: string, promise: Promise<T>): Promise<T> {
-  const timeoutMs = readStepTimeoutMs();
+async function withRepresentativeStepTimeout<T>(
+  stepName: string,
+  promise: Promise<T>,
+  timeoutMs: number = readStepTimeoutMs(),
+): Promise<T> {
   let timeout: NodeJS.Timeout | null = null;
   try {
     return await Promise.race([
@@ -273,10 +297,15 @@ async function syncRepresentativeProjection(
   runtime: Parameters<typeof getProjectionGroup>[0],
   contextName: string,
   projectionName: string,
+  options: Readonly<{ timeoutMs?: number }> = {},
 ): Promise<void> {
-  await runRepresentativeStep(`sync ${contextName}.${projectionName}`, async () => {
-    await syncProjectionGroup(getProjectionGroup(runtime, contextName, projectionName));
-  });
+  await runRepresentativeStep(
+    `sync ${contextName}.${projectionName}`,
+    async () => {
+      await syncProjectionGroup(getProjectionGroup(runtime, contextName, projectionName));
+    },
+    options,
+  );
 }
 
 function getMarketplaceDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
