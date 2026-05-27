@@ -27,7 +27,8 @@ Rules:
 - Running representative state requires an explicit confirmation phrase.
 - The profile does not create fake Catalog Items. It keeps real Catalog integration data in place and selects eligible active Catalog Items from projected marketplace/catalog read models.
 - Representative generation prioritizes current Catalog Items with no listings or offers, then adds accounts and commerce usage around them.
-- Representative data must be created through bounded-context commands, APIs, and published facts, not direct read-model inserts.
+- Representative business usage must be created through bounded-context commands, APIs, and published facts, not direct read-model inserts.
+- Bounded operator refreshes may use context-owned selected read-model reconciliation for already-published facts when a full live projection replay would make a post-import staging refresh unbounded. Marketplace, Inventory, and Discovery own their respective selected reconciliation helpers.
 - Context-owned seed/support modules own their scenario behavior. Deployables only compose runtime entrypoints.
 - Staging providers must use safe non-production rails such as Stripe test mode, EasyPost test mode, and internal test accounts.
 - Production data, private payment details, payout destination details, raw provider payloads, and production PII must not be copied into representative state.

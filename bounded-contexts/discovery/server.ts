@@ -7,3 +7,9 @@ export {
   discoveryRealtimeTopicPolicyManifest,
   discoveryRealtimeTopics,
 } from "./support/realtime-support/topics";
+export {
+  reconcileRepresentativeDiscoveryMarketState,
+  type DiscoveryRepresentativeMarketStateInput,
+  type DiscoveryRepresentativeMarketStateResult,
+  type DiscoveryRepresentativeMarketStateServices,
+} from "./support/market-support/representative-commerce-state";

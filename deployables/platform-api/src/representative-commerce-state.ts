@@ -23,6 +23,7 @@ import {
   ensureRepresentativeInventoryStock,
   reconcileRepresentativeInventoryCatalogItems,
 } from "@chase-sets/inventory/server";
+import { reconcileRepresentativeDiscoveryMarketState } from "@chase-sets/discovery/server";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createPlatformApiHost } from "./app";
 import {
@@ -161,7 +162,18 @@ export async function runRepresentativeCommerceState(): Promise<void> {
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-offer-acceptance");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
-    await syncRepresentativeProjection(runtime, "discovery", "discovery-market-projection");
+    const discoveryMarketState = await runRepresentativeStep("reconcile representative discovery market state", () =>
+      reconcileRepresentativeDiscoveryMarketState(
+        {
+          discoveryDb: getDiscoveryDb(runtime.services),
+          marketplaceDb: getMarketplaceDb(runtime.services),
+        },
+        {
+          listingIds: listings.map((listing) => listing.listingId),
+          offerIds: offers.map((offer) => offer.offerId),
+        },
+      ),
+    );
 
     console.log(
       JSON.stringify({
@@ -201,6 +213,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
           status: offer.status,
           reason: offer.reason,
         })),
+        representativeDiscoveryMarketState: discoveryMarketState,
         contexts: runtime.mountedContexts.map((context) => context.contextName),
       }),
     );
@@ -323,6 +336,23 @@ async function syncRepresentativeProjection(
 
 function getMarketplaceDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
   return getMarketplaceServices(services).db;
+}
+
+function getDiscoveryDb(services: Readonly<Record<string, unknown>>): Pick<PgQueryable, "query"> {
+  const discovery = services.discovery;
+  if (
+    !discovery ||
+    typeof discovery !== "object" ||
+    !("db" in discovery) ||
+    !discovery.db ||
+    typeof discovery.db !== "object" ||
+    !("query" in discovery.db) ||
+    typeof discovery.db.query !== "function"
+  ) {
+    throw new Error("Representative commerce state requires mounted Discovery services with a queryable db.");
+  }
+
+  return discovery.db as Pick<PgQueryable, "query">;
 }
 
 function getCatalogServices(services: Readonly<Record<string, unknown>>) {

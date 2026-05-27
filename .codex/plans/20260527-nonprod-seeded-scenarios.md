@@ -42,6 +42,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Live representative refresh after bounded Catalog measurement preparation reached selected current Catalog Items, reconciled them into Marketplace and Inventory, then failed while creating representative Inventory stock because the default schema option order selected `Form: Graded` without graded-card details. The next follow-up biases representative stock toward raw/non-graded options when current Catalog product schemas expose a raw-vs-graded form choice.
 - Live representative refresh after raw stock selection succeeded with non-zero Marketplace usage, but public item-detail API checks still showed empty market fields because the command did not sync Discovery's market projection. The next follow-up adds a targeted `discovery-market-projection` sync after representative Marketplace usage so staging product/search surfaces show listings and offers.
 - The first Discovery-sync refresh attempt timed out during Catalog candidate preparation before reaching Discovery. The preparation step now resolves only current Catalog Items that do not already have product measurement snapshots and gets the larger bounded timeout because resolving measurements is the intentionally expensive part of post-import coverage.
+- The next refresh completed Catalog preparation and generated usage, then timed out replaying the full Discovery market projection. The current follow-up replaces that full replay with Discovery-owned selected account/listing/offer reconciliation for only the representative rows created in the current command.
 
 ## Owning Contexts
 
@@ -71,7 +72,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Catalog product-measure profiles are long-lived bootstrap facts, but resolved item measures are per-Catalog Item read-model facts. Representative refresh must resolve measures for a bounded current item window because accepted offers and order creation require product measurement snapshots.
 - Catalog measurement preparation should skip Catalog Items that already have resolved product measurement snapshots so repeated representative refreshes stay incremental after earlier runs.
 - Inventory listing stock treats graded-card details as required when selected options represent `Form: Graded`; representative stock generation should prefer raw/non-graded stock until a richer graded-card scenario supplies certification details.
-- Discovery owns product/search market presentation from Marketplace and Identity facts. Representative refresh must sync `discovery-market-projection` after generated Marketplace usage or staging product pages will not reflect the generated listings/offers.
+- Discovery owns product/search market presentation from Marketplace and Identity facts. Representative refresh must update Discovery's market read models after generated Marketplace usage or staging product pages will not reflect the generated listings/offers; live staging showed this must be a selected representative reconciliation instead of a full `discovery-market-projection` replay.
 - Most commerce context seeds default to `scenario-seed` and already create useful baseline states, but several are development-shaped: fake payment gateways, synthetic provider references, fixed fake Catalog Item ids, `seed://` attachments, March 2026 timestamps, and generic demo labels. They should not be reused directly for representative staging coverage.
 - Staging reset already exists as `.github/workflows/platform-staging-reset.yml`; it destroys/recreates staging and smokes it. This is the natural hook for a fresh representative dataset.
 - DigitalOcean `platform-bootstrap` is a `PRE_DEPLOY` App Platform job. Normal staging deploys should keep this production-safe.
@@ -154,7 +155,7 @@ Each context keeps its own behavior and scenario aliases under context-owned `se
   - create Offers across high-intent, lowball, bulk, accepted, and no-listing demand cases for selected current Catalog Items;
   - include low-value card margin cases.
 - Discovery:
-  - sync market presentation after representative Marketplace usage so item detail and search surfaces show generated Listings and Offers.
+  - reconcile selected representative account, Listing, and Offer facts after Marketplace usage so item detail and search surfaces show generated Listings and Offers without replaying the full live Marketplace backlog inline.
 - Checkout:
   - create optional pending cart/checkout-session scenarios only when they add visible staging value.
 - Ordering:
