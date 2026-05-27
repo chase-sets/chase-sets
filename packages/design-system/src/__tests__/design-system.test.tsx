@@ -334,41 +334,78 @@ describe("design-system", () => {
     expect(markup).toContain("max-w-[10rem]");
   });
 
-  it("renders search result cards as mobile-compact desktop-gallery cards without status badges", () => {
+  it("renders search result cards as side-by-side product-first cards without redundant market copy", () => {
     const markup = renderToString(
       <ListingCard
         cardLayout="search-result"
         title="Abra 054/132"
+        subtitle="Base Set 43 Parallel Set - Reverse Foil Common"
         image={{
-          src: "/assets/abra-160w.webp",
-          srcSet: "/assets/abra-160w.webp 160w, /assets/abra-320w.webp 320w",
-          sizes: "160px",
-          width: 160,
-          height: 224,
+          src: "/assets/abra-224w.webp",
+          srcSet: "/assets/abra-224w.webp 224w, /assets/abra-448w.webp 448w",
+          sizes: "(min-width: 768px) 164px, 124px",
+          width: 224,
+          height: 314,
         }}
         imageAlt="Abra card"
         imageSlot="compact-product"
-        price="Market open"
-        priceDetail="No active listings"
-        sellerName="No active sellers yet"
-        sellerTrustLabel="Offers open"
-        fulfillment="Offer or list yours"
-        availability={null}
-        promotion="Supply wanted"
         primaryAction={<Button>Sell</Button>}
         secondaryAction={false}
       />,
     );
 
     expect(markup).toContain('data-card-layout="search-result"');
-    expect(markup).toContain("grid-cols-[minmax(5.75rem,6.5rem)_minmax(0,1fr)]");
-    expect(markup).toContain("md:grid-cols-1");
-    expect(markup).toContain("max-w-[6.25rem]");
-    expect(markup).toContain("md:max-w-[8rem]");
+    expect(markup).toContain("grid-cols-[minmax(7.5rem,8.25rem)_minmax(0,1fr)]");
+    expect(markup).toContain("md:grid-cols-[minmax(10.5rem,12.5rem)_minmax(0,1fr)]");
+    expect(markup).toContain("max-w-[7.25rem]");
+    expect(markup).toContain("md:max-w-[10.25rem]");
+    expect(markup).toContain("Base Set 43 Parallel Set - Reverse Foil Common");
+    expect(markup).not.toContain("line-clamp-1");
+    expect(markup).not.toContain("Market open");
+    expect(markup).not.toContain("Offers open");
+    expect(markup).not.toContain("Offer or list yours");
     expect(markup).toContain("flex flex-wrap items-center gap-2 pt-1");
     expect(markup).not.toContain('data-card-promotion-placement="content"');
     expect(markup).not.toContain("Supply wanted");
     expect(markup).not.toContain("absolute left-2 top-2");
+  });
+
+  it("keeps loading-only fallback images out of the product-back preview layer", () => {
+    const markup = renderToString(
+      <ListingCard
+        cardLayout="search-result"
+        title="Prismatic Evolutions Booster Pack"
+        imageSrc="/assets/booster-pack.webp"
+        imageAlt="Prismatic Evolutions Booster Pack"
+        imageSlot="compact-product"
+        imageFallbackSrc="/assets/pokemon-card-back.webp"
+        imageFallbackAlt="Pokemon sealed product loading image"
+        imageFallbackMode="loading-only"
+        primaryAction={<Button>Sell</Button>}
+        secondaryAction={false}
+      />,
+    );
+
+    expect(markup).toContain("/assets/booster-pack.webp");
+    expect(markup).not.toContain("/assets/pokemon-card-back.webp");
+  });
+
+  it("keeps search-result media placeholders free of generic product copy", () => {
+    const markup = renderToString(
+      <ListingCard
+        cardLayout="search-result"
+        title="Prismatic Evolutions Booster Pack"
+        subtitle="Sealed booster pack"
+        imageSlot="compact-product"
+        showMediaPlaceholder
+        primaryAction={<Button>Sell</Button>}
+        secondaryAction={false}
+      />,
+    );
+
+    expect(markup).toContain("Prismatic Evolutions Booster Pack");
+    expect(markup).toContain("Sealed booster pack");
+    expect(markup).not.toContain(">Product<");
   });
 
   it("renders linked account reputation summaries", () => {

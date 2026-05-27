@@ -48,16 +48,16 @@ export const PRODUCT_ASSET_VARIANT_SPECS: readonly ProductAssetVariantSpec[] = [
   },
   {
     role: "search-card",
-    cssWidth: 160,
+    cssWidth: 224,
     density: 1,
-    width: 160,
+    width: 224,
     quality: 80,
   },
   {
     role: "search-card",
-    cssWidth: 160,
+    cssWidth: 224,
     density: 2,
-    width: 320,
+    width: 448,
     quality: 80,
   },
   {

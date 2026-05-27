@@ -167,23 +167,23 @@ describe("SearchPage", () => {
                 variants: [
                   {
                     role: "search-card",
-                    width: 160,
-                    height: 224,
+                    width: 224,
+                    height: 314,
                     density: 1,
                     mediaType: "image/webp",
-                    storageKey: "catalog/items/cat_test/product-image/search-card-160w-1x.webp",
-                    publicUrl: "https://assets.example/search-card-160w.webp",
+                    storageKey: "catalog/items/cat_test/product-image/search-card-224w-1x.webp",
+                    publicUrl: "https://assets.example/search-card-224w.webp",
                     byteSize: 80,
                     generatedAt: "2026-05-20T00:00:00.000Z",
                   },
                   {
                     role: "search-card",
-                    width: 320,
-                    height: 448,
+                    width: 448,
+                    height: 627,
                     density: 2,
                     mediaType: "image/webp",
-                    storageKey: "catalog/items/cat_test/product-image/search-card-320w-2x.webp",
-                    publicUrl: "https://assets.example/search-card-320w.webp",
+                    storageKey: "catalog/items/cat_test/product-image/search-card-448w-2x.webp",
+                    publicUrl: "https://assets.example/search-card-448w.webp",
                     byteSize: 120,
                     generatedAt: "2026-05-20T00:00:00.000Z",
                   },
@@ -196,14 +196,43 @@ describe("SearchPage", () => {
     });
 
     const image = screen.getByRole("img", { name: "Prismatic Evolutions Booster Pack" });
-    expect(image.getAttribute("src")).toBe("https://assets.example/search-card-160w.webp");
+    expect(image.getAttribute("src")).toBe("https://assets.example/search-card-224w.webp");
     expect(image.getAttribute("srcset")).toBe(
-      "https://assets.example/search-card-160w.webp 160w, https://assets.example/search-card-320w.webp 320w",
+      "https://assets.example/search-card-224w.webp 224w, https://assets.example/search-card-448w.webp 448w",
     );
-    expect(image.getAttribute("sizes")).toBe("160px");
-    expect(image.getAttribute("width")).toBe("160");
-    expect(image.getAttribute("height")).toBe("224");
-    expect(image.className).toContain("max-w-[6.25rem]");
+    expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 164px, 124px");
+    expect(image.getAttribute("width")).toBe("224");
+    expect(image.getAttribute("height")).toBe("314");
+    expect(image.className).toContain("max-w-[7.25rem]");
+  });
+
+  it("does not use card-back fallbacks as sealed-product search images", () => {
+    renderSearchPage({
+      data: {
+        ...searchResponse,
+        items: [
+          {
+            ...searchResult,
+            image_fallback: {
+              url: "/fake-cdn/assets/pokemon-card-back.png",
+              alt: "Pokemon sealed product loading image",
+              usage: "loading-only",
+              variants: {
+                card: {
+                  oneX: "/fake-cdn/assets/pokemon-card-back.png",
+                  twoX: "/fake-cdn/assets/pokemon-card-back.png",
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(screen.queryByRole("img", { name: "Prismatic Evolutions Booster Pack" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Pokemon sealed product loading image" })).toBeNull();
+    expect(screen.queryByText("Product")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Prismatic Evolutions Booster Pack" })).toBeTruthy();
   });
 
   it("renders search result language codes as localized labels", () => {
@@ -256,7 +285,10 @@ describe("SearchPage", () => {
 
     expect(card?.getAttribute("data-card-layout")).toBe("search-result");
     expect(card?.querySelector('[data-card-promotion-placement="content"]')).toBeNull();
-    expect(screen.getByText("Supply wanted")).toBeTruthy();
+    expect(screen.queryByText("Supply wanted")).toBeNull();
+    expect(screen.queryByText("Market open")).toBeNull();
+    expect(screen.queryByText("Offers open")).toBeNull();
+    expect(screen.queryByText("Offer or list yours")).toBeNull();
     expect(screen.queryByText("No active listings")).toBeNull();
     expect(screen.getByRole("link", { name: "Add product to Sell List" }).textContent).toBe("Sell");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).textContent).toBe("Buy");

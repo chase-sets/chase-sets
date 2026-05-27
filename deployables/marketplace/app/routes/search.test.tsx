@@ -305,7 +305,7 @@ describe("marketplace search route", () => {
     expect(screen.queryByText("Compare price, seller trust, and fulfillment before choosing.")).toBeNull();
   });
 
-  it("frames market-only result cards as offer and supply opportunities", () => {
+  it("keeps market-only result cards focused on product identity and actions", () => {
     mockUseLoaderData.mockReturnValue(searchDataWithMarketOnlyResult("pikachu"));
     mockUseNavigate.mockReturnValue(vi.fn());
     mockUseNavigation.mockReturnValue({ state: "idle" });
@@ -313,10 +313,10 @@ describe("marketplace search route", () => {
 
     render(<SearchRoute />);
 
-    expect(screen.getByText("Market open")).toBeTruthy();
-    expect(screen.getByText("Supply wanted")).toBeTruthy();
+    expect(screen.queryByText("Market open")).toBeNull();
+    expect(screen.queryByText("Supply wanted")).toBeNull();
     expect(screen.queryByText("No active listings")).toBeNull();
-    expect(screen.getByText("Offer or list yours")).toBeTruthy();
+    expect(screen.queryByText("Offer or list yours")).toBeNull();
     expect(screen.getByText("Jungle 60/64 Common")).toBeTruthy();
     expect(screen.queryByText("Make an offer or list yours to help this market form.")).toBeNull();
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(

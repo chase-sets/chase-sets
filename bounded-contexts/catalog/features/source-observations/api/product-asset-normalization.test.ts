@@ -43,13 +43,13 @@ describe("product asset normalization", () => {
         height: 160,
       }),
     );
-    const storedSearchCard = storedAssets.find((asset) => asset.key.includes("search-card-160w-1x"));
+    const storedSearchCard = storedAssets.find((asset) => asset.key.includes("search-card-224w-1x"));
     const searchCardMetadata = await sharp(storedSearchCard?.body).metadata();
     expect(searchCardMetadata.hasAlpha).toBe(true);
     expect(assetSet.variants.map((variant) => variant.storageKey)).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/thumbnail-96w-1x-[a-f0-9]{12}-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
-        expect.stringMatching(/search-card-160w-1x-[a-f0-9]{12}-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
+        expect.stringMatching(/search-card-224w-1x-[a-f0-9]{12}-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
         expect.stringMatching(/catalog-detail-480w-1x-[a-f0-9]{12}-trim-alpha-v1-[a-f0-9]{12}\.webp$/),
       ]),
     );

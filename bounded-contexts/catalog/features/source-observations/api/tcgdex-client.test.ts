@@ -397,10 +397,10 @@ describe("TCGdex client", () => {
         /^catalog\/items\/cat_test\/product-image\/thumbnail-192w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
       ),
       expect.stringMatching(
-        /^catalog\/items\/cat_test\/product-image\/search-card-160w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+        /^catalog\/items\/cat_test\/product-image\/search-card-224w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
       ),
       expect.stringMatching(
-        /^catalog\/items\/cat_test\/product-image\/search-card-320w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
+        /^catalog\/items\/cat_test\/product-image\/search-card-448w-2x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,
       ),
       expect.stringMatching(
         /^catalog\/items\/cat_test\/product-image\/catalog-detail-480w-1x-039058c6f2c0-trim-alpha-v1-[a-f0-9]{12}\.webp$/,

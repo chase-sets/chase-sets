@@ -482,20 +482,20 @@ export interface ListingCardProps {
   imageFallbackSizes?: string;
   imageFallbackMode?: "permanent" | "loading-only";
   showMediaPlaceholder?: boolean;
-  price: ReactNode;
+  price?: ReactNode;
   priceDetail?: ReactNode;
   priceExplanation?: ReactNode;
   rating?: number;
   reviewCount?: number | string;
-  sellerName: string;
+  sellerName?: string | null;
   sellerHref?: string | null;
   sellerTrust?: ReactNode;
-  sellerTrustLabel: ReactNode;
+  sellerTrustLabel?: ReactNode;
   sellerVerified?: boolean;
   sellerMeta?: ReactNode;
   sellerFeedbackAction?: ReactNode;
-  fulfillment: ReactNode;
-  availability: ReactNode;
+  fulfillment?: ReactNode;
+  availability?: ReactNode;
   condition?: ReactNode;
   valueCue?: ReactNode;
   truncateValueCue?: boolean;
@@ -593,62 +593,69 @@ export function ListingCard({
   const isLinked = Boolean(href);
   const resolvedSellerTrust =
     sellerTrust ??
-    (sellerVerified ? (
-      <VerifiedAccountBadge label={sellerTrustLabel} />
-    ) : (
-      <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
-    ));
+    (sellerTrustLabel ? (
+      sellerVerified ? (
+        <VerifiedAccountBadge label={sellerTrustLabel} />
+      ) : (
+        <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
+      )
+    ) : null);
   const sellerHasAccountReputation =
-    Boolean(sellerHref) || normalizeRatingValue(rating) !== null || hasReviewCount(reviewCount);
-  const sellerTrustSummary = (
-    <div className="grid min-w-0 gap-1">
-      <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
-        {sellerHasAccountReputation ? (
-          <AccountReputationSummary
-            accountName={sellerName}
-            href={sellerHref}
-            averageRating={rating}
-            reviewCount={reviewCount}
-            className="min-w-0"
-          />
-        ) : (
-          <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{sellerName}</span>
-        )}
-        {resolvedSellerTrust}
-      </div>
-      {sellerMeta || sellerFeedbackAction ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-secondary)]">
-          {sellerMeta ? <span>{sellerMeta}</span> : null}
-          {sellerFeedbackAction}
+    Boolean(sellerName && sellerHref) || normalizeRatingValue(rating) !== null || hasReviewCount(reviewCount);
+  const sellerTrustSummary =
+    sellerName || resolvedSellerTrust || sellerMeta || sellerFeedbackAction ? (
+      <div className="grid min-w-0 gap-1">
+        <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
+          {sellerName && sellerHasAccountReputation ? (
+            <AccountReputationSummary
+              accountName={sellerName}
+              href={sellerHref}
+              averageRating={rating}
+              reviewCount={reviewCount}
+              className="min-w-0"
+            />
+          ) : sellerName ? (
+            <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{sellerName}</span>
+          ) : null}
+          {resolvedSellerTrust}
         </div>
-      ) : null}
-    </div>
-  );
+        {sellerMeta || sellerFeedbackAction ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-secondary)]">
+            {sellerMeta ? <span>{sellerMeta}</span> : null}
+            {sellerFeedbackAction}
+          </div>
+        ) : null}
+      </div>
+    ) : null;
   const resolvedProtection = protection ? <OrderProtectionBadge label={protection} /> : null;
+  const hasPrice = price !== undefined && price !== null && price !== false && price !== "";
+  const hasMarketSignals = sellerTrustSummary || fulfillment || resolvedProtection || returnPolicy;
   const canUseFallbackAsImage = Boolean(fallbackImage) && imageFallbackMode === "permanent";
   const resolvedImage = primaryImage && !imageFailed ? primaryImage : canUseFallbackAsImage ? fallbackImage : undefined;
   const resolvedImageSrc = resolvedImage?.src;
   const resolvedImageAlt =
     resolvedImageSrc === fallbackImage?.src ? (imageFallbackAlt ?? imageAlt ?? title) : (imageAlt ?? title);
-  const showLoadingFallback = Boolean(primaryImage && fallbackImage && !imageLoaded && !imageFailed);
+  const showLoadingFallback = Boolean(
+    primaryImage && fallbackImage && imageFallbackMode === "permanent" && !imageLoaded && !imageFailed,
+  );
   const isSearchResultLayout = cardLayout === "search-result";
   const productMediaSlotClassName =
     imageSlot === "compact-product"
       ? isSearchResultLayout
-        ? "max-w-[6.25rem] sm:max-w-[6.5rem] md:max-w-[8rem] justify-self-center"
+        ? "max-w-[7.25rem] sm:max-w-[7.75rem] md:max-w-[10.25rem] justify-self-center"
         : "max-w-[10rem] justify-self-center"
       : undefined;
   const mediaContainerClassName = isSearchResultLayout
-    ? "relative grid min-h-32 place-items-start justify-items-center pt-3 pl-3 sm:min-h-32 md:min-h-[11rem] md:place-items-center md:p-3 md:pb-1"
+    ? "relative grid min-h-40 place-items-center p-3 sm:min-h-40 md:min-h-[14rem] md:p-4"
     : "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center";
   const mediaImageClassName = isSearchResultLayout
-    ? "relative h-auto max-h-36 min-h-0 md:max-h-[11rem]"
+    ? "relative h-auto max-h-40 min-h-0 md:max-h-[12.5rem]"
     : "relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const loadingImageClassName = isSearchResultLayout
-    ? "absolute h-auto max-h-36 min-h-0 md:max-h-[11rem]"
+    ? "absolute h-auto max-h-40 min-h-0 md:max-h-[12.5rem]"
     : "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const contentClassName = isSearchResultLayout
-    ? "gap-2.5 p-3 md:gap-2 md:p-3 md:pt-1"
+    ? "gap-2.5 p-3 md:gap-2.5 md:p-4"
     : cn("gap-3", densityClasses[density]);
 
   return (
@@ -657,7 +664,7 @@ export function ListingCard({
         "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
         hasMediaFrame
           ? isSearchResultLayout
-            ? "grid-cols-[minmax(5.75rem,6.5rem)_minmax(0,1fr)] md:grid-cols-1"
+            ? "grid-cols-[minmax(7.5rem,8.25rem)_minmax(0,1fr)] md:grid-cols-[minmax(10.5rem,12.5rem)_minmax(0,1fr)]"
             : density === "compact"
               ? "grid-cols-1 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
               : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
@@ -708,7 +715,11 @@ export function ListingCard({
             />
           ) : (
             <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">
-              {modelLabels[model]}
+              {isSearchResultLayout ? (
+                <ImageIcon className="h-8 w-8 text-[var(--muted-foreground)]" aria-hidden="true" />
+              ) : (
+                modelLabels[model]
+              )}
             </div>
           )}
           {promotion && !isSearchResultLayout ? (
@@ -743,16 +754,7 @@ export function ListingCard({
           >
             {title}
           </h3>
-          {subtitle ? (
-            <p
-              className={cn(
-                "m-0 text-sm font-medium leading-5 text-[var(--foreground)]",
-                isSearchResultLayout && "line-clamp-1",
-              )}
-            >
-              {subtitle}
-            </p>
-          ) : null}
+          {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">{subtitle}</p> : null}
           {valueCue ? (
             <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
               {valueCue}
@@ -760,34 +762,46 @@ export function ListingCard({
           ) : null}
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-          <div className="grid gap-1">
-            <div
-              className={cn(
-                "font-bold tabular-nums text-[var(--foreground)]",
-                isSearchResultLayout ? "text-lg leading-6" : "text-xl leading-7",
-              )}
-            >
-              {price}
+        {hasPrice || priceDetail || priceExplanation ? (
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="grid gap-1">
+              {hasPrice ? (
+                <div
+                  className={cn(
+                    "font-bold tabular-nums text-[var(--foreground)]",
+                    isSearchResultLayout ? "text-lg leading-6" : "text-xl leading-7",
+                  )}
+                >
+                  {price}
+                </div>
+              ) : null}
+              {priceDetail ? (
+                <div className="text-xs leading-4 text-[var(--muted-foreground)]">{priceDetail}</div>
+              ) : null}
+              {priceExplanation ? (
+                <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div>
+              ) : null}
             </div>
-            {priceDetail ? <div className="text-xs leading-4 text-[var(--muted-foreground)]">{priceDetail}</div> : null}
-            {priceExplanation ? (
-              <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div>
+          </div>
+        ) : null}
+
+        {hasMarketSignals ? (
+          <div className="grid gap-2 text-sm text-[var(--text-secondary)]">
+            {sellerTrustSummary}
+            {fulfillment || resolvedProtection || returnPolicy ? (
+              <div className="flex flex-wrap gap-2">
+                {fulfillment ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Truck className="h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
+                    {fulfillment}
+                  </span>
+                ) : null}
+                {resolvedProtection}
+                {returnPolicy ? <TrustBadge tone="policy">{returnPolicy}</TrustBadge> : null}
+              </div>
             ) : null}
           </div>
-        </div>
-
-        <div className="grid gap-2 text-sm text-[var(--text-secondary)]">
-          {sellerTrustSummary}
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1.5">
-              <Truck className="h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
-              {fulfillment}
-            </span>
-            {resolvedProtection}
-            {returnPolicy ? <TrustBadge tone="policy">{returnPolicy}</TrustBadge> : null}
-          </div>
-        </div>
+        ) : null}
 
         {recommendationReason ? (
           <div className="rounded-[var(--radius)] bg-[var(--surface-2)] px-3 py-2 text-xs leading-4 text-[var(--text-secondary)]">
