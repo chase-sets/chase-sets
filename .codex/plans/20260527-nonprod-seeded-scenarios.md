@@ -14,8 +14,8 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260527-nonprod-seeded-scenarios`
-- Branch: `codex/representative-refresh-raw-stock-options` follow-up from the original `codex/nonprod-seeded-scenarios` delivery branch
-- Base: refreshed `origin/main` at `efa563e7e86f0a0e3c17ce851f9e9228b0a9aaff`
+- Branch: `codex/representative-refresh-discovery-market` follow-up from the original `codex/nonprod-seeded-scenarios` delivery branch
+- Base: refreshed `origin/main` at `416d781031c4bccc8b1eaa6c5e19963296bb544e`
 - Sandbox id: `7b0f3e80`
 - Dependency setup status: `pnpm run deps:install` completed
 - pnpm store path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\.chase-sets-pnpm-store`
@@ -40,6 +40,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Current follow-up design: Catalog selects active current Catalog Items with product measurement snapshots directly from Catalog-owned read models; Marketplace filters that list to items untouched by listings/offers; Marketplace and Inventory reconcile only the selected item facts into their local catalog read models before usage generation.
 - Live representative refresh on the selected-item reconciliation path completed quickly but returned zero source candidates because Catalog integration bootstrap upserts product-measure profiles without resolving existing imported Catalog Items. The next follow-up adds a bounded Catalog-owned preparation step that resolves product measures for the current candidate window before Marketplace filtering.
 - Live representative refresh after bounded Catalog measurement preparation reached selected current Catalog Items, reconciled them into Marketplace and Inventory, then failed while creating representative Inventory stock because the default schema option order selected `Form: Graded` without graded-card details. The next follow-up biases representative stock toward raw/non-graded options when current Catalog product schemas expose a raw-vs-graded form choice.
+- Live representative refresh after raw stock selection succeeded with non-zero Marketplace usage, but public item-detail API checks still showed empty market fields because the command did not sync Discovery's market projection. The next follow-up adds a targeted `discovery-market-projection` sync after representative Marketplace usage so staging product/search surfaces show listings and offers.
 
 ## Owning Contexts
 
@@ -68,6 +69,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Marketplace and Inventory catalog projections can lag behind large Catalog integration imports; full inline replay is too expensive for an operator refresh. The refresh should use Catalog-owned current item truth for candidate discovery, then reconcile only selected items into Marketplace/Inventory local read models.
 - Catalog product-measure profiles are long-lived bootstrap facts, but resolved item measures are per-Catalog Item read-model facts. Representative refresh must resolve measures for a bounded current item window because accepted offers and order creation require product measurement snapshots.
 - Inventory listing stock treats graded-card details as required when selected options represent `Form: Graded`; representative stock generation should prefer raw/non-graded stock until a richer graded-card scenario supplies certification details.
+- Discovery owns product/search market presentation from Marketplace and Identity facts. Representative refresh must sync `discovery-market-projection` after generated Marketplace usage or staging product pages will not reflect the generated listings/offers.
 - Most commerce context seeds default to `scenario-seed` and already create useful baseline states, but several are development-shaped: fake payment gateways, synthetic provider references, fixed fake Catalog Item ids, `seed://` attachments, March 2026 timestamps, and generic demo labels. They should not be reused directly for representative staging coverage.
 - Staging reset already exists as `.github/workflows/platform-staging-reset.yml`; it destroys/recreates staging and smokes it. This is the natural hook for a fresh representative dataset.
 - DigitalOcean `platform-bootstrap` is a `PRE_DEPLOY` App Platform job. Normal staging deploys should keep this production-safe.
@@ -149,6 +151,8 @@ Each context keeps its own behavior and scenario aliases under context-owned `se
   - create active, paused, draft, withdrawn, sold-out, and seller-unavailable Listings for selected current Catalog Items;
   - create Offers across high-intent, lowball, bulk, accepted, and no-listing demand cases for selected current Catalog Items;
   - include low-value card margin cases.
+- Discovery:
+  - sync market presentation after representative Marketplace usage so item detail and search surfaces show generated Listings and Offers.
 - Checkout:
   - create optional pending cart/checkout-session scenarios only when they add visible staging value.
 - Ordering:
