@@ -238,6 +238,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("pnpm run test:e2e:deployed");
     expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_EMAIL");
     expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_PASSWORD");
+    expect(stagingCriticalFlowStep).toContain("vars.MARKETPLACE_E2E_EMAIL || ''");
+    expect(stagingCriticalFlowStep).toContain("secrets.MARKETPLACE_E2E_PASSWORD || ''");
     expect(stagingCriticalFlowStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");

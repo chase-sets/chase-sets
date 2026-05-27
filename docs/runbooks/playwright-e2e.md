@@ -30,7 +30,7 @@ MARKETPLACE_WEB_URL=https://marketplace.staging.chasesets.com \
 pnpm run test:e2e:deployed
 ```
 
-Use `MARKETPLACE_E2E_EMAIL`, `MARKETPLACE_E2E_PASSWORD`, and `MARKETPLACE_E2E_SEARCH_QUERY` to override the default seeded account and search term. Staging production promotion runs this mode after staging smoke checks and before production deployment can start.
+Use `MARKETPLACE_E2E_EMAIL`, `MARKETPLACE_E2E_PASSWORD`, and `MARKETPLACE_E2E_SEARCH_QUERY` to override the default synthetic account and search term. When no account is configured, the suite registers a throwaway account against the target before checking signed-in commerce surfaces. Staging production promotion runs this mode after staging smoke checks and before production deployment can start.
 
 ## CI
 

@@ -1,11 +1,16 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
-const marketplaceAccount = {
-  email: process.env.MARKETPLACE_E2E_EMAIL ?? "demo@chasesets.test",
-  password: process.env.MARKETPLACE_E2E_PASSWORD ?? "demo1234",
+const configuredMarketplaceAccount = {
+  email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
+  password: process.env.MARKETPLACE_E2E_PASSWORD?.trim() ?? "",
 };
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
+const syntheticAccountRunId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}-${process.pid}`)
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-")
+  .slice(0, 12);
+const syntheticAccountNonce = Math.random().toString(36).slice(2, 8);
 
 const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Buy Cart$/i, flow: "buy cart" },
@@ -26,26 +31,110 @@ async function expectPageOk(page: Page, path: string) {
   expect(response!.status(), `${path} returned HTTP ${response!.status()}`).toBeLessThan(400);
 }
 
-async function signInWithPassword(page: Page, credentials = marketplaceAccount) {
-  await expectPageOk(page, "/");
-  const origin = new URL(page.url()).origin;
-  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-    data: credentials,
-  });
-  expect(response.status(), "password sign-in should start a session").toBe(200);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
+function marketplaceAccountFor(testInfo: TestInfo) {
+  if (configuredMarketplaceAccount.email) {
+    if (!configuredMarketplaceAccount.password) {
+      throw new Error("MARKETPLACE_E2E_PASSWORD is required when MARKETPLACE_E2E_EMAIL is configured.");
+    }
 
+    return {
+      email: configuredMarketplaceAccount.email,
+      password: configuredMarketplaceAccount.password,
+      displayName: "Marketplace E2E Account",
+      shouldRegister: false,
+    };
+  }
+
+  const titleSlug = testInfo.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 20);
+
+  return {
+    email: `critical-flow-${syntheticAccountRunId}-${syntheticAccountNonce}-${testInfo.workerIndex}-${testInfo.retry}-${titleSlug}@chasesets.test`,
+    password: `critical-flow-${syntheticAccountRunId}-${testInfo.workerIndex}-${testInfo.retry}`,
+    displayName: `Critical Flow ${syntheticAccountRunId} ${syntheticAccountNonce} ${testInfo.workerIndex} ${testInfo.retry} ${titleSlug}`,
+    shouldRegister: true,
+  };
+}
+
+async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
   await page.context().addCookies([
     {
       name: "chase_sets_session",
-      value: body.sessionToken!,
+      value: sessionToken,
       url: origin,
       httpOnly: true,
       sameSite: "Lax",
       secure: origin.startsWith("https://"),
     },
   ]);
+}
+
+async function expectAuthSessionReady(page: Page, origin: string) {
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(`${origin}/api/auth/session`);
+        return response.status();
+      },
+      {
+        message: "auth session should be visible to account routes",
+        timeout: 15_000,
+      },
+    )
+    .toBe(200);
+}
+
+async function registerSyntheticAccount(page: Page, origin: string, account: ReturnType<typeof marketplaceAccountFor>) {
+  const response = await page.request.post(`${origin}/api/auth/register`, {
+    data: {
+      email: account.email,
+      password: account.password,
+      displayName: account.displayName,
+      givenName: "Critical",
+      familyName: "Flow",
+      consents: [
+        {
+          policyKey: "terms-of-service",
+          policyVersion: "v1",
+        },
+      ],
+    },
+  });
+
+  expect(response.status(), "synthetic account registration should succeed").toBe(201);
+  const body = (await response.json()) as { sessionToken?: string };
+  expect(body.sessionToken, "synthetic account registration should return a session token").toBeTruthy();
+
+  return body.sessionToken!;
+}
+
+async function authenticateAccount(page: Page, testInfo: TestInfo) {
+  await expectPageOk(page, "/");
+  const origin = new URL(page.url()).origin;
+  const credentials = marketplaceAccountFor(testInfo);
+
+  if (credentials.shouldRegister) {
+    const sessionToken = await registerSyntheticAccount(page, origin, credentials);
+    await addSessionCookie(page, origin, sessionToken);
+    await expectAuthSessionReady(page, origin);
+    return;
+  }
+
+  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
+    data: {
+      email: credentials.email,
+      password: credentials.password,
+    },
+  });
+  expect(response.status(), "password sign-in should start a session").toBe(200);
+  const body = (await response.json()) as { sessionToken?: string };
+  expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
+
+  await addSessionCookie(page, origin, body.sessionToken!);
+  await expectAuthSessionReady(page, origin);
 }
 
 test.describe("marketplace critical flows", () => {
@@ -83,9 +172,9 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByText(/^Sign in$/i).first()).toBeVisible();
   });
 
-  test("seeded account can sign in, review cart, and reach seller listings", async ({ page }) => {
+  test("account can authenticate, review cart, and reach seller listings", async ({ page }, testInfo) => {
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
-    await signInWithPassword(page);
+    await authenticateAccount(page, testInfo);
 
     await page.goto("/account/cart");
     await expect(page).toHaveURL(/\/account\/cart/);
@@ -96,11 +185,11 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByRole("heading", { name: "Listings", exact: true })).toBeVisible();
   });
 
-  test("signed-in account can reach critical marketplace commerce surfaces", async ({ page }) => {
+  test("signed-in account can reach critical marketplace commerce surfaces", async ({ page }, testInfo) => {
     test.setTimeout(90_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
-    await signInWithPassword(page);
+    await authenticateAccount(page, testInfo);
     await page.goto("/account/cart");
     await expect(page).toHaveURL(/\/account\/cart/);
 
