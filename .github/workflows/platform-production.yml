@@ -643,6 +643,69 @@ jobs:
           curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors \
             "${catalog_asset_public_base_url}/" >/dev/null
 
+      - name: Install Playwright Chromium for staging critical flows
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Staging marketplace critical flows
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          CI: "true"
+          PLAYWRIGHT_SKIP_WEB_SERVER: "true"
+          MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || 'demo@chasesets.test' }}
+          MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || 'demo1234' }}
+          MARKETPLACE_E2E_SEARCH_QUERY: ${{ vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
+        run: |
+          set -euo pipefail
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$marketplace_domain" ]; then
+            echo "Required staging marketplace domain was not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
+
+      - name: Upload staging Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-playwright-critical-flow-artifacts
+          path: |
+            artifacts/playwright/report
+            artifacts/playwright/test-results
+
+      - name: Staging Stripe money smoke
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          SMOKE_REGISTER_SELLER: "true"
+          SMOKE_SELLER_EMAIL: stripe-staging+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
+          SMOKE_SELLER_PASSWORD: staging-stripe-${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke Account
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts
+          STRIPE_CONNECT_REFRESH_URL: https://marketplace.staging.chasesets.com/account/payouts/setup
+          SMOKE_ORDER_IDS: ${{ vars.STAGING_SMOKE_ORDER_IDS || '' }}
+          SMOKE_BALANCE_CREDIT_AMOUNT: ${{ vars.STAGING_SMOKE_BALANCE_CREDIT_AMOUNT || '' }}
+          SMOKE_PAYMENT_METHOD_CATEGORY: ${{ vars.STAGING_SMOKE_PAYMENT_METHOD_CATEGORY || '' }}
+          SMOKE_CREATE_PAYMENT: ${{ vars.STAGING_SMOKE_CREATE_PAYMENT || '' }}
+          SMOKE_PAYOUT_AMOUNT: ${{ vars.STAGING_SMOKE_PAYOUT_AMOUNT || '' }}
+          SMOKE_REQUEST_PAYOUT: ${{ vars.STAGING_SMOKE_REQUEST_PAYOUT || '' }}
+        run: |
+          set -euo pipefail
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$marketplace_domain" ]; then
+            echo "Required staging marketplace domain was not present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          PLATFORM_API_BASE_URL="https://${marketplace_domain}" \
+            PLATFORM_AUTH_BASE_URL="https://${marketplace_domain}" \
+            pnpm run stripe:money-smoke -- --edge-check --seller-flow
+
       - name: Mark staging deployed
         id: staging_deployed
         if: steps.latest_main.outputs.should_deploy != 'false'

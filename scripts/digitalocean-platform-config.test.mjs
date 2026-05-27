@@ -226,4 +226,33 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).not.toContain("representative-commerce-state:production");
   });
+
+  it("gates production promotion on staging marketplace critical flows", () => {
+    const stagingCriticalFlowStep = workflowStep(platformProductionWorkflow, "Staging marketplace critical flows");
+    const stagingMoneySmokeStep = workflowStep(platformProductionWorkflow, "Staging Stripe money smoke");
+    const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging deployed");
+
+    expect(platformProductionWorkflow).toContain("Install Playwright Chromium for staging critical flows");
+    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
+    expect(stagingCriticalFlowStep).toContain('MARKETPLACE_WEB_URL="https://${marketplace_domain}"');
+    expect(stagingCriticalFlowStep).toContain("pnpm run test:e2e:deployed");
+    expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_EMAIL");
+    expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_PASSWORD");
+    expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
+
+    expect(stagingMoneySmokeStep).toContain("SMOKE_REGISTER_SELLER");
+    expect(stagingMoneySmokeStep).toContain(
+      "STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts",
+    );
+    expect(stagingMoneySmokeStep).toContain("STAGING_SMOKE_ORDER_IDS");
+    expect(stagingMoneySmokeStep).toContain('PLATFORM_API_BASE_URL="https://${marketplace_domain}"');
+    expect(stagingMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+
+    expect(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows")).toBeLessThan(
+      markStagingDeployedIndex,
+    );
+    expect(platformProductionWorkflow.indexOf("- name: Staging Stripe money smoke")).toBeLessThan(
+      markStagingDeployedIndex,
+    );
+  });
 });

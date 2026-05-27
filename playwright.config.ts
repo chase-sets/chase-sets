@@ -4,6 +4,7 @@ import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
 const sandbox = resolveWorktreeSandbox();
 const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marketplaceWeb;
 const isCi = Boolean(process.env.CI);
+const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
 
 export default defineConfig({
   testDir: "./deployables/marketplace/e2e",
@@ -19,12 +20,14 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  webServer: {
-    command: "pnpm run dev:marketplace-full",
-    url: `${marketplaceBaseUrl}/health/ready`,
-    reuseExistingServer: !isCi,
-    timeout: 180_000,
-  },
+  webServer: skipWebServer
+    ? undefined
+    : {
+        command: "pnpm run dev:marketplace-full",
+        url: `${marketplaceBaseUrl}/health/ready`,
+        reuseExistingServer: !isCi,
+        timeout: 180_000,
+      },
   projects: [
     {
       name: "chromium",
