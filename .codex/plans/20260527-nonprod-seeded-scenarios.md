@@ -14,8 +14,8 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 ## Worktree
 
 - Path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\20260527-nonprod-seeded-scenarios`
-- Branch: `codex/representative-refresh-current-catalog` follow-up from the original `codex/nonprod-seeded-scenarios` delivery branch
-- Base: refreshed `origin/main` at `09b1aa5fea27da35f5d53a6d05b2b779c3ab5721`
+- Branch: `codex/representative-refresh-raw-stock-options` follow-up from the original `codex/nonprod-seeded-scenarios` delivery branch
+- Base: refreshed `origin/main` at `efa563e7e86f0a0e3c17ce851f9e9228b0a9aaff`
 - Sandbox id: `7b0f3e80`
 - Dependency setup status: `pnpm run deps:install` completed
 - pnpm store path: `D:\Users\ToddS\Source\Repos\chase-sets\.codex\worktrees\.chase-sets-pnpm-store`
@@ -39,6 +39,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - Explicit Catalog-derived projection sync then failed in live staging because replaying the full Marketplace catalog projection exceeded both two-minute and ten-minute bounded refresh windows.
 - Current follow-up design: Catalog selects active current Catalog Items with product measurement snapshots directly from Catalog-owned read models; Marketplace filters that list to items untouched by listings/offers; Marketplace and Inventory reconcile only the selected item facts into their local catalog read models before usage generation.
 - Live representative refresh on the selected-item reconciliation path completed quickly but returned zero source candidates because Catalog integration bootstrap upserts product-measure profiles without resolving existing imported Catalog Items. The next follow-up adds a bounded Catalog-owned preparation step that resolves product measures for the current candidate window before Marketplace filtering.
+- Live representative refresh after bounded Catalog measurement preparation reached selected current Catalog Items, reconciled them into Marketplace and Inventory, then failed while creating representative Inventory stock because the default schema option order selected `Form: Graded` without graded-card details. The next follow-up biases representative stock toward raw/non-graded options when current Catalog product schemas expose a raw-vs-graded form choice.
 
 ## Owning Contexts
 
@@ -66,6 +67,7 @@ User clarification: keep the real Catalog integrations. The optimal target is a 
 - `seedApiHostIfEmpty` runs the full cross-context projection drain only when `scenario-seed` is enabled. Representative staging refresh uses command-owned targeted projection syncs instead.
 - Marketplace and Inventory catalog projections can lag behind large Catalog integration imports; full inline replay is too expensive for an operator refresh. The refresh should use Catalog-owned current item truth for candidate discovery, then reconcile only selected items into Marketplace/Inventory local read models.
 - Catalog product-measure profiles are long-lived bootstrap facts, but resolved item measures are per-Catalog Item read-model facts. Representative refresh must resolve measures for a bounded current item window because accepted offers and order creation require product measurement snapshots.
+- Inventory listing stock treats graded-card details as required when selected options represent `Form: Graded`; representative stock generation should prefer raw/non-graded stock until a richer graded-card scenario supplies certification details.
 - Most commerce context seeds default to `scenario-seed` and already create useful baseline states, but several are development-shaped: fake payment gateways, synthetic provider references, fixed fake Catalog Item ids, `seed://` attachments, March 2026 timestamps, and generic demo labels. They should not be reused directly for representative staging coverage.
 - Staging reset already exists as `.github/workflows/platform-staging-reset.yml`; it destroys/recreates staging and smokes it. This is the natural hook for a fresh representative dataset.
 - DigitalOcean `platform-bootstrap` is a `PRE_DEPLOY` App Platform job. Normal staging deploys should keep this production-safe.
@@ -139,7 +141,7 @@ Each context keeps its own behavior and scenario aliases under context-owned `se
   - document or create safe sign-in credentials through existing admin/bootstrap policy.
 - Inventory:
   - create storage locations mapped to ship-from locations;
-  - create stock for selected current Catalog Items with high-volume low-value, scarce graded, sealed, and near-empty patterns;
+  - create stock for selected current Catalog Items with raw/non-graded defaults first, then later add high-volume low-value, scarce graded with certification details, sealed, and near-empty patterns;
   - include held/reserved inventory through downstream order scenarios.
 - Commercial Terms:
   - reconcile default and negotiated fee schedules for low-value and high-value sellers.

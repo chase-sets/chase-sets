@@ -5,6 +5,8 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeSelectedOptionssForSchema,
   recordToSelectionEntries,
+  type InventoryProductDimension,
+  type InventoryProductOption,
   type InventoryProductSchema,
   type InventorySelectedOptionEntry,
 } from "../../features/inventory-items/integrations/catalog/versioning";
@@ -166,7 +168,50 @@ export function selectDefaultRepresentativeOptions(
     return [];
   }
 
-  return recordToSelectionEntries(productSchema, normalizeSelectedOptionssForSchema(productSchema, {}));
+  return recordToSelectionEntries(
+    productSchema,
+    normalizeSelectedOptionssForSchema(productSchema, selectRepresentativePreferredOptions(productSchema)),
+  );
+}
+
+function selectRepresentativePreferredOptions(productSchema: InventoryProductSchema): Record<string, string> {
+  const formDimension = productSchema.dimensions.find(
+    (dimension) => isLikelyFormDimension(dimension) && dimension.allowedOptions.some(isRawOption),
+  );
+
+  if (!formDimension) {
+    return {};
+  }
+
+  const rawOption = formDimension.allowedOptions.find(isRawOption);
+  if (!rawOption) {
+    return {};
+  }
+
+  return {
+    [formDimension.dimensionId]: rawOption.optionId,
+  };
+}
+
+function isLikelyFormDimension(dimension: InventoryProductDimension): boolean {
+  const dimensionText = `${dimension.dimensionId} ${dimension.dimensionName}`;
+  return matchesMeaning(dimensionText, "form") || dimension.allowedOptions.some(isGradedOption);
+}
+
+function isRawOption(option: InventoryProductOption): boolean {
+  return matchesMeaning(`${option.optionId} ${option.code} ${option.label}`, "raw", "ungraded");
+}
+
+function isGradedOption(option: InventoryProductOption): boolean {
+  return matchesMeaning(`${option.optionId} ${option.code} ${option.label}`, "graded");
+}
+
+function matchesMeaning(value: string, ...terms: readonly string[]): boolean {
+  const tokens = value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return terms.some((term) => tokens.includes(term));
 }
 
 function normalizeRepresentativeQuantity(value: number | undefined): number {
