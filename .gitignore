@@ -2,8 +2,6 @@
 .codex/*
 !.codex/skills/
 !.codex/skills/**
-!.codex/plans/
-!.codex/plans/**
 node_modules/
 .pnpm-store/
 .chase-sets-pnpm-store/
