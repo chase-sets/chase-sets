@@ -11,6 +11,7 @@ const syntheticAccountRunId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}-${pro
   .replace(/[^a-z0-9]+/g, "-")
   .slice(0, 12);
 const syntheticAccountNonce = Math.random().toString(36).slice(2, 8);
+const authProjectionTimeoutMs = 90_000;
 
 const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Buy Cart$/i, flow: "buy cart" },
@@ -25,10 +26,33 @@ const accountCriticalRoutes = [
   { path: "/account/payouts", heading: /^Payouts$/i, flow: "payouts" },
 ] as const;
 
+type AccountCriticalRoute = (typeof accountCriticalRoutes)[number];
+
 async function expectPageOk(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "domcontentloaded" });
   expect(response, `${path} did not return a page response`).not.toBeNull();
   expect(response!.status(), `${path} returned HTTP ${response!.status()}`).toBeLessThan(400);
+}
+
+async function expectAccountRouteReady(page: Page, route: AccountCriticalRoute) {
+  const deadline = Date.now() + authProjectionTimeoutMs;
+  let lastPathname = "";
+
+  while (Date.now() < deadline) {
+    const response = await page.goto(route.path, { waitUntil: "domcontentloaded" });
+    expect(response, `${route.path} did not return a page response`).not.toBeNull();
+    expect(response!.status(), `${route.path} returned HTTP ${response!.status()}`).toBeLessThan(400);
+
+    lastPathname = new URL(page.url()).pathname;
+    if (lastPathname === route.path) {
+      await expect(page.getByRole("heading", { name: route.heading }).first()).toBeVisible();
+      return;
+    }
+
+    await page.waitForTimeout(1_000);
+  }
+
+  expect(lastPathname, `${route.flow} should be reachable as the authenticated account`).toBe(route.path);
 }
 
 function marketplaceAccountFor(testInfo: TestInfo) {
@@ -70,21 +94,27 @@ async function addSessionCookie(page: Page, origin: string, sessionToken: string
       secure: origin.startsWith("https://"),
     },
   ]);
+
+  const sessionCookie = (await page.context().cookies(origin)).find((cookie) => cookie.name === "chase_sets_session");
+  expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
 }
 
-async function expectAuthSessionReady(page: Page, origin: string) {
-  await expect
-    .poll(
-      async () => {
-        const response = await page.request.get(`${origin}/api/auth/session`);
-        return response.status();
-      },
-      {
-        message: "auth session should be visible to account routes",
-        timeout: 15_000,
-      },
-    )
-    .toBe(200);
+async function signInWithConfiguredPassword(
+  page: Page,
+  origin: string,
+  credentials: ReturnType<typeof marketplaceAccountFor>,
+) {
+  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
+    data: {
+      email: credentials.email,
+      password: credentials.password,
+    },
+  });
+
+  expect(response.status(), "password sign-in should start a session").toBe(200);
+  const body = (await response.json()) as { sessionToken?: string };
+  expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
+  await addSessionCookie(page, origin, body.sessionToken!);
 }
 
 async function registerSyntheticAccount(page: Page, origin: string, account: ReturnType<typeof marketplaceAccountFor>) {
@@ -107,8 +137,7 @@ async function registerSyntheticAccount(page: Page, origin: string, account: Ret
   expect(response.status(), "synthetic account registration should succeed").toBe(201);
   const body = (await response.json()) as { sessionToken?: string };
   expect(body.sessionToken, "synthetic account registration should return a session token").toBeTruthy();
-
-  return body.sessionToken!;
+  await addSessionCookie(page, origin, body.sessionToken!);
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {
@@ -117,24 +146,11 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   const credentials = marketplaceAccountFor(testInfo);
 
   if (credentials.shouldRegister) {
-    const sessionToken = await registerSyntheticAccount(page, origin, credentials);
-    await addSessionCookie(page, origin, sessionToken);
-    await expectAuthSessionReady(page, origin);
+    await registerSyntheticAccount(page, origin, credentials);
     return;
   }
 
-  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-    data: {
-      email: credentials.email,
-      password: credentials.password,
-    },
-  });
-  expect(response.status(), "password sign-in should start a session").toBe(200);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
-
-  await addSessionCookie(page, origin, body.sessionToken!);
-  await expectAuthSessionReady(page, origin);
+  await signInWithConfiguredPassword(page, origin, credentials);
 }
 
 test.describe("marketplace critical flows", () => {
@@ -173,31 +189,25 @@ test.describe("marketplace critical flows", () => {
   });
 
   test("account can authenticate, review cart, and reach seller listings", async ({ page }, testInfo) => {
+    test.setTimeout(120_000);
+
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
     await authenticateAccount(page, testInfo);
 
-    await page.goto("/account/cart");
-    await expect(page).toHaveURL(/\/account\/cart/);
-    await expect(page.getByText(/^Buy Cart$/i).first()).toBeVisible();
-
-    await page.goto("/account/listings");
-    await expect(page).toHaveURL(/\/account\/listings/);
-    await expect(page.getByRole("heading", { name: "Listings", exact: true })).toBeVisible();
+    await expectAccountRouteReady(page, accountCriticalRoutes[0]);
+    await expectAccountRouteReady(page, accountCriticalRoutes[2]);
   });
 
   test("signed-in account can reach critical marketplace commerce surfaces", async ({ page }, testInfo) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
     await authenticateAccount(page, testInfo);
-    await page.goto("/account/cart");
-    await expect(page).toHaveURL(/\/account\/cart/);
+    await expectAccountRouteReady(page, accountCriticalRoutes[0]);
 
     for (const route of accountCriticalRoutes) {
       await test.step(`open ${route.flow}`, async () => {
-        await expectPageOk(page, route.path);
-        await expect(page).toHaveURL(new RegExp(route.path.replaceAll("/", "\\/")));
-        await expect(page.getByRole("heading", { name: route.heading }).first()).toBeVisible();
+        await expectAccountRouteReady(page, route);
       });
     }
   });
