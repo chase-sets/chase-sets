@@ -7,12 +7,15 @@ const {
   mockCreateMarketplaceRequestApiClient,
   mockCreateCheckoutRequestApiClient,
   mockAddSellListLine,
+  mockAddGuestSellListLine,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockCreateSubmittedOffer,
   mockAddGuestCartLine,
   mockAppendAnonymousCartCookie,
+  mockAppendAnonymousSellListCookie,
   mockEnsureAnonymousCartId,
+  mockEnsureAnonymousSellListId,
 } = vi.hoisted(() => ({
   mockAddCartLine: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
@@ -20,6 +23,7 @@ const {
   mockCreateMarketplaceRequestApiClient: vi.fn(),
   mockCreateCheckoutRequestApiClient: vi.fn(),
   mockAddSellListLine: vi.fn(),
+  mockAddGuestSellListLine: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateSubmittedOffer: vi.fn(),
@@ -27,7 +31,11 @@ const {
   mockAppendAnonymousCartCookie: vi.fn((headers: Headers, anonymousCartId: string) => {
     headers.append("Set-Cookie", `chase_sets_anonymous_cart=${anonymousCartId}`);
   }),
+  mockAppendAnonymousSellListCookie: vi.fn((headers: Headers, anonymousSellListId: string) => {
+    headers.append("Set-Cookie", `chase_sets_anonymous_sell_list=${anonymousSellListId}`);
+  }),
   mockEnsureAnonymousCartId: vi.fn(() => "anon_cart_1"),
+  mockEnsureAnonymousSellListId: vi.fn(() => "anon_sell_1"),
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -53,8 +61,10 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 
 vi.mock("@chase-sets/checkout/server", () => ({
   appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
+  appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
   ensureAnonymousCartId: mockEnsureAnonymousCartId,
+  ensureAnonymousSellListId: mockEnsureAnonymousSellListId,
 }));
 
 import { action, loader } from "../routes/item-detail";
@@ -350,7 +360,7 @@ describe("item detail buy now action", () => {
   });
 
   it("adds selected products to the Checkout-owned Sell List", async () => {
-    mockRequireActorFromAuthApi.mockResolvedValue({
+    mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",
       permissions: ["listings.manage"],
     });
@@ -383,9 +393,8 @@ describe("item detail buy now action", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockRequireActorFromAuthApi).toHaveBeenCalledWith({
+    expect(mockResolveActorFromAuthApi).toHaveBeenCalledWith({
       request: expect.any(Request),
-      permission: "listings.manage",
     });
     expect(mockAddSellListLine).toHaveBeenCalledWith({
       lineType: "product",
@@ -405,6 +414,59 @@ describe("item detail buy now action", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/sell-list");
+  });
+
+  it("adds signed-out product seller intent to an anonymous Sell List", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue({ id: "sll_1" }),
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-product-to-sell-list");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("quantity", "2");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+    } as never)) as Response;
+
+    expect(mockEnsureAnonymousSellListId).toHaveBeenCalledWith(expect.any(Request));
+    expect(mockAddGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", {
+      lineType: "product",
+      offerId: null,
+      buyerAccountId: null,
+      buyerDisplayName: null,
+      offerPriceAmount: null,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: "Base Set 4/102 Holo Rare",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw",
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+      quantity: 2,
+    });
+    expect(mockAppendAnonymousSellListCookie).toHaveBeenCalledWith(expect.any(Headers), "anon_sell_1");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
   it("starts signed-out buy now at guest checkout contact instead of sign-in", async () => {

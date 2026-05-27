@@ -5,16 +5,31 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import { readAnonymousSellListId } from "../support/request-support/guest-checkout";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
+
+function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
+  return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
-  if (!actor || actor.permissions.includes("guest-checkout.manage")) {
-    throw redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
+  const api = createCheckoutRequestApiClient(request);
+  const anonymousSellListId = readAnonymousSellListId(request);
+
+  if (!canUseAccountSellList(actor)) {
+    return {
+      isSignedIn: false,
+      sellList: await api.getGuestSellList(anonymousSellListId),
+    };
   }
 
-  const api = createCheckoutRequestApiClient(request);
+  if (anonymousSellListId) {
+    await api.mergeGuestSellListToAccount(anonymousSellListId);
+  }
+
   return {
+    isSignedIn: true,
     sellList: await api.getSellList(),
   };
 }
@@ -24,9 +39,16 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = String(formData.get("intent") ?? "");
   const api = createCheckoutRequestApiClient(request);
   const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const actor = await resolveActorFromAuthApi({ request });
+  const useAccountSellList = canUseAccountSellList(actor);
+  const anonymousSellListId = readAnonymousSellListId(request);
 
   try {
     if (intent === "add-selected-offer") {
+      if (!useAccountSellList) {
+        return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
+      }
+
       const offerId = String(formData.get("offerId") ?? "");
       const offer = await marketplaceApi.getOfferMatch(offerId);
 
@@ -51,6 +73,15 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "remove-sell-list-line") {
+      if (!useAccountSellList && anonymousSellListId) {
+        await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? ""));
+        return redirect("/account/sell-list");
+      }
+
+      if (!useAccountSellList) {
+        throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
+      }
+
       await api.removeSellListLine(String(formData.get("lineId") ?? ""));
       return redirect("/account/sell-list");
     }
@@ -73,5 +104,11 @@ export default function CheckoutAccountSellListRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return <CheckoutSellListPage sellListLines={data.sellList.items} errorMessage={actionData?.error ?? null} />;
+  return (
+    <CheckoutSellListPage
+      sellListLines={data.sellList.items}
+      isSignedIn={data.isSignedIn}
+      errorMessage={actionData?.error ?? null}
+    />
+  );
 }

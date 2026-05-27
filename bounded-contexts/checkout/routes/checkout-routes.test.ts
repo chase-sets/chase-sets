@@ -16,8 +16,11 @@ const {
   mockMergeGuestCartToAccount,
   mockGetCart,
   mockGetGuestCart,
+  mockGetGuestSellList,
   mockGetOfferMatch,
   mockAddSellListLine,
+  mockRemoveGuestSellListLine,
+  mockMergeGuestSellListToAccount,
 } = vi.hoisted(() => ({
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
@@ -34,8 +37,11 @@ const {
   mockMergeGuestCartToAccount: vi.fn(),
   mockGetCart: vi.fn(),
   mockGetGuestCart: vi.fn(),
+  mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
   mockAddSellListLine: vi.fn(),
+  mockRemoveGuestSellListLine: vi.fn(),
+  mockMergeGuestSellListToAccount: vi.fn(),
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -176,6 +182,7 @@ describe("checkout web routes", () => {
   });
 
   it("adds a Marketplace offer match to the Checkout-owned sell list", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockGetOfferMatch.mockResolvedValue({
       offer_id: "off_1",
       buyer_account_id: "acc_buyer",
@@ -228,6 +235,79 @@ describe("checkout web routes", () => {
       fallbackMode: "none",
       minimumListingPriceAmount: null,
     });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list");
+  });
+
+  it("shows anonymous Sell List lines before account creation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestSellList.mockResolvedValue({ items: [{ line_id: "sll_1", quantity: 1 }], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+    });
+
+    const { loader: accountSellListLoader } = await import("./account-sell-list");
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list", {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      isSignedIn: false,
+      sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
+    });
+    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+  });
+
+  it("merges anonymous Sell List lines after sign-in returns to Sell List review", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [], count: 0 })),
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+
+    const { loader: accountSellListLoader } = await import("./account-sell-list");
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list", {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.isSignedIn).toBe(true);
+    expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
+  });
+
+  it("removes anonymous Sell List lines before sign-in", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockRemoveGuestSellListLine.mockResolvedValue({ status: "removed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      removeGuestSellListLine: mockRemoveGuestSellListLine,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "remove-sell-list-line");
+    form.set("lineId", "sll_1");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockRemoveGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", "sll_1");
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/sell-list");
   });

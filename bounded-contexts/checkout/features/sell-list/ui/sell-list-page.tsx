@@ -1,5 +1,6 @@
 import {
   Badge,
+  Banner,
   Button,
   Card,
   Container,
@@ -43,9 +44,11 @@ function productOptionsFromSelectedOptions(selections: readonly { dimensionId: s
 
 export function CheckoutSellListPage({
   sellListLines,
+  isSignedIn = true,
   errorMessage = null,
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
+  isSignedIn?: boolean;
   errorMessage?: string | null;
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
@@ -68,6 +71,24 @@ export function CheckoutSellListPage({
             {t("checkout.features.sellList.ui.sellListPage.review.selected.offers.and.product.level")}
           </Text>
         </Stack>
+
+        {!isSignedIn ? (
+          <Banner
+            title={t("checkout.features.sellList.ui.sellListPage.saved.for.later.title")}
+            description={t("checkout.features.sellList.ui.sellListPage.saved.for.later.description")}
+            tone="info"
+            actions={
+              <Inline gap={2}>
+                <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list">
+                  {t("checkout.features.sellList.ui.sellListPage.create.account")}
+                </LinkButton>
+                <LinkButton href="/sign-in?returnTo=%2Faccount%2Fsell-list" tone="secondary">
+                  {t("checkout.features.sellList.ui.sellListPage.sign.in")}
+                </LinkButton>
+              </Inline>
+            }
+          />
+        ) : null}
 
         {errorMessage ? (
           <Card variant="feature">
@@ -210,12 +231,20 @@ export function CheckoutSellListPage({
               <Stack gap={2}>
                 <Text weight="semibold">{t("checkout.features.sellList.ui.sellListPage.smart.match.settings")}</Text>
                 <Text size="sm" tone="secondary">
-                  {t("checkout.features.sellList.ui.sellListPage.checkout.owns.the.review.step")}
+                  {isSignedIn
+                    ? t("checkout.features.sellList.ui.sellListPage.checkout.owns.the.review.step")
+                    : t("checkout.features.sellList.ui.sellListPage.sign.in.to.review.sale.checkout")}
                 </Text>
                 <Inline gap={2}>
-                  <Button type="button" disabled>
-                    {t("checkout.features.sellList.ui.sellListPage.review.sale.checkout")}
-                  </Button>
+                  {isSignedIn ? (
+                    <Button type="button" disabled>
+                      {t("checkout.features.sellList.ui.sellListPage.review.sale.checkout")}
+                    </Button>
+                  ) : (
+                    <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list">
+                      {t("checkout.features.sellList.ui.sellListPage.create.account")}
+                    </LinkButton>
+                  )}
                   <LinkButton href="/search" tone="secondary">
                     {t("checkout.features.sellList.ui.sellListPage.keep.selling")}
                   </LinkButton>

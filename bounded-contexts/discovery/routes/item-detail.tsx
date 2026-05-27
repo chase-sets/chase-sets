@@ -28,8 +28,10 @@ import {
 import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import {
   appendAnonymousCartCookie,
+  appendAnonymousSellListCookie,
   createCheckoutRequestApiClient,
   ensureAnonymousCartId,
+  ensureAnonymousSellListId,
 } from "@chase-sets/checkout/server";
 import { ItemDetailPage } from "../features/item-detail/ui/item-detail-page";
 import {
@@ -128,6 +130,10 @@ function buildRegisterToSellHref(request: Request) {
   const returnTo = `${url.pathname}${url.search}`;
 
   return `/register?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
+  return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
 }
 
 export function readInitialSelectedOptions(searchParams: URLSearchParams) {
@@ -536,13 +542,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "add-product-to-sell-list") {
-      await requireActorFromAuthApi({
-        request,
-        permission: "listings.manage",
-      });
+      const actor = await resolveActorFromAuthApi({ request });
 
       const item = await discoveryApi.getItemDetail(params.id!);
-      await checkoutApi.addSellListLine({
+      const sellListLine = {
         lineType: "product",
         offerId: null,
         buyerAccountId: null,
@@ -557,7 +560,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
         quantity: Number(formData.get("quantity") ?? 0),
         fallbackMode: "none",
         minimumListingPriceAmount: null,
-      });
+      } as const;
+
+      if (!canUseAccountSellList(actor)) {
+        const anonymousSellListId = ensureAnonymousSellListId(request);
+        await checkoutApi.addGuestSellListLine(anonymousSellListId, sellListLine);
+        const response = redirect("/account/sell-list");
+        appendAnonymousSellListCookie(response.headers, anonymousSellListId);
+        return response;
+      }
+
+      await checkoutApi.addSellListLine(sellListLine);
       return redirect("/account/sell-list");
     }
 
@@ -877,6 +890,7 @@ function DiscoveryItemDetailRealtimeView({
                   }
                   canUseSellerFeatures={data.canUseSellerFeatures}
                   canUseListingFeatures={data.canUseListingFeatures}
+                  canUseProductSellListFeatures={Boolean(context.selectedProductId)}
                   renderSellNow={(formId) =>
                     data.canUseSellerFeatures
                       ? renderOfferMatch(formId, "plain", undefined, true, "sell-now")
@@ -888,7 +902,7 @@ function DiscoveryItemDetailRealtimeView({
                       : renderSellerRegistration("plain", true, "offer")
                   }
                   renderAddProductToSellList={(formId) =>
-                    data.canUseListingFeatures ? (
+                    context.selectedProductId ? (
                       <ProductSellListIntentSection
                         formId={formId}
                         panelVariant="plain"

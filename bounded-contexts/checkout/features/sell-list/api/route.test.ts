@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
-import { createAccountSellListRoutes } from "./route";
+import { createAccountSellListRoutes, createGuestSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
 
 function buildApp(
@@ -30,6 +30,7 @@ function buildApp(
   });
 
   app.route("/account", createAccountSellListRoutes(options.services));
+  app.route("/guest", createGuestSellListRoutes(options.services));
 
   return app;
 }
@@ -38,6 +39,7 @@ function createServices(): CheckoutSellListServices {
   return {
     addLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 1, status: "added" })),
     removeLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 2 })),
+    mergeSellListIntoAccount: vi.fn(async () => ({ mergedLineCount: 1 })),
     listLines: vi.fn(async () => []),
     projectors: [],
   } as unknown as CheckoutSellListServices;
@@ -230,5 +232,70 @@ describe("checkout sell list routes", () => {
       },
     });
     expect(services.addLine).not.toHaveBeenCalled();
+  });
+
+  it("adds signed-out seller intent to an anonymous Sell List owner", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: null, services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-sell-list-id": "anon_sell_1",
+        },
+        body: JSON.stringify({
+          lineType: "product",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form=raw",
+          itemTitle: "Charizard",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          quantity: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.addLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sellerAccountId: "anon_sell_1",
+        lineType: "product",
+      }),
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_anonymous_sell_list",
+          performedByUserId: "usr_anonymous_sell_list",
+        }),
+      }),
+    );
+  });
+
+  it("merges anonymous Sell List lines into a signed-in account", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list/merge-to-account", {
+        method: "POST",
+        headers: {
+          "x-checkout-anonymous-sell-list-id": "anon_sell_1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ mergedLineCount: 1 });
+    expect(services.mergeSellListIntoAccount).toHaveBeenCalledWith(
+      {
+        sourceOwnerId: "anon_sell_1",
+        targetAccountId: "acc_seller",
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+        }),
+      }),
+    );
   });
 });
