@@ -651,6 +651,8 @@ jobs:
         if: steps.latest_main.outputs.should_deploy != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           CI: "true"
           PLAYWRIGHT_SKIP_WEB_SERVER: "true"
           MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || 'demo@chasesets.test' }}
@@ -679,6 +681,8 @@ jobs:
         if: steps.latest_main.outputs.should_deploy != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           SMOKE_REGISTER_SELLER: "true"
           SMOKE_SELLER_EMAIL: stripe-staging+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
           SMOKE_SELLER_PASSWORD: staging-stripe-${{ github.run_id }}-${{ github.run_attempt }}
