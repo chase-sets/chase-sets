@@ -46,6 +46,16 @@ Notes:
 - Platform imports resolve ordered external reference candidates through Catalog-owned product references.
 - Accepted import rows can create inventory and draft listings; rejected rows stay in review until product, quantity, location, or listing draft issues are resolved.
 
+## Import Source Profile
+
+An **Import Source Profile** is Inventory-owned configuration that describes how rows from a source platform become Inventory import rows.
+
+Notes:
+
+- A profile defines the source key, label, file/API kind, header aliases, quantity and price fields, seller SKU fields, listing draft fields, external reference candidates, candidate target intent, and selected option inference rules.
+- Small connectors parse files or fetch rows; profiles decide row semantics.
+- Profiles are seeded in code today so common platform migration paths work without manual setup.
+
 ## External Reference Candidate
 
 An **External Reference Candidate** is a provider-scoped identifier captured from an import row before Inventory resolves it to a Chase Sets Product.
@@ -53,7 +63,7 @@ An **External Reference Candidate** is a provider-scoped identifier captured fro
 Notes:
 
 - Examples include a TCGplayer SKU, eBay listing ID, Shopify variant ID, Whatnot product ID, CardTrader blueprint ID, or barcode.
-- Inventory tries candidates in adapter order and accepts the first mapped Catalog External Product Reference.
+- Inventory tries candidates in profile order and uses target intent to decide whether a candidate should check Catalog Item references, Product references, or future account SKU mappings.
 - External Reference Candidates are row evidence, not Inventory-owned product truth.
 
 ## Acquisition Cost

@@ -19,6 +19,7 @@ import {
 } from "@chase-sets/design-system";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
+import { inventoryImportSourceLabel, listInventoryImportSources } from "../domain/import-source-adapters";
 
 function statusTone(status: string) {
   switch (status) {
@@ -55,22 +56,10 @@ function rowOutcome(row: InventoryImportBatchRow) {
     : t("inventory.features.importBatches.ui.importBatchPage.no.outcome.yet");
 }
 
-function sourceLabel(sourceKey: string) {
-  switch (sourceKey) {
-    case "tcgplayer-csv":
-      return t("inventory.features.importBatches.ui.importBatchPage.tcgplayer");
-    case "ebay-csv":
-      return t("inventory.features.importBatches.ui.importBatchPage.ebay");
-    case "shopify-csv":
-      return t("inventory.features.importBatches.ui.importBatchPage.shopify");
-    case "whatnot-csv":
-      return t("inventory.features.importBatches.ui.importBatchPage.whatnot");
-    case "cardtrader-csv":
-      return t("inventory.features.importBatches.ui.importBatchPage.cardtrader");
-    default:
-      return t("inventory.features.importBatches.ui.importBatchPage.chase.sets");
-  }
-}
+const importSourceOptions = listInventoryImportSources().map((source) => ({
+  value: source.sourceKey,
+  label: source.label,
+}));
 
 export function InventoryImportBatchPage({
   batches,
@@ -142,7 +131,7 @@ export function InventoryImportBatchPage({
           {
             label: t("inventory.features.importBatches.ui.importBatchPage.source"),
             value: detail
-              ? sourceLabel(detail.source_key)
+              ? inventoryImportSourceLabel(detail.source_key)
               : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
             detail: detail
               ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
@@ -170,32 +159,7 @@ export function InventoryImportBatchPage({
                   label={t("inventory.features.importBatches.ui.importBatchPage.import.source")}
                   name="sourceKey"
                   defaultValue="native-csv"
-                  items={[
-                    {
-                      value: "native-csv",
-                      label: t("inventory.features.importBatches.ui.importBatchPage.chase.sets.csv"),
-                    },
-                    {
-                      value: "tcgplayer-csv",
-                      label: t("inventory.features.importBatches.ui.importBatchPage.tcgplayer.csv"),
-                    },
-                    {
-                      value: "ebay-csv",
-                      label: t("inventory.features.importBatches.ui.importBatchPage.ebay.csv"),
-                    },
-                    {
-                      value: "shopify-csv",
-                      label: t("inventory.features.importBatches.ui.importBatchPage.shopify.csv"),
-                    },
-                    {
-                      value: "whatnot-csv",
-                      label: t("inventory.features.importBatches.ui.importBatchPage.whatnot.csv"),
-                    },
-                    {
-                      value: "cardtrader-csv",
-                      label: t("inventory.features.importBatches.ui.importBatchPage.cardtrader.csv"),
-                    },
-                  ]}
+                  items={importSourceOptions}
                 />
                 <NativeSelect
                   label={t("inventory.features.importBatches.ui.importBatchPage.quantity.mode")}

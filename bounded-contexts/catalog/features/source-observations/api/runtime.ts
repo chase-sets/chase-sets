@@ -50,6 +50,12 @@ import {
   type TcgdexSetImportProgress,
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
+import {
+  getCatalogProviderIntegrationProfile,
+  listCatalogProviderIntegrationProfiles,
+  tcgdexPokemonTcgProviderProfile,
+  type CatalogProviderIntegrationProfile,
+} from "./provider-integration-profiles";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
 const BULK_REVIEW_JOB_BATCH_SIZE = 25;
@@ -959,9 +965,7 @@ export function createSourceObservationRuntime(
   > {
     throwIfJobRunCancelled(input.context);
     const scope = normalizeIntegrationJobScope(input.job.scope);
-    if (scope.provider && scope.provider !== "tcgdex") {
-      throw new Error(`Provider '${scope.provider}' does not support background import.`);
-    }
+    const providerProfile = requireCatalogImportProfile(scope.provider);
 
     const languageCode = scope.language || "en";
     const expansions = scope.setId
@@ -1002,6 +1006,7 @@ export function createSourceObservationRuntime(
     const outcome = await importIntegrationExpansion({
       expansion: nextExpansion,
       languageCode,
+      providerProfile,
       context: input.job.eventContext,
     });
     const result = summarizeIntegrationJobOutcomes(expansions.length, [...previousResult.outcomes, outcome]);
@@ -1073,7 +1078,7 @@ export function createSourceObservationRuntime(
     const outcomes: SourceObservationIntegrationJobOutcome[] = [
       ...previousResult.outcomes,
       ...batchResult.outcomes.map((outcome) => ({
-        providerKey: input.job.scope.provider || "tcgdex",
+        providerKey: input.job.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
         languageCode: input.job.scope.language || "",
         expansionId: outcome.observationId,
         status: outcome.status,
@@ -1098,9 +1103,7 @@ export function createSourceObservationRuntime(
     onProgress?: (progress: BulkSourceObservationProgress) => void;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = normalizeIntegrationJobScope(input.scope);
-    if (scope.provider && scope.provider !== "tcgdex") {
-      throw new Error(`Provider '${scope.provider}' does not support background import.`);
-    }
+    const providerProfile = requireCatalogImportProfile(scope.provider);
 
     const languageCode = scope.language || "en";
     const expansions = scope.setId
@@ -1125,7 +1128,7 @@ export function createSourceObservationRuntime(
           context: input.context,
         });
         outcomes.push({
-          providerKey: "tcgdex",
+          providerKey: providerProfile.providerKey,
           languageCode,
           expansionId: expansion.expansionId,
           status: "imported",
@@ -1135,7 +1138,7 @@ export function createSourceObservationRuntime(
         });
       } catch (error) {
         outcomes.push({
-          providerKey: "tcgdex",
+          providerKey: providerProfile.providerKey,
           languageCode,
           expansionId: expansion.expansionId,
           status: "failed",
@@ -1157,6 +1160,7 @@ export function createSourceObservationRuntime(
   async function importIntegrationExpansion(input: {
     expansion: Readonly<{ expansionId: string; name: string }>;
     languageCode: string;
+    providerProfile: CatalogProviderIntegrationProfile;
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJobOutcome> {
     try {
@@ -1166,7 +1170,7 @@ export function createSourceObservationRuntime(
         context: input.context,
       });
       return {
-        providerKey: "tcgdex",
+        providerKey: input.providerProfile.providerKey,
         languageCode: input.languageCode,
         expansionId: input.expansion.expansionId,
         status: "imported",
@@ -1176,7 +1180,7 @@ export function createSourceObservationRuntime(
       };
     } catch (error) {
       return {
-        providerKey: "tcgdex",
+        providerKey: input.providerProfile.providerKey,
         languageCode: input.languageCode,
         expansionId: input.expansion.expansionId,
         status: "failed",
@@ -1207,7 +1211,7 @@ export function createSourceObservationRuntime(
       skipped: result.skipped,
       failed: result.failed,
       outcomes: result.outcomes.map((outcome) => ({
-        providerKey: input.scope.provider || "tcgdex",
+        providerKey: input.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
         languageCode: input.scope.language || "",
         expansionId: input.scope.setId || null,
         status: outcome.status,
@@ -1301,12 +1305,29 @@ async function listProviderIntegrationOptions(input: {
   languageCode?: string | null;
   parentValue?: string | null;
 }): Promise<readonly SourceObservationIntegrationOption[]> {
-  const providerKey = normalizeIntegrationKey(input.providerKey || "tcgdex");
+  const providerKey = normalizeIntegrationKey(input.providerKey || tcgdexPokemonTcgProviderProfile.providerKey);
   const queryKind = normalizeIntegrationKey(input.queryKind);
   const languageCode = normalizeIntegrationKey(input.languageCode || "en");
   const parentValue = input.parentValue?.trim() || null;
 
-  if (providerKey !== "tcgdex") {
+  if (queryKind === "providers" || queryKind === "provider") {
+    return listCatalogProviderIntegrationProfiles().map((profile) => ({
+      providerKey: profile.providerKey,
+      queryKind: "providers",
+      value: profile.providerKey,
+      label: profile.label,
+      description: profile.capabilities.join(", "),
+      parentValue: null,
+      imageUrl: null,
+      metadata: {
+        providerKey: profile.providerKey,
+        supportedScopes: profile.supportedScopes.join(","),
+      },
+    }));
+  }
+
+  const profile = getCatalogProviderIntegrationProfile(providerKey);
+  if (!profile) {
     throw new Error(`Unsupported Catalog integration provider: ${providerKey}.`);
   }
 
@@ -1367,7 +1388,11 @@ async function listProviderIntegrationOptions(input: {
     }));
   }
 
-  throw new Error(`Unsupported Catalog integration query: ${queryKind}.`);
+  throw new Error(
+    `Unsupported Catalog integration query '${queryKind}' for provider '${profile.providerKey}'. Supported queries: ${profile.optionQueries
+      .map((query) => query.queryKind)
+      .join(", ")}.`,
+  );
 }
 
 function formatExpansionOptionDescription(item: TcgdexExpansionOption): string | null {
@@ -1383,6 +1408,16 @@ function formatExpansionOptionDescription(item: TcgdexExpansionOption): string |
 
 function normalizeIntegrationKey(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function requireCatalogImportProfile(providerKey: string | null | undefined): CatalogProviderIntegrationProfile {
+  const normalizedProvider = normalizeIntegrationKey(providerKey || tcgdexPokemonTcgProviderProfile.providerKey);
+  const profile = getCatalogProviderIntegrationProfile(normalizedProvider);
+  if (!profile || !profile.capabilities.includes("source-observation-import")) {
+    throw new Error(`Provider '${normalizedProvider}' does not support background import.`);
+  }
+
+  return profile;
 }
 
 async function createCatalogDraftFromObservation(input: {
@@ -1637,7 +1672,7 @@ async function formatPokemonCardPromotionMetadata(input: {
 function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string[] {
   return [
     "pokemon",
-    "tcgdex",
+    tcgdexPokemonTcgProviderProfile.providerKey,
     `expansion:${normalized.expansionId}`,
     `category:${normalized.category.toLowerCase()}`,
     `variant:${normalized.cardVariantKey}`,
@@ -1707,7 +1742,7 @@ async function findPartiallyPromotedCatalogItemIdForObservation(input: {
 }): Promise<CatalogItemId | null> {
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
   const reusableTags = [
-    "tcgdex",
+    tcgdexPokemonTcgProviderProfile.providerKey,
     `expansion:${input.normalized.expansionId}`,
     `variant:${input.normalized.cardVariantKey}`,
   ];
@@ -1801,7 +1836,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
     key: "series",
     name: "Series",
     description: "An official Pokemon TCG series that groups expansions.",
-    attributeKeys: ["tcgdex-series-id"],
+    attributeKeys: [providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "series")],
   });
   await ensureReferenceType(input, {
     referenceTypeId: catalogSeedIds.referenceTypes.expansion as ReferenceTypeId,
@@ -1814,7 +1849,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
       "parallel-set-card-count",
       "printed-card-count",
       "release-date",
-      "tcgdex-set-id",
+      providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "expansion"),
     ],
   });
 
@@ -1840,18 +1875,24 @@ export async function ensurePokemonReferenceHierarchy(input: {
   });
   const seriesReferenceId = input.normalized.seriesName
     ? await ensureReferenceRecord(input, {
-        referenceRecordId: tcgdexReferenceRecordId("series", input.normalized.seriesId || input.normalized.seriesName),
+        referenceRecordId: providerReferenceRecordId(
+          tcgdexPokemonTcgProviderProfile,
+          "series",
+          input.normalized.seriesId || input.normalized.seriesName,
+        ),
         typeKey: "series",
         key: normalizeReferenceKey(input.normalized.seriesName),
         name: input.normalized.seriesName,
         description: `${input.normalized.seriesName} Pokemon TCG series.`,
-        attributes: input.normalized.seriesId ? { "tcgdex-series-id": input.normalized.seriesId } : {},
+        attributes: input.normalized.seriesId
+          ? { [providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "series")]: input.normalized.seriesId }
+          : {},
         relationships: [{ relationshipType: "part-of", referenceId: productLineId }],
       })
     : productLineId;
 
   const expansionAttributes: Record<string, JsonValue> = {
-    "tcgdex-set-id": input.normalized.expansionId,
+    [providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "expansion")]: input.normalized.expansionId,
   };
 
   if (input.normalized.releaseDate) {
@@ -1871,7 +1912,11 @@ export async function ensurePokemonReferenceHierarchy(input: {
   }
 
   return ensureReferenceRecord(input, {
-    referenceRecordId: tcgdexReferenceRecordId("expansion", input.normalized.expansionId),
+    referenceRecordId: providerReferenceRecordId(
+      tcgdexPokemonTcgProviderProfile,
+      "expansion",
+      input.normalized.expansionId,
+    ),
     typeKey: "expansion",
     key: normalizeReferenceKey(input.normalized.expansionName),
     name: input.normalized.expansionName,
@@ -2046,7 +2091,9 @@ async function findReferenceRecordByProviderAttribute(
   },
 ): Promise<ReferenceRecordId | null> {
   const providerAttributeKey =
-    def.typeKey === "series" ? "tcgdex-series-id" : def.typeKey === "expansion" ? "tcgdex-set-id" : null;
+    def.typeKey === "series" || def.typeKey === "expansion"
+      ? providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, def.typeKey)
+      : null;
   const providerAttributeValue = providerAttributeKey ? def.attributes?.[providerAttributeKey] : null;
 
   if (typeof providerAttributeValue !== "string" || providerAttributeValue.trim().length === 0) {
@@ -2078,6 +2125,7 @@ async function loadPokemonTcgPromotionProfile(deps: CatalogRuntimeDeps): Promise
     releaseYear: FieldId;
   };
 }> {
+  const mapping = tcgdexPokemonTcgProviderProfile.catalogFieldMapping;
   const [
     blueprintId,
     singlesCategoryId,
@@ -2089,15 +2137,15 @@ async function loadPokemonTcgPromotionProfile(deps: CatalogRuntimeDeps): Promise
     cardIllustrator,
     releaseYear,
   ] = await Promise.all([
-    requireCatalogIdByKey<BlueprintId>(deps, "catalog_blueprints", "blueprint_id", "pokemon-card-single"),
-    requireCatalogIdByKey<CategoryId>(deps, "catalog_categories", "category_id", "singles"),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-number"),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-name"),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "expansion"),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "rarity"),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-variant"),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "card-illustrator"),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", "release-year"),
+    requireCatalogIdByKey<BlueprintId>(deps, "catalog_blueprints", "blueprint_id", mapping.blueprintKey),
+    requireCatalogIdByKey<CategoryId>(deps, "catalog_categories", "category_id", mapping.categoryKey),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardNumber),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardName),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.expansion),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.rarity),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardVariant),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardIllustrator),
+    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.releaseYear),
   ]);
 
   return {
@@ -2128,7 +2176,7 @@ async function requireCatalogIdByKey<TId extends string>(
   const id = existing.rows[0]?.id;
   if (!id) {
     throw new Error(
-      `TCGdex promotion requires active Catalog ${tableName} key '${key}'. Run the Catalog integration bootstrap first.`,
+      `${tcgdexPokemonTcgProviderProfile.label} promotion requires active Catalog ${tableName} key '${key}'. Run the Catalog integration bootstrap first.`,
     );
   }
 
@@ -2152,8 +2200,24 @@ function normalizeReferenceKey(value: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
-function tcgdexReferenceRecordId(typeKey: "series" | "expansion", providerId: string): ReferenceRecordId {
-  return `ref_tcgdex_${typeKey}_${normalizeReferenceKey(providerId).replace(/-/g, "_")}` as ReferenceRecordId;
+function providerReferenceAttributeKey(
+  profile: CatalogProviderIntegrationProfile,
+  typeKey: "series" | "expansion",
+): string {
+  const rule = profile.referenceHierarchyMapping.providerAttributes.find((candidate) => candidate.typeKey === typeKey);
+  if (!rule) {
+    throw new Error(`${profile.label} provider profile is missing a ${typeKey} reference attribute mapping.`);
+  }
+
+  return rule.providerAttributeKey;
+}
+
+function providerReferenceRecordId(
+  profile: CatalogProviderIntegrationProfile,
+  typeKey: "series" | "expansion",
+  providerId: string,
+): ReferenceRecordId {
+  return `${profile.referenceHierarchyMapping.providerReferenceIdPrefix}_${typeKey}_${normalizeReferenceKey(providerId).replace(/-/g, "_")}` as ReferenceRecordId;
 }
 
 function localizedJsonText(value: string): JsonObject {

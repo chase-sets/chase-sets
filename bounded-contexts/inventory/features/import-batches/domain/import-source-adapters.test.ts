@@ -48,6 +48,12 @@ describe("inventory import source adapters", () => {
         {
           providerKey: "tcgplayer",
           externalKey: "sku:tcg_sku_1",
+          targetIntent: "product-reference",
+        },
+        {
+          providerKey: "account",
+          externalKey: "sku:box-1",
+          targetIntent: "account-sku",
         },
       ],
       values: {

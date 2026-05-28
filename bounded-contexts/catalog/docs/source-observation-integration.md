@@ -10,7 +10,7 @@ External providers never write canonical Catalog Items directly. Provider integr
 
 TCGdex is the first provider.
 
-The integration imports one configured Pokemon TCG expansion in one language from live TCGdex REST endpoints. TCGdex names this provider resource `set`; Catalog maps it to Pokemon's official `Expansion` language:
+The integration imports one configured Pokemon TCG expansion in one language from live TCGdex REST endpoints. TCGdex names this provider resource `set`; Catalog maps it to Pokemon's official `Expansion` language. Endpoint paths, supported languages, lookup scopes, variant mapping, promotion keys, provider reference attributes, marketplace identifier extraction, and ambiguity policy are seeded in the TCGdex Catalog Provider Integration Profile; the connector only fetches provider JSON:
 
 - `https://api.tcgdex.net/v2/{language}/series`
 - `https://api.tcgdex.net/v2/{language}/series/{seriesId}`
@@ -20,7 +20,7 @@ The integration imports one configured Pokemon TCG expansion in one language fro
 
 The Catalog Integrations admin import flow preloads Catalog-facing language and optional Series choices before provider pull jobs. Operators choose a language and may narrow to one Series; leaving Series as `All Series` imports every TCGdex Expansion for that language. Row-level resync imports one provider, language, and Expansion scope from the existing integration summary. Raw expansion IDs remain accepted at the API boundary for compatibility and scripted operations, but routine admin loading should not require manually looking up provider IDs.
 
-Catalog exposes provider-specific import lookup data through a provider-neutral Integration Options query. The query is scoped by provider and option kind, then accepts provider-specific parent inputs such as language or Series. TCGdex currently supports `languages`, `series`, and `expansions`; future providers should add new option kinds behind the same Source Observations API instead of adding deployable-owned lookup routes. Option values may remain provider IDs, but visible labels should use Catalog-facing language such as Language, Series, and Expansion.
+Catalog exposes provider-specific import lookup data through a provider-neutral Integration Options query. The query is scoped by provider and option kind, then accepts provider-specific parent inputs such as language or Series. TCGdex currently supports `providers`, `languages`, `series`, and `expansions`; future providers should add new profile-backed option kinds behind the same Source Observations API instead of adding deployable-owned lookup routes. Option values may remain provider IDs, but visible labels should use Catalog-facing language such as Language, Series, and Expansion.
 
 Import also ensures the Pokemon Reference Type and Reference Record hierarchy for the selected Expansion before recording Source Observations. Promotion still verifies the same hierarchy as a replay-safe safeguard. Existing Reference Records are reused by Catalog keys or by TCGdex provider attributes so replaying imports or importing another language for the same provider Series/Expansion does not create duplicate provider reference facts.
 
@@ -54,6 +54,8 @@ Discovery consumes promoted Catalog facts through projections. Pricing may later
 Stored TCGdex source payloads are sanitized before persistence; provider pricing fields are stripped from the observation payload and from the source-record hash.
 
 TCGdex marketplace identifiers are mapping evidence, not pricing truth. When TCGdex exposes unambiguous TCGplayer or Cardmarket Product IDs for a card variant, promotion links them as Catalog Item-level external references such as `tcgplayer:product:490001` or `cardmarket:product:880001`. TCGplayer SKUs remain separate Product-level references because they identify sellable provider SKUs with selected options; TCGdex Product IDs must not be used as SKU mappings.
+
+The profile marks these extracted marketplace IDs as Catalog Item-level references. Product-level SKU references are linked separately through Catalog Item Product references, where the selected Product options are known. This distinction lets Inventory imports resolve a TCGplayer Product ID to the card print and a TCGplayer SKU to the exact sellable Product without requiring sellers to pick products row by row.
 
 ## Promotion
 
