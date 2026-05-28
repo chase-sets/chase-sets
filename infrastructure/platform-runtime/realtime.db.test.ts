@@ -15,12 +15,15 @@ import {
 } from "./realtime";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
-const maybeDescribe = adminDatabaseUrl ? describe : describe.skip;
 
-maybeDescribe("realtime outbox Postgres integration", () => {
+describe("realtime outbox Postgres integration", () => {
   let pools: Readonly<Record<"realtime", PgTransactionalPool>>;
 
   beforeAll(async () => {
+    if (!adminDatabaseUrl) {
+      throw new Error("TEST_DATABASE_URL is required for platform-runtime realtime DB tests.");
+    }
+
     const databaseUrls = createMultiContextTestDatabaseUrls(adminDatabaseUrl!, ["realtime"], "platform_realtime");
     await ensureMultiContextTestDatabases(adminDatabaseUrl!, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);

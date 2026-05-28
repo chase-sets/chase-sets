@@ -26,7 +26,6 @@ import { createDiscoveryServices } from "../../support/runtime-support/services"
 import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
 const discoveryContextNames = ["catalog", "identity", "marketplace", "reputation", "discovery"] as const;
 
 function requireDatabaseBaseUrl(): string {
@@ -79,7 +78,7 @@ const itemSeed = {
   japaneseItemId: "cat_japanese_charizard",
 };
 
-describeWithDatabase("marketplace search", () => {
+describe("marketplace search", () => {
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
       requireDatabaseBaseUrl(),

@@ -186,8 +186,10 @@ export async function runWorkspaceScripts(options) {
   const parsed = parseRunWorkspacesArgs(argv);
 
   if (parsed.scriptName.startsWith("test")) {
+    const includeTestDatabaseUrl =
+      parsed.scriptName === "test:db" || (parsed.scriptName === "test" && parsed.excludeTestProfile !== "db");
     loadEnvironment({
-      includeTestDatabaseUrl: parsed.excludeTestProfile !== "db",
+      includeTestDatabaseUrl,
     });
   }
 

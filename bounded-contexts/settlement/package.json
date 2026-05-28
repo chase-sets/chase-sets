@@ -9,7 +9,9 @@
   "scripts": {
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:fast": "vitest run --config ./tests/vitest.config.mjs --exclude tests/seed.test.ts"
+    "test:fast": "vitest run --config ./tests/vitest.config.mjs --exclude tests/seed.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude tests/seed.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs tests/seed.test.ts"
   },
   "exports": {
     ".": "./index.ts",

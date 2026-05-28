@@ -28,6 +28,15 @@ const deploymentScriptPatterns = [
   /^scripts\/stripe-money-smoke-test/,
   /^scripts\/apply-digitalocean-database-grant\.mjs$/,
 ];
+const marketplaceE2ePatterns = [
+  /^playwright\.config\.ts$/,
+  /^deployables\/marketplace\//,
+  /^deployables\/platform-api\//,
+  /^packages\/design-system\//,
+  /^bounded-contexts\/[^/]+\/routes\//,
+  /^bounded-contexts\/[^/]+\/features\/[^/]+\/(api|ui)\//,
+  /^bounded-contexts\/[^/]+\/support\/shell-support\//,
+];
 
 function normalizeFilePath(filePath) {
   return normalizePath(filePath).replace(/^\.\//, "");
@@ -39,6 +48,10 @@ function matchesAny(filePath, patterns) {
 
 function isDocsOnlyFile(filePath) {
   return matchesAny(filePath, docsOnlyPatterns);
+}
+
+function requiresMarketplaceE2e(filePath) {
+  return matchesAny(filePath, marketplaceE2ePatterns);
 }
 
 function workspaceDependencyNames(workspace) {
@@ -108,9 +121,12 @@ export function classifyChanges({
   let rootRuntimeChanged = false;
   let deploymentScriptChanged = false;
   let scriptOrConfigChanged = false;
+  let marketplaceE2eChanged = false;
   let nonDocumentationChanged = false;
 
   for (const filePath of normalizedFiles) {
+    marketplaceE2eChanged ||= requiresMarketplaceE2e(filePath);
+
     const workspace = workspaceForFile(filePath, workspaces, baseDir);
     if (workspace) {
       directlyAffectedWorkspaces.add(workspace.name);
@@ -158,9 +174,9 @@ export function classifyChanges({
     unitTestsRequired: affectedWorkspaces.length > 0,
     dbTestsRequired: affectedWorkspaces.some((workspaceName) => {
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
-      return workspace?.packageJson.chaseSets?.testProfile === "db";
+      return typeof workspace?.packageJson.scripts?.["test:db"] === "string";
     }),
-    e2eTestsRequired: runtimeChanged,
+    e2eTestsRequired: marketplaceE2eChanged,
     buildRequired: affectedWorkspaces.length > 0 || rootRuntimeChanged,
     dockerImageRequired,
     terraformRequired,

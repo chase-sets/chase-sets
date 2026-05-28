@@ -31,7 +31,6 @@ import { createInventoryServices } from "../../support/runtime-support/services"
 import { module as inventoryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
 const inventoryContextNames = ["catalog", "ordering", "inventory"] as const;
 type InventoryAcceptanceRuntime = {
   mountedContexts: readonly MountedContextRuntimeEntry[];
@@ -75,7 +74,7 @@ async function countEvents(pool: PgTransactionalPool, prefix: string) {
   return Number(result.rows[0]?.count ?? 0);
 }
 
-describeWithDatabase("inventory api", () => {
+describe("inventory api", () => {
   let databaseUrls: Readonly<Record<(typeof inventoryContextNames)[number], string>>;
   let pools: Readonly<Record<(typeof inventoryContextNames)[number], PgTransactionalPool>>;
   let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;

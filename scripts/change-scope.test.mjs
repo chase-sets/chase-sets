@@ -55,14 +55,22 @@ describe("change-scope", () => {
     expect(scope.deployRequired).toBe(true);
   });
 
-  it("detects DB-profile tests only when an affected workspace uses the DB profile", () => {
+  it("detects DB tests only when an affected workspace publishes a DB test script", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const fastScope = classifyChanges({
       baseDir,
       changedFiles: ["packages/design-system/button.tsx"],
       workspaces: [
         workspace(baseDir, "packages", "design-system", "@test/design-system"),
-        workspace(baseDir, "deployables", "platform-api", "@test/platform-api", {}, { testProfile: "db" }),
+        {
+          ...workspace(baseDir, "deployables", "platform-api", "@test/platform-api", {}, { testProfile: "db" }),
+          packageJson: {
+            name: "@test/platform-api",
+            dependencies: {},
+            chaseSets: { testProfile: "db" },
+            scripts: { "test:db": "test:db" },
+          },
+        },
       ],
     });
 
@@ -73,7 +81,15 @@ describe("change-scope", () => {
       changedFiles: ["deployables/platform-api/src/main.ts"],
       workspaces: [
         workspace(baseDir, "packages", "design-system", "@test/design-system"),
-        workspace(baseDir, "deployables", "platform-api", "@test/platform-api", {}, { testProfile: "db" }),
+        {
+          ...workspace(baseDir, "deployables", "platform-api", "@test/platform-api", {}, { testProfile: "db" }),
+          packageJson: {
+            name: "@test/platform-api",
+            dependencies: {},
+            chaseSets: { testProfile: "db" },
+            scripts: { "test:db": "test:db" },
+          },
+        },
       ],
     });
 
@@ -86,7 +102,15 @@ describe("change-scope", () => {
       baseDir,
       changedFiles: ["bounded-contexts/catalog/tests/catalog-authoring/acceptance/admin-page-projections.test.ts"],
       workspaces: [
-        workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog", {}, { testProfile: "db" }),
+        {
+          ...workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog", {}, { testProfile: "db" }),
+          packageJson: {
+            name: "@test/catalog",
+            dependencies: {},
+            chaseSets: { testProfile: "db" },
+            scripts: { "test:db": "test:db" },
+          },
+        },
         workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery", {
           "@test/catalog": "workspace:*",
         }),
@@ -96,6 +120,63 @@ describe("change-scope", () => {
     expect(scope.affectedWorkspaces).toEqual(["@test/catalog", "@test/discovery"]);
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(true);
+  });
+
+  it("requires DB tests only for affected workspaces that publish a DB test script", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["deployables/admin-support-api/__tests__/config.test.ts"],
+      workspaces: [
+        {
+          ...workspace(
+            baseDir,
+            "deployables",
+            "admin-support-api",
+            "@test/admin-support-api",
+            {},
+            { testProfile: "db" },
+          ),
+          packageJson: {
+            name: "@test/admin-support-api",
+            dependencies: {},
+            chaseSets: { testProfile: "db" },
+            scripts: { test: "test", "test:unit": "test:unit" },
+          },
+        },
+      ],
+    });
+
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.dbTestsRequired).toBe(false);
+  });
+
+  it("narrows E2E requirements to marketplace-facing user journey surfaces", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const domainScope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/ordering/features/orders/domain/domain.ts"],
+      workspaces: [workspace(baseDir, "bounded-contexts", "ordering", "@test/ordering")],
+    });
+
+    expect(domainScope.unitTestsRequired).toBe(true);
+    expect(domainScope.e2eTestsRequired).toBe(false);
+
+    const routeScope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/marketplace/routes/account-listing.tsx"],
+      workspaces: [workspace(baseDir, "bounded-contexts", "marketplace", "@test/marketplace")],
+    });
+
+    expect(routeScope.e2eTestsRequired).toBe(true);
+
+    const deployableScope = classifyChanges({
+      baseDir,
+      changedFiles: ["deployables/marketplace/app/routes/account-listing.test.tsx"],
+      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+    });
+
+    expect(deployableScope.e2eTestsRequired).toBe(true);
   });
 
   it("keeps workflow-only changes out of deployment", () => {

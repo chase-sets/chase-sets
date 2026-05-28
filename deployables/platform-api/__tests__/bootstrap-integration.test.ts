@@ -19,7 +19,6 @@ import { apiContextRegistry } from "../src/generated/api-context-registry";
 import type { PlatformApiContextName } from "../src/config";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
 const platformApiContextNames = getApiHostContextNames(apiContextRegistry, "platform-api");
 
 type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
@@ -41,7 +40,7 @@ function requireDatabaseBaseUrl(): string {
   return databaseBaseUrl;
 }
 
-describeWithDatabase("platform api bootstrap", () => {
+describe("platform api bootstrap", () => {
   let pools: PlatformApiTestPools;
 
   beforeAll(async () => {
