@@ -2234,6 +2234,29 @@ export async function runStructureCheck(options = {}) {
         );
       }
 
+      if (
+        normalizedFile.startsWith("bounded-contexts/") &&
+        normalizedFile.endsWith("/api/route.ts") &&
+        !normalizedFile.endsWith("/source-observations/api/route.ts") &&
+        /\benqueue[A-Za-z0-9_]*Job\b/.test(content) &&
+        /return\s+c\.json\(\s*job\s*,\s*202\s*\)/.test(content)
+      ) {
+        addViolation(
+          file,
+          "durable job enqueue routes must return a public job status snapshot, not the private worker job record",
+        );
+      }
+
+      if (
+        (normalizedFile === "deployables/platform-worker/src/main.ts" ||
+          normalizedFile === "deployables/admin-support-worker/src/main.ts") &&
+        /name:\s*"catalog\.authoring-bulk-jobs",\s*\n\s*kind:\s*"job",\s*\n\s*runOnce:\s*async\s*\(\s*\)\s*=>/.test(
+          content,
+        )
+      ) {
+        addViolation(file, "catalog authoring durable jobs must receive worker cancellation and lease-loss context");
+      }
+
       if (normalizedFile !== "scripts/check-structure/run.mjs" && retiredPanelDrawerPattern.test(content)) {
         addViolation(
           file,

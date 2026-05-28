@@ -67,7 +67,13 @@ export type CatalogAuthoringBulkJobServices = Readonly<{
   get: (jobId: string) => Promise<CatalogAuthoringBulkJob | null>;
   listActive: () => Promise<readonly CatalogAuthoringBulkJob[]>;
   listEvents: (jobId: string, afterSequence?: number) => Promise<readonly CatalogAuthoringBulkJobEvent[]>;
-  processNext: (input: { claimOwnerId: string; claimTtlMs?: number; services: CatalogServices }) => Promise<boolean>;
+  processNext: (input: {
+    claimOwnerId: string;
+    claimTtlMs?: number;
+    services: CatalogServices;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }) => Promise<boolean>;
 }>;
 
 const storeTables = {
@@ -120,35 +126,50 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
 
       const context = job.eventContext;
       if (!context) {
-        await store.fail({
-          jobId: job.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: progress("failed"),
-          errorMessage: "Catalog authoring bulk job is missing event context.",
-        });
+        await requireCatalogAuthoringBulkJobClaim(
+          store.fail({
+            jobId: job.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: progress("failed"),
+            errorMessage: "Catalog authoring bulk job is missing event context.",
+          }),
+        );
         return true;
       }
 
       try {
-        await store.updateProgress({
-          jobId: job.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: progress("running"),
-        });
+        throwIfCatalogAuthoringBulkJobCancelled(input);
+        await requireCatalogAuthoringBulkJobClaim(
+          store.updateProgress({
+            jobId: job.jobId,
+            claimOwnerId: input.claimOwnerId,
+            claimTtlMs,
+            progress: progress("running"),
+          }),
+        );
+        throwIfCatalogAuthoringBulkJobCancelled(input);
         const result = await executeCatalogAuthoringBulkJob(input.services, job.payload, context);
-        await store.complete({
-          jobId: job.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: progress("completed"),
-          result,
-        });
+        throwIfCatalogAuthoringBulkJobCancelled(input);
+        await requireCatalogAuthoringBulkJobClaim(
+          store.complete({
+            jobId: job.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: progress("completed"),
+            result,
+          }),
+        );
       } catch (error) {
-        await store.fail({
-          jobId: job.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: progress("failed"),
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
+        if (isCatalogAuthoringBulkJobHandoff(error, input)) {
+          return false;
+        }
+        await requireCatalogAuthoringBulkJobClaim(
+          store.fail({
+            jobId: job.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: progress("failed"),
+            errorMessage: error instanceof Error ? error.message : String(error),
+          }),
+        );
       }
 
       return true;
@@ -241,4 +262,24 @@ function progress(phase: CatalogAuthoringBulkJobProgress["phase"]): CatalogAutho
     currentName: null,
     status: phase,
   };
+}
+
+async function requireCatalogAuthoringBulkJobClaim(succeeded: Promise<boolean> | boolean) {
+  if (!(await succeeded)) {
+    throw new Error("Catalog authoring bulk job claim was lost before the status update completed.");
+  }
+}
+
+function throwIfCatalogAuthoringBulkJobCancelled(input: { signal?: AbortSignal; throwIfLeaseLost?: () => void }) {
+  input.throwIfLeaseLost?.();
+  if (input.signal?.aborted) {
+    throw new Error("Catalog authoring bulk job was cancelled.");
+  }
+}
+
+function isCatalogAuthoringBulkJobHandoff(error: unknown, input?: { signal?: AbortSignal }) {
+  return (
+    input?.signal?.aborted ||
+    (error instanceof Error && (error.message.startsWith("Lost lease ") || error.message.includes("claim was lost")))
+  );
 }

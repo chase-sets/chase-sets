@@ -290,7 +290,13 @@ function createCatalogBulkJobRunners(
           }) => Promise<number>;
         };
         authoringBulkJobs?: {
-          processNext?: (input: { claimOwnerId: string; claimTtlMs: number; services: never }) => Promise<boolean>;
+          processNext?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            services: never;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<boolean>;
         };
       }
     | undefined;
@@ -340,11 +346,13 @@ function createCatalogBulkJobRunners(
     runners.push({
       name: "catalog.authoring-bulk-jobs",
       kind: "job",
-      runOnce: async () => ({
+      runOnce: async (context) => ({
         processed: (await processNextAuthoringBulkJob({
           claimOwnerId: input.workerId,
           claimTtlMs: input.leaseTtlMs * 4,
           services: catalog as never,
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
         }))
           ? 1
           : 0,

@@ -20,14 +20,38 @@ export type DurableJobRecord<TPayload, TProgress, TResult> = Readonly<{
   updatedAt: string;
 }>;
 
-export type DurableJobEvent<TPayload, TProgress, TResult> = Readonly<{
+export type DurableJobPublicSnapshot<TProgress, TResult> = Readonly<{
+  jobId: string;
+  jobKind: string;
+  status: DurableJobStatus;
+  progress: TProgress;
+  result: TResult | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}>;
+
+export type DurableJobEvent<
+  _TPayload,
+  TProgress,
+  TResult,
+  TSnapshot = DurableJobPublicSnapshot<TProgress, TResult>,
+> = Readonly<{
   sequence: number;
   eventName: "status";
-  job: DurableJobRecord<TPayload, TProgress, TResult>;
+  job: TSnapshot;
+  snapshot: TSnapshot;
   createdAt: string;
 }>;
 
-export type DurableJobStore<TPayload, TProgress, TResult> = Readonly<{
+export type DurableJobStore<
+  TPayload,
+  TProgress,
+  TResult,
+  TSnapshot = DurableJobPublicSnapshot<TProgress, TResult>,
+> = Readonly<{
   enqueue: (input: {
     jobId: string;
     jobKind: string;
@@ -43,9 +67,11 @@ export type DurableJobStore<TPayload, TProgress, TResult> = Readonly<{
   updateProgress: (input: {
     jobId: string;
     claimOwnerId: string;
+    claimTtlMs: number;
     progress: TProgress;
     result?: TResult | null;
   }) => Promise<boolean>;
+  renewClaim: (input: { jobId: string; claimOwnerId: string; claimTtlMs: number }) => Promise<boolean>;
   complete: (input: { jobId: string; claimOwnerId: string; progress: TProgress; result: TResult }) => Promise<boolean>;
   fail: (input: { jobId: string; claimOwnerId: string; progress: TProgress; errorMessage: string }) => Promise<boolean>;
   get: (jobId: string) => Promise<DurableJobRecord<TPayload, TProgress, TResult> | null>;
@@ -55,7 +81,7 @@ export type DurableJobStore<TPayload, TProgress, TResult> = Readonly<{
   listEvents: (
     jobId: string,
     afterSequence?: number,
-  ) => Promise<readonly DurableJobEvent<TPayload, TProgress, TResult>[]>;
+  ) => Promise<readonly DurableJobEvent<TPayload, TProgress, TResult, TSnapshot>[]>;
 }>;
 
 type DurableJobTables = Readonly<{
@@ -129,14 +155,27 @@ CREATE INDEX IF NOT EXISTS ${eventsTable}_lookup_idx
 `;
 }
 
-export function createPostgresDurableJobStore<TPayload, TProgress, TResult>(
+export function createPostgresDurableJobStore<
+  TPayload,
+  TProgress,
+  TResult,
+  TSnapshot = DurableJobPublicSnapshot<TProgress, TResult>,
+>(
   db: PgQueryable,
   tables: DurableJobTables,
-): DurableJobStore<TPayload, TProgress, TResult> {
+  options: {
+    eventSnapshot?: (job: DurableJobRecord<TPayload, TProgress, TResult>) => TSnapshot;
+  } = {},
+): DurableJobStore<TPayload, TProgress, TResult, TSnapshot> {
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
+  const eventSnapshot =
+    options.eventSnapshot ??
+    ((job: DurableJobRecord<TPayload, TProgress, TResult>) =>
+      toDurableJobPublicSnapshot<TPayload, TProgress, TResult>(job) as TSnapshot);
 
   async function appendEvent(job: DurableJobRecord<TPayload, TProgress, TResult>) {
+    const snapshot = eventSnapshot(job);
     await db.query(
       `INSERT INTO ${eventsTable} (
          job_id,
@@ -153,7 +192,7 @@ export function createPostgresDurableJobStore<TPayload, TProgress, TResult>(
          now()
        FROM ${eventsTable}
        WHERE job_id = $1`,
-      [job.jobId, JSON.stringify(job)],
+      [job.jobId, JSON.stringify(snapshot)],
     );
   }
 
@@ -233,20 +272,35 @@ export function createPostgresDurableJobStore<TPayload, TProgress, TResult>(
         `UPDATE ${jobsTable}
          SET progress = $3::jsonb,
              result = COALESCE($4::jsonb, result),
-             claimed_until = GREATEST(claimed_until, now()),
+             claimed_until = now() + ($5::text || ' milliseconds')::interval,
              updated_at = now()
          WHERE job_id = $1
            AND claim_owner_id = $2
            AND status = 'running'
+           AND claimed_until > now()
          RETURNING ${DURABLE_JOB_COLUMNS}`,
         [
           input.jobId,
           input.claimOwnerId,
           JSON.stringify(input.progress),
           input.result === undefined ? null : JSON.stringify(input.result),
+          input.claimTtlMs,
         ],
       );
       return Boolean(job);
+    },
+    renewClaim: async (input) => {
+      const result = await db.query(
+        `UPDATE ${jobsTable}
+         SET claimed_until = now() + ($3::text || ' milliseconds')::interval,
+             updated_at = now()
+         WHERE job_id = $1
+           AND claim_owner_id = $2
+           AND status = 'running'
+           AND claimed_until > now()`,
+        [input.jobId, input.claimOwnerId, input.claimTtlMs],
+      );
+      return Number(result.rowCount ?? 0) > 0;
     },
     complete: async (input) => {
       const job = await updateAndAppend(
@@ -261,6 +315,7 @@ export function createPostgresDurableJobStore<TPayload, TProgress, TResult>(
          WHERE job_id = $1
            AND claim_owner_id = $2
            AND status = 'running'
+           AND claimed_until > now()
          RETURNING ${DURABLE_JOB_COLUMNS}`,
         [input.jobId, input.claimOwnerId, JSON.stringify(input.progress), JSON.stringify(input.result)],
       );
@@ -278,6 +333,7 @@ export function createPostgresDurableJobStore<TPayload, TProgress, TResult>(
          WHERE job_id = $1
            AND claim_owner_id = $2
            AND status = 'running'
+           AND claimed_until > now()
          RETURNING ${DURABLE_JOB_COLUMNS}`,
         [input.jobId, input.claimOwnerId, JSON.stringify(input.progress), input.errorMessage],
       );
@@ -316,12 +372,16 @@ export function createPostgresDurableJobStore<TPayload, TProgress, TResult>(
         [jobId, Math.max(0, Math.floor(afterSequence))],
       );
 
-      return result.rows.map((row) => ({
-        sequence: Number(row.sequence),
-        eventName: row.event_name,
-        job: readJobSnapshot<TPayload, TProgress, TResult>(row.snapshot),
-        createdAt: formatTimestamp(row.created_at),
-      }));
+      return result.rows.map((row) => {
+        const snapshot = readJobSnapshot<TSnapshot>(row.snapshot);
+        return {
+          sequence: Number(row.sequence),
+          eventName: row.event_name,
+          job: snapshot,
+          snapshot,
+          createdAt: formatTimestamp(row.created_at),
+        };
+      });
     },
   };
 }
@@ -379,8 +439,25 @@ function mapJobRow<TPayload, TProgress, TResult>(row: DurableJobRow): DurableJob
   };
 }
 
-function readJobSnapshot<TPayload, TProgress, TResult>(value: unknown): DurableJobRecord<TPayload, TProgress, TResult> {
-  return readJson<DurableJobRecord<TPayload, TProgress, TResult>>(value);
+export function toDurableJobPublicSnapshot<TPayload, TProgress, TResult>(
+  job: DurableJobRecord<TPayload, TProgress, TResult>,
+): DurableJobPublicSnapshot<TProgress, TResult> {
+  return {
+    jobId: job.jobId,
+    jobKind: job.jobKind,
+    status: job.status,
+    progress: job.progress,
+    result: job.result,
+    errorMessage: job.errorMessage,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+function readJobSnapshot<TSnapshot>(value: unknown): TSnapshot {
+  return readJson<TSnapshot>(value);
 }
 
 function readJson<T>(value: unknown): T {

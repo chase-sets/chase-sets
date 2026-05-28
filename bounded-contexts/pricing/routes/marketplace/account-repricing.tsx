@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient } from "../../support/request-support/api-client";
@@ -17,6 +17,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     recommendations: await api.listAccountRecommendations(DEFAULT_RECOMMENDATION_QUERY),
+    activeJobId: new URL(request.url).searchParams.get("jobId") ?? "",
   };
 }
 
@@ -39,24 +40,18 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "refresh-recommendations") {
-      await api.refreshRecommendations();
-      return {
-        message: t("pricing.routes.marketplace.accountRepricing.refresh.queued"),
-      };
+      const job = await api.refreshRecommendations();
+      return redirect(`/account/repricing?jobId=${encodeURIComponent(job.jobId)}`);
     }
 
     if (intent === "apply-recommendations") {
-      await api.applyRecommendations(selectedRecommendationIds(formData));
-      return {
-        message: t("pricing.routes.marketplace.accountRepricing.apply.queued"),
-      };
+      const job = await api.applyRecommendations(selectedRecommendationIds(formData));
+      return redirect(`/account/repricing?jobId=${encodeURIComponent(job.jobId)}`);
     }
 
     if (intent === "dismiss-recommendations") {
-      await api.dismissRecommendations(selectedRecommendationIds(formData));
-      return {
-        message: t("pricing.routes.marketplace.accountRepricing.dismiss.queued"),
-      };
+      const job = await api.dismissRecommendations(selectedRecommendationIds(formData));
+      return redirect(`/account/repricing?jobId=${encodeURIComponent(job.jobId)}`);
     }
 
     return {
@@ -82,8 +77,9 @@ export default function MarketplaceRepricingRoute() {
   return (
     <PricingRecommendationListPage
       recommendations={data.recommendations.items}
-      message={actionData && "message" in actionData ? actionData.message : null}
-      errorMessage={actionData && "error" in actionData ? actionData.error : null}
+      activeJobId={data.activeJobId}
+      message={actionData && "message" in actionData ? String(actionData.message ?? "") : null}
+      errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
     />
   );
 }

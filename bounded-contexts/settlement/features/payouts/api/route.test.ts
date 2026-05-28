@@ -221,7 +221,6 @@ describe("settlement payout routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       jobId: "job_reconcile",
       status: "queued",
-      payload: { limit: 25 },
     });
     expect(enqueuePayoutReconciliationJob).toHaveBeenCalledWith({ limit: 25 }, context);
   });

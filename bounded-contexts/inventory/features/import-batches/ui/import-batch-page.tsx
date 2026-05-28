@@ -19,7 +19,7 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
-import type { InventoryImportBatchJob } from "../api/runtime";
+import type { InventoryImportBatchJobStatus } from "../api/runtime";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { inventoryImportSourceLabel, listInventoryImportSources } from "../domain/import-source-adapters";
 
@@ -426,7 +426,7 @@ export function InventoryImportBatchPage({
 }
 
 function useInventoryImportBatchJob(jobId?: string | null) {
-  const [job, setJob] = useState<InventoryImportBatchJob | null>(null);
+  const [job, setJob] = useState<InventoryImportBatchJobStatus | null>(null);
 
   useEffect(() => {
     if (!jobId) {
@@ -436,11 +436,11 @@ function useInventoryImportBatchJob(jobId?: string | null) {
 
     const source = new EventSource(`/api/inventory/import-batches/jobs/${encodeURIComponent(jobId)}/events`);
     source.addEventListener("status", (event) => {
-      const nextJob = JSON.parse((event as MessageEvent).data) as InventoryImportBatchJob;
+      const nextJob = JSON.parse((event as MessageEvent).data) as InventoryImportBatchJobStatus;
       setJob(nextJob);
       if (nextJob.status === "completed") {
         source.close();
-        const batchId = nextJob.result?.batch.batch_id ?? nextJob.payload.batchId;
+        const batchId = nextJob.result?.batch.batch_id;
         window.location.replace(
           batchId ? `/account/inventory/imports/${encodeURIComponent(batchId)}` : "/account/inventory/imports",
         );

@@ -9,7 +9,9 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createPostgresDurableJobStore,
   type DurableJobEvent,
+  type DurableJobPublicSnapshot,
   type DurableJobRecord,
+  toDurableJobPublicSnapshot,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   getAccountRecommendation,
@@ -90,6 +92,15 @@ export type PricingRecommendationJob = DurableJobRecord<
   PricingRecommendationJobProgress,
   PricingRecommendationJobResult
 >;
+
+export type PricingRecommendationJobStatus = DurableJobPublicSnapshot<
+  PricingRecommendationJobProgress,
+  PricingRecommendationJobResult
+>;
+
+export function toPricingRecommendationJobStatus(job: PricingRecommendationJob): PricingRecommendationJobStatus {
+  return toDurableJobPublicSnapshot(job);
+}
 
 function moneyNumber(value: string | number | null) {
   if (value === null) {
@@ -732,16 +743,19 @@ export function createPricingRecommendationRuntime(
           throw new Error("Pricing recommendation job is missing event context.");
         }
 
-        await jobStore.updateProgress({
-          jobId: claimed.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: pricingJobProgress(
-            "processing",
-            0,
-            claimed.payload.recommendationIds.length,
-            "Processing recommendation job.",
-          ),
-        });
+        await requirePricingRecommendationJobClaim(
+          jobStore.updateProgress({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+            progress: pricingJobProgress(
+              "processing",
+              0,
+              claimed.payload.recommendationIds.length,
+              "Processing recommendation job.",
+            ),
+          }),
+        );
 
         const result =
           claimed.payload.action === "refresh"
@@ -769,29 +783,36 @@ export function createPricingRecommendationRuntime(
                   claimed.eventContext,
                 );
 
-        await jobStore.complete({
-          jobId: claimed.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: pricingJobProgress(
-            "completed",
-            claimed.payload.recommendationIds.length,
-            claimed.payload.recommendationIds.length,
-            "Recommendation job completed.",
-          ),
-          result,
-        });
+        await requirePricingRecommendationJobClaim(
+          jobStore.complete({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: pricingJobProgress(
+              "completed",
+              claimed.payload.recommendationIds.length,
+              claimed.payload.recommendationIds.length,
+              "Recommendation job completed.",
+            ),
+            result,
+          }),
+        );
         return 1;
       } catch (error) {
-        await jobStore.fail({
-          jobId: claimed.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: {
-            ...claimed.progress,
-            phase: "failed",
-            message: error instanceof Error ? error.message : "Pricing recommendation job failed.",
-          },
-          errorMessage: error instanceof Error ? error.message : "Pricing recommendation job failed.",
-        });
+        if (isPricingRecommendationJobHandoff(error, input)) {
+          return 0;
+        }
+        await requirePricingRecommendationJobClaim(
+          jobStore.fail({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: {
+              ...claimed.progress,
+              phase: "failed",
+              message: error instanceof Error ? error.message : "Pricing recommendation job failed.",
+            },
+            errorMessage: error instanceof Error ? error.message : "Pricing recommendation job failed.",
+          }),
+        );
         return 1;
       }
     },
@@ -819,4 +840,17 @@ function pricingJobProgress(
 function createPricingRecommendationJobId(): string {
   const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
   return `job_${cryptoLike?.randomUUID?.() ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+async function requirePricingRecommendationJobClaim(succeeded: Promise<boolean> | boolean) {
+  if (!(await succeeded)) {
+    throw new Error("Pricing recommendation job claim was lost before the status update completed.");
+  }
+}
+
+function isPricingRecommendationJobHandoff(error: unknown, input?: { signal?: AbortSignal }) {
+  return (
+    input?.signal?.aborted ||
+    (error instanceof Error && (error.message.startsWith("Lost lease ") || error.message.includes("claim was lost")))
+  );
 }

@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { PricingApiEnv } from "../../../api";
-import type { PricingRecommendationServices } from "./runtime";
+import { toPricingRecommendationJobStatus, type PricingRecommendationServices } from "./runtime";
 
 function requireRecommendationAccess(
   c: { get(key: "actor"): PricingApiEnv["Variables"]["actor"] },
@@ -169,7 +169,7 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
         { action: "refresh", accountId: access.actor.accountId },
         context,
       );
-      return c.json(job, 202);
+      return c.json(toPricingRecommendationJobStatus(job), 202);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -205,7 +205,7 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
         },
         context,
       );
-      return c.json(job, 202);
+      return c.json(toPricingRecommendationJobStatus(job), 202);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -241,7 +241,7 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
         },
         context,
       );
-      return c.json(job, 202);
+      return c.json(toPricingRecommendationJobStatus(job), 202);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -261,7 +261,7 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
       );
     }
 
-    return c.json(job);
+    return c.json(toPricingRecommendationJobStatus(job));
   });
 
   app.get("/recommendation-jobs/:jobId/events", async (c) => {

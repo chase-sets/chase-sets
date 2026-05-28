@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   Badge,
@@ -15,6 +16,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import type { AccountRecommendationListItem } from "../read-model/queries";
+import type { PricingRecommendationJobStatus } from "../api/runtime";
 
 function money(amount: number | null, currency = "USD") {
   if (amount === null) {
@@ -59,16 +61,20 @@ function statusTone(row: AccountRecommendationListItem) {
 
 export function PricingRecommendationListPage({
   recommendations,
+  activeJobId,
   message,
   errorMessage,
 }: {
   recommendations: readonly AccountRecommendationListItem[];
+  activeJobId?: string | null;
   message?: string | null;
   errorMessage?: string | null;
 }) {
   const stockOnHand = recommendations.reduce((sum, row) => sum + row.stock_on_hand_quantity, 0);
   const activeOffers = recommendations.reduce((sum, row) => sum + row.active_offer_count, 0);
   const activeListings = recommendations.reduce((sum, row) => sum + row.active_listing_count, 0);
+  const activeJob = usePricingRecommendationJob(activeJobId);
+  const activeJobMessage = activeJob?.progress.message ?? (activeJobId ? message : null);
 
   return (
     <Page>
@@ -120,11 +126,11 @@ export function PricingRecommendationListPage({
         ]}
       />
 
-      {message ? (
+      {activeJobMessage ? (
         <MarketplaceNotice
-          tone="success"
+          tone={activeJob?.status === "failed" ? "error" : "success"}
           title={t("pricing.features.recommendations.ui.recommendationListPage.pricing")}
-          description={message}
+          description={activeJob?.errorMessage ?? activeJobMessage}
         />
       ) : null}
 
@@ -278,4 +284,31 @@ export function PricingRecommendationListPage({
       </PageSection>
     </Page>
   );
+}
+
+function usePricingRecommendationJob(jobId?: string | null) {
+  const [job, setJob] = useState<PricingRecommendationJobStatus | null>(null);
+
+  useEffect(() => {
+    if (!jobId) {
+      setJob(null);
+      return;
+    }
+
+    const source = new EventSource(`/api/marketplace/account/recommendation-jobs/${encodeURIComponent(jobId)}/events`);
+    source.addEventListener("status", (event) => {
+      const nextJob = JSON.parse((event as MessageEvent).data) as PricingRecommendationJobStatus;
+      setJob(nextJob);
+      if (nextJob.status === "completed") {
+        window.setTimeout(() => {
+          window.location.assign("/account/repricing");
+        }, 250);
+      }
+    });
+    return () => {
+      source.close();
+    };
+  }, [jobId]);
+
+  return job;
 }
