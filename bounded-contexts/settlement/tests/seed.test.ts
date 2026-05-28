@@ -43,5 +43,5 @@ describeWithMarketplaceSeedDatabase("settlement seed", () => {
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'settlement.%'",
     );
     expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
-  }, 120_000);
+  }, 240_000);
 });

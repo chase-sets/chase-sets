@@ -69,7 +69,7 @@ export type MarketplaceSeedRuntimePools = Readonly<
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 
-export const describeWithMarketplaceSeedDatabase = databaseBaseUrl ? describe : describe.skip;
+export const describeWithMarketplaceSeedDatabase = describe;
 
 function requireMarketplaceSeedDatabaseBaseUrl(testName: string): string {
   if (!databaseBaseUrl) {

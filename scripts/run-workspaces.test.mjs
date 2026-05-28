@@ -224,6 +224,32 @@ describe("run-workspaces", () => {
 
     expect(loadCalls).toEqual([{ includeTestDatabaseUrl: false }]);
 
+    loadCalls.length = 0;
+    await runWorkspaceScripts({
+      argv: ["test:unit", "--test-profile=db"],
+      buildInvocation,
+      listWorkspaces: () => [workspace("@test/db-unit", { "test:unit": "test:unit" }, "db")],
+      loadEnvironment: (options) => {
+        loadCalls.push(options);
+      },
+      run: async () => {},
+    });
+
+    expect(loadCalls).toEqual([{ includeTestDatabaseUrl: false }]);
+
+    loadCalls.length = 0;
+    await runWorkspaceScripts({
+      argv: ["test:db", "--test-profile=db"],
+      buildInvocation,
+      listWorkspaces: () => [workspace("@test/db", { "test:db": "test:db" }, "db")],
+      loadEnvironment: (options) => {
+        loadCalls.push(options);
+      },
+      run: async () => {},
+    });
+
+    expect(loadCalls).toEqual([{ includeTestDatabaseUrl: true }]);
+
     const env = {};
     loadTestEnvironment({
       env,

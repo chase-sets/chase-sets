@@ -18,7 +18,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
 const catalogContextNames = ["catalog"] as const;
 
 function requireDatabaseBaseUrl(): string {
@@ -72,7 +71,7 @@ async function getJson(path: string) {
   return { response, json: await response.json() };
 }
 
-describeWithDatabase("Admin page projections", () => {
+describe("Admin page projections", () => {
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
       requireDatabaseBaseUrl(),

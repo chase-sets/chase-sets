@@ -7,6 +7,7 @@ describeWithMarketplaceSeedDatabase("ordering seed", () => {
   it("seeds deterministic order coverage idempotently", async () => {
     const { pools } = seedRuntime;
     await seedRuntime.seed();
+    await seedRuntime.seed();
 
     const before = await pools.ordering.query<{ count: string }>(
       "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE 'ordering.%'",
@@ -18,5 +19,5 @@ describeWithMarketplaceSeedDatabase("ordering seed", () => {
     );
 
     expect(after.rows[0]?.count).toBe(before.rows[0]?.count);
-  }, 120_000);
+  }, 240_000);
 });

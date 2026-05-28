@@ -16,7 +16,8 @@
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
     "test:fast": "vitest run --config ./vitest.config.ts",
-    "test:watch": "vitest --config ./vitest.config.ts"
+    "test:watch": "vitest --config ./vitest.config.ts",
+    "test:unit": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
     "@chase-sets/auth": "workspace:*",

@@ -6,6 +6,11 @@ This list tracks the cleanup work from the full test-suite review.
 - [x] Route DB-backed Catalog, Discovery, and Inventory acceptance tests through DB-profile CI coverage.
 - [x] Run full DB-profile tests in PR CI instead of only the fast DB subset.
 - [x] Align local fast test workspace concurrency with CI.
+- [x] Split DB-capable workspaces into explicit unit and DB test tiers so pure tests do not wait on the DB lane.
+- [x] Require platform-runtime realtime DB integration coverage through the DB test tier.
+- [x] Make local `verify` include full DB-tier coverage.
+- [x] Narrow PR E2E triggers to marketplace-facing deployable and user-journey surfaces.
+- [x] Centralize PR dependency installation in the shared pnpm setup action with timing output.
 - [x] Move shared marketplace seed test support out of the payments bounded context.
 - [ ] Relocate deployable route behavior tests into the bounded contexts that own the behavior.
 - [ ] Split oversized test files by responsibility:
