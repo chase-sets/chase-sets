@@ -24,7 +24,9 @@ Manual product selection per row is not the intended workflow. Import adapters s
 - Whatnot CSV: tries product ID as a Catalog Item candidate, listing and inventory IDs as Product references, and SKU as an account SKU candidate.
 - CardTrader CSV: tries CardTrader product and blueprint identifiers as Catalog Item candidates, article identifiers as Product references, SKU as an account SKU candidate, then exposed TCGplayer/Cardmarket Product IDs as Catalog Item candidates.
 
-API and scheduled sync integrations should produce the same normalized row shape and default to `replace` quantity mode. Shopify, eBay, and other API connectors should fetch provider rows only; the source profile decides header aliases, field meaning, option inference, reference ordering, and target intent. They should not bypass import review, Inventory availability rules, or Marketplace draft publication rules.
+API, MCP, and scheduled sync integrations should produce the same normalized row shape and default to `replace` quantity mode. Shopify, eBay, and other API connectors should fetch provider rows only; the source profile decides header aliases, field meaning, option inference, reference ordering, and target intent. They should not bypass import review, Inventory availability rules, or Marketplace draft publication rules.
+
+Agent listing integration flow is documented in [Agent Listing Integrations](./agent-listing-integrations.md).
 
 ## Review Expectations
 

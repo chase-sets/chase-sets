@@ -120,6 +120,15 @@ Advanced inventory workflows may still call `GET /api/inventory/items` and `GET 
 
 High-dollar Listing publication can fail with `validation_failed` when Marketplace requires Listing Photo evidence or account trust before activation. Draft creation remains allowed; only buyer-visible publication is blocked until the Listing and account-risk policy clears.
 
+Agent listing import:
+
+1. `GET /api/inventory/import-batches/sources`
+2. `POST /api/inventory/import-batches`
+3. `GET /api/inventory/import-batches/{id}`
+4. `POST /api/inventory/import-batches/{id}/commit`
+
+The same flow is exposed through native MCP tools: `inventory.list-import-sources`, `inventory.create-import-batch`, `inventory.get-import-batch`, and `inventory.commit-import-batch`. Connectors and agents fetch or parse provider rows; Inventory source profiles decide row semantics and Catalog reference matching.
+
 Sale shipment printing:
 
 1. `GET /api/marketplace/account/sales/shipments`

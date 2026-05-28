@@ -10,7 +10,7 @@ import {
 } from "@chase-sets/discovery/server";
 import { catalogRealtimeManifest, catalogRealtimeTopicPolicyManifest } from "@chase-sets/catalog/server";
 import { module as identityModule } from "@chase-sets/identity";
-import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import { createInventoryImportBatchMcpHandlers, type InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { createOrderingUcpHandlers } from "@chase-sets/ordering/server";
 import { createPaymentsUcpHandoff, type UcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import { marketplaceRealtimeManifest, marketplaceRealtimeTopicPolicyManifest } from "@chase-sets/marketplace/server";
@@ -167,6 +167,25 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     : undefined;
   const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
+  const inventoryServices = runtime.services.inventory as
+    | { importBatches?: Parameters<typeof createInventoryImportBatchMcpHandlers>[0] }
+    | undefined;
+  const inventoryMcpHandlers = inventoryServices?.importBatches
+    ? createInventoryImportBatchMcpHandlers(inventoryServices.importBatches)
+    : undefined;
+  const mcpOptions = inventoryMcpHandlers
+    ? {
+        ...options.mcp,
+        toolHandlers: {
+          ...inventoryMcpHandlers.toolHandlers,
+          ...options.mcp?.toolHandlers,
+        },
+        resourceHandlers: {
+          ...inventoryMcpHandlers.resourceHandlers,
+          ...options.mcp?.resourceHandlers,
+        },
+      }
+    : options.mcp;
   const ucpOptions =
     discoveryUcpHandlers || checkoutUcpHandlers || orderingUcpHandlers
       ? {
@@ -227,7 +246,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   );
   app.use("/mcp", platformActorMiddleware);
   app.use("/mcp/*", platformActorMiddleware);
-  app.route("/mcp", createMcpRoutes(options.mcp));
+  app.route("/mcp", createMcpRoutes(mcpOptions));
   app.route("/.well-known", createUcpProfileRoutes(options.ucp));
   app.route("/.well-known", createUcpOAuthMetadataRoutes());
   app.use("/ucp/oauth/*", platformActorMiddleware);
