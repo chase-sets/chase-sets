@@ -79,16 +79,62 @@ describe("source observation domain", () => {
     });
   });
 
-  it("treats same-hash refreshes as idempotent while observed", () => {
+  it("records same-hash refreshes while preserving observed review state", () => {
     const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
     const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);
 
-    expect(
-      decideSourceObservation(observed, {
-        ...recordCommand,
-        observedAt: "2026-05-15T00:05:00.000Z",
-      }),
-    ).toEqual([]);
+    const refreshedEvent = decideSourceObservation(observed, {
+      ...recordCommand,
+      observedAt: "2026-05-15T00:05:00.000Z",
+    })[0];
+
+    expect(refreshedEvent).toMatchObject({
+      type: "catalog.source-observation.refreshed",
+      data: {
+        observationId: "tcgdex_en_swsh3_136",
+        status: "observed",
+        statusReason: null,
+        promotedCatalogItemId: null,
+        promotedAt: null,
+      },
+    });
+    expect(evolveSourceObservation(observed, refreshedEvent)).toMatchObject({
+      status: "observed",
+      observedAt: "2026-05-15T00:05:00.000Z",
+      promotedCatalogItemId: null,
+    });
+  });
+
+  it("records same-hash refreshes while preserving promoted review state", () => {
+    const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
+    const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);
+    const promotedEvent = decideSourceObservation(observed, {
+      type: "PromoteSourceObservation",
+      catalogItemId: "cat_1",
+      promotedAt: "2026-05-15T00:01:00.000Z",
+    })[0];
+    const promoted = evolveSourceObservation(observed, promotedEvent);
+
+    const refreshedEvent = decideSourceObservation(promoted, {
+      ...recordCommand,
+      observedAt: "2026-05-15T00:05:00.000Z",
+    })[0];
+
+    expect(refreshedEvent).toMatchObject({
+      type: "catalog.source-observation.refreshed",
+      data: {
+        status: "promoted",
+        statusReason: null,
+        promotedCatalogItemId: "cat_1",
+        promotedAt: "2026-05-15T00:01:00.000Z",
+      },
+    });
+    expect(evolveSourceObservation(promoted, refreshedEvent)).toMatchObject({
+      status: "promoted",
+      observedAt: "2026-05-15T00:05:00.000Z",
+      promotedCatalogItemId: "cat_1",
+      promotedAt: "2026-05-15T00:01:00.000Z",
+    });
   });
 
   it("refreshes changed observed records", () => {
