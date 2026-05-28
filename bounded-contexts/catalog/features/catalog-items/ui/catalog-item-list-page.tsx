@@ -248,8 +248,6 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
   const columns = useMemo(() => buildColumns(), []);
   const { addToast } = useToasts();
   const [showCreate, setShowCreate] = useState(false);
-  const [title, setTitle] = useState("");
-  const [subtitle, setSubtitle] = useState("");
   const [description, setDescription] = useState("");
   const [languageCode, setLanguageCode] = useState("en");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -357,14 +355,12 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
     await createCatalogItem({
       itemId,
       languageCode,
-      title: localizedTextMapFromEnglish(title),
-      subtitle: subtitle ? localizedTextMapFromEnglish(subtitle) : null,
+      title: localizedTextMapFromEnglish(itemId),
+      subtitle: null,
       description: localizedTextMapFromEnglish(description),
     });
     addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.catalog.item.created"), "success");
     setShowCreate(false);
-    setTitle("");
-    setSubtitle("");
     setDescription("");
     setLanguageCode("en");
     revalidator.revalidate();
@@ -774,16 +770,6 @@ export function CatalogItemListPage({ data, query, realtimeReloadActionBar }: Ca
         }
       >
         <Stack gap={3}>
-          <TextInput
-            label={t("catalog.features.catalogItems.ui.catalogItemListPage.title.2")}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <TextInput
-            label={t("catalog.features.catalogItems.ui.catalogItemListPage.subtitle.optional")}
-            value={subtitle}
-            onChange={(e) => setSubtitle(e.target.value)}
-          />
           <TextInput
             label={t("catalog.features.catalogItems.ui.catalogItemListPage.language.code")}
             value={languageCode}

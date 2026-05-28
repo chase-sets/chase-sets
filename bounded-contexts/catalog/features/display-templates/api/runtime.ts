@@ -3,6 +3,7 @@ import { createCommandHandler, type CommandHandler } from "@chase-sets/event-cor
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
 import {
   decideDisplayTemplate,
   evolveDisplayTemplate,
@@ -42,7 +43,10 @@ export function createDisplayTemplateRuntime(deps: CatalogRuntimeDeps): DisplayT
     projectors: [
       createProjectionHandlerSet({
         projectionName: "catalog-display-template-projection",
-        handlers: buildDisplayTemplateProjectionHandlers(deps.db),
+        handlers: withCatalogAdminRealtimeInvalidation(buildDisplayTemplateProjectionHandlers(deps.db), deps.db, {
+          projectionName: "catalog-display-template-projection",
+          surface: "display-templates",
+        }),
       }),
     ],
   };

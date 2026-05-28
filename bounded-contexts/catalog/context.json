@@ -131,6 +131,20 @@
           "sourceContext": "catalog"
         },
         {
+          "routeId": "display-templates",
+          "routePath": "display-templates",
+          "fileExport": "./routes/admin/display-templates",
+          "routeType": "route",
+          "sourceContext": "catalog"
+        },
+        {
+          "routeId": "display-templates-detail",
+          "routePath": "display-templates/:id",
+          "fileExport": "./routes/admin/display-templates-detail",
+          "routeType": "route",
+          "sourceContext": "catalog"
+        },
+        {
           "routeId": "fields",
           "routePath": "fields",
           "fileExport": "./routes/admin/fields",
@@ -260,6 +274,17 @@
       "icon": "dashboard",
       "href": "/catalog-items",
       "order": 60,
+      "visibility": "signed-in",
+      "requiredPermissions": []
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "display-templates",
+      "label": "Display Templates",
+      "icon": "copy",
+      "href": "/display-templates",
+      "order": 62,
       "visibility": "signed-in",
       "requiredPermissions": []
     },
@@ -469,6 +494,7 @@
         "categories",
         "components",
         "dimensions",
+        "display-templates",
         "fields",
         "reference-data",
         "source-observations"

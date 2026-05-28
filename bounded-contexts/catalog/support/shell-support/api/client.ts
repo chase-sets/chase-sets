@@ -283,6 +283,57 @@ export function createCatalogApiClient({
       return parseJsonResponse<T>(response);
     },
 
+    async listDisplayTemplates<T>(query: string): Promise<T> {
+      const response = await client["display-templates"].$get({
+        query: queryFromString(query),
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async getDisplayTemplate<T>(id: string): Promise<T> {
+      const response = await client["display-templates"][":id"].$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async createDisplayTemplate<T>(body: unknown): Promise<T> {
+      const response = await client["display-templates"].$post({
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async reviseDisplayTemplate<T>(id: string, body: unknown): Promise<T> {
+      const response = await client["display-templates"][":id"].$put({
+        param: { id },
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async publishDisplayTemplate<T>(id: string): Promise<T> {
+      const response = await client["display-templates"][":id"].publish.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async deprecateDisplayTemplate<T>(id: string): Promise<T> {
+      const response = await client["display-templates"][":id"].deprecate.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async archiveDisplayTemplate<T>(id: string): Promise<T> {
+      const response = await client["display-templates"][":id"].archive.$post({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+
     async listComponents<T>(query: string): Promise<T> {
       const response = await client.components.$get({
         query: queryFromString(query),
