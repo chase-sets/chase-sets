@@ -47,6 +47,11 @@ Provider tools are diagnostic or replay surfaces. Business writes should prefer
 the owning bounded context: Payments for payment/refund workflows, Settlement for
 payout workflows, and Fulfillment for postage label workflows.
 
+Inventory import MCP tools call Inventory Import Batches instead of Marketplace
+listing commands. Inventory owns review-first product matching and stock
+creation; Marketplace draft listings are created only through Inventory's
+existing host port after accepted rows are committed.
+
 ## Covered Services
 
 | Service | Kind | Agent surface |
@@ -55,7 +60,7 @@ payout workflows, and Fulfillment for postage label workflows.
 | Identity | bounded context | Inspect accounts and memberships, invite members, revoke API keys. |
 | Catalog | bounded context | Search catalog records, inspect blueprints, publish catalog items. |
 | Discovery | bounded context | Search public marketplace supply and item detail resources. |
-| Inventory | bounded context | Inspect stock, adjust inventory, archive storage locations. |
+| Inventory | bounded context | Inspect stock, create/review/commit import batches, adjust inventory, archive storage locations. |
 | Marketplace | bounded context | Inspect listings/offers, publish listings, accept offers. |
 | Pricing | bounded context | Recommend prices and explain pricing signals. |
 | Commercial Terms | bounded context | Resolve applied terms and publish terms schedules. |

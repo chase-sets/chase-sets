@@ -71,6 +71,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Marketplace Standard Listing Inventory Disclosure](../bounded-contexts/marketplace/docs/standard-listing-inventory-disclosure.md)
 - [Inventory Automatic Listing Stock](../bounded-contexts/inventory/docs/automatic-listing-stock.md)
 - [Inventory Import Product Resolution](../bounded-contexts/inventory/docs/import-product-resolution.md)
+- [Inventory Agent Listing Integrations](../bounded-contexts/inventory/docs/agent-listing-integrations.md)
 - [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md)
 - [Settlement Account Money Navigation](../bounded-contexts/settlement/docs/account-money-navigation.md)
 - [Platform Operations](../bounded-contexts/platform-operations/README.md)

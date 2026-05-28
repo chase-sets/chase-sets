@@ -1,4 +1,6 @@
 export { createInventoryRequestApiClient } from "./support/request-support/api-client";
+export { createInventoryImportBatchMcpHandlers } from "./features/import-batches/api/mcp";
+export type { InventoryImportBatchMcpHandlers } from "./features/import-batches/api/mcp";
 export type {
   InventoryCatalogItemSnapshot,
   InventoryEnsuredListingStock,

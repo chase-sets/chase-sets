@@ -5,6 +5,7 @@ import type { buildInventoryApi } from "./api";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 import type { InventoryImportBatch, InventoryImportBatchDetail } from "./features/import-batches/read-model/queries";
 import type { ImportCsvRow } from "./features/import-batches/domain/csv";
+import type { InventoryImportSourceProfile } from "./features/import-batches/domain/import-source-profiles";
 
 export type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 export type {
@@ -13,6 +14,7 @@ export type {
   InventoryImportBatchRow,
 } from "./features/import-batches/read-model/queries";
 export type { ImportCsvRow } from "./features/import-batches/domain/csv";
+export type { InventoryImportSourceProfile } from "./features/import-batches/domain/import-source-profiles";
 export type {
   InventoryItemDetail,
   InventoryEnsuredListingStock,
@@ -79,6 +81,13 @@ export function createInventoryApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async listImportSources(): Promise<ListResponse<InventoryImportSourceProfile>> {
+      return parseJsonResponse(
+        await client["import-batches"].sources.$get({
+          header: headers,
+        }),
+      );
+    },
     async listImportBatches(query = ""): Promise<ListResponse<InventoryImportBatch>> {
       return parseJsonResponse(
         await client["import-batches"].$get({

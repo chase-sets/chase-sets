@@ -466,6 +466,71 @@ describe("platform api app", () => {
     });
   });
 
+  it("registers Inventory import MCP handlers from platform runtime services", async () => {
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+          inventory: {
+            importBatches: {
+              createBatch: vi.fn(),
+              getBatch: vi.fn(),
+              listBatches: vi.fn(),
+              commitBatch: vi.fn(),
+            },
+          },
+        },
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "account_1",
+          membershipId: "member_1",
+          roleKey: "manager",
+          permissions: ["inventory.view"],
+        })),
+      },
+    );
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "request_1",
+        method: "tools/call",
+        params: {
+          name: "inventory.list-import-sources",
+          arguments: {
+            accountId: "account_1",
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      id: "request_1",
+      result: {
+        content: [
+          {
+            type: "json",
+            json: {
+              items: expect.arrayContaining([expect.objectContaining({ sourceKey: "tcgplayer-csv" })]),
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it("mounts the UCP profile, REST, and MCP surfaces", async () => {
     const app = buildPlatformApiApp(
       {

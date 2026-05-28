@@ -145,6 +145,38 @@ describe("inventory import source adapters", () => {
     });
   });
 
+  it("normalizes parsed provider rows through the same source profile semantics", () => {
+    const rows = shopifyCsvImportAdapter.normalize({
+      parsedRows: [
+        {
+          rowNumber: 1,
+          values: {
+            Title: "Charizard",
+            "Variant ID": "987",
+            "Variant Inventory Qty": "3",
+            "Variant Price": "15.00",
+          },
+        },
+      ],
+      quantityMode: "replace",
+      defaultStorageLocationId: "loc_1",
+    });
+
+    expect(rows[0]).toMatchObject({
+      rowNumber: 1,
+      externalReference: {
+        providerKey: "shopify",
+        externalKey: "variant:987",
+      },
+      values: {
+        title: "Charizard",
+        totalQuantity: "3",
+        listingPriceAmount: "15.00",
+        listingQuantityCap: "3",
+      },
+    });
+  });
+
   it("normalizes Whatnot exports into listing and product candidates", () => {
     const rows = whatnotCsvImportAdapter.normalize({
       csvText: "Product ID,Listing ID,SKU,Title,Condition,Quantity,Price\nprod_1,lst_1,box-1,Charizard,Near Mint,1,20",

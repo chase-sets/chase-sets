@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import type { InventoryApiEnv } from "../../../api";
 import type { InventoryImportBatchServices } from "./runtime";
 import type { ImportCsvRow } from "../domain/csv";
+import { listInventoryImportSourceProfiles } from "../domain/import-source-profiles";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("inventory.features.importBatches.api.route.request.failed");
@@ -115,6 +116,15 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         400,
       );
     }
+  });
+
+  app.get("/sources", (c) => {
+    const items = listInventoryImportSourceProfiles();
+    return c.json({
+      items,
+      total: items.length,
+      count: items.length,
+    });
   });
 
   app.get("/:id", async (c) => {

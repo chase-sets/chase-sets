@@ -196,13 +196,8 @@ function fingerprint(
   ].join("|");
 }
 
-function rowsForProfile(
-  profile: InventoryImportSourceProfile,
-  input: Parameters<InventoryImportSourceAdapter["normalize"]>[0],
-) {
-  return profile.nativePassthrough
-    ? (input.parsedRows ?? parseImportCsv(input.csvText ?? ""))
-    : parseImportCsv(input.csvText ?? "");
+function rowsForInput(input: Parameters<InventoryImportSourceAdapter["normalize"]>[0]) {
+  return input.parsedRows ?? parseImportCsv(input.csvText ?? "");
 }
 
 function createCsvImportAdapter(profile: InventoryImportSourceProfile): InventoryImportSourceAdapter {
@@ -210,7 +205,7 @@ function createCsvImportAdapter(profile: InventoryImportSourceProfile): Inventor
     sourceKey: profile.sourceKey,
     adapterVersion: profile.adapterVersion,
     normalize: (input) =>
-      rowsForProfile(profile, input).map((row) => {
+      rowsForInput(input).map((row) => {
         const values: Record<string, string> = profile.nativePassthrough ? { ...row.values } : {};
 
         for (const mapping of profile.values) {
