@@ -8,6 +8,7 @@
     "./api": "./api.ts",
     "./auth": "./auth.ts",
     "./control-plane": "./control-plane.ts",
+    "./durable-job-events": "./durable-job-events.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",
     "./mcp": "./mcp.ts",

@@ -2224,6 +2224,16 @@ export async function runStructureCheck(options = {}) {
 
       content ??= await readFile(file, "utf8");
 
+      if (
+        (normalizedFile.startsWith("bounded-contexts/") || normalizedFile.startsWith("deployables/")) &&
+        /application\/x-ndjson/i.test(content)
+      ) {
+        addViolation(
+          file,
+          "request-tied NDJSON progress streams are retired; long-running work must use durable jobs with SSE status events",
+        );
+      }
+
       if (normalizedFile !== "scripts/check-structure/run.mjs" && retiredPanelDrawerPattern.test(content)) {
         addViolation(
           file,

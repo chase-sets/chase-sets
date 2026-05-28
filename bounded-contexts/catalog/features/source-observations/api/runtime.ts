@@ -125,6 +125,13 @@ export type SourceObservationBulkJob = Readonly<{
   updatedAt: string;
 }>;
 
+export type SourceObservationJobEvent<TJob> = Readonly<{
+  sequence: number;
+  eventName: "status";
+  job: TJob;
+  createdAt: string;
+}>;
+
 export type SourceObservationBulkJobResult = BulkSourceObservationPromotionResult | BulkSourceObservationReapplyResult;
 
 export type SourceObservationJobRunContext = Readonly<{
@@ -261,6 +268,10 @@ export type SourceObservationServices = Readonly<{
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
   getBulkReviewJob: (jobId: string) => Promise<SourceObservationBulkJob | null>;
+  listBulkReviewJobEvents: (
+    jobId: string,
+    afterSequence?: number,
+  ) => Promise<readonly SourceObservationJobEvent<SourceObservationBulkJob>[]>;
   listActiveBulkReviewJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationBulkJob[]>;
   processNextBulkReviewJob: (
     input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
@@ -271,6 +282,10 @@ export type SourceObservationServices = Readonly<{
     context: EventStoreContext;
   }) => Promise<SourceObservationIntegrationJob>;
   getIntegrationJob: (jobId: string) => Promise<SourceObservationIntegrationJob | null>;
+  listIntegrationJobEvents: (
+    jobId: string,
+    afterSequence?: number,
+  ) => Promise<readonly SourceObservationJobEvent<SourceObservationIntegrationJob>[]>;
   listActiveIntegrationJobs: (input: {
     context?: EventStoreContext | null;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
@@ -721,6 +736,8 @@ export function createSourceObservationRuntime(
       throw new Error("Bulk review job was not created.");
     }
 
+    await appendSourceObservationJobEvent(deps.db, "bulk-review", job.jobId, job);
+
     return job;
   }
 
@@ -908,6 +925,8 @@ export function createSourceObservationRuntime(
     if (!job) {
       throw new Error("Integration job was not created.");
     }
+
+    await appendSourceObservationJobEvent(deps.db, "integration", job.jobId, job);
 
     return job;
   }
@@ -1295,10 +1314,41 @@ export function createSourceObservationRuntime(
     },
     enqueueBulkReviewJob,
     getBulkReviewJob: (jobId) => getBulkReviewJob(deps.db, jobId),
+    listBulkReviewJobEvents: async (jobId, afterSequence) => {
+      const events = await listSourceObservationJobEvents<SourceObservationBulkJob>(
+        deps.db,
+        "bulk-review",
+        jobId,
+        afterSequence,
+      );
+      if (events.length === 0 && !afterSequence) {
+        await recordBulkReviewJobEvent(deps.db, jobId);
+        return listSourceObservationJobEvents<SourceObservationBulkJob>(deps.db, "bulk-review", jobId, afterSequence);
+      }
+      return events;
+    },
     listActiveBulkReviewJobs: ({ context }) => listActiveBulkReviewJobs(deps.db, context),
     processNextBulkReviewJob,
     enqueueIntegrationJob,
     getIntegrationJob: (jobId) => getIntegrationJob(deps.db, jobId),
+    listIntegrationJobEvents: async (jobId, afterSequence) => {
+      const events = await listSourceObservationJobEvents<SourceObservationIntegrationJob>(
+        deps.db,
+        "integration",
+        jobId,
+        afterSequence,
+      );
+      if (events.length === 0 && !afterSequence) {
+        await recordIntegrationJobEvent(deps.db, jobId);
+        return listSourceObservationJobEvents<SourceObservationIntegrationJob>(
+          deps.db,
+          "integration",
+          jobId,
+          afterSequence,
+        );
+      }
+      return events;
+    },
     listActiveIntegrationJobs: ({ context }) => listActiveIntegrationJobs(deps.db, context),
     processNextIntegrationJob,
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
@@ -2289,6 +2339,15 @@ type ClaimedSourceObservationIntegrationJob = SourceObservationIntegrationJob &
     eventContext: EventStoreContext;
   }>;
 
+type SourceObservationJobKind = "bulk-review" | "integration";
+
+type SourceObservationJobEventRow = Readonly<{
+  sequence: string | number;
+  event_name: SourceObservationJobEvent<unknown>["eventName"];
+  snapshot: unknown;
+  created_at: string;
+}>;
+
 async function getBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string): Promise<SourceObservationBulkJob | null> {
   const result = await db.query<SourceObservationBulkJobRow>(
     `SELECT
@@ -2393,10 +2452,13 @@ async function claimNextBulkReviewJob(
     return null;
   }
 
-  return {
+  const job = {
     ...mapBulkReviewJobRow(row),
     eventContext: parseJsonField<EventStoreContext>(row.event_context, "event_context"),
   };
+  await appendSourceObservationJobEvent(db, "bulk-review", job.jobId, mapBulkReviewJobRow(row));
+
+  return job;
 }
 
 async function updateBulkReviewJobProgress(
@@ -2415,6 +2477,7 @@ async function updateBulkReviewJobProgress(
        AND status = 'running'`,
     [jobId, JSON.stringify(progress), Math.max(1_000, Math.floor(claimTtlMs))],
   );
+  await recordBulkReviewJobEvent(db, jobId);
 }
 
 async function updateBulkReviewJobTurnResult(
@@ -2435,6 +2498,7 @@ async function updateBulkReviewJobTurnResult(
        AND status = 'running'`,
     [jobId, JSON.stringify(progress), JSON.stringify(result), Math.max(1_000, Math.floor(claimTtlMs))],
   );
+  await recordBulkReviewJobEvent(db, jobId);
 }
 
 async function continueBulkReviewJob(
@@ -2457,6 +2521,7 @@ async function continueBulkReviewJob(
        AND status = 'running'`,
     [jobId, JSON.stringify(progress), JSON.stringify(result)],
   );
+  await recordBulkReviewJobEvent(db, jobId);
 }
 
 async function completeBulkReviewJob(
@@ -2482,6 +2547,7 @@ async function completeBulkReviewJob(
       JSON.stringify(result),
     ],
   );
+  await recordBulkReviewJobEvent(db, jobId);
 }
 
 async function failBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string, message: string): Promise<void> {
@@ -2503,6 +2569,7 @@ async function failBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string, me
      WHERE job_id = $1`,
     [jobId, JSON.stringify(progress), message],
   );
+  await recordBulkReviewJobEvent(db, jobId);
 }
 
 async function releaseBulkReviewJobClaim(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
@@ -2517,6 +2584,7 @@ async function releaseBulkReviewJobClaim(db: CatalogRuntimeDeps["db"], jobId: st
        AND status = 'running'`,
     [jobId],
   );
+  await recordBulkReviewJobEvent(db, jobId);
 }
 
 function mapBulkReviewJobRow(row: SourceObservationBulkJobRow): SourceObservationBulkJob {
@@ -2676,10 +2744,13 @@ async function claimNextIntegrationJob(
     return null;
   }
 
-  return {
+  const job = {
     ...mapIntegrationJobRow(row),
     eventContext: parseJsonField<EventStoreContext>(row.event_context, "event_context"),
   };
+  await appendSourceObservationJobEvent(db, "integration", job.jobId, mapIntegrationJobRow(row));
+
+  return job;
 }
 
 async function updateIntegrationJobProgress(
@@ -2698,6 +2769,7 @@ async function updateIntegrationJobProgress(
        AND status = 'running'`,
     [jobId, JSON.stringify(progress), Math.max(1_000, Math.floor(claimTtlMs))],
   );
+  await recordIntegrationJobEvent(db, jobId);
 }
 
 async function continueIntegrationJob(
@@ -2720,6 +2792,7 @@ async function continueIntegrationJob(
        AND status = 'running'`,
     [jobId, JSON.stringify(progress), JSON.stringify(result)],
   );
+  await recordIntegrationJobEvent(db, jobId);
 }
 
 async function completeIntegrationJob(
@@ -2745,6 +2818,7 @@ async function completeIntegrationJob(
       JSON.stringify(result),
     ],
   );
+  await recordIntegrationJobEvent(db, jobId);
 }
 
 async function failIntegrationJob(db: CatalogRuntimeDeps["db"], jobId: string, message: string): Promise<void> {
@@ -2766,6 +2840,7 @@ async function failIntegrationJob(db: CatalogRuntimeDeps["db"], jobId: string, m
      WHERE job_id = $1`,
     [jobId, JSON.stringify(progress), message],
   );
+  await recordIntegrationJobEvent(db, jobId);
 }
 
 async function releaseIntegrationJobClaim(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
@@ -2780,6 +2855,7 @@ async function releaseIntegrationJobClaim(db: CatalogRuntimeDeps["db"], jobId: s
        AND status = 'running'`,
     [jobId],
   );
+  await recordIntegrationJobEvent(db, jobId);
 }
 
 function mapIntegrationJobRow(row: SourceObservationIntegrationJobRow): SourceObservationIntegrationJob {
@@ -2796,6 +2872,78 @@ function mapIntegrationJobRow(row: SourceObservationIntegrationJobRow): SourceOb
     completedAt: row.completed_at,
     updatedAt: row.updated_at,
   };
+}
+
+async function recordBulkReviewJobEvent(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
+  const job = await getBulkReviewJob(db, jobId);
+  if (job) {
+    await appendSourceObservationJobEvent(db, "bulk-review", job.jobId, job);
+  }
+}
+
+async function recordIntegrationJobEvent(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
+  const job = await getIntegrationJob(db, jobId);
+  if (job) {
+    await appendSourceObservationJobEvent(db, "integration", job.jobId, job);
+  }
+}
+
+async function appendSourceObservationJobEvent<TJob>(
+  db: CatalogRuntimeDeps["db"],
+  jobKind: SourceObservationJobKind,
+  jobId: string,
+  job: TJob,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO catalog_source_observation_job_events (
+       job_kind,
+       job_id,
+       sequence,
+       event_name,
+       snapshot,
+       created_at
+     )
+     SELECT
+       $1,
+       $2,
+       coalesce(max(sequence), 0) + 1,
+       'status',
+       $3::jsonb,
+       now()
+     FROM catalog_source_observation_job_events
+     WHERE job_kind = $1
+       AND job_id = $2`,
+    [jobKind, jobId, JSON.stringify(job)],
+  );
+}
+
+async function listSourceObservationJobEvents<TJob>(
+  db: CatalogRuntimeDeps["db"],
+  jobKind: SourceObservationJobKind,
+  jobId: string,
+  afterSequence = 0,
+): Promise<readonly SourceObservationJobEvent<TJob>[]> {
+  const result = await db.query<SourceObservationJobEventRow>(
+    `SELECT
+       sequence,
+       event_name,
+       snapshot,
+       created_at::text
+     FROM catalog_source_observation_job_events
+     WHERE job_kind = $1
+       AND job_id = $2
+       AND sequence > $3
+     ORDER BY sequence ASC
+     LIMIT 100`,
+    [jobKind, jobId, Math.max(0, Math.floor(afterSequence))],
+  );
+
+  return result.rows.map((row) => ({
+    sequence: Number(row.sequence),
+    eventName: row.event_name,
+    job: parseJsonField<TJob>(row.snapshot, "snapshot"),
+    createdAt: row.created_at,
+  }));
 }
 
 function parseJsonField<T>(value: unknown, fieldName: string): T {
