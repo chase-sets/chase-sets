@@ -6,7 +6,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  drainContextProcesses,
+  resolveModuleSubscriptions,
+} from "@chase-sets/bounded-context-runtime";
 import { module as catalogModule } from "../../../index";
 import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/index";
 import { buildCatalogAuthoringTestApp } from "../../../support/authoring-support/test-support";
@@ -49,17 +53,10 @@ function l10n(en: string, values: Record<string, string> = {}) {
 let pool: PgTransactionalPool;
 let services: CatalogServices;
 let app: ReturnType<typeof buildCatalogAuthoringTestApp>;
+let subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 
 async function drainCatalogProjectionSubscriptions() {
-  let processed = 0;
-
-  do {
-    processed = 0;
-    for (const projector of services.projectors) {
-      const result = await projector.runOnce();
-      processed += result.processed;
-    }
-  } while (processed > 0);
+  await drainContextProcesses({ subscriptionRunners });
 }
 
 async function sendCommand<Command>(
@@ -91,6 +88,15 @@ describeWithDatabase("Admin page projections", () => {
     await resetMultiContextTestSchemas({ catalog: pool });
     await bootstrapContextDatabase(catalogModule, pool);
     services = createCatalogServices(pool);
+    subscriptionRunners = resolveModuleSubscriptions([
+      {
+        contextName: "catalog",
+        module: catalogModule,
+        services,
+        pool,
+        projectionHandlerSets: catalogModule.projectionHandlerSets?.(services) ?? [],
+      },
+    ]);
     app = buildCatalogAuthoringTestApp(services, context);
   });
 

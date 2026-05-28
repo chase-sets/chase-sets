@@ -80,6 +80,24 @@ describe("change-scope", () => {
     expect(dbScope.dbTestsRequired).toBe(true);
   });
 
+  it("routes DB-backed context acceptance coverage through the DB-profile lane", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/catalog/tests/catalog-authoring/acceptance/admin-page-projections.test.ts"],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog", {}, { testProfile: "db" }),
+        workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery", {
+          "@test/catalog": "workspace:*",
+        }),
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@test/catalog", "@test/discovery"]);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.dbTestsRequired).toBe(true);
+  });
+
   it("keeps workflow-only changes out of deployment", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
