@@ -132,6 +132,21 @@ describe("IntegrationManagementPage", () => {
     expect(mockRevalidate).toHaveBeenCalled();
   });
 
+  it("shows queued progress while an integration job waits for worker processing", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockWatchSourceObservationIntegrationJob.mockImplementation(() => new Promise(() => undefined));
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull TCGdex Sets/i })[0]);
+    const importButton = screen.getByRole("button", { name: /^Import$/i });
+    await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(importButton);
+
+    expect(await screen.findByText("Queued.")).toBeTruthy();
+  });
+
   it("previews and reapplies promoted observations in the current integration scope", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([
@@ -160,7 +175,12 @@ describe("IntegrationManagementPage", () => {
       outcomes: [],
     });
 
-    render(<IntegrationManagementPage data={{ items: [integrationScope()], total: 1, count: 1 }} query={query} />);
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
 
     fireEvent.click(screen.getAllByRole("button", { name: /Reapply promoted/i })[0]);
     await screen.findByText(/2 promoted observations will be reapplied/i);
