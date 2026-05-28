@@ -21,6 +21,13 @@ export type InventoryExternalProductReference = Readonly<{
   updated_at: string;
 }>;
 
+export type InventoryExternalCatalogItemReference = Readonly<{
+  provider_key: string;
+  external_key: string;
+  catalog_item_id: string;
+  updated_at: string;
+}>;
+
 type InventoryCatalogItemRow = Readonly<{
   catalog_item_id: string;
   language_code: string;
@@ -112,4 +119,24 @@ export async function getInventoryExternalProductReference(
       ? (row.selected_options as InventoryExternalProductReference["selected_options"])
       : [],
   };
+}
+
+export async function getInventoryExternalCatalogItemReference(
+  db: PgQueryable,
+  providerKey: string,
+  externalKey: string,
+): Promise<InventoryExternalCatalogItemReference | null> {
+  const result = await db.query<InventoryExternalCatalogItemReference>(
+    `SELECT
+       provider_key,
+       external_key,
+       catalog_item_id,
+       updated_at
+     FROM inventory_catalog_external_catalog_item_references
+     WHERE provider_key = $1
+       AND external_key = $2`,
+    [providerKey.trim().toLowerCase(), externalKey.trim().toLowerCase()],
+  );
+
+  return result.rows[0] ?? null;
 }

@@ -273,6 +273,28 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
       );
     },
 
+    "catalog.catalog-item.external-catalog-item-reference-linked": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const itemId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+      const { providerKey, externalKey } = event.data as {
+        providerKey: string;
+        externalKey: string;
+      };
+
+      await projectionDb.query(
+        `INSERT INTO catalog_external_catalog_item_references (
+           provider_key,
+           external_key,
+           catalog_item_id,
+           updated_at
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (provider_key, external_key) DO UPDATE SET
+           catalog_item_id = EXCLUDED.catalog_item_id,
+           updated_at = EXCLUDED.updated_at`,
+        [providerKey, externalKey, itemId, event.timing.recordedAt],
+      );
+    },
+
     "catalog.catalog-item.external-product-reference-unlinked": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const { providerKey, externalKey } = event.data as {
@@ -282,6 +304,21 @@ export function buildCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHa
 
       await projectionDb.query(
         `DELETE FROM catalog_external_product_references
+         WHERE provider_key = $1
+           AND external_key = $2`,
+        [providerKey, externalKey],
+      );
+    },
+
+    "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const { providerKey, externalKey } = event.data as {
+        providerKey: string;
+        externalKey: string;
+      };
+
+      await projectionDb.query(
+        `DELETE FROM catalog_external_catalog_item_references
          WHERE provider_key = $1
            AND external_key = $2`,
         [providerKey, externalKey],

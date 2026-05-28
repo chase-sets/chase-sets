@@ -64,4 +64,15 @@ CREATE TABLE IF NOT EXISTS inventory_catalog_external_product_references (
 
 CREATE INDEX IF NOT EXISTS inventory_catalog_external_product_references_catalog_item_idx
   ON inventory_catalog_external_product_references (catalog_item_id);
+
+CREATE TABLE IF NOT EXISTS inventory_catalog_external_catalog_item_references (
+  provider_key text NOT NULL,
+  external_key text NOT NULL,
+  catalog_item_id text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_key, external_key)
+);
+
+CREATE INDEX IF NOT EXISTS inventory_catalog_external_catalog_item_references_catalog_item_idx
+  ON inventory_catalog_external_catalog_item_references (catalog_item_id);
 `;

@@ -910,6 +910,24 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async linkExternalCatalogItemReference<T>(id: string, providerKey: string, externalKey: string): Promise<T> {
+      const response = await client.items[":id"]["external-catalog-item-references"][":providerKey"][
+        ":externalKey"
+      ].$put({
+        param: { id, providerKey, externalKey },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async unlinkExternalCatalogItemReference<T>(id: string, providerKey: string, externalKey: string): Promise<T> {
+      const response = await client.items[":id"]["external-catalog-item-references"][":providerKey"][
+        ":externalKey"
+      ].$delete({
+        param: { id, providerKey, externalKey },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
 
     async listSourceObservations<T>(query: string): Promise<T> {
       const response = await client["source-observations"].$get({

@@ -43,6 +43,12 @@ type ExternalProductReferenceRow = Readonly<{
   updated_at: string;
 }>;
 
+type ExternalCatalogItemReferenceRow = Readonly<{
+  provider_key: string;
+  external_key: string;
+  updated_at: string;
+}>;
+
 type ReferenceRecordRow = Readonly<{
   reference_record_id: string;
   type_key: string;
@@ -152,6 +158,13 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
      ORDER BY provider_key ASC, external_key ASC`,
     [itemId],
   );
+  const externalCatalogItemReferencesResult = await db.query<ExternalCatalogItemReferenceRow>(
+    `SELECT provider_key, external_key, updated_at
+     FROM catalog_external_catalog_item_references
+     WHERE catalog_item_id = $1
+     ORDER BY provider_key ASC, external_key ASC`,
+    [itemId],
+  );
 
   const fieldNames = await loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds);
   const categoryNames = await loadNameMap(db, "catalog_categories", "category_id", "name", categoryIds);
@@ -177,6 +190,11 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
     selectedOptions: Array.isArray(reference.selected_options) ? reference.selected_options : [],
     updatedAt: reference.updated_at,
   }));
+  const externalCatalogItemReferences = externalCatalogItemReferencesResult.rows.map((reference) => ({
+    providerKey: reference.provider_key,
+    externalKey: reference.external_key,
+    updatedAt: reference.updated_at,
+  }));
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_detail_pages (
@@ -193,13 +211,14 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       status,
       field_values,
       categories,
+      external_catalog_item_references,
       external_product_references,
       tags,
       image_urls,
       product_asset_sets,
       image_fallback,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
       title_i18n = EXCLUDED.title_i18n,
@@ -213,6 +232,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       status = EXCLUDED.status,
       field_values = EXCLUDED.field_values,
       categories = EXCLUDED.categories,
+      external_catalog_item_references = EXCLUDED.external_catalog_item_references,
       external_product_references = EXCLUDED.external_product_references,
       tags = EXCLUDED.tags,
       image_urls = EXCLUDED.image_urls,
@@ -238,6 +258,7 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       item.status,
       JSON.stringify(namedFieldValues),
       JSON.stringify(namedCategories),
+      JSON.stringify(externalCatalogItemReferences),
       JSON.stringify(externalReferences),
       JSON.stringify(asStringArray(item.tags)),
       JSON.stringify(asStringArray(item.image_urls)),
@@ -412,7 +433,13 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     "catalog.catalog-item.external-product-reference-linked": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
+    "catalog.catalog-item.external-catalog-item-reference-linked": async (event) => {
+      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+    },
     "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
+      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+    },
+    "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
     },
     "catalog.catalog-item.retired": async (event) => {

@@ -166,6 +166,35 @@ describe("CatalogItem aggregate", () => {
       });
     });
 
+    it("links and unlinks external catalog item references separately from product references", () => {
+      const linkedEvents = decide(decideCatalogItem, createdState(), {
+        type: "LinkExternalCatalogItemReference" as const,
+        providerKey: "TCGplayer",
+        externalKey: " product:12345 ",
+      });
+      const linkedState = givenEvents(createdState(), evolveCatalogItem, linkedEvents as CatalogItemEvent[]);
+      const unlinkedEvents = decide(decideCatalogItem, linkedState, {
+        type: "UnlinkExternalCatalogItemReference" as const,
+        providerKey: "tcgplayer",
+        externalKey: "product:12345",
+      });
+
+      expect(linkedEvents[0]).toMatchObject({
+        type: "catalog.catalog-item.external-catalog-item-reference-linked",
+        data: {
+          providerKey: "tcgplayer",
+          externalKey: "product:12345",
+        },
+      });
+      expect(unlinkedEvents[0]).toMatchObject({
+        type: "catalog.catalog-item.external-catalog-item-reference-unlinked",
+        data: {
+          providerKey: "tcgplayer",
+          externalKey: "product:12345",
+        },
+      });
+    });
+
     it("clears a field value", () => {
       const state = givenEvents(createdState(), evolveCatalogItem, [
         { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },

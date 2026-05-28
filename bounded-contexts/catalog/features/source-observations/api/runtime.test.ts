@@ -315,6 +315,35 @@ describe("source observation runtime", () => {
     expect(harness.appendedSourceEvents).toEqual([]);
   });
 
+  it("links TCGplayer product ids as Catalog Item references during promotion", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Scarlet & Violet",
+          seriesName: "Scarlet & Violet",
+          name: "Sprigatito",
+        }),
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:490001" }],
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:490001",
+        }),
+      }),
+    );
+  });
+
   it("fails reapply for promoted observations missing their linked Catalog Item", async () => {
     const harness = createChangedObservationRefreshHarness({
       status: "promoted",

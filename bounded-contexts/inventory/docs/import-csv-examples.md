@@ -13,7 +13,7 @@ cat_seed_charizard_base_set,loc_seed_main,2,chc_seed_form_raw,chc_seed_condition
 
 ## TCGplayer CSV
 
-Use this when importing a TCGplayer inventory export. The importer resolves `TCGplayer SKU` first, then `Product ID`.
+Use this when importing a TCGplayer inventory export. The importer resolves `TCGplayer SKU` first, then falls back to `Product ID`.
 
 ```csv
 TCGplayer SKU,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price,Seller SKU
@@ -21,7 +21,7 @@ tcg_sku_1,Charizard,Base Set,Near Mint,2,125.00,box-a-001
 tcg_sku_pikachu_jungle_nm,Pikachu,Jungle,Near Mint,5,8.50,box-a-002
 ```
 
-Unmapped TCGplayer rows are rejected for review until Catalog links the external reference to a Chase Sets catalog item and selected options.
+`TCGplayer SKU` maps to a Chase Sets product, including the selected options. `Product ID` maps only to the Catalog Item, so rows resolved by Product ID still need option values from the file or review before they can become inventory.
 
 ## Quantity Modes
 

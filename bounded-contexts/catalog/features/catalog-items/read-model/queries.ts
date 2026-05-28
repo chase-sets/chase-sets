@@ -31,6 +31,7 @@ export type CatalogItemDetailRow = Readonly<{
   status: string;
   field_values: unknown;
   categories: unknown;
+  external_catalog_item_references: unknown;
   external_product_references: unknown;
   tags: unknown;
   image_urls: unknown;
@@ -94,8 +95,11 @@ export async function listCatalogItems(
      FROM catalog_admin_catalog_item_list_pages AS item
      LEFT JOIN LATERAL (
        SELECT jsonb_agg(DISTINCT reference.provider_key ORDER BY reference.provider_key) AS source_providers
-       FROM catalog_external_product_references AS reference
-       WHERE reference.catalog_item_id = item.catalog_item_id
+       FROM (
+         SELECT provider_key FROM catalog_external_product_references WHERE catalog_item_id = item.catalog_item_id
+         UNION
+         SELECT provider_key FROM catalog_external_catalog_item_references WHERE catalog_item_id = item.catalog_item_id
+       ) AS reference
      ) AS source_refs ON true
      ${where}
      ORDER BY item.title ASC
@@ -166,8 +170,11 @@ export async function listCatalogItemBulkRows(
      FROM catalog_admin_catalog_item_list_pages AS item
      LEFT JOIN LATERAL (
        SELECT jsonb_agg(DISTINCT reference.provider_key ORDER BY reference.provider_key) AS source_providers
-       FROM catalog_external_product_references AS reference
-       WHERE reference.catalog_item_id = item.catalog_item_id
+       FROM (
+         SELECT provider_key FROM catalog_external_product_references WHERE catalog_item_id = item.catalog_item_id
+         UNION
+         SELECT provider_key FROM catalog_external_catalog_item_references WHERE catalog_item_id = item.catalog_item_id
+       ) AS reference
      ) AS source_refs ON true
      WHERE item.catalog_item_id = ANY($1::text[])`,
     [[...itemIds]],
@@ -205,8 +212,11 @@ export async function listCatalogItemsForBulkPublish(
        ON blueprint.blueprint_id = item.blueprint_id
      LEFT JOIN LATERAL (
        SELECT jsonb_agg(DISTINCT reference.provider_key ORDER BY reference.provider_key) AS source_providers
-       FROM catalog_external_product_references AS reference
-       WHERE reference.catalog_item_id = item.catalog_item_id
+       FROM (
+         SELECT provider_key FROM catalog_external_product_references WHERE catalog_item_id = item.catalog_item_id
+         UNION
+         SELECT provider_key FROM catalog_external_catalog_item_references WHERE catalog_item_id = item.catalog_item_id
+       ) AS reference
      ) AS source_refs ON true
      WHERE item.catalog_item_id = ANY($1::text[])
      ORDER BY array_position($1::text[], item.catalog_item_id)`,
@@ -276,6 +286,11 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
         FROM catalog_external_product_references AS source_filter
         WHERE source_filter.catalog_item_id = item.catalog_item_id
           AND source_filter.provider_key = $${paramIndex}
+        UNION
+        SELECT 1
+        FROM catalog_external_catalog_item_references AS source_filter
+        WHERE source_filter.catalog_item_id = item.catalog_item_id
+          AND source_filter.provider_key = $${paramIndex}
       )`,
     );
     values.push(params.source);
@@ -288,6 +303,10 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
         SELECT 1
         FROM catalog_external_product_references AS source_presence
         WHERE source_presence.catalog_item_id = item.catalog_item_id
+        UNION
+        SELECT 1
+        FROM catalog_external_catalog_item_references AS source_presence
+        WHERE source_presence.catalog_item_id = item.catalog_item_id
       )`,
     );
   } else if (params.hasSourceReferences === "false") {
@@ -295,6 +314,10 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
       `NOT EXISTS (
         SELECT 1
         FROM catalog_external_product_references AS source_presence
+        WHERE source_presence.catalog_item_id = item.catalog_item_id
+        UNION
+        SELECT 1
+        FROM catalog_external_catalog_item_references AS source_presence
         WHERE source_presence.catalog_item_id = item.catalog_item_id
       )`,
     );
@@ -374,6 +397,11 @@ function buildCatalogItemConditions(params: CatalogItemListParams): { where: str
         OR EXISTS (
           SELECT 1
           FROM catalog_external_product_references AS source_search
+          WHERE source_search.catalog_item_id = item.catalog_item_id
+            AND (source_search.provider_key ILIKE $${paramIndex} OR source_search.external_key ILIKE $${paramIndex})
+          UNION
+          SELECT 1
+          FROM catalog_external_catalog_item_references AS source_search
           WHERE source_search.catalog_item_id = item.catalog_item_id
             AND (source_search.provider_key ILIKE $${paramIndex} OR source_search.external_key ILIKE $${paramIndex})
         ))`,

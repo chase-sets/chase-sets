@@ -150,3 +150,11 @@ export function linkExternalProductReference(
 export function unlinkExternalProductReference(id: string, providerKey: string, externalKey: string) {
   return api.unlinkExternalProductReference<CommandResponse>(id, providerKey, externalKey);
 }
+
+export function linkExternalCatalogItemReference(id: string, providerKey: string, externalKey: string) {
+  return api.linkExternalCatalogItemReference<CommandResponse>(id, providerKey, externalKey);
+}
+
+export function unlinkExternalCatalogItemReference(id: string, providerKey: string, externalKey: string) {
+  return api.unlinkExternalCatalogItemReference<CommandResponse>(id, providerKey, externalKey);
+}

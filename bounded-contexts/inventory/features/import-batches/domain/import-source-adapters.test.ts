@@ -41,13 +41,13 @@ describe("inventory import source adapters", () => {
     expect(rows[0]).toMatchObject({
       externalReference: {
         providerKey: "tcgplayer",
-        externalKey: "tcg_sku_1",
+        externalKey: "sku:tcg_sku_1",
         displayName: "Charizard | Base Set | Near Mint",
       },
       externalReferences: [
         {
           providerKey: "tcgplayer",
-          externalKey: "tcg_sku_1",
+          externalKey: "sku:tcg_sku_1",
         },
       ],
       values: {
@@ -71,7 +71,7 @@ describe("inventory import source adapters", () => {
     expect(rows[0]).toMatchObject({
       externalReference: {
         providerKey: "tcgplayer",
-        externalKey: "12345",
+        externalKey: "product:12345",
       },
       values: {
         totalQuantity: "-2",
@@ -88,7 +88,10 @@ describe("inventory import source adapters", () => {
       defaultStorageLocationId: "loc_1",
     });
 
-    expect(rows[0]?.externalReferences.map((reference) => reference.externalKey)).toEqual(["missing_sku", "12345"]);
+    expect(rows[0]?.externalReferences.map((reference) => reference.externalKey)).toEqual([
+      "sku:missing_sku",
+      "product:12345",
+    ]);
   });
 
   it("normalizes eBay active listing exports into exact mapping candidates", () => {
@@ -157,7 +160,12 @@ describe("inventory import source adapters", () => {
     });
 
     expect(rows[0]?.externalReferences.map((reference) => `${reference.providerKey}:${reference.externalKey}`)).toEqual(
-      ["cardtrader:product:ct_prod_1", "cardtrader:blueprint:ct_bp_1", "tcgplayer:12345", "cardmarket:product:67890"],
+      [
+        "cardtrader:product:ct_prod_1",
+        "cardtrader:blueprint:ct_bp_1",
+        "tcgplayer:product:12345",
+        "cardmarket:product:67890",
+      ],
     );
   });
 

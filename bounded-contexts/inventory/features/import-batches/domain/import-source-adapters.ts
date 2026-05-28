@@ -180,8 +180,8 @@ export const tcgplayerCsvImportAdapter: InventoryImportSourceAdapter = {
       const sellerSku = valueByHeader(row, ["Seller SKU", "SellerSku", "Custom SKU"]);
       const displayName = [title, setName, condition].filter(Boolean).join(" | ") || null;
       const references = externalReferences(displayName, [
-        ["tcgplayer", sku],
-        ["tcgplayer", productId],
+        ["tcgplayer", sku ? `sku:${sku}` : ""],
+        ["tcgplayer", productId ? `product:${productId}` : ""],
       ]);
       const values = {
         storageLocationId: clean(input.defaultStorageLocationId),
@@ -382,7 +382,7 @@ export const cardTraderCsvImportAdapter: InventoryImportSourceAdapter = {
         ["cardtrader", blueprintId ? `blueprint:${blueprintId}` : ""],
         ["cardtrader", articleId ? `article:${articleId}` : ""],
         ["cardtrader", sku ? `sku:${sku}` : ""],
-        ["tcgplayer", tcgplayerId],
+        ["tcgplayer", tcgplayerId ? `product:${tcgplayerId}` : ""],
         ["cardmarket", cardmarketId ? `product:${cardmarketId}` : ""],
       ]);
       const values = {

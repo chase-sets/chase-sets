@@ -19,6 +19,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Reference Type`
 - `Reference Record`
 - `Display Template`
+- `External Catalog Item Reference`
 - `External Product Reference`
 - `Catalog Item Image Fallback`
 - `Product Measure Profile`
@@ -50,7 +51,8 @@ The current implementation also uses four supporting authoring concepts:
 - `Reference Type` — a reusable kind of rich descriptive value, such as Expansion, Series, or Product Line
 - `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Expansion
 - `Display Template` — a reusable rule that resolves Catalog Item title and subtitle copy from Fields, Reference Records, Categories, Blueprints, or item-specific overrides
-- `External Product Reference` — a provider-scoped identifier mapped to one Catalog Item plus selected Options for Product resolution
+- `External Catalog Item Reference` — a provider-scoped product identifier mapped to one Catalog Item
+- `External Product Reference` — a provider-scoped SKU or sellable identifier mapped to one Catalog Item plus selected Options for Product resolution
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 - `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
 - `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
@@ -87,6 +89,7 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Reference Record` may be selected as a Field value on many Catalog Items.
 - A `Reference Record` may relate to other Reference Records.
 - A `Display Template` may target one Catalog Item, Reference Record, Category, Blueprint, or all Catalog Items.
+- An `External Catalog Item Reference` belongs to one Catalog Item and does not carry selected Options.
 - An `External Product Reference` belongs to one Catalog Item and carries the selected Options needed to resolve the mapped Product.
 - A `Catalog Item Image Fallback` belongs to one Catalog Item and may point at a shared Catalog-owned asset used by many items.
 - A `Product Measure Profile` may apply to many Products through Blueprint, Category, and selected Option rules.
@@ -117,6 +120,7 @@ Notes:
 - A reference-shaped Field value must point at one Catalog-owned Reference Record.
 - A Reference Record enriches item information but does not change `product_id`.
 - A Display Template changes display copy only. It never changes `catalog_item_id`, `product_id`, selected Options, or product-resolution validity.
+- An External Catalog Item Reference must be scoped by provider and must map only to Catalog Item identity.
 - An External Product Reference must be scoped by provider and must map to selected Options that are valid for the Catalog Item's active Product schema.
 - A Catalog Item Image Fallback never changes `product_id`; it only describes fallback imagery for item presentation.
 - Product weight, dimensions, physical flags, and stack behavior are Catalog-owned product facts.
@@ -196,6 +200,7 @@ Catalog defines:
 - the authoring relationship between Blueprints, Fields, Components, Categories, Reference Records, and Catalog Items
 - the template hierarchy used to resolve product-facing Catalog Item title and subtitle copy
 - external product references that map provider identifiers to Catalog Item and Product selection truth
+- external catalog item references that map provider product identifiers to Catalog Item truth
 - the review and promotion policy for provider Source Observations
 - the normalized product imagery contract published as Product Asset Sets
 - reusable Product Measure Profiles and Resolved Product Measures

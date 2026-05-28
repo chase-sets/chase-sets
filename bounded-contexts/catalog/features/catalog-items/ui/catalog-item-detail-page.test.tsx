@@ -21,6 +21,7 @@ const catalogItem: CatalogItemDetail = {
   status: "draft",
   field_values: [],
   categories: [],
+  external_catalog_item_references: [],
   external_product_references: [],
   tags: [],
   image_urls: [],

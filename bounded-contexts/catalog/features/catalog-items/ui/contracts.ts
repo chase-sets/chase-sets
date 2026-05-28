@@ -47,6 +47,11 @@ export interface CatalogItemDetail {
     reference?: CatalogReferenceRecordRef | null;
   }>;
   categories: CategoryRef[];
+  external_catalog_item_references: Array<{
+    providerKey: string;
+    externalKey: string;
+    updatedAt: string;
+  }>;
   external_product_references: Array<{
     providerKey: string;
     externalKey: string;

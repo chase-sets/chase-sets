@@ -35,7 +35,9 @@ import {
   setImageUrls,
   setImageFallback,
   clearImageFallback,
+  linkExternalCatalogItemReference,
   linkExternalProductReference,
+  unlinkExternalCatalogItemReference,
   unlinkExternalProductReference,
 } from "./use-catalog-items";
 import { useFieldList } from "../../fields/ui/use-fields";
@@ -106,6 +108,9 @@ interface CategoryRef {
 type ExternalProductReference = NonNullable<
   ReturnType<typeof useCatalogItem>["data"]
 >["external_product_references"][number];
+type ExternalCatalogItemReference = NonNullable<
+  ReturnType<typeof useCatalogItem>["data"]
+>["external_catalog_item_references"][number];
 
 function formatFieldValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -322,6 +327,9 @@ export function CatalogItemDetailPage({
   const [imageFallbackVariants, setImageFallbackVariants] = useState("{}");
 
   // External product references
+  const [showLinkExternalCatalogItemReference, setShowLinkExternalCatalogItemReference] = useState(false);
+  const [externalCatalogItemProviderKey, setExternalCatalogItemProviderKey] = useState("tcgplayer");
+  const [externalCatalogItemKey, setExternalCatalogItemKey] = useState("");
   const [showLinkExternalReference, setShowLinkExternalReference] = useState(false);
   const [externalProviderKey, setExternalProviderKey] = useState("tcgplayer");
   const [externalKey, setExternalKey] = useState("");
@@ -530,15 +538,37 @@ export function CatalogItemDetailPage({
     refresh();
   }
 
+  async function handleLinkExternalCatalogItemReference() {
+    await linkExternalCatalogItemReference(id, externalCatalogItemProviderKey, externalCatalogItemKey);
+    addToast(
+      t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.reference.linked"),
+      "success",
+    );
+    setShowLinkExternalCatalogItemReference(false);
+    setExternalCatalogItemProviderKey("tcgplayer");
+    setExternalCatalogItemKey("");
+    refresh();
+  }
+
   async function handleUnlinkExternalReference(reference: ExternalProductReference) {
     await unlinkExternalProductReference(id, reference.providerKey, reference.externalKey);
     addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.unlinked"), "success");
     refresh();
   }
 
+  async function handleUnlinkExternalCatalogItemReference(reference: ExternalCatalogItemReference) {
+    await unlinkExternalCatalogItemReference(id, reference.providerKey, reference.externalKey);
+    addToast(
+      t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.reference.unlinked"),
+      "success",
+    );
+    refresh();
+  }
+
   const fieldValues = (data?.field_values ?? []) as FieldValue[];
   const referenceDetailRows = buildReferenceDetailRows(fieldValues);
   const categories = (data?.categories ?? []) as CategoryRef[];
+  const externalCatalogItemReferences = data?.external_catalog_item_references ?? [];
   const externalReferences = data?.external_product_references ?? [];
 
   const fieldValueColumns: DataColumn<ReferenceDetailRow>[] = [
@@ -801,6 +831,70 @@ export function CatalogItemDetailPage({
                       {t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.fallback")}
                     </Text>
                   )}
+                </Stack>
+              </ProgressiveDisclosure>
+            </PageSection>
+
+            <PageSection
+              title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.references")}
+            >
+              <ProgressiveDisclosure
+                title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.references")}
+                summary={
+                  externalCatalogItemReferences.length === 0
+                    ? t("catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.catalog.item.references")
+                    : t(
+                        "catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.references.summary",
+                        {
+                          count: externalCatalogItemReferences.length,
+                        },
+                      )
+                }
+                tone={externalCatalogItemReferences.length > 0 ? "info" : "neutral"}
+              >
+                <Stack gap={3}>
+                  {data.status !== "archived" && (
+                    <Inline>
+                      <Button size="sm" onClick={() => setShowLinkExternalCatalogItemReference(true)}>
+                        {t(
+                          "catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.catalog.item.reference",
+                        )}
+                      </Button>
+                    </Inline>
+                  )}
+                  <DataTable
+                    rows={externalCatalogItemReferences}
+                    columns={[
+                      {
+                        key: "provider",
+                        header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.provider"),
+                        cell: (row) => row.providerKey,
+                      },
+                      {
+                        key: "externalKey",
+                        header: t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.key"),
+                        cell: (row) => row.externalKey,
+                      },
+                      {
+                        key: "actions",
+                        header: "",
+                        cell: (row) =>
+                          data.status !== "archived" ? (
+                            <Button
+                              size="sm"
+                              tone="danger"
+                              onClick={() => handleUnlinkExternalCatalogItemReference(row)}
+                            >
+                              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.unlink")}
+                            </Button>
+                          ) : null,
+                      },
+                    ]}
+                    getRowId={(row) => `${row.providerKey}:${row.externalKey}`}
+                    emptyTitle={t(
+                      "catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.catalog.item.references",
+                    )}
+                  />
                 </Stack>
               </ProgressiveDisclosure>
             </PageSection>
@@ -1072,6 +1166,33 @@ export function CatalogItemDetailPage({
             label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.variants.json")}
             value={imageFallbackVariants}
             onChange={(event) => setImageFallbackVariants(event.target.value)}
+          />
+        </Stack>
+      </Dialog>
+
+      <Dialog
+        open={showLinkExternalCatalogItemReference}
+        onOpenChange={setShowLinkExternalCatalogItemReference}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.catalog.item.reference.2")}
+        description={t(
+          "catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.reference.description",
+        )}
+        footer={
+          <Button onClick={handleLinkExternalCatalogItemReference}>
+            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.link")}
+          </Button>
+        }
+      >
+        <Stack gap={3}>
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.provider")}
+            value={externalCatalogItemProviderKey}
+            onChange={(event) => setExternalCatalogItemProviderKey(event.target.value)}
+          />
+          <TextInput
+            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.external.key")}
+            value={externalCatalogItemKey}
+            onChange={(event) => setExternalCatalogItemKey(event.target.value)}
           />
         </Stack>
       </Dialog>
