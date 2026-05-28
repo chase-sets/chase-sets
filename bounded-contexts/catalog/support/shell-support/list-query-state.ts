@@ -32,6 +32,7 @@ export type CatalogListQuery = Readonly<{
   attributeValue: string;
   relationshipType: string;
   relatedReferenceId: string;
+  targetKind: string;
   page: number;
   pageSize: number;
 }>;
@@ -62,6 +63,7 @@ const EXTRA_FILTER_KEYS = [
   "attributeValue",
   "relationshipType",
   "relatedReferenceId",
+  "targetKind",
 ] as const;
 
 type ExtraFilterKey = (typeof EXTRA_FILTER_KEYS)[number];
@@ -100,6 +102,7 @@ export function readCatalogListQuery(request: Request): CatalogListQuery {
     attributeValue: url.searchParams.get("attributeValue")?.trim() ?? "",
     relationshipType: url.searchParams.get("relationshipType")?.trim() ?? "",
     relatedReferenceId: url.searchParams.get("relatedReferenceId")?.trim() ?? "",
+    targetKind: url.searchParams.get("targetKind")?.trim() ?? "",
     page: Number.isFinite(pageFromUrl) ? Math.max(0, pageFromUrl - 1) : 0,
     pageSize: CATALOG_LIST_PAGE_SIZE,
   };
@@ -319,6 +322,7 @@ export function useCatalogListQueryControls(query: CatalogListQuery, debounceMs 
     attributeValue: query.attributeValue,
     relationshipType: query.relationshipType,
     relatedReferenceId: query.relatedReferenceId,
+    targetKind: query.targetKind,
     page: query.page,
     pageSize: query.pageSize,
     loading: navigation.state !== "idle",
@@ -348,6 +352,7 @@ export function useCatalogListQueryControls(query: CatalogListQuery, debounceMs 
     setAttributeValue: (attributeValue: string) => commitWithCurrentSearch({ attributeValue }),
     setRelationshipType: (relationshipType: string) => commitWithCurrentSearch({ relationshipType }),
     setRelatedReferenceId: (relatedReferenceId: string) => commitWithCurrentSearch({ relatedReferenceId }),
+    setTargetKind: (targetKind: string) => commitWithCurrentSearch({ targetKind }),
     setFilters: (filters: Omit<CatalogListQueryUpdate, "page">) => commitWithCurrentSearch(filters),
     setPage: (page: number) => commitWithCurrentSearch({ page }),
   };

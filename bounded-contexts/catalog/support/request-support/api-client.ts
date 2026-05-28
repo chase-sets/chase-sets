@@ -15,6 +15,8 @@ export type {
   ComponentDetail,
   Dimension,
   DimensionDetail,
+  DisplayTemplate,
+  DisplayTemplateDetail,
   Field,
   ReferenceRecord,
   ReferenceType,

@@ -7,6 +7,7 @@ import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogItemListItem } from "./contracts";
 
 const {
+  mockCreateCatalogItem,
   mockPreviewBulkCatalogItemEdit,
   mockPreviewBulkCatalogItemLifecycle,
   mockPreviewBulkPublishCatalogItems,
@@ -15,6 +16,7 @@ const {
   mockUseRevalidator,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
+  mockCreateCatalogItem: vi.fn(),
   mockPreviewBulkCatalogItemEdit: vi.fn(),
   mockPreviewBulkCatalogItemLifecycle: vi.fn(),
   mockPreviewBulkPublishCatalogItems: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock("./use-catalog-items", () => ({
   confirmBulkCatalogItemEdit: vi.fn(),
   confirmBulkCatalogItemLifecycle: vi.fn(),
   confirmBulkPublishCatalogItems: vi.fn(),
-  createCatalogItem: vi.fn(),
+  createCatalogItem: mockCreateCatalogItem,
   localizedTextMapFromEnglish: (value: string) => ({ defaultLocale: "en", values: { en: value } }),
   previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
   previewBulkCatalogItemLifecycle: mockPreviewBulkCatalogItemLifecycle,
@@ -123,6 +125,51 @@ describe("CatalogItemListPage", () => {
       });
     });
     expect(await screen.findByText("Bulk Publish Preview")).toBeTruthy();
+  });
+
+  it("creates Catalog Items without manual title or subtitle controls", async () => {
+    const user = userEvent.setup();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    const revalidate = vi.fn();
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    mockCreateCatalogItem.mockResolvedValue({ id: "cat_1", version: 1, status: "draft" });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{
+          search: "",
+          status: "",
+          language: "",
+          source: "",
+          setId: "",
+          typeKey: "",
+          targetKind: "",
+          page: 0,
+          pageSize: 50,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "New Catalog Item" }));
+
+    expect(screen.queryByLabelText("Title")).toBeNull();
+    expect(screen.queryByLabelText("Subtitle")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Draft from fields" } });
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mockCreateCatalogItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: { defaultLocale: "en", values: { en: expect.stringMatching(/^cat_/) } },
+          subtitle: null,
+          description: { defaultLocale: "en", values: { en: "Draft from fields" } },
+        }),
+      );
+      expect(revalidate).toHaveBeenCalled();
+    });
   });
 
   it("selects rows and previews bulk publish from the list", async () => {

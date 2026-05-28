@@ -37,6 +37,17 @@ describe("CatalogItemDetailPage", () => {
     expect(html).not.toContain(">ja<");
   });
 
+  it("does not expose manual title or subtitle controls in metadata editing", () => {
+    render(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Description" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Edit Description" });
+    expect(within(dialog).queryByLabelText("Title")).toBeNull();
+    expect(within(dialog).queryByLabelText("Subtitle")).toBeNull();
+    expect(within(dialog).getByLabelText("Description")).toBeTruthy();
+  });
+
   it("renders reference field values as flattened clickable detail rows", () => {
     const html = renderToString(
       <CatalogItemDetailPage

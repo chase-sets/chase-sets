@@ -33,6 +33,23 @@ export function localizedTextMapFromEnglish(value: string): LocalizedTextMap {
   };
 }
 
+export function localizedTextMapFromUnknown(value: unknown, fallback: string): LocalizedTextMap {
+  if (
+    value &&
+    typeof value === "object" &&
+    "defaultLocale" in value &&
+    "values" in value &&
+    typeof value.defaultLocale === "string" &&
+    value.values &&
+    typeof value.values === "object" &&
+    !Array.isArray(value.values)
+  ) {
+    return value as LocalizedTextMap;
+  }
+
+  return localizedTextMapFromEnglish(fallback);
+}
+
 export function useCatalogItemList(query: string, initialData?: ListResponse<CatalogItemListItem> | null) {
   return useFetch(() => api.listCatalogItems<ListResponse<CatalogItemListItem>>(query), [query], initialData);
 }

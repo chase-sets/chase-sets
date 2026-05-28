@@ -99,6 +99,7 @@ describe("catalog list query state", () => {
       attributeValue: "",
       relationshipType: "",
       relatedReferenceId: "",
+      targetKind: "",
       page: 2,
       pageSize: 50,
     });
@@ -222,6 +223,7 @@ describe("catalog list query state", () => {
       attributeValue: "rare",
       relationshipType: "part-of",
       relatedReferenceId: "ref_1",
+      targetKind: "",
       page: 3,
     });
     expect(buildCatalogListApiQuery(query)).toBe(

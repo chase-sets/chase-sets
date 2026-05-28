@@ -29,6 +29,7 @@ import {
   publishCatalogItem,
   reviseMetadata,
   localizedTextMapFromEnglish,
+  localizedTextMapFromUnknown,
   archiveCatalogItem,
   setTags,
   setImageUrls,
@@ -297,8 +298,6 @@ export function CatalogItemDetailPage({
 
   // Metadata editing
   const [showEditMetadata, setShowEditMetadata] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editSubtitle, setEditSubtitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLanguageCode, setEditLanguageCode] = useState("");
 
@@ -425,8 +424,8 @@ export function CatalogItemDetailPage({
 
   async function handleReviseMetadata() {
     await reviseMetadata(id, {
-      title: localizedTextMapFromEnglish(editTitle),
-      subtitle: editSubtitle ? localizedTextMapFromEnglish(editSubtitle) : null,
+      title: localizedTextMapFromUnknown(data?.title_i18n, id),
+      subtitle: data?.subtitle_i18n ? localizedTextMapFromUnknown(data.subtitle_i18n, "") : null,
       description: localizedTextMapFromEnglish(editDescription),
       languageCode: editLanguageCode || "en",
     });
@@ -437,8 +436,6 @@ export function CatalogItemDetailPage({
 
   function startEditMetadata() {
     if (data) {
-      setEditTitle(data.title);
-      setEditSubtitle(data.subtitle ?? "");
       setEditDescription(data.description ?? "");
       setEditLanguageCode(data.language_code ?? "en");
       setShowEditMetadata(true);
@@ -588,7 +585,7 @@ export function CatalogItemDetailPage({
               />
               {data.status !== "archived" && (
                 <Button tone="secondary" size="sm" onClick={startEditMetadata}>
-                  {t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.metadata")}
+                  {t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.description")}
                 </Button>
               )}
             </Inline>
@@ -967,7 +964,7 @@ export function CatalogItemDetailPage({
       <Dialog
         open={showEditMetadata}
         onOpenChange={setShowEditMetadata}
-        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.metadata.2")}
+        title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.edit.description.2")}
         footer={
           <Button onClick={handleReviseMetadata}>
             {t("catalog.features.catalogItems.ui.catalogItemDetailPage.save")}
@@ -975,16 +972,6 @@ export function CatalogItemDetailPage({
         }
       >
         <Stack gap={3}>
-          <TextInput
-            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.title")}
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-          />
-          <TextInput
-            label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.subtitle")}
-            value={editSubtitle}
-            onChange={(e) => setEditSubtitle(e.target.value)}
-          />
           <TextInput
             label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.language.code")}
             value={editLanguageCode}
