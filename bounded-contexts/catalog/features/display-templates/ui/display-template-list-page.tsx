@@ -223,7 +223,9 @@ export function DisplayTemplateListPage({ data, query }: CatalogListRouteData<Di
             label={t("catalog.features.displayTemplates.ui.displayTemplateListPage.required.field.keys")}
             value={requiredFieldKeys}
             onChange={(event) => setRequiredFieldKeys(event.target.value)}
-            placeholder="card-name, card-number, expansion"
+            placeholder={t(
+              "catalog.features.displayTemplates.ui.displayTemplateListPage.required.field.keys.placeholder",
+            )}
           />
         </Stack>
       </Dialog>

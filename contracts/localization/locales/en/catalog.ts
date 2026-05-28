@@ -17,6 +17,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.publish": "Publish",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.published": "published",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.required.field.keys": "Required Field Keys",
+  "catalog.features.displayTemplates.ui.displayTemplateDetailPage.required.field.keys.placeholder":
+    "card-name, card-number, expansion",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.save": "Save",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.status": "Status",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.subtitle.template": "Subtitle Template",
@@ -44,6 +46,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.displayTemplates.ui.displayTemplateListPage.new.display.template": "New Display Template",
   "catalog.features.displayTemplates.ui.displayTemplateListPage.priority": "Priority",
   "catalog.features.displayTemplates.ui.displayTemplateListPage.required.field.keys": "Required Field Keys",
+  "catalog.features.displayTemplates.ui.displayTemplateListPage.required.field.keys.placeholder":
+    "card-name, card-number, expansion",
   "catalog.features.displayTemplates.ui.displayTemplateListPage.status": "Status",
   "catalog.features.displayTemplates.ui.displayTemplateListPage.subtitle.template": "Subtitle Template",
   "catalog.features.displayTemplates.ui.displayTemplateListPage.target": "Target",

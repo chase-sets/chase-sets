@@ -272,7 +272,9 @@ export function DisplayTemplateDetailPage({
             label={t("catalog.features.displayTemplates.ui.displayTemplateDetailPage.required.field.keys")}
             value={requiredFieldKeys}
             onChange={(event) => setRequiredFieldKeys(event.target.value)}
-            placeholder="card-name, card-number, expansion"
+            placeholder={t(
+              "catalog.features.displayTemplates.ui.displayTemplateDetailPage.required.field.keys.placeholder",
+            )}
           />
         </Stack>
       </Dialog>
