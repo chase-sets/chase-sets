@@ -19,6 +19,8 @@
         "catalog.catalog-item.blueprint-assigned",
         "catalog.catalog-item.published",
         "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked",
         "catalog.catalog-item.external-product-reference-linked",
         "catalog.catalog-item.external-product-reference-unlinked",
         "catalog.catalog-item.retired",
@@ -54,6 +56,7 @@
         "inventory_catalog_blueprints",
         "inventory_catalog_dimensions",
         "inventory_catalog_dimension_options",
+        "inventory_catalog_external_catalog_item_references",
         "inventory_catalog_external_product_references"
       ],
       "requiredDuringBootstrap": true,

@@ -27,6 +27,14 @@ CREATE TABLE IF NOT EXISTS catalog_external_product_references (
   PRIMARY KEY (provider_key, external_key)
 );
 
+CREATE TABLE IF NOT EXISTS catalog_external_catalog_item_references (
+  provider_key text NOT NULL,
+  external_key text NOT NULL,
+  catalog_item_id text NOT NULL REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_key, external_key)
+);
+
 CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_list_pages (
   catalog_item_id text PRIMARY KEY REFERENCES catalog_items(catalog_item_id) ON DELETE CASCADE,
   language_code text NOT NULL DEFAULT 'en',
@@ -55,6 +63,7 @@ CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
   status text NOT NULL DEFAULT 'draft',
   field_values jsonb NOT NULL DEFAULT '[]'::jsonb,
   categories jsonb NOT NULL DEFAULT '[]'::jsonb,
+  external_catalog_item_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -81,6 +90,7 @@ ALTER TABLE catalog_admin_catalog_item_detail_pages
   ADD COLUMN IF NOT EXISTS title_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
+  ADD COLUMN IF NOT EXISTS external_catalog_item_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
@@ -96,4 +106,7 @@ CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_title_idx
 CREATE INDEX IF NOT EXISTS catalog_admin_catalog_item_list_pages_tags_idx
   ON catalog_admin_catalog_item_list_pages USING gin (tags);
 CREATE INDEX IF NOT EXISTS catalog_external_product_references_catalog_item_idx
-  ON catalog_external_product_references (catalog_item_id);`;
+  ON catalog_external_product_references (catalog_item_id);
+
+CREATE INDEX IF NOT EXISTS catalog_external_catalog_item_references_catalog_item_idx
+  ON catalog_external_catalog_item_references (catalog_item_id);`;

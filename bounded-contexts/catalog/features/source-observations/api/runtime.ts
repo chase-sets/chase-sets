@@ -1500,6 +1500,7 @@ async function createCatalogDraftFromObservation(input: {
     },
     context: input.context,
   });
+  await linkExternalCatalogItemReferencesFromObservation(input.items, streamId, input.normalized, input.context);
 }
 
 async function refreshCatalogItemFromObservation(input: {
@@ -1598,6 +1599,26 @@ async function refreshCatalogItemFromObservation(input: {
     },
     context: input.context,
   });
+  await linkExternalCatalogItemReferencesFromObservation(input.items, streamId, input.normalized, input.context);
+}
+
+async function linkExternalCatalogItemReferencesFromObservation(
+  items: CatalogItemServices,
+  streamId: string,
+  normalized: SourceObservationNormalized,
+  context: EventStoreContext,
+) {
+  for (const reference of uniqueExternalCatalogItemReferences(normalized.externalCatalogItemReferences ?? [])) {
+    await items.commandHandler({
+      streamId,
+      command: {
+        type: "LinkExternalCatalogItemReference",
+        providerKey: reference.providerKey,
+        externalKey: reference.externalKey,
+      },
+      context,
+    });
+  }
 }
 
 async function formatPokemonCardPromotionMetadata(input: {
@@ -1622,6 +1643,26 @@ function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string
     `variant:${normalized.cardVariantKey}`,
     ...(normalized.imageDisclaimer ? ["image-note:variant-reference"] : []),
   ];
+}
+
+function uniqueExternalCatalogItemReferences(
+  references: readonly NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][],
+) {
+  const seen = new Set<string>();
+  return references
+    .map((reference) => ({
+      providerKey: reference.providerKey.trim().toLowerCase(),
+      externalKey: reference.externalKey.trim().toLowerCase(),
+    }))
+    .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
+    .filter((reference) => {
+      const key = `${reference.providerKey}:${reference.externalKey}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
 }
 
 function isPromotableObservationStatus(status: string): boolean {

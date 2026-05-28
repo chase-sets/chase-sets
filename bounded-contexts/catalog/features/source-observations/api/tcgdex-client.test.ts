@@ -245,6 +245,111 @@ describe("TCGdex client", () => {
     ]);
   });
 
+  it("captures unambiguous marketplace product ids as Catalog Item references", async () => {
+    const responses = new Map<string, unknown>([
+      [
+        "https://api.tcgdex.net/v2/en/sets/sv1",
+        {
+          id: "sv1",
+          name: "Scarlet & Violet",
+          cards: [{ id: "sv1-001", localId: "001", name: "Sprigatito" }],
+        },
+      ],
+      [
+        "https://api.tcgdex.net/v2/en/cards/sv1-001",
+        {
+          id: "sv1-001",
+          localId: "001",
+          name: "Sprigatito",
+          category: "Pokemon",
+          set: { id: "sv1", name: "Scarlet & Violet" },
+          variants: {
+            normal: true,
+            reverse: true,
+          },
+          pricing: {
+            tcgplayer: {
+              normal: { productId: 490001 },
+              "reverse-holofoil": { productId: 490002 },
+            },
+          },
+          variants_detailed: [
+            { type: "normal", tcgplayerProductId: 490001, cardmarketId: 880001 },
+            { type: "reverse", tcgplayerProductId: 490002, cardmarketId: 880002 },
+          ],
+        },
+      ],
+    ]);
+    const fetcher: typeof globalThis.fetch = async (input) => {
+      const response = responses.get(String(input));
+      return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
+    };
+
+    const observations = await fetchTcgdexSetObservations({
+      languageCode: "en",
+      setId: "sv1",
+      fetch: fetcher,
+    });
+
+    expect(observations.map((observation) => observation.normalized.externalCatalogItemReferences)).toEqual([
+      [
+        { providerKey: "tcgplayer", externalKey: "product:490001" },
+        { providerKey: "cardmarket", externalKey: "product:880001" },
+      ],
+      [
+        { providerKey: "tcgplayer", externalKey: "product:490002" },
+        { providerKey: "cardmarket", externalKey: "product:880002" },
+      ],
+    ]);
+    expect(observations[0]?.sourcePayload).not.toHaveProperty("pricing");
+  });
+
+  it("skips marketplace product ids that TCGdex repeats across variants", async () => {
+    const responses = new Map<string, unknown>([
+      [
+        "https://api.tcgdex.net/v2/en/sets/swsh3",
+        {
+          id: "swsh3",
+          name: "Darkness Ablaze",
+          cards: [{ id: "swsh3-136", localId: "136", name: "Furret" }],
+        },
+      ],
+      [
+        "https://api.tcgdex.net/v2/en/cards/swsh3-136",
+        {
+          id: "swsh3-136",
+          localId: "136",
+          name: "Furret",
+          category: "Pokemon",
+          set: { id: "swsh3", name: "Darkness Ablaze" },
+          variants: {
+            normal: true,
+            reverse: true,
+          },
+          pricing: {
+            tcgplayer: {
+              normal: { productId: 219333 },
+              "reverse-holofoil": { productId: 219333 },
+            },
+            cardmarket: { idProduct: 483559 },
+          },
+        },
+      ],
+    ]);
+    const fetcher: typeof globalThis.fetch = async (input) => {
+      const response = responses.get(String(input));
+      return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
+    };
+
+    const observations = await fetchTcgdexSetObservations({
+      languageCode: "en",
+      setId: "swsh3",
+      fetch: fetcher,
+    });
+
+    expect(observations.map((observation) => observation.normalized.externalCatalogItemReferences)).toEqual([[], []]);
+  });
+
   it("reports set import progress while fetching cards", async () => {
     const responses = new Map<string, unknown>([
       [

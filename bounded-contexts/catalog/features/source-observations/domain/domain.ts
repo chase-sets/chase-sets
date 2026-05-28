@@ -5,6 +5,11 @@ import { assert, assertNever } from "../../../support/runtime-support/common";
 
 export type SourceObservationStatus = "observed" | "changed" | "promoted" | "rejected";
 
+export type SourceObservationExternalCatalogItemReference = Readonly<{
+  providerKey: string;
+  externalKey: string;
+}>;
+
 export type SourceObservationNormalized = JsonObject &
   Readonly<{
     kind: "pokemon-card";
@@ -36,6 +41,7 @@ export type SourceObservationNormalized = JsonObject &
     cardVariantIsPrimaryImage: boolean;
     imageDisclaimer: string | null;
     variants: JsonObject;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
   }>;
 
 export type SourceObservationState = Readonly<{

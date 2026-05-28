@@ -318,6 +318,26 @@ export function buildInventoryCatalogItemProjectionHandlers(db: PgQueryable): Pr
         ],
       );
     },
+    "catalog.catalog-item.external-catalog-item-reference-linked": async (event) => {
+      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+      const { providerKey, externalKey } = event.data as {
+        providerKey: string;
+        externalKey: string;
+      };
+
+      await db.query(
+        `INSERT INTO inventory_catalog_external_catalog_item_references (
+           provider_key,
+           external_key,
+           catalog_item_id,
+           updated_at
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (provider_key, external_key) DO UPDATE SET
+           catalog_item_id = EXCLUDED.catalog_item_id,
+           updated_at = EXCLUDED.updated_at`,
+        [providerKey, externalKey, itemId, event.timing.recordedAt],
+      );
+    },
     "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
       const { providerKey, externalKey } = event.data as {
         providerKey: string;
@@ -326,6 +346,19 @@ export function buildInventoryCatalogItemProjectionHandlers(db: PgQueryable): Pr
 
       await db.query(
         `DELETE FROM inventory_catalog_external_product_references
+         WHERE provider_key = $1
+           AND external_key = $2`,
+        [providerKey, externalKey],
+      );
+    },
+    "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event) => {
+      const { providerKey, externalKey } = event.data as {
+        providerKey: string;
+        externalKey: string;
+      };
+
+      await db.query(
+        `DELETE FROM inventory_catalog_external_catalog_item_references
          WHERE provider_key = $1
            AND external_key = $2`,
         [providerKey, externalKey],

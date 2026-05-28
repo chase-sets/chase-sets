@@ -32,6 +32,11 @@ export type CatalogExternalProductReference = Readonly<{
   selectedOptions: readonly CatalogSelectedOptionReference[];
 }>;
 
+export type CatalogExternalCatalogItemReference = Readonly<{
+  providerKey: string;
+  externalKey: string;
+}>;
+
 export type CatalogItemImageFallbackUsage = "permanent" | "loading-only";
 
 export type CatalogItemImageVariantDensity = Readonly<{
@@ -60,6 +65,7 @@ export type CatalogItemState = Readonly<{
   imageUrls: readonly string[];
   productAssetSets: readonly ProductAssetSet[];
   imageFallback: CatalogItemImageFallback | null;
+  externalCatalogItemReferences: readonly CatalogExternalCatalogItemReference[];
   externalProductReferences: readonly CatalogExternalProductReference[];
 }>;
 
@@ -77,6 +83,7 @@ export const initialCatalogItemState: CatalogItemState = {
   imageUrls: [],
   productAssetSets: [],
   imageFallback: null,
+  externalCatalogItemReferences: [],
   externalProductReferences: [],
 };
 
@@ -161,8 +168,20 @@ export type LinkExternalProductReferenceCommand = Readonly<{
   selectedOptions?: readonly CatalogSelectedOptionReference[];
 }>;
 
+export type LinkExternalCatalogItemReferenceCommand = Readonly<{
+  type: "LinkExternalCatalogItemReference";
+  providerKey: string;
+  externalKey: string;
+}>;
+
 export type UnlinkExternalProductReferenceCommand = Readonly<{
   type: "UnlinkExternalProductReference";
+  providerKey: string;
+  externalKey: string;
+}>;
+
+export type UnlinkExternalCatalogItemReferenceCommand = Readonly<{
+  type: "UnlinkExternalCatalogItemReference";
   providerKey: string;
   externalKey: string;
 }>;
@@ -189,7 +208,9 @@ export type CatalogItemCommand =
   | SetCatalogItemProductAssetSetsCommand
   | SetCatalogItemImageFallbackCommand
   | ClearCatalogItemImageFallbackCommand
+  | LinkExternalCatalogItemReferenceCommand
   | LinkExternalProductReferenceCommand
+  | UnlinkExternalCatalogItemReferenceCommand
   | UnlinkExternalProductReferenceCommand
   | ArchiveCatalogItemCommand
   | RemoveDraftCatalogItemCommand;
@@ -283,12 +304,22 @@ export type ItemExternalProductReferenceLinkedEvent = DomainEvent<
   CatalogExternalProductReference
 >;
 
+export type ItemExternalCatalogItemReferenceLinkedEvent = DomainEvent<
+  "catalog.catalog-item.external-catalog-item-reference-linked",
+  CatalogExternalCatalogItemReference
+>;
+
 export type ItemExternalProductReferenceUnlinkedEvent = DomainEvent<
   "catalog.catalog-item.external-product-reference-unlinked",
   Readonly<{
     providerKey: string;
     externalKey: string;
   }>
+>;
+
+export type ItemExternalCatalogItemReferenceUnlinkedEvent = DomainEvent<
+  "catalog.catalog-item.external-catalog-item-reference-unlinked",
+  CatalogExternalCatalogItemReference
 >;
 
 export type ItemRetiredEvent = DomainEvent<"catalog.catalog-item.retired", EmptyEventData>;
@@ -311,7 +342,9 @@ export type CatalogItemEvent =
   | ItemProductAssetSetsSetEvent
   | ItemImageFallbackSetEvent
   | ItemImageFallbackClearedEvent
+  | ItemExternalCatalogItemReferenceLinkedEvent
   | ItemExternalProductReferenceLinkedEvent
+  | ItemExternalCatalogItemReferenceUnlinkedEvent
   | ItemExternalProductReferenceUnlinkedEvent
   | ItemRetiredEvent
   | ItemArchivedEvent
@@ -532,6 +565,18 @@ export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCo
         },
       ];
     }
+    case "LinkExternalCatalogItemReference": {
+      requireCreatedItem(state);
+      assertCatalogItemCanBeModified(state);
+      const reference = normalizeExternalCatalogItemReference(command);
+
+      return [
+        {
+          type: "catalog.catalog-item.external-catalog-item-reference-linked",
+          data: reference,
+        },
+      ];
+    }
     case "UnlinkExternalProductReference": {
       requireCreatedItem(state);
       assertCatalogItemCanBeModified(state);
@@ -550,6 +595,25 @@ export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCo
         {
           type: "catalog.catalog-item.external-product-reference-unlinked",
           data: { providerKey, externalKey },
+        },
+      ];
+    }
+    case "UnlinkExternalCatalogItemReference": {
+      requireCreatedItem(state);
+      assertCatalogItemCanBeModified(state);
+      const reference = normalizeExternalCatalogItemReference(command);
+      assert(
+        state.externalCatalogItemReferences.some(
+          (existing) =>
+            existing.providerKey === reference.providerKey && existing.externalKey === reference.externalKey,
+        ),
+        "External catalog item reference is not linked to this item.",
+      );
+
+      return [
+        {
+          type: "catalog.catalog-item.external-catalog-item-reference-unlinked",
+          data: reference,
         },
       ];
     }
@@ -668,10 +732,29 @@ export const evolveCatalogItem: AggregateEvolver<CatalogItemState, CatalogItemEv
           event.data,
         ]),
       };
+    case "catalog.catalog-item.external-catalog-item-reference-linked":
+      return {
+        ...state,
+        externalCatalogItemReferences: normalizeExternalCatalogItemReferences([
+          ...state.externalCatalogItemReferences.filter(
+            (reference) =>
+              reference.providerKey !== event.data.providerKey || reference.externalKey !== event.data.externalKey,
+          ),
+          event.data,
+        ]),
+      };
     case "catalog.catalog-item.external-product-reference-unlinked":
       return {
         ...state,
         externalProductReferences: state.externalProductReferences.filter(
+          (reference) =>
+            reference.providerKey !== event.data.providerKey || reference.externalKey !== event.data.externalKey,
+        ),
+      };
+    case "catalog.catalog-item.external-catalog-item-reference-unlinked":
+      return {
+        ...state,
+        externalCatalogItemReferences: state.externalCatalogItemReferences.filter(
           (reference) =>
             reference.providerKey !== event.data.providerKey || reference.externalKey !== event.data.externalKey,
         ),
@@ -803,6 +886,20 @@ function normalizeExternalProductReference(
   };
 }
 
+function normalizeExternalCatalogItemReference(
+  reference: CatalogExternalCatalogItemReference,
+): CatalogExternalCatalogItemReference {
+  const providerKey = normalizeExternalKey(reference.providerKey);
+  const externalKey = normalizeExternalKey(reference.externalKey);
+  assert(providerKey.length > 0, "External catalog item references require a provider.");
+  assert(externalKey.length > 0, "External catalog item references require an external key.");
+
+  return {
+    providerKey,
+    externalKey,
+  };
+}
+
 function normalizeSelectedOptions(
   selectedOptions: readonly CatalogSelectedOptionReference[],
 ): CatalogSelectedOptionReference[] {
@@ -842,6 +939,26 @@ function normalizeExternalProductReferences(
     normalized,
     (reference) => `${reference.providerKey}:${reference.externalKey}`,
     "External product references must be unique per provider and key.",
+  );
+
+  return normalized;
+}
+
+function normalizeExternalCatalogItemReferences(
+  references: readonly CatalogExternalCatalogItemReference[],
+): CatalogExternalCatalogItemReference[] {
+  const normalized = references
+    .map(normalizeExternalCatalogItemReference)
+    .sort((left, right) =>
+      left.providerKey === right.providerKey
+        ? left.externalKey.localeCompare(right.externalKey)
+        : left.providerKey.localeCompare(right.providerKey),
+    );
+
+  ensureUniqueBy(
+    normalized,
+    (reference) => `${reference.providerKey}:${reference.externalKey}`,
+    "External catalog item references must be unique per provider and key.",
   );
 
   return normalized;

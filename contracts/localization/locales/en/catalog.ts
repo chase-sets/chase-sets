@@ -498,9 +498,17 @@ export const catalogEnglishTranslations = {
   "catalog.features.catalogItems.ui.catalogItemDetailPage.enter.tags.separated.by.commas":
     "Enter tags separated by commas.",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.external.key": "External Key",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.references":
+    "External Catalog Item References",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.reference.description":
+    "Link a provider product identifier to this Catalog Item. Use Product References for provider SKUs that resolve to selected options.",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.reference.linked":
+    "External catalog item reference linked",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.reference.unlinked":
+    "External catalog item reference unlinked",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.external.product.references": "External Product References",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.description":
-    "Link a provider product identifier to this catalog item and optional product options.",
+    "Link a provider SKU or product-specific identifier to this Catalog Product and selected options.",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.linked": "External reference linked",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.external.reference.unlinked": "External reference unlinked",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.field": "Field",
@@ -515,12 +523,20 @@ export const catalogEnglishTranslations = {
   "catalog.features.catalogItems.ui.catalogItemDetailPage.language": "Language",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.language.code": "Language code",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.link": "Link",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.catalog.item.reference":
+    "Link Catalog Item Reference",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.catalog.item.reference.2":
+    "Link Catalog Item Reference",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference": "Link External Reference",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.link.external.reference.2": "Link External Reference",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.metadata.revised": "Metadata revised",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.no.categories.assigned": "No categories assigned.",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.catalog.item.references":
+    "No external catalog item references",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.no.external.references": "No external references",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.no.fields.match": "No fields match",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.external.catalog.item.references.summary":
+    "{count} external catalog item references",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.external.references.summary": "{count} external references",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.no.field.values": "No field values",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.no.image.urls": "No image URLs.",

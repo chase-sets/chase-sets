@@ -53,6 +53,8 @@ Discovery consumes promoted Catalog facts through projections. Pricing may later
 
 Stored TCGdex source payloads are sanitized before persistence; provider pricing fields are stripped from the observation payload and from the source-record hash.
 
+TCGdex marketplace identifiers are mapping evidence, not pricing truth. When TCGdex exposes unambiguous TCGplayer or Cardmarket Product IDs for a card variant, promotion links them as Catalog Item-level external references such as `tcgplayer:product:490001` or `cardmarket:product:880001`. TCGplayer SKUs remain separate Product-level references because they identify sellable provider SKUs with selected options; TCGdex Product IDs must not be used as SKU mappings.
+
 ## Promotion
 
 Promotion creates a draft Catalog Item for the observed Pokemon card print variant unless the same provider, language, and external key already resolve to an existing Catalog Item that is not archived or removed. Existing source-linked Catalog Items are refreshed in place so repeated promotion cannot create duplicates. Promotion assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category for newly created drafts, records TCGdex source mapping, generates and attaches the Catalog Item-owned Product Asset Set when provider imagery exists, and keeps Chase Sets-owned image URLs as a migration compatibility projection.
@@ -111,3 +113,5 @@ The Catalog Integrations admin surface summarizes Source Observations by provide
 - Declared image assets must normalize successfully before a Catalog Item is promoted; Source Observation review may show TCGdex display URLs, but promoted Catalog Items must publish only Catalog Item-owned Chase Sets asset URLs.
 - Re-importing an unchanged observed card does not write Chase Sets asset objects; promotion writes deterministic source-hash object keys under the promoted Catalog Item path.
 - TCGdex pricing data must stay out of Catalog payload storage and promotion.
+- TCGplayer Product IDs link to Catalog Items; TCGplayer SKU IDs link to Products with selected Options.
+- If TCGdex repeats the same marketplace Product ID across multiple variants in one card response, promotion must skip that external reference until a more precise provider mapping is available.

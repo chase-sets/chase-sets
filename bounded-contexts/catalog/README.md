@@ -36,7 +36,8 @@ External product mapping for seller inventory imports is documented in [External
 - Product schema snapshots used by downstream contexts
 - Field values and category membership for Catalog Items
 - Provider Source Observations before review and promotion into canonical Catalog Items
-- External Product References that map third-party product identifiers to Catalog Item and Product selection truth
+- External Catalog Item References that map third-party product identifiers to Catalog Item truth
+- External Product References that map third-party SKU identifiers to Product selection truth
 - Reference Types and Reference Records that provide rich reusable facts for item fields
 - Display Templates that resolve reusable product-facing title and subtitle copy from Catalog facts
 
@@ -123,12 +124,20 @@ Owns a provider-sourced candidate record before it becomes Catalog truth.
 - Promotion emits Catalog Item commands; rejection records why the source record should not be used.
 - Source Observations are not downstream product truth until promoted into Catalog Items.
 
+### External Catalog Item Reference
+
+Owns the mapping between a provider-scoped product identifier and one Catalog Item.
+
+- TCGplayer Product IDs are Catalog Item references.
+- A Catalog Item reference does not choose selected Options and therefore does not fully resolve a Chase Sets Product when the active Product schema requires options.
+
 ### External Product Reference
 
 Owns the mapping between a provider-scoped product identifier and one Catalog Item plus selected Options.
 
 - References are scoped by provider key and external key.
 - External keys may include an identifier namespace such as `listing:`, `variant:`, `sku:`, `barcode:`, or `product:` when a provider exposes more than one identifier class.
+- TCGplayer SKU IDs are Product references because they can map to selected Options.
 - Inventory and Marketplace consume these references through projections; they do not author provider identity.
 
 ## Product Resolution
@@ -196,4 +205,4 @@ Those events should carry the Catalog Item snapshot plus the `product_schema` do
 6. Reference Records enrich descriptive item information but do not change `product_id`.
 7. Reusable descriptive hierarchy belongs on Reference Records, not repeated Catalog Item fields. Catalog Items should keep only item-specific facts such as printed name, card number, HP, attacks, and direct reference selections.
 8. Product-facing title and subtitle copy should come from Display Templates whenever the copy can be expressed from Fields and Reference Records; repeated manual metadata is fallback and exception data.
-9. External product references map provider identifiers to Product selection truth; title parsing remains review evidence until promoted into an explicit reference.
+9. External catalog item references map provider product identifiers to Catalog Item truth; external product references map provider SKU identifiers to Product selection truth; title parsing remains review evidence until promoted into an explicit reference.

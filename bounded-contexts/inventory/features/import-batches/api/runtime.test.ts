@@ -78,7 +78,7 @@ const productSchema = {
       dimensionName: "Condition",
       required: true,
       appliesWhen: [],
-      allowedOptions: [{ optionId: "near_mint", code: "NM" }],
+      allowedOptions: [{ optionId: "near_mint", code: "NM", label: "Near Mint" }],
     },
   ],
 } satisfies InventoryProductSchema;
@@ -242,8 +242,7 @@ function catalogServices(): InventoryCatalogItemServices {
   return {
     getExternalProductReference: async (providerKey, externalKey) => {
       if (
-        (providerKey === "tcgplayer" && externalKey === "tcg_sku_1") ||
-        (providerKey === "tcgplayer" && externalKey === "12345") ||
+        (providerKey === "tcgplayer" && externalKey === "sku:tcg_sku_1") ||
         (providerKey === "shopify" && externalKey === "variant:987")
       ) {
         return {
@@ -251,6 +250,18 @@ function catalogServices(): InventoryCatalogItemServices {
           external_key: externalKey,
           catalog_item_id: "cat_active",
           selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+          updated_at: now,
+        };
+      }
+
+      return null;
+    },
+    getExternalCatalogItemReference: async (providerKey, externalKey) => {
+      if (providerKey === "tcgplayer" && externalKey === "product:12345") {
+        return {
+          provider_key: providerKey,
+          external_key: externalKey,
+          catalog_item_id: "cat_active",
           updated_at: now,
         };
       }
@@ -442,7 +453,7 @@ describe("inventory import batch runtime", () => {
       resolution_status: "resolved",
       external_reference: {
         providerKey: "tcgplayer",
-        externalKey: "tcg_sku_1",
+        externalKey: "sku:tcg_sku_1",
       },
       catalog_item_id: "cat_active",
       set_quantity: 4,
@@ -477,9 +488,10 @@ describe("inventory import batch runtime", () => {
       resolution_status: "resolved",
       external_reference: {
         providerKey: "tcgplayer",
-        externalKey: "12345",
+        externalKey: "product:12345",
       },
       catalog_item_id: "cat_active",
+      selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
     });
   });
 

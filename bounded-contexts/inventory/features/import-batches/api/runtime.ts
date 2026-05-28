@@ -7,6 +7,9 @@ import type { InventoryCatalogItemServices } from "../../inventory-items/integra
 import {
   createInventoryProductDescriptor,
   parseSelectedOptionsInput,
+  type InventoryProductDimension,
+  type InventoryProductOption,
+  type InventoryProductSchema,
   type InventorySelectedOptionEntry,
 } from "../../inventory-items/integrations/catalog/versioning";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
@@ -234,6 +237,85 @@ function normalizeExternalReferences(row: NormalizedInventoryImportRow): readonl
   });
 }
 
+function normalizeChoiceText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function optionMatchKeys(option: InventoryProductOption): Set<string> {
+  return new Set(
+    [option.optionId, option.code, option.label]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map(normalizeChoiceText),
+  );
+}
+
+function resolveOptionId(options: readonly InventoryProductOption[], value: string | null | undefined): string | null {
+  const normalized = value ? normalizeChoiceText(value) : "";
+  if (!normalized) {
+    return null;
+  }
+
+  const option = options.find((candidate) => optionMatchKeys(candidate).has(normalized));
+  return option?.optionId ?? null;
+}
+
+function rowValueForKey(record: Readonly<Record<string, string>>, keys: readonly string[]): string | null {
+  const normalizedKeys = new Set(keys.map(normalizeChoiceText));
+  for (const [key, value] of Object.entries(record)) {
+    if (normalizedKeys.has(normalizeChoiceText(key)) && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function optionCandidateValue(dimension: InventoryProductDimension, row: NormalizedInventoryImportRow): string | null {
+  const keys = [
+    `option:${dimension.dimensionId}`,
+    dimension.dimensionId,
+    dimension.dimensionName,
+    ...(normalizeChoiceText(dimension.dimensionName) === "condition" ||
+    normalizeChoiceText(dimension.dimensionId) === "condition"
+      ? ["Condition", "Printing Condition"]
+      : []),
+  ];
+
+  return rowValueForKey(row.values, keys) ?? rowValueForKey(row.rawRow, keys);
+}
+
+function normalizeSelectedOptionsForSchema(
+  schema: InventoryProductSchema | null,
+  selection: readonly InventorySelectedOptionEntry[],
+  row: NormalizedInventoryImportRow,
+): InventorySelectedOptionEntry[] {
+  if (!schema) {
+    return [...selection];
+  }
+
+  const byDimension = new Map(selection.map((entry) => [entry.dimensionId, entry.optionId]));
+
+  for (const dimension of schema.dimensions) {
+    const currentOptionId = byDimension.get(dimension.dimensionId);
+    const resolvedCurrent = resolveOptionId(dimension.allowedOptions, currentOptionId);
+    if (resolvedCurrent) {
+      byDimension.set(dimension.dimensionId, resolvedCurrent);
+      continue;
+    }
+
+    const candidateValue = optionCandidateValue(dimension, row);
+    const inferredOptionId = resolveOptionId(dimension.allowedOptions, candidateValue);
+    if (inferredOptionId) {
+      byDimension.set(dimension.dimensionId, inferredOptionId);
+    }
+  }
+
+  return [...byDimension.entries()].map(([dimensionId, optionId]) => ({ dimensionId, optionId }));
+}
+
 function itemIdForRow(rowId: string): InventoryItemId {
   return rowId.replace(/^imr_/, "inv_") as InventoryItemId;
 }
@@ -340,6 +422,17 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           resolutionStatus = "resolved";
           break;
         }
+
+        const catalogItemMapping = await deps.catalogItems.getExternalCatalogItemReference(
+          candidate.providerKey,
+          candidate.externalKey,
+        );
+        if (catalogItemMapping) {
+          externalReference = candidate;
+          catalogItemId = catalogItemMapping.catalog_item_id;
+          resolutionStatus = "resolved";
+          break;
+        }
       }
 
       if (!catalogItemId) {
@@ -366,6 +459,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         errors.push("Catalog item must be active.");
       } else {
         try {
+          selectedOptions = normalizeSelectedOptionsForSchema(catalogItem.product_schema, selectedOptions, row);
           const descriptor = createInventoryProductDescriptor({
             catalogItemId,
             productSchema: catalogItem.product_schema,
