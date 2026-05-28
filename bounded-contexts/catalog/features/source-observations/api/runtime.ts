@@ -1315,7 +1315,7 @@ async function listProviderIntegrationOptions(input: {
       providerKey: profile.providerKey,
       queryKind: "providers",
       value: profile.providerKey,
-      label: profile.label,
+      label: profile.displayName,
       description: profile.capabilities.join(", "),
       parentValue: null,
       imageUrl: null,
@@ -2176,7 +2176,7 @@ async function requireCatalogIdByKey<TId extends string>(
   const id = existing.rows[0]?.id;
   if (!id) {
     throw new Error(
-      `${tcgdexPokemonTcgProviderProfile.label} promotion requires active Catalog ${tableName} key '${key}'. Run the Catalog integration bootstrap first.`,
+      `${tcgdexPokemonTcgProviderProfile.displayName} promotion requires active Catalog ${tableName} key '${key}'. Run the Catalog integration bootstrap first.`,
     );
   }
 
@@ -2206,7 +2206,7 @@ function providerReferenceAttributeKey(
 ): string {
   const rule = profile.referenceHierarchyMapping.providerAttributes.find((candidate) => candidate.typeKey === typeKey);
   if (!rule) {
-    throw new Error(`${profile.label} provider profile is missing a ${typeKey} reference attribute mapping.`);
+    throw new Error(`${profile.displayName} provider profile is missing a ${typeKey} reference attribute mapping.`);
   }
 
   return rule.providerAttributeKey;

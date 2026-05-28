@@ -10,7 +10,7 @@ export type CatalogProviderScope = "language" | "series" | "expansion" | "produc
 
 export type CatalogProviderOptionQuery = Readonly<{
   queryKind: string;
-  label: string;
+  displayName: string;
   scope: CatalogProviderScope;
   parentScope: CatalogProviderScope | null;
 }>;
@@ -31,7 +31,7 @@ export type CatalogProviderConnectorProfile = Readonly<{
 export type CatalogProviderVariantRule = Readonly<{
   variantKey: string;
   sourceKeys: readonly string[];
-  label: string;
+  displayName: string;
   sortOrder: number;
   parallelSet: boolean;
   pricingKeys?: readonly string[];
@@ -55,7 +55,7 @@ export type CatalogProviderReferenceRecordRule = Readonly<{
 
 export type CatalogProviderIntegrationProfile = Readonly<{
   providerKey: string;
-  label: string;
+  displayName: string;
   capabilities: readonly CatalogProviderCapability[];
   supportedScopes: readonly CatalogProviderScope[];
   languageOptions: readonly string[];
@@ -96,7 +96,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
 
 export const tcgdexPokemonTcgProviderProfile = {
   providerKey: "tcgdex",
-  label: "TCGdex",
+  displayName: "TCGdex",
   capabilities: [
     "provider-option-query",
     "source-observation-import",
@@ -124,9 +124,9 @@ export const tcgdexPokemonTcgProviderProfile = {
     "zh-cn",
   ],
   optionQueries: [
-    { queryKind: "languages", label: "Language", scope: "language", parentScope: null },
-    { queryKind: "series", label: "Series", scope: "series", parentScope: "language" },
-    { queryKind: "expansions", label: "Expansion", scope: "expansion", parentScope: "series" },
+    { queryKind: "languages", displayName: "Language", scope: "language", parentScope: null },
+    { queryKind: "series", displayName: "Series", scope: "series", parentScope: "language" },
+    { queryKind: "expansions", displayName: "Expansion", scope: "expansion", parentScope: "series" },
   ],
   connector: {
     kind: "tcgdex-json",
@@ -146,7 +146,7 @@ export const tcgdexPokemonTcgProviderProfile = {
       {
         variantKey: "standard",
         sourceKeys: ["normal", "standard"],
-        label: "Standard Set",
+        displayName: "Standard Set",
         sortOrder: 0,
         parallelSet: false,
         pricingKeys: ["normal", "standard"],
@@ -154,7 +154,7 @@ export const tcgdexPokemonTcgProviderProfile = {
       {
         variantKey: "holofoil",
         sourceKeys: ["holo", "holofoil"],
-        label: "Standard Set Foil",
+        displayName: "Standard Set Foil",
         sortOrder: 10,
         parallelSet: false,
         pricingKeys: ["holo", "holofoil"],
@@ -162,7 +162,7 @@ export const tcgdexPokemonTcgProviderProfile = {
       {
         variantKey: "1st-edition",
         sourceKeys: ["firstedition", "1stedition", "1st-edition", "first-edition"],
-        label: "1st Edition",
+        displayName: "1st Edition",
         sortOrder: 20,
         parallelSet: false,
         pricingKeys: ["1st-edition", "firstEdition"],
@@ -170,7 +170,7 @@ export const tcgdexPokemonTcgProviderProfile = {
       {
         variantKey: "reverse-holo",
         sourceKeys: ["reverse", "reverseholo", "reverseholofoil", "reverse-holo", "reverse-holofoil"],
-        label: "Parallel Set - Reverse Foil",
+        displayName: "Parallel Set - Reverse Foil",
         sortOrder: 30,
         parallelSet: true,
         pricingKeys: ["reverse-holofoil", "reverse-holo", "reverse"],
@@ -178,7 +178,7 @@ export const tcgdexPokemonTcgProviderProfile = {
       {
         variantKey: "poke-ball",
         sourceKeys: ["pokeball", "poke-ball"],
-        label: "Premium Parallel Set - Poke Ball",
+        displayName: "Premium Parallel Set - Poke Ball",
         sortOrder: 40,
         parallelSet: true,
         pricingKeys: ["poke-ball", "pokeball"],
@@ -186,7 +186,7 @@ export const tcgdexPokemonTcgProviderProfile = {
       {
         variantKey: "master-ball",
         sourceKeys: ["masterball", "master-ball"],
-        label: "Premium Parallel Set - Master Ball",
+        displayName: "Premium Parallel Set - Master Ball",
         sortOrder: 50,
         parallelSet: true,
         pricingKeys: ["master-ball", "masterball"],

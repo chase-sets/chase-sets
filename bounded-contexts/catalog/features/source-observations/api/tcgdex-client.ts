@@ -628,7 +628,7 @@ function normalizeVariantKey(sourceKey: string): string {
 
 function variantLabel(sourceKey: string): string {
   return (
-    variantRuleBySourceKey(sourceKey)?.label ??
+    variantRuleBySourceKey(sourceKey)?.displayName ??
     `${TCGDEX_PROFILE.normalizedObservationMapping.unknownVariantLabelPrefix} - ${humanizeVariantKey(sourceKey)}`
   );
 }
