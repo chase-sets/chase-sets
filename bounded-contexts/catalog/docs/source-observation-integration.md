@@ -82,7 +82,7 @@ Promoted variant Catalog Items keep printed card facts such as card name, card n
 
 Promotion subtitles are likewise template-resolved from the Expansion, meaningful variant label, and rarity. The plain `Standard Set` variant label is omitted because it is the normal case; visible variants such as `1st Edition`, `Standard Set Foil`, reverse foil, and premium parallel labels remain in the subtitle and optional `Card Variant` field. If TCGdex provides only the shared card-number image, non-primary variants receive a description note that the image may not show the exact foil or pattern. The note is a Catalog Item presentation fact only; it does not change `catalog_item_id`, `product_id`, or Product option resolution.
 
-Re-importing the same provider Expansion is the refresh path. Observations that are still `observed` refresh in place when the normalized provider facts or source payload hash changes. If a promoted Source Observation changes, the Source Observation moves to `changed` and keeps its promoted Catalog Item link so operators can review the updated provider facts before Catalog truth changes. Broad provider pulls and row-level resyncs are background jobs so long TCGdex imports do not run in the browser request lifecycle.
+Re-importing the same provider Expansion is the refresh path. Observations that are still `observed` refresh in place when the normalized provider facts or source payload hash changes. If the provider hash is unchanged, Catalog records a Source Observation refreshed fact instead of duplicating the original observation or mutating a promoted Catalog Item. That refreshed fact carries the current review state so Source Observation and Catalog Integrations read models can repair missing rows even when projection checkpoints are already caught up. If a promoted Source Observation changes, the Source Observation moves to `changed` and keeps its promoted Catalog Item link so operators can review the updated provider facts before Catalog truth changes. Broad provider pulls and row-level resyncs are background jobs so long TCGdex imports do not run in the browser request lifecycle.
 
 Import, promote, reject, and sync jobs complete when their command/event work is durably written. They do not run Catalog projectors inline and do not guarantee that Integrations, Source Observation, Catalog Item, or Reference Data read models have caught up at the instant the job result is shown. Worker-hosted projector consumers advance those read models independently and publish admin invalidations as projections catch up. Operators should treat a completed job with stale list counts as projection lag or projector health to investigate, not as evidence that the browser page controls projection execution.
 
@@ -101,9 +101,9 @@ The Catalog Integrations admin surface summarizes Source Observations by provide
 ## Conflict Pressure Tests
 
 - Re-importing an observed source record updates the Source Observation while it remains `observed`.
-- Re-importing the same observed source hash is idempotent and does not append a duplicate source-observation event.
+- Re-importing the same observed source hash appends a refreshed Source Observation fact that preserves `observed` review state without duplicating the original recorded observation.
 - Re-importing a changed source hash for a promoted observation creates a `changed` review without mutating the Catalog Item.
-- Re-importing the same changed source hash remains idempotent while waiting for review.
+- Re-importing the same changed source hash appends a refreshed Source Observation fact that preserves `changed` review state while waiting for review.
 - Promoting a changed observation refreshes the existing promoted Catalog Item instead of creating a duplicate.
 - Promoting an observed source that already has a Catalog Item source reference refreshes that Catalog Item instead of creating a duplicate, unless the existing item is archived or removed.
 - Promoting an already promoted Source Observation resyncs its linked Catalog Item and does not create another promotion event.
