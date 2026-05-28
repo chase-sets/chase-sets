@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogItemRoutes } from "./route";
 import type { CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -13,14 +14,40 @@ const context: EventStoreContext = {
   },
 };
 
-function buildApp(services: CatalogItemServices) {
+function buildApp(
+  services: CatalogItemServices,
+  authoringBulkJobs: CatalogAuthoringBulkJobServices = createJobServices(),
+) {
   const app = new Hono<CatalogAuthoringEnv>();
   app.use("*", async (c, next) => {
     c.set("context", context);
     await next();
   });
-  app.route("/items", catalogItemRoutes(services));
+  app.route("/items", catalogItemRoutes(services, authoringBulkJobs));
   return app;
+}
+
+function createJobServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}): CatalogAuthoringBulkJobServices {
+  return {
+    enqueue: async (input) => ({
+      jobId: "job_test",
+      kind: input.kind,
+      action: input.action,
+      status: "queued",
+      progress: { phase: "queued", completed: 0, total: 1, currentName: null, status: "queued" },
+      result: null,
+      errorMessage: null,
+      createdAt: "2026-05-28T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+      updatedAt: "2026-05-28T00:00:00.000Z",
+    }),
+    get: async () => null,
+    listActive: async () => [],
+    listEvents: async () => [],
+    processNext: async () => false,
+    ...overrides,
+  };
 }
 
 function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogItemServices {
@@ -180,15 +207,8 @@ describe("catalog item routes", () => {
   });
 
   it("confirms bulk publish against explicit previewed IDs", async () => {
-    const publishBulk = vi.fn(async () => ({
-      item_ids: ["cat_1", "cat_2"],
-      total: 2,
-      published_count: 2,
-      failed_count: 0,
-      skipped_count: 0,
-      candidates: [],
-    }));
-    const app = buildApp(createServices({ publishBulk }));
+    const enqueue = vi.fn(createJobServices().enqueue);
+    const app = buildApp(createServices(), createJobServices({ enqueue }));
 
     const response = await app.fetch(
       new Request("http://catalog.test/items/bulk-publish/confirm", {
@@ -197,8 +217,13 @@ describe("catalog item routes", () => {
       }),
     );
 
-    expect(response.status).toBe(200);
-    expect(publishBulk).toHaveBeenCalledWith(["cat_1", "cat_2"], context);
+    expect(response.status).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith({
+      kind: "catalog.authoring.items.publish",
+      action: "publish",
+      itemIds: ["cat_1", "cat_2"],
+      context,
+    });
   });
 
   it("previews lifecycle actions against the filtered item scope", async () => {
@@ -326,16 +351,8 @@ describe("catalog item routes", () => {
   });
 
   it("confirms shared bulk tag edits against selected item IDs", async () => {
-    const editBulk = vi.fn(async () => ({
-      action: "mergeTags" as const,
-      item_ids: ["cat_1", "cat_2"],
-      total: 2,
-      succeeded_count: 2,
-      skipped_count: 0,
-      failed_count: 0,
-      candidates: [],
-    }));
-    const app = buildApp(createServices({ editBulk }));
+    const enqueue = vi.fn(createJobServices().enqueue);
+    const app = buildApp(createServices(), createJobServices({ enqueue }));
 
     const response = await app.fetch(
       new Request("http://catalog.test/items/bulk-edit/confirm", {
@@ -347,12 +364,14 @@ describe("catalog item routes", () => {
       }),
     );
 
-    expect(response.status).toBe(200);
-    expect(editBulk).toHaveBeenCalledWith(
-      { mode: "ids", ids: ["cat_1", "cat_2"] },
-      { action: "mergeTags", tags: ["featured", "foil"] },
+    expect(response.status).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith({
+      kind: "catalog.authoring.items.edit",
+      action: "mergeTags",
+      selection: { mode: "ids", ids: ["cat_1", "cat_2"] },
+      operation: { action: "mergeTags", tags: ["featured", "foil"] },
       context,
-    );
+    });
   });
 
   it("removes a draft Catalog Item", async () => {

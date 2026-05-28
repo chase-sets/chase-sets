@@ -1,3 +1,5 @@
+import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+
 export const pricingRecommendationSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_recommendation_pages (
   recommendation_id text PRIMARY KEY,
@@ -166,4 +168,9 @@ LEFT JOIN (
 ) AS fulfillment_signal
   ON fulfillment_signal.seller_account_id = recommendation.seller_account_id
  AND fulfillment_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id;
+
+${durableJobSchemaSql({
+  jobsTable: "pricing_recommendation_jobs",
+  eventsTable: "pricing_recommendation_job_events",
+})}
 `;

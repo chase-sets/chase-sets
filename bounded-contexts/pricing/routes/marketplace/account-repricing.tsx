@@ -39,30 +39,23 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "refresh-recommendations") {
-      const result = await api.refreshRecommendations();
+      await api.refreshRecommendations();
       return {
-        message: t("pricing.routes.marketplace.accountRepricing.refresh.complete", {
-          count: result.proposedCount,
-        }),
+        message: t("pricing.routes.marketplace.accountRepricing.refresh.queued"),
       };
     }
 
     if (intent === "apply-recommendations") {
-      const result = await api.applyRecommendations(selectedRecommendationIds(formData));
+      await api.applyRecommendations(selectedRecommendationIds(formData));
       return {
-        message: t("pricing.routes.marketplace.accountRepricing.apply.complete", {
-          applied: result.appliedCount,
-          failed: result.failedCount,
-        }),
+        message: t("pricing.routes.marketplace.accountRepricing.apply.queued"),
       };
     }
 
     if (intent === "dismiss-recommendations") {
-      const result = await api.dismissRecommendations(selectedRecommendationIds(formData));
+      await api.dismissRecommendations(selectedRecommendationIds(formData));
       return {
-        message: t("pricing.routes.marketplace.accountRepricing.dismiss.complete", {
-          count: result.dismissedCount,
-        }),
+        message: t("pricing.routes.marketplace.accountRepricing.dismiss.queued"),
       };
     }
 

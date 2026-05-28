@@ -213,8 +213,8 @@ describe("platform control plane", () => {
       claimOwnerId: "worker-a",
       claimFencingToken: "1",
     });
-    expect(calls[1].sql).toContain("FOR UPDATE SKIP LOCKED");
-    expect(calls[1].sql).toContain("claim_fencing_token = COALESCE");
+    expect(calls[2].sql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(calls[2].sql).toContain("claim_fencing_token = COALESCE");
   });
 
   it("filters projection operation history by target, state, and actor", async () => {

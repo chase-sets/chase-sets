@@ -14,6 +14,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Projection Rebuild Replay](./architecture/projection-rebuild-replay.md): projection revision policy and automatic read-model rebuild behavior.
 - [Event Projections](./architecture/event-projections.md): consumer-owned subscriptions, replay, lag metrics, and ownership rules.
 - [Event Projection Operations](./architecture/event-projection-operations.md): durable operation queue, leases, fencing, rebuild strategies, and handler transaction rules.
+- [Durable Job Workflows](./architecture/durable-job-workflows.md): durable job tables, worker claims, SSE progress, and migration expectations for long-running workflows.
 - [Event Projection Query Plans](./architecture/event-projection-query-plans.md): projection read query shape, supporting indexes, and backlog validation expectations.
 - [Event Projection Runtime](./architecture/event-projection-runtime.md): projection consumer states, scaling, idempotency, and poison-event behavior.
 - [Stream-Isolated Projection Errors](./architecture/stream-isolated-projection-errors.md): poison-event isolation, blocked-stream semantics, and degraded projection health.

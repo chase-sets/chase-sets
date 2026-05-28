@@ -2,10 +2,11 @@ import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { ComponentId, FieldId, DimensionId, OptionId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
 
-export function componentRoutes(services: ComponentServices) {
+export function componentRoutes(services: ComponentServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -40,13 +41,15 @@ export function componentRoutes(services: ComponentServices) {
 
   app.post("/bulk-lifecycle/confirm", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const result = await services.bulkLifecycle.execute(
-      normalizeBulkSelection(body.selection, componentListQueryFromRecord),
-      String(body.action ?? ""),
-      c.get("context"),
-    );
+    const action = String(body.action ?? "");
+    const result = await authoringBulkJobs.enqueue({
+      kind: "catalog.authoring.components.lifecycle",
+      action,
+      selection: normalizeBulkSelection(body.selection, componentListQueryFromRecord),
+      context: c.get("context"),
+    });
 
-    return c.json(result);
+    return c.json(result, 202);
   });
 
   app.post("/:id/field-rules", async (c) => {

@@ -10,6 +10,7 @@ import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/h
 import type { ApiHostRuntime } from "./api";
 import type { ResolvedActor } from "./auth";
 import type { PlatformControlPlane, ProjectionOperationKind } from "./control-plane";
+import { createDurableJobEventStream } from "./durable-job-events";
 
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
 const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
@@ -212,6 +213,36 @@ export function createProjectionOperationsRoutes(
     }
 
     return c.json({ operation });
+  });
+
+  app.get("/operations/:operationId/events", async (c) => {
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    if (actorResponse instanceof Response) {
+      return actorResponse;
+    }
+
+    if (!options.controlPlane) {
+      return c.json({ error: { code: "control_plane_unavailable" } }, 503);
+    }
+
+    const operationId = c.req.param("operationId");
+    const operation = await options.controlPlane.getProjectionOperation(operationId);
+    if (!operation) {
+      return c.json({ error: { code: "operation_not_found" } }, 404);
+    }
+
+    return createDurableJobEventStream({
+      request: c.req.raw,
+      signal: c.req.raw.signal,
+      loadEvents: async (afterSequence) =>
+        (await options.controlPlane!.listProjectionOperationEvents(operationId, afterSequence)).map((event) => ({
+          sequence: event.sequence,
+          eventName: event.eventName,
+          data: event.operation,
+        })),
+      isTerminal: (event) =>
+        event.data.state === "succeeded" || event.data.state === "failed" || event.data.state === "cancelled",
+    });
   });
 
   app.post("/operations/:operationId/cancel", async (c) => {

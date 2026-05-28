@@ -1,3 +1,5 @@
+import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+
 export const settlementPayoutSchemaSql = `
 CREATE TABLE IF NOT EXISTS settlement_payout_pages (
   payout_id text PRIMARY KEY,
@@ -147,4 +149,9 @@ BEGIN
     ALTER TABLE settlement_payout_pages RENAME COLUMN scheduled_at TO requested_at;
   END IF;
 END $$;
+
+${durableJobSchemaSql({
+  jobsTable: "settlement_payout_reconciliation_jobs",
+  eventsTable: "settlement_payout_reconciliation_job_events",
+})}
 `;

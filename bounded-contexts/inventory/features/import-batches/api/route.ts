@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
+import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { InventoryApiEnv } from "../../../api";
 import type { InventoryImportBatchServices } from "./runtime";
 import type { ImportCsvRow } from "../domain/csv";
@@ -92,7 +93,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
     const body = await parseCreateBatchRequest(c);
 
     try {
-      const detail = await services.createBatch(
+      const job = await services.enqueueCreateBatchJob(
         {
           accountId: actor.accountId as never,
           csvText: body.csvText,
@@ -104,7 +105,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         },
         c.get("context"),
       );
-      return c.json(detail, 201);
+      return c.json(job, 202);
     } catch (error) {
       return c.json(
         {
@@ -148,14 +149,14 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
   app.post("/:id/commit", async (c) => {
     const actor = c.get("actor");
     try {
-      const detail = await services.commitBatch(
+      const job = await services.enqueueCommitBatchJob(
         {
           batchId: c.req.param("id"),
           accountId: actor.accountId as never,
         },
         c.get("context"),
       );
-      return c.json(detail);
+      return c.json(job, 202);
     } catch (error) {
       return c.json(
         {
@@ -167,6 +168,51 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         400,
       );
     }
+  });
+
+  app.get("/jobs/:jobId", async (c) => {
+    const job = await services.getImportBatchJob(c.req.param("jobId"));
+    if (!job || job.payload.accountId !== c.get("actor").accountId) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("inventory.features.importBatches.api.route.import.batch.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return c.json(job);
+  });
+
+  app.get("/jobs/:jobId/events", async (c) => {
+    const jobId = c.req.param("jobId");
+    const job = await services.getImportBatchJob(jobId);
+    if (!job || job.payload.accountId !== c.get("actor").accountId) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("inventory.features.importBatches.api.route.import.batch.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return createDurableJobEventStream({
+      request: c.req.raw,
+      signal: c.req.raw.signal,
+      loadEvents: async (afterSequence) =>
+        (await services.listImportBatchJobEvents(jobId, afterSequence)).map((event) => ({
+          sequence: event.sequence,
+          eventName: event.eventName,
+          data: event.job,
+        })),
+      isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+    });
   });
 
   return app;

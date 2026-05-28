@@ -7,6 +7,11 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  createPostgresDurableJobStore,
+  type DurableJobEvent,
+  type DurableJobRecord,
+} from "@chase-sets/platform-runtime/durable-job-store";
+import {
   getAccountRecommendation,
   listAccountRecommendations,
   listAccountRecommendationsByIds,
@@ -57,6 +62,34 @@ type RefreshCandidate = Readonly<{
   competitorPriceAmount: string | null;
   offerPriceAmount: string | null;
 }>;
+
+export type PricingRecommendationJobAction = "refresh" | "apply" | "dismiss";
+
+export type PricingRecommendationJobPayload = Readonly<{
+  action: PricingRecommendationJobAction;
+  accountId: string;
+  recommendationIds: readonly string[];
+}>;
+
+export type PricingRecommendationJobProgress = Readonly<{
+  phase: "queued" | "processing" | "completed" | "failed";
+  completed: number;
+  total: number;
+  message: string | null;
+}>;
+
+export type PricingRecommendationJobResult = Readonly<{
+  proposedCount?: number;
+  appliedCount?: number;
+  failedCount?: number;
+  dismissedCount?: number;
+}>;
+
+export type PricingRecommendationJob = DurableJobRecord<
+  PricingRecommendationJobPayload,
+  PricingRecommendationJobProgress,
+  PricingRecommendationJobResult
+>;
 
 function moneyNumber(value: string | number | null) {
   if (value === null) {
@@ -288,12 +321,46 @@ export type PricingRecommendationServices = Readonly<{
     params: Readonly<{ accountId: string; recommendationIds: readonly string[] }>,
     context: EventStoreContext,
   ) => Promise<{ dismissedCount: number }>;
+  enqueueRecommendationJob: (
+    params: Readonly<{
+      action: PricingRecommendationJobAction;
+      accountId: string;
+      recommendationIds?: readonly string[];
+    }>,
+    context: EventStoreContext,
+  ) => Promise<PricingRecommendationJob>;
+  getRecommendationJob: (jobId: string) => Promise<PricingRecommendationJob | null>;
+  listRecommendationJobEvents: (
+    jobId: string,
+    afterSequence?: number,
+  ) => Promise<
+    readonly DurableJobEvent<
+      PricingRecommendationJobPayload,
+      PricingRecommendationJobProgress,
+      PricingRecommendationJobResult
+    >[]
+  >;
+  processNextRecommendationJob: (input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    marketplaceListingGatewayForAccount: (accountId: string) => PricingMarketplaceListingGateway;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }) => Promise<number>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createPricingRecommendationRuntime(
   deps: PricingRecommendationRuntimeDeps,
 ): PricingRecommendationServices {
+  const jobStore = createPostgresDurableJobStore<
+    PricingRecommendationJobPayload,
+    PricingRecommendationJobProgress,
+    PricingRecommendationJobResult
+  >(deps.db, {
+    jobsTable: "pricing_recommendation_jobs",
+    eventsTable: "pricing_recommendation_job_events",
+  });
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -304,6 +371,152 @@ export function createPricingRecommendationRuntime(
     evolve: evolvePricingRecommendation,
     decide: decidePricingRecommendation,
   });
+
+  const refreshRecommendations: PricingRecommendationServices["refreshRecommendations"] = async (params, context) => {
+    const candidates = await listRefreshCandidates(deps.db, params.accountId);
+    const observedAt = new Date().toISOString();
+    let proposedCount = 0;
+
+    for (const candidate of candidates) {
+      const recommendation = recommendedAmount(candidate);
+      const currentPriceAmount = moneyNumber(candidate.currentPriceAmount);
+      if (!recommendation) {
+        continue;
+      }
+      if (currentPriceAmount !== null && currentPriceAmount === recommendation.recommendedListAmount) {
+        continue;
+      }
+
+      const recommendationId = recommendationIdFor(candidate);
+      await commandHandler({
+        streamId: `pricing.recommendation-${recommendationId}`,
+        command: {
+          type: "ProposeRecommendation",
+          recommendationId,
+          catalogItemId: candidate.catalogItemId,
+          sellerAccountId: candidate.sellerAccountId,
+          actionType: candidate.actionType,
+          listingId: candidate.listingId,
+          inventoryItemId: candidate.inventoryItemId,
+          marketPriceAmount: recommendation.marketPriceAmount,
+          marketCurrency: "USD",
+          marketSignalType: recommendation.marketSignalType,
+          currentPriceAmount,
+          recommendedListAmount: recommendation.recommendedListAmount,
+          reason: recommendation.reason,
+          quantityCap: candidate.quantityCap,
+          observedAt,
+        },
+        context,
+      });
+      proposedCount += 1;
+    }
+
+    return { proposedCount };
+  };
+
+  const applyRecommendations: PricingRecommendationServices["applyRecommendations"] = async (params, context) => {
+    const rows = await listAccountRecommendationsByIds(deps.db, {
+      accountId: params.accountId,
+      recommendationIds: params.recommendationIds,
+    });
+    let appliedCount = 0;
+    let failedCount = 0;
+
+    for (const row of rows.filter(isSelectedProposedRecommendation)) {
+      try {
+        const priceAmount = row.recommended_list_amount;
+        if (priceAmount === null) {
+          throw new Error("Recommendation is missing a recommended price.");
+        }
+        const price = moneyString(Number(priceAmount));
+        let appliedListingId = row.listing_id;
+
+        if (row.action_type === "active-listing-price-update" || row.action_type === "draft-listing-price-update") {
+          if (!row.listing_id) {
+            throw new Error("Recommendation is missing a listing target.");
+          }
+          const quote = await params.marketplaceListings.previewListingTerms({
+            priceAmount: price,
+          });
+          try {
+            await params.marketplaceListings.updateListingPrice(row.listing_id, {
+              priceAmount: price,
+              feeQuoteFingerprint: quote.fee_quote_fingerprint,
+            });
+          } catch (error) {
+            const retryFingerprint = params.marketplaceListings.staleFeeQuoteFingerprint?.(error);
+            if (!retryFingerprint) {
+              throw error;
+            }
+            await params.marketplaceListings.updateListingPrice(row.listing_id, {
+              priceAmount: price,
+              feeQuoteFingerprint: retryFingerprint,
+            });
+          }
+        } else {
+          if (!row.inventory_item_id) {
+            throw new Error("Recommendation is missing an inventory target.");
+          }
+          if (!row.quantity_cap) {
+            throw new Error("Recommendation is missing a draft quantity cap.");
+          }
+          const created = await params.marketplaceListings.createListing({
+            inventoryItemId: row.inventory_item_id,
+            priceAmount: price,
+            quantityCap: row.quantity_cap,
+          });
+          appliedListingId = created.id ?? created.listing_id ?? row.inventory_item_id;
+        }
+
+        await commandHandler({
+          streamId: `pricing.recommendation-${row.recommendation_id}`,
+          command: {
+            type: "MarkRecommendationApplied",
+            appliedListingId: appliedListingId ?? row.recommendation_id,
+            appliedAt: new Date().toISOString(),
+          },
+          context,
+        });
+        appliedCount += 1;
+      } catch (error) {
+        await commandHandler({
+          streamId: `pricing.recommendation-${row.recommendation_id}`,
+          command: {
+            type: "MarkRecommendationFailed",
+            errorMessage: error instanceof Error ? error.message : "Recommendation apply failed.",
+            failedAt: new Date().toISOString(),
+          },
+          context,
+        });
+        failedCount += 1;
+      }
+    }
+
+    return { appliedCount, failedCount };
+  };
+
+  const dismissRecommendations: PricingRecommendationServices["dismissRecommendations"] = async (params, context) => {
+    const rows = await listAccountRecommendationsByIds(deps.db, {
+      accountId: params.accountId,
+      recommendationIds: params.recommendationIds,
+    });
+    let dismissedCount = 0;
+
+    for (const row of rows.filter(isSelectedProposedRecommendation)) {
+      await commandHandler({
+        streamId: `pricing.recommendation-${row.recommendation_id}`,
+        command: {
+          type: "DismissRecommendation",
+          dismissedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      dismissedCount += 1;
+    }
+
+    return { dismissedCount };
+  };
 
   return {
     commandHandler,
@@ -486,6 +699,102 @@ export function createPricingRecommendationRuntime(
 
       return { dismissedCount };
     },
+    enqueueRecommendationJob: (params, context) =>
+      jobStore.enqueue({
+        jobId: createPricingRecommendationJobId(),
+        jobKind: params.action,
+        payload: {
+          action: params.action,
+          accountId: params.accountId,
+          recommendationIds: params.recommendationIds ?? [],
+        },
+        progress: pricingJobProgress("queued", 0, params.recommendationIds?.length ?? 0, "Recommendation job queued."),
+        eventContext: context,
+      }),
+    getRecommendationJob: (jobId) => jobStore.get(jobId),
+    listRecommendationJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
+    processNextRecommendationJob: async (input) => {
+      const claimed = await jobStore.claimNext({
+        claimOwnerId: input.claimOwnerId,
+        claimTtlMs: input.claimTtlMs,
+        jobKinds: ["refresh", "apply", "dismiss"],
+      });
+      if (!claimed) {
+        return 0;
+      }
+
+      try {
+        input.throwIfLeaseLost?.();
+        if (input.signal?.aborted) {
+          throw new Error("Pricing recommendation job was cancelled.");
+        }
+        if (!claimed.eventContext) {
+          throw new Error("Pricing recommendation job is missing event context.");
+        }
+
+        await jobStore.updateProgress({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: pricingJobProgress(
+            "processing",
+            0,
+            claimed.payload.recommendationIds.length,
+            "Processing recommendation job.",
+          ),
+        });
+
+        const result =
+          claimed.payload.action === "refresh"
+            ? await (async () => {
+                const refreshed = await refreshRecommendations(
+                  { accountId: claimed.payload.accountId },
+                  claimed.eventContext!,
+                );
+                return { proposedCount: refreshed.proposedCount };
+              })()
+            : claimed.payload.action === "apply"
+              ? await applyRecommendations(
+                  {
+                    accountId: claimed.payload.accountId,
+                    recommendationIds: claimed.payload.recommendationIds,
+                    marketplaceListings: input.marketplaceListingGatewayForAccount(claimed.payload.accountId),
+                  },
+                  claimed.eventContext,
+                )
+              : await dismissRecommendations(
+                  {
+                    accountId: claimed.payload.accountId,
+                    recommendationIds: claimed.payload.recommendationIds,
+                  },
+                  claimed.eventContext,
+                );
+
+        await jobStore.complete({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: pricingJobProgress(
+            "completed",
+            claimed.payload.recommendationIds.length,
+            claimed.payload.recommendationIds.length,
+            "Recommendation job completed.",
+          ),
+          result,
+        });
+        return 1;
+      } catch (error) {
+        await jobStore.fail({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: {
+            ...claimed.progress,
+            phase: "failed",
+            message: error instanceof Error ? error.message : "Pricing recommendation job failed.",
+          },
+          errorMessage: error instanceof Error ? error.message : "Pricing recommendation job failed.",
+        });
+        return 1;
+      }
+    },
     listAccountRecommendations: (params) => listAccountRecommendations(deps.db, params),
     getAccountRecommendation: (recommendationId, accountId) =>
       getAccountRecommendation(deps.db, recommendationId, accountId),
@@ -496,4 +805,18 @@ export function createPricingRecommendationRuntime(
       }),
     ],
   };
+}
+
+function pricingJobProgress(
+  phase: PricingRecommendationJobProgress["phase"],
+  completed: number,
+  total: number,
+  message: string | null,
+): PricingRecommendationJobProgress {
+  return { phase, completed, total, message };
+}
+
+function createPricingRecommendationJobId(): string {
+  const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  return `job_${cryptoLike?.randomUUID?.() ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`}`;
 }

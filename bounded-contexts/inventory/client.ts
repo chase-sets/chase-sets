@@ -6,6 +6,7 @@ import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/in
 import type { InventoryImportBatch, InventoryImportBatchDetail } from "./features/import-batches/read-model/queries";
 import type { ImportCsvRow } from "./features/import-batches/domain/csv";
 import type { InventoryImportSourceProfile } from "./features/import-batches/domain/import-source-profiles";
+import type { InventoryImportBatchJob } from "./features/import-batches/api/runtime";
 
 export type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 export type {
@@ -15,6 +16,7 @@ export type {
 } from "./features/import-batches/read-model/queries";
 export type { ImportCsvRow } from "./features/import-batches/domain/csv";
 export type { InventoryImportSourceProfile } from "./features/import-batches/domain/import-source-profiles";
+export type { InventoryImportBatchJob } from "./features/import-batches/api/runtime";
 export type {
   InventoryItemDetail,
   InventoryEnsuredListingStock,
@@ -105,7 +107,7 @@ export function createInventoryApiClient({
         defaultStorageLocationId?: string | null;
         sourceFilename?: string | null;
       }>,
-    ): Promise<InventoryImportBatchDetail> {
+    ): Promise<InventoryImportBatchJob> {
       return parseJsonResponse(await client["import-batches"].$post({ json: body, header: headers }));
     },
     async getImportBatch(id: string): Promise<InventoryImportBatchDetail> {
@@ -116,7 +118,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async commitImportBatch(id: string): Promise<InventoryImportBatchDetail> {
+    async commitImportBatch(id: string): Promise<InventoryImportBatchJob> {
       return parseJsonResponse(
         await client["import-batches"][":id"].commit.$post({
           param: { id },

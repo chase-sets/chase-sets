@@ -9,6 +9,7 @@
     "./auth": "./auth.ts",
     "./control-plane": "./control-plane.ts",
     "./durable-job-events": "./durable-job-events.ts",
+    "./durable-job-store": "./durable-job-store.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",
     "./mcp": "./mcp.ts",

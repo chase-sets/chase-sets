@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { BulkEditCatalogItemOperation, BulkPublishSelection, CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import { CatalogDomainError, type LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { CatalogItemImageFallback } from "../domain/domain";
@@ -10,7 +11,7 @@ import {
   toOptionalString as optionalStringFromBulk,
 } from "../../../support/runtime-support/bulk-lifecycle";
 
-export function catalogItemRoutes(services: CatalogItemServices) {
+export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJobs: CatalogAuthoringBulkJobServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/", async (c) => {
@@ -42,9 +43,13 @@ export function catalogItemRoutes(services: CatalogItemServices) {
 
   app.post("/bulk-publish/confirm", async (c) => {
     const body = await c.req.json();
-    const context = c.get("context");
-    const result = await services.publishBulk(toStringArray(body.itemIds), context);
-    return c.json(result);
+    const result = await authoringBulkJobs.enqueue({
+      kind: "catalog.authoring.items.publish",
+      action: "publish",
+      itemIds: toStringArray(body.itemIds),
+      context: c.get("context"),
+    });
+    return c.json(result, 202);
   });
 
   app.post("/bulk-lifecycle/preview", async (c) => {
@@ -59,13 +64,15 @@ export function catalogItemRoutes(services: CatalogItemServices) {
 
   app.post("/bulk-lifecycle/confirm", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const result = await services.bulkLifecycle.execute(
-      normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
-      String(body.action ?? ""),
-      c.get("context"),
-    );
+    const action = String(body.action ?? "");
+    const result = await authoringBulkJobs.enqueue({
+      kind: "catalog.authoring.items.lifecycle",
+      action,
+      selection: normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
+      context: c.get("context"),
+    });
 
-    return c.json(result);
+    return c.json(result, 202);
   });
 
   app.post("/bulk-edit/preview", async (c) => {
@@ -80,13 +87,16 @@ export function catalogItemRoutes(services: CatalogItemServices) {
 
   app.post("/bulk-edit/confirm", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const result = await services.editBulk(
-      normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
-      toBulkEditOperation(body.operation),
-      c.get("context"),
-    );
+    const operation = toBulkEditOperation(body.operation);
+    const result = await authoringBulkJobs.enqueue({
+      kind: "catalog.authoring.items.edit",
+      action: operation.action,
+      selection: normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
+      operation,
+      context: c.get("context"),
+    });
 
-    return c.json(result);
+    return c.json(result, 202);
   });
 
   app.post("/:id/blueprint", async (c) => {

@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
@@ -18,6 +19,7 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
+import type { InventoryImportBatchJob } from "../api/runtime";
 import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
 import { inventoryImportSourceLabel, listInventoryImportSources } from "../domain/import-source-adapters";
 
@@ -65,15 +67,18 @@ export function InventoryImportBatchPage({
   batches,
   storageLocations,
   detail,
+  activeJobId,
   errorMessage,
 }: {
   batches: readonly InventoryImportBatch[];
   storageLocations: readonly InventoryStorageLocation[];
   detail: InventoryImportBatchDetail | null;
+  activeJobId?: string | null;
   errorMessage?: string | null;
 }) {
   const canCommit = Boolean(detail && detail.accepted_count > detail.committed_count);
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
+  const activeJob = useInventoryImportBatchJob(activeJobId);
 
   return (
     <Page>
@@ -101,6 +106,18 @@ export function InventoryImportBatchPage({
           tone="error"
           title={t("inventory.features.importBatches.ui.importBatchPage.import.failed")}
           description={errorMessage}
+        />
+      ) : null}
+
+      {activeJob ? (
+        <MarketplaceNotice
+          tone={activeJob.status === "failed" ? "error" : "info"}
+          title={t("inventory.features.importBatches.ui.importBatchPage.import.job.running")}
+          description={
+            activeJob.errorMessage ??
+            activeJob.progress.message ??
+            t("inventory.features.importBatches.ui.importBatchPage.import.job.waiting")
+          }
         />
       ) : null}
 
@@ -406,4 +423,36 @@ export function InventoryImportBatchPage({
       )}
     </Page>
   );
+}
+
+function useInventoryImportBatchJob(jobId?: string | null) {
+  const [job, setJob] = useState<InventoryImportBatchJob | null>(null);
+
+  useEffect(() => {
+    if (!jobId) {
+      setJob(null);
+      return undefined;
+    }
+
+    const source = new EventSource(`/api/inventory/import-batches/jobs/${encodeURIComponent(jobId)}/events`);
+    source.addEventListener("status", (event) => {
+      const nextJob = JSON.parse((event as MessageEvent).data) as InventoryImportBatchJob;
+      setJob(nextJob);
+      if (nextJob.status === "completed") {
+        source.close();
+        const batchId = nextJob.result?.batch.batch_id ?? nextJob.payload.batchId;
+        window.location.replace(
+          batchId ? `/account/inventory/imports/${encodeURIComponent(batchId)}` : "/account/inventory/imports",
+        );
+      }
+      if (nextJob.status === "failed") {
+        source.close();
+      }
+    });
+    return () => {
+      source.close();
+    };
+  }, [jobId]);
+
+  return job;
 }

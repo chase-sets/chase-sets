@@ -89,6 +89,18 @@ CREATE INDEX IF NOT EXISTS platform_projection_operations_target_idx
 CREATE INDEX IF NOT EXISTS platform_projection_operations_actor_requested_idx
   ON platform_projection_operations (requested_by_user_id, requested_at DESC);
 
+CREATE TABLE IF NOT EXISTS platform_projection_operation_events (
+  operation_id text NOT NULL REFERENCES platform_projection_operations(operation_id) ON DELETE CASCADE,
+  sequence integer NOT NULL CHECK (sequence >= 1),
+  event_name text NOT NULL,
+  snapshot jsonb NOT NULL,
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (operation_id, sequence)
+);
+
+CREATE INDEX IF NOT EXISTS platform_projection_operation_events_lookup_idx
+  ON platform_projection_operation_events (operation_id, sequence);
+
 CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases (
   lease_id text PRIMARY KEY,
   connection_key text NOT NULL,
@@ -152,6 +164,13 @@ export type ProjectionOperationRecord = Readonly<{
   startedAt: string | null;
   updatedAt: string;
   completedAt: string | null;
+}>;
+
+export type ProjectionOperationEvent = Readonly<{
+  sequence: number;
+  eventName: "status";
+  operation: ProjectionOperationRecord;
+  createdAt: string;
 }>;
 
 export type ProjectionOperationListFilter = Readonly<{
@@ -268,6 +287,10 @@ export type PlatformControlPlane = Readonly<{
     }>,
   ) => Promise<boolean>;
   getProjectionOperation: (operationId: string) => Promise<ProjectionOperationRecord | null>;
+  listProjectionOperationEvents: (
+    operationId: string,
+    afterSequence?: number,
+  ) => Promise<readonly ProjectionOperationEvent[]>;
   listProjectionOperations: (input?: ProjectionOperationListFilter) => Promise<readonly ProjectionOperationRecord[]>;
   summarizeProjectionOperations: (
     input?: Omit<ProjectionOperationListFilter, "limit">,
@@ -308,6 +331,13 @@ type ProjectionOperationRow = Readonly<{
   started_at: Date | string | null;
   updated_at: Date | string;
   completed_at: Date | string | null;
+}>;
+
+type ProjectionOperationEventRow = Readonly<{
+  sequence: number | string;
+  event_name: "status";
+  snapshot: unknown;
+  created_at: Date | string;
 }>;
 
 export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<void> {
@@ -528,7 +558,10 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
         ],
       );
 
-      return mapProjectionOperationRow(result.rows[0]);
+      const operation = mapProjectionOperationRow(result.rows[0]);
+      await appendProjectionOperationEvent(db, operation);
+
+      return operation;
     },
     claimProjectionOperation: async (input) => {
       const operationKinds = input.operationKinds?.length ? [...new Set(input.operationKinds)] : null;
@@ -561,10 +594,17 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
         [input.ownerId, input.claimTtlMs, operationKinds],
       );
 
-      return result.rows[0] ? mapProjectionOperationRow(result.rows[0]) : null;
+      if (!result.rows[0]) {
+        return null;
+      }
+
+      const operation = mapProjectionOperationRow(result.rows[0]);
+      await appendProjectionOperationEvent(db, operation);
+
+      return operation;
     },
     recordProjectionOperationProgress: async (input) => {
-      const result = await db.query(
+      const result = await db.query<ProjectionOperationRow>(
         `UPDATE platform_projection_operations
          SET progress = $4::jsonb,
              claimed_until = GREATEST(claimed_until, now()),
@@ -572,13 +612,19 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
          WHERE operation_id = $1
            AND claim_owner_id = $2
            AND claim_fencing_token = $3::bigint
-           AND state IN ('running', 'cancel_requested')`,
+           AND state IN ('running', 'cancel_requested')
+         RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
         [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.progress)],
       );
-      return (result.rowCount ?? 0) > 0;
+      if (!result.rows[0]) {
+        return false;
+      }
+
+      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
+      return true;
     },
     completeProjectionOperation: async (input) => {
-      const result = await db.query(
+      const result = await db.query<ProjectionOperationRow>(
         `UPDATE platform_projection_operations
          SET state = CASE WHEN state = 'cancel_requested' THEN 'cancelled' ELSE 'succeeded' END,
              result = $4::jsonb,
@@ -589,13 +635,19 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
          WHERE operation_id = $1
            AND claim_owner_id = $2
            AND claim_fencing_token = $3::bigint
-           AND state IN ('running', 'cancel_requested')`,
+           AND state IN ('running', 'cancel_requested')
+         RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
         [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.result ?? {})],
       );
-      return (result.rowCount ?? 0) > 0;
+      if (!result.rows[0]) {
+        return false;
+      }
+
+      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
+      return true;
     },
     failProjectionOperation: async (input) => {
-      const result = await db.query(
+      const result = await db.query<ProjectionOperationRow>(
         `UPDATE platform_projection_operations
          SET state = $4,
              error = $5::jsonb,
@@ -605,7 +657,8 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
          WHERE operation_id = $1
            AND claim_owner_id = $2
            AND claim_fencing_token = $3::bigint
-           AND state IN ('running', 'cancel_requested')`,
+           AND state IN ('running', 'cancel_requested')
+         RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
         [
           input.operationId,
           input.ownerId,
@@ -614,10 +667,15 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
           JSON.stringify(input.error),
         ],
       );
-      return (result.rowCount ?? 0) > 0;
+      if (!result.rows[0]) {
+        return false;
+      }
+
+      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
+      return true;
     },
     cancelProjectionOperation: async (input) => {
-      const result = await db.query(
+      const result = await db.query<ProjectionOperationRow>(
         `UPDATE platform_projection_operations
          SET state = CASE
                WHEN state = 'queued' THEN 'cancelled'
@@ -634,7 +692,8 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
              END,
              updated_at = now()
          WHERE operation_id = $1
-           AND state IN ('queued', 'running')`,
+           AND state IN ('queued', 'running')
+         RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
         [
           input.operationId,
           JSON.stringify({
@@ -643,7 +702,12 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
           }),
         ],
       );
-      return (result.rowCount ?? 0) > 0;
+      if (!result.rows[0]) {
+        return false;
+      }
+
+      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
+      return true;
     },
     getProjectionOperation: async (operationId) => {
       const result = await db.query<ProjectionOperationRow>(
@@ -655,6 +719,8 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
 
       return result.rows[0] ? mapProjectionOperationRow(result.rows[0]) : null;
     },
+    listProjectionOperationEvents: async (operationId, afterSequence = 0) =>
+      listProjectionOperationEvents(db, operationId, afterSequence),
     listProjectionOperations: async (input = {}) => {
       const { predicates, params } = buildProjectionOperationPredicates(input);
 
@@ -847,6 +913,58 @@ function mapProjectionOperationRow(row: ProjectionOperationRow | undefined): Pro
     updatedAt: formatTimestamp(row.updated_at),
     completedAt: formatNullableTimestamp(row.completed_at),
   };
+}
+
+async function appendProjectionOperationEvent(db: PgQueryable, operation: ProjectionOperationRecord): Promise<void> {
+  await db.query(
+    `INSERT INTO platform_projection_operation_events (
+       operation_id,
+       sequence,
+       event_name,
+       snapshot,
+       created_at
+     )
+     SELECT
+       $1,
+       coalesce(max(sequence), 0) + 1,
+       'status',
+       $2::jsonb,
+       now()
+     FROM platform_projection_operation_events
+     WHERE operation_id = $1`,
+    [operation.operationId, JSON.stringify(operation)],
+  );
+}
+
+async function listProjectionOperationEvents(
+  db: PgQueryable,
+  operationId: string,
+  afterSequence = 0,
+): Promise<readonly ProjectionOperationEvent[]> {
+  const result = await db.query<ProjectionOperationEventRow>(
+    `SELECT sequence, event_name, snapshot, created_at
+     FROM platform_projection_operation_events
+     WHERE operation_id = $1
+       AND sequence > $2
+     ORDER BY sequence ASC
+     LIMIT 100`,
+    [operationId, Math.max(0, Math.floor(afterSequence))],
+  );
+
+  return result.rows.map((row) => ({
+    sequence: Number(row.sequence),
+    eventName: row.event_name,
+    operation: readProjectionOperationSnapshot(row.snapshot),
+    createdAt: formatTimestamp(row.created_at),
+  }));
+}
+
+function readProjectionOperationSnapshot(value: unknown): ProjectionOperationRecord {
+  if (typeof value === "string") {
+    return JSON.parse(value) as ProjectionOperationRecord;
+  }
+
+  return value as ProjectionOperationRecord;
 }
 
 function formatTimestamp(value: Date | string): string {

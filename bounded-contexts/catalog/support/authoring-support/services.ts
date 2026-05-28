@@ -13,6 +13,7 @@ import { createProductMeasureRuntime } from "../../features/product-measures/api
 import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
+import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
 
 export type CatalogHostPorts = Readonly<{
   catalogAssetStorage?: CatalogAssetStorage;
@@ -29,6 +30,7 @@ export type CatalogServices = Readonly<{
   items: ReturnType<typeof createCatalogItemRuntime>;
   productMeasures: ReturnType<typeof createProductMeasureRuntime>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
+  authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -55,6 +57,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
   const items = createCatalogItemRuntime(deps);
   const productMeasures = createProductMeasureRuntime(deps);
   const sourceObservations = createSourceObservationRuntime(deps, items, referenceData);
+  const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
 
   return {
     dimensions,
@@ -67,6 +70,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     items,
     productMeasures,
     sourceObservations,
+    authoringBulkJobs,
     projectors: [
       ...dimensions.projectors,
       ...displayTemplates.projectors,

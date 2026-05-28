@@ -142,6 +142,9 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.ebay": "eBay",
   "inventory.features.importBatches.ui.importBatchPage.ebay.csv": "eBay CSV",
   "inventory.features.importBatches.ui.importBatchPage.import.failed": "Import failed",
+  "inventory.features.importBatches.ui.importBatchPage.import.job.running": "Import job running",
+  "inventory.features.importBatches.ui.importBatchPage.import.job.waiting":
+    "Waiting for the worker to report progress.",
   "inventory.features.importBatches.ui.importBatchPage.import.source": "Import source",
   "inventory.features.importBatches.ui.importBatchPage.inventory": "Inventory",
   "inventory.features.importBatches.ui.importBatchPage.inventory.import": "Inventory import",

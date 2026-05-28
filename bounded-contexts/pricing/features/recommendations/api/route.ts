@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { PricingApiEnv } from "../../../api";
 import type { PricingRecommendationServices } from "./runtime";
-import { createPricingMarketplaceListingGateway } from "../../../support/request-support/marketplace-listings";
 
 function requireRecommendationAccess(
   c: { get(key: "actor"): PricingApiEnv["Variables"]["actor"] },
@@ -165,8 +165,11 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
     }
 
     try {
-      const result = await services.refreshRecommendations({ accountId: access.actor.accountId }, context);
-      return c.json({ status: "refreshed", ...result });
+      const job = await services.enqueueRecommendationJob(
+        { action: "refresh", accountId: access.actor.accountId },
+        context,
+      );
+      return c.json(job, 202);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -194,15 +197,15 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
     const body = await c.req.json().catch(() => ({}));
 
     try {
-      const result = await services.applyRecommendations(
+      const job = await services.enqueueRecommendationJob(
         {
+          action: "apply",
           accountId: access.actor.accountId,
           recommendationIds: parseRecommendationIds((body as { recommendationIds?: unknown }).recommendationIds),
-          marketplaceListings: createPricingMarketplaceListingGateway(c.req.raw),
         },
         context,
       );
-      return c.json({ status: "applied", ...result });
+      return c.json(job, 202);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -230,17 +233,63 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
     const body = await c.req.json().catch(() => ({}));
 
     try {
-      const result = await services.dismissRecommendations(
+      const job = await services.enqueueRecommendationJob(
         {
+          action: "dismiss",
           accountId: access.actor.accountId,
           recommendationIds: parseRecommendationIds((body as { recommendationIds?: unknown }).recommendationIds),
         },
         context,
       );
-      return c.json({ status: "dismissed", ...result });
+      return c.json(job, 202);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
+  });
+
+  app.get("/recommendation-jobs/:jobId", async (c) => {
+    const access = requireRecommendationAccess(c, "pricing.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const job = await services.getRecommendationJob(c.req.param("jobId"));
+    if (!job || job.payload.accountId !== access.actor.accountId) {
+      return c.json(
+        { error: { code: "not_found", message: t("pricing.features.recommendations.api.route.job.not.found") } },
+        404,
+      );
+    }
+
+    return c.json(job);
+  });
+
+  app.get("/recommendation-jobs/:jobId/events", async (c) => {
+    const access = requireRecommendationAccess(c, "pricing.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const jobId = c.req.param("jobId");
+    const job = await services.getRecommendationJob(jobId);
+    if (!job || job.payload.accountId !== access.actor.accountId) {
+      return c.json(
+        { error: { code: "not_found", message: t("pricing.features.recommendations.api.route.job.not.found") } },
+        404,
+      );
+    }
+
+    return createDurableJobEventStream({
+      request: c.req.raw,
+      signal: c.req.raw.signal,
+      loadEvents: async (afterSequence) =>
+        (await services.listRecommendationJobEvents(jobId, afterSequence)).map((event) => ({
+          sequence: event.sequence,
+          eventName: event.eventName,
+          data: event.job,
+        })),
+      isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+    });
   });
 
   return app;

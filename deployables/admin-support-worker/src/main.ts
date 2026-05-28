@@ -289,12 +289,16 @@ function createCatalogBulkJobRunners(
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
         };
+        authoringBulkJobs?: {
+          processNext?: (input: { claimOwnerId: string; claimTtlMs: number; services: never }) => Promise<boolean>;
+        };
       }
     | undefined;
   const processNextBulkReviewJob = catalog?.sourceObservations?.processNextBulkReviewJob;
   const processNextIntegrationJob = catalog?.sourceObservations?.processNextIntegrationJob;
+  const processNextAuthoringBulkJob = catalog?.authoringBulkJobs?.processNext;
 
-  if (!processNextBulkReviewJob && !processNextIntegrationJob) {
+  if (!processNextBulkReviewJob && !processNextIntegrationJob && !processNextAuthoringBulkJob) {
     return [];
   }
 
@@ -327,6 +331,23 @@ function createCatalogBulkJobRunners(
           signal: context?.signal,
           throwIfLeaseLost: context?.throwIfLeaseLost,
         }),
+        lastGlobalPosition: "0" as never,
+      }),
+    });
+  }
+
+  if (processNextAuthoringBulkJob && catalog) {
+    runners.push({
+      name: "catalog.authoring-bulk-jobs",
+      kind: "job",
+      runOnce: async () => ({
+        processed: (await processNextAuthoringBulkJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+          services: catalog as never,
+        }))
+          ? 1
+          : 0,
         lastGlobalPosition: "0" as never,
       }),
     });
